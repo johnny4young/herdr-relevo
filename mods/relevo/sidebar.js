@@ -4,7 +4,14 @@ import { theme, run, focused, panes, setShared } from "herdr";
 import { BackgroundWatch, quotaAlerts } from "./alerts.js";
 import { ACCOUNTS, CODEX, API_QUOTAS, launchArgv, chip, loadClaudeQuotas } from "./accounts.js";
 import { FOCUS, focus, publishSetup } from "./context.js";
-import { ago, resetText, resetClock } from "./lib/time.js";
+import { ago, resetText, resetClock, runsOut, clock, FIVE_HOURS, WEEK } from "./lib/time.js";
+
+const LENGTH = { "5h": FIVE_HOURS, "7d": WEEK };
+// The reset, and when the window runs out first at the pace used so far.
+const meterTip = (w, label) => {
+  const out = runsOut(w, LENGTH[label]);
+  return out ? `${resetText(w)} · at this pace 100% at ${clock(out)}` : resetText(w);
+};
 import { collectQuotas } from "./quota.js";
 import { syncFolders, foldFor } from "./folders.js";
 import { CONTEXTS } from "./config.js";
@@ -67,7 +74,7 @@ export class Sidebar {
   meter(t, id, label, w, barWidth, stale, hovered) {
     const level = !w || stale ? t.dim : w.pct >= 80 ? t.blocked : w.pct >= 50 ? t.ansi3 : t.accent;
     const ahead = !stale && w?.pace != null && w.pct > w.pace * 100 + 5;
-    return v_flex().id(id).w(barWidth).flex_none().gap(3).tooltip(resetText(w))
+    return v_flex().id(id).w(barWidth).flex_none().gap(3).tooltip(meterTip(w, label))
       .child(h_flex().justify_between().text_size(10.5).text_color(ahead ? t.ansi3 : t.muted)
         .child(hovered && resetClock(w) ? `↻ ${resetClock(w)}` : ahead ? `${label} ▲` : label)
         .when(!(hovered && resetClock(w)), (el) => el.child(w ? `${w.pct}%` : "—")))

@@ -2,6 +2,7 @@ import { terminals, playSound, notify, shared, setShared } from "herdr";
 import { ACCOUNTS, accountOf } from "./accounts.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { CONTEXTS } from "./config.js";
+import { runsOut, clock, FIVE_HOURS, WEEK } from "./lib/time.js";
 
 const ALERTED = "relevo.alerted";
 const KNOWN = "relevo.reviews.known";
@@ -29,14 +30,15 @@ export class BackgroundWatch {
   }
 }
 
-// One soft alert per account window at 80% and another at 100%, again only after it resets.
-// At 100% a Claude account's alert offers to continue its agent with another account.
+// One soft alert per account window at 80% and another at 95%, again only after it resets.
+// At 95% a Claude account's alert offers to continue its agent with another account, before it stops.
+const HANDOFF_AT = 95;
 export function quotaAlerts(quotas) {
   const first = shared(ALERTED) == null, seen = { ...(shared(ALERTED) ?? {}) };
   let changed = first;
   for (const [key, q] of Object.entries(quotas)) {
     for (const [name, w] of [["5h", q?.h5], ["7d", q?.d7]]) {
-      const full = w?.pct >= 100, id = `${key}.${name}${full ? ".full" : ""}`;
+      const full = w?.pct >= HANDOFF_AT, id = `${key}.${name}${full ? ".full" : ""}`;
       // Some sources compute the reset from "now + remaining", so it drifts by seconds.
       const resets = Math.round((w?.resets ?? 0) / 3600);
       if (!w || w.pct < 80 || seen[id] === resets) continue;
@@ -46,10 +48,14 @@ export function quotaAlerts(quotas) {
       if (first || (context && !inFocus(context.key))) continue;
       playSound("sounds/quota.mp3");
       const handoff = full && ACCOUNTS.some((p) => p.key === key);
+      const out = runsOut(w, name === "5h" ? FIVE_HOURS : WEEK);
+      const when = w.pct >= 100 ? "" : out ? ` · 100% at ${clock(out)}` : "";
       notify({
-        title: `${accountOf(key).label} at ${w.pct}% (${name})`,
+        title: `${accountOf(key).label} at ${w.pct}% (${name})${when}`,
         level: "warning",
-        ...(handoff ? { body: "Click to continue its agent with another account", action: { name: `relevo.handoff-from-${key}` } } : {}),
+        ...(handoff
+          ? { body: "Click to continue its agent with another account", action: { name: `relevo.handoff-from-${key}` } }
+          : {}),
       });
     }
   }

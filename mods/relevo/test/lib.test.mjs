@@ -1,7 +1,7 @@
 // From this folder: node --test 'test/*.test.mjs'. Covers the pure helpers in lib/.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ago, duration, windowOf, FIVE_HOURS } from "../lib/time.js";
+import { ago, duration, windowOf, FIVE_HOURS, runsOut } from "../lib/time.js";
 import { diffRows, lineKey } from "../lib/diff.js";
 import { ownerOf, contextFor } from "../lib/context.js";
 import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
@@ -294,4 +294,16 @@ test("readPrompt: the answers summary before Submit answers", () => {
     { question: "¿Qué plataformas de Git usas? (puedes elegir varias)", answer: "GitHub, local" },
   ]);
   assert.deepEqual(readPrompt("Pick\n❯ 1. A\n  2. B").summary, []);
+});
+
+test("runsOut: when a window hits 100% at the pace so far", () => {
+  const now = 1_000_000, hour = 3600;
+  // 2h into a 5h window at 60%: 30%/h, so the remaining 40% takes 80 minutes.
+  const hot = { pct: 60, resets: now + 3 * hour, pace: 0.4 };
+  assert.equal(runsOut(hot, FIVE_HOURS, now), now + 80 * 60);
+  // 2h in at 20%: 10%/h, 8h more needed, past the reset.
+  assert.equal(runsOut({ pct: 20, resets: now + 3 * hour, pace: 0.4 }, FIVE_HOURS, now), null);
+  assert.equal(runsOut({ pct: 5, resets: now + hour, pace: 0.01 }, FIVE_HOURS, now), null);
+  assert.equal(runsOut({ pct: 100, resets: now + hour, pace: 0.5 }, FIVE_HOURS, now), null);
+  assert.equal(runsOut(null, FIVE_HOURS, now), null);
 });

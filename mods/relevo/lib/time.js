@@ -25,11 +25,22 @@ export function windowOf(pct, resets, length) {
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const pad = (n) => String(n).padStart(2, "0");
 
-export function resetClock(w) {
-  if (!w?.resets) return null;
-  const d = new Date(w.resets * 1000);
+export function clock(seconds) {
+  const d = new Date(seconds * 1000);
   const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   return d.toDateString() === new Date().toDateString() ? time : `${DAYS[d.getDay()]} ${time}`;
+}
+
+export const resetClock = (w) => (w?.resets ? clock(w.resets) : null);
+
+// When a window reaches 100% at the pace used so far, or null when it lasts until it resets.
+// Too early in a window (under 10 minutes) the pace says nothing yet.
+export function runsOut(w, length, now = Date.now() / 1000) {
+  if (!w?.resets || w.pace == null || !w.pct || w.pct >= 100) return null;
+  const elapsed = w.pace * length;
+  if (elapsed < 600) return null;
+  const at = now + (100 - w.pct) * (elapsed / w.pct);
+  return at < w.resets ? at : null;
 }
 
 export function resetText(w) {

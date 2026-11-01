@@ -21,6 +21,9 @@ alerts when a PR's CI or reviews change, and a ledger of agent time per ticket.
 
 It needs `git` and the GitHub CLI (`gh auth login`) on your PATH, and `claude` and optionally `codex`.
 
+Waiting agents' questions are answered from the Inbox for Claude Code and Codex. Codex only asks them in Plan mode;
+outside it, it decides on its own.
+
 ## What it reads and runs
 
 - Runs `git`, `gh`, `hc` and the launchers in `config.js`.
