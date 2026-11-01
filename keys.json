@@ -1,0 +1,21 @@
+{
+  "global": {
+    "cmd-alt-1": "relevo.panel-files",
+    "cmd-alt-2": "relevo.panel-changes",
+    "cmd-alt-3": "relevo.panel-inbox",
+    "cmd-alt-4": "relevo.panel-issues",
+    "cmd-alt-a": "relevo.handoff",
+    "cmd-alt-b": "layout.toggle:panel",
+    "cmd-alt-d": "relevo.review",
+    "cmd-alt-f": "relevo.focus-next",
+    "cmd-alt-g": "relevo.open-pr",
+    "cmd-alt-o": "relevo.launch-work",
+    "cmd-alt-p": "relevo.launch-personal",
+    "cmd-alt-r": "relevo.respond-pr",
+    "cmd-alt-shift-w": "relevo.worktree-open",
+    "cmd-alt-w": "relevo.worktree-new",
+    "cmd-alt-x": "relevo.launch-codex",
+    "cmd-j": "relevo.next-waiting",
+    "cmd-o": "relevo.find-file"
+  }
+}

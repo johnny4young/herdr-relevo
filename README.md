@@ -1,0 +1,38 @@
+# Relevo
+
+A Herdr layout for running coding agents across several Claude accounts: quotas per account, an Inbox of
+pull requests, uncommitted agent work and merged worktrees, a line-by-line review pane that sends comments
+to the agent, handoffs between accounts, and a ledger of agent time per ticket.
+
+![Relevo](preview.png)
+
+## Install
+
+1. Install the two community mods it uses: [space-folders](https://github.com/jankeesvw/herdr-space-folders)
+   and [issues](https://github.com/jankeesvw/herdr-issues) (from herdr.dev, or copy their folders into
+   `~/.config/herdr-app/mods/`).
+2. Copy `layouts/relevo.json` to `~/.config/herdr-app/layouts/` and `mods/relevo` and `mods/relevo-agents`
+   to `~/.config/herdr-app/mods/`. Merge `keys.json` into yours.
+3. Edit `mods/relevo/config.js`: your accounts, the GitHub orgs that use each one, and where your clones live.
+   Then `herdr-app check ~/.config/herdr-app/mods/relevo` and switch to the layout (`ctrl-shift-l`).
+
+It needs `git` and the GitHub CLI (`gh auth login`) on your PATH, and `claude` and optionally `codex`.
+
+## What it reads and runs
+
+- Runs `git`, `gh`, `hc` and the launchers in `config.js`.
+- Reaches the network for quotas: each Claude account's login from the macOS Keychain goes to Anthropic's usage
+  endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token.
+- Writes `~/.local/state/relevo/ledger.jsonl` (agent time) and `~/.local/state/relevo/handoff/` (handoff notes),
+  and the folders it adds to space-folders' file.
+- Optional: sounds at `~/.config/herdr-app/sounds/{quota,review,bg-done}.mp3`; quota snapshots a Claude
+  statusline writes to `~/.cache/herdr-relevo/quota-<account>.json`; `agent.account` and `agent.jira`
+  terminal labels from a Claude hook, for account chips and per-ticket time.
+
+## Tests
+
+`node --test 'test/*.test.mjs'` from `mods/relevo` (Node 22 or newer).
+
+## License
+
+Apache 2.0. See NOTICE for the parts derived from Herdr.

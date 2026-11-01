@@ -1,0 +1,9 @@
+herdr-relevo
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+mods/relevo-agents is derived from the `agents` mod that ships with Herdr
+(Apache License 2.0). Changes: account and ticket chips on each agent, read
+from the agent's terminal labels and the Relevo mod's shared setup.
+
+mods/relevo/spinner.svg comes from Herdr's `workspace-chrome` mod
+(Apache License 2.0), unchanged.
