@@ -48,7 +48,11 @@ export function readPrompt(screen) {
     return option;
   });
   const multi = options.some((o) => "checked" in o);
-  return { question: questionAbove(lines, found[0].i), options, multi, submit, cursor, summary: summaryAbove(lines, found[0].i) };
+  const preview = previewBeside(screen);
+  return {
+    question: questionAbove(lines, found[0].i), options, multi, submit, cursor, preview,
+    summary: summaryAbove(lines, found[0].i),
+  };
 }
 
 // The keys that move the cursor onto Submit and press it.
@@ -72,6 +76,21 @@ function questionAbove(lines, first) {
     if (!l || /^[❯›>]\s/.test(l) || /^←.*→$/.test(l) || /^[☐☒]\s/.test(l)) break;
     out.unshift(l);
   }
+  return out.join("\n");
+}
+
+// The preview box drawn beside the choices shows the choice under the cursor; its inner text, or "".
+function previewBeside(screen) {
+  const raw = (screen ?? "").split("\n").slice(-40);
+  const top = raw.findIndex((l) => /\d\.\s.*\s{3,}┌─+┐\s*$/.test(l));
+  if (top < 0) return "";
+  const out = [];
+  for (const l of raw.slice(top + 1)) {
+    if (/└─+┘\s*$/.test(l)) break;
+    const m = /│(.*)│\s*$/.exec(l);
+    if (m) out.push(m[1].trim());
+  }
+  while (out.length && !out.at(-1)) out.pop();
   return out.join("\n");
 }
 
@@ -107,4 +126,17 @@ export function moveKeys(prompt, n) {
   const from = order.indexOf(prompt.cursor ?? 1), to = order.indexOf(n);
   if (from < 0 || to < 0) return [];
   return Array(Math.abs(to - from)).fill(to > from ? "down" : "up");
+}
+
+// The agent's last words on screen: its last "⏺"/"•" line that isn't a tool call ("⏺ Bash(…)") or hook noise.
+export function lastMessage(screen) {
+  const lines = (screen ?? "").split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = /^\s*[⏺•]\s+(.+?)\s*$/.exec(lines[i]);
+    if (!m) continue;
+    const text = m[1];
+    if (/^[A-Z][A-Za-z]*\(/.test(text) || /hook was skipped|^User (answered|declined)/.test(text)) continue;
+    return text;
+  }
+  return "";
 }

@@ -3,7 +3,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { run } from "herdr";
 import { scanWorktrees, removeWorktree } from "./worktrees.js";
-import { button, sectionHeader, spinner } from "./ui.js";
+import { button, spinner } from "./ui.js";
 import { ago } from "./lib/time.js";
 
 export class TreeViews {
@@ -37,23 +37,45 @@ export class TreeViews {
       return;
     }
     this.confirm = null;
+    cx.spawn(async (cx) => {
+      await this.removeOne(w, cx);
+    });
+  }
+
+  async removeOne(w, cx) {
     this.removing.add(w.path);
     delete this.wtError[w.path];
     cx.notify();
     if (w.space) run("space.close", { id: w.space, confirmed: true });
-    cx.spawn(async (cx) => {
-      const err = await removeWorktree(w);
-      if (!err) {
-        // The row folds away natively before it leaves the list.
-        this.gone.add(w.path);
-        cx.notify();
-        await cx.sleep(240);
-        this.gone.delete(w.path);
-        this.worktrees = this.worktrees.filter((x) => x.path !== w.path);
-      }
-      this.removing.delete(w.path);
-      if (err) this.wtError[w.path] = err;
+    const err = await removeWorktree(w);
+    if (!err) {
+      // The row folds away natively before it leaves the list.
+      this.gone.add(w.path);
       cx.notify();
+      await cx.sleep(240);
+      this.gone.delete(w.path);
+      this.worktrees = this.worktrees.filter((x) => x.path !== w.path);
+    }
+    this.removing.delete(w.path);
+    if (err) this.wtError[w.path] = err;
+    cx.notify();
+  }
+
+  // Merged, clean, unlocked and not open anywhere: safe to remove together. One with a space stays for its own
+  // Remove, because closing several spaces at once is easy to regret.
+  removable(merged) {
+    return merged.filter((w) => !w.dirty && !w.locked && !w.space && !w.open && !this.removing.has(w.path));
+  }
+
+  removeAll(list, cx) {
+    if (this.confirm !== "all") {
+      this.confirm = "all";
+      cx.notify();
+      return;
+    }
+    this.confirm = null;
+    cx.spawn(async (cx) => {
+      for (const w of list) await this.removeOne(w, cx);
     });
   }
 
@@ -78,7 +100,8 @@ export class TreeViews {
       .child(action(`wt-open-${w.path}`, w.space ? "Go" : "Open", w.space ? "Go to its space" : "Open a space here",
         () => this.openTree(w)))
       .when(!w.dirty && !w.locked, (el) => el.child(action(`wt-rm-${w.path}`, sure ? "Confirm" : "Remove",
-        "Removes the worktree and its local branch; git refuses if anything would be lost", (cx) => this.removeTree(w, cx), sure)));
+        "Removes the worktree and its local branch; git refuses if anything would be lost",
+        (cx) => this.removeTree(w, cx), sure)));
   }
 
   // git can take a few seconds on a big checkout; the spinner runs natively, without redraws.
@@ -105,8 +128,17 @@ export class TreeViews {
   treeGroups(t, worktrees) {
     const merged = worktrees.filter((w) => w.merged);
     const loose = worktrees.filter((w) => !w.merged && !w.open);
+    const clean = this.removable(merged), sure = this.confirm === "all";
+    const header = h_flex().pt(6).px(2).gap(6).items_center().text_size(10.5).text_color(t.dim)
+      .child(div().flex_1().child("MERGED WORKTREES"))
+      .child(String(merged.length))
+      .when(clean.length > 1, (el) => el.child(button(t, "wt-rm-all", sure ? `Confirm ${clean.length}` : `Remove ${clean.length}`,
+        (cx) => this.removeAll(clean, cx), {
+          size: "sm", kind: sure ? "danger" : "outline",
+          tip: "Removes every merged worktree that is clean, unlocked and has no space, with its local branch",
+        })));
     const rows = merged.length
-      ? [sectionHeader(t, "MERGED WORKTREES", merged.length), v_flex().children(merged.map((w) => this.treeRow(t, w)).filter(Boolean))]
+      ? [header, v_flex().children(merged.map((w) => this.treeRow(t, w)).filter(Boolean))]
       : [];
     if (loose.length) {
       const open = this.expanded.loose;
@@ -117,7 +149,8 @@ export class TreeViews {
           cx.notify();
         })
         .child(`${open ? "▾" : "▸"} ${loose.length} worktrees without a space`));
-      if (open) rows.push(...loose.filter((w) => !this.hiddenIds?.has(`loose-${w.path}`)).map((w) => h_flex().id(`loose-${w.path}`).h(26).px(8).gap(8).items_center().rounded(6)
+      const shown = loose.filter((w) => !this.hiddenIds?.has(`loose-${w.path}`));
+      if (open) rows.push(...shown.map((w) => h_flex().id(`loose-${w.path}`).h(26).px(8).gap(8).items_center().rounded(6)
         .when(this.selected(`loose-${w.path}`), (el) => el.bg(t.selected))
         .cursor_pointer().hover((s) => s.bg(t.hover)).tooltip(w.path)
         .on_click(() => this.openTree(w))

@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { theme, exec, run, notify, agents, panes, spaces, shared, setShared } from "herdr";
+import { theme, exec, run, notify, settings, agents, panes, spaces, shared, setShared } from "herdr";
 import { loadClaudeQuotas } from "./accounts.js";
 import { accountFor, contextOfPath, inFocus } from "./context.js";
 import { ago } from "./lib/time.js";
@@ -8,7 +8,7 @@ import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { seconds, recent } from "./lib/github.js";
-import { readPrompt, submitKeys, freeOption, moveKeys } from "./lib/prompt.js";
+import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "./lib/prompt.js";
 import { COUNT, showPanel } from "./toolbar.js";
 import { launched } from "./skills.js";
 import { openWeek } from "./week.js";
@@ -41,6 +41,8 @@ export class Inbox {
     this.stats = new Map();
     // What each waiting agent asks, read once per wait: address -> { since, prompt }.
     this.prompts = new Map();
+    // A note to send right after the answer: address -> text.
+    this.notes = new Map();
     this.reply = InputState.new({ value: "", placeholder: "Reply · Enter sends, Esc cancels" });
     this.reply.on("submit", (_e, cx) => this.sendReply(cx));
     this.today = [];
@@ -167,13 +169,15 @@ export class Inbox {
             const stat = (await exec("git", ["--no-optional-locks", "diff", "HEAD", "--shortstat"], { cwd: top })).stdout;
             const untracked = (await exec("git", ["--no-optional-locks", "ls-files", "--others", "--exclude-standard"], { cwd: top }))
               .stdout.split("\n").filter(Boolean).length;
-            this.stats.set(top, cached = { status: a.status, at: Date.now(), stat, untracked });
+            // What the agent said last, so the card tells whether to review or to answer it.
+            const said = lastMessage((await exec("hc", ["read", a.address, "--lines", "20"])).stdout);
+            this.stats.set(top, cached = { status: a.status, at: Date.now(), stat, untracked, said });
           }
-          const { stat, untracked } = cached;
+          const { stat, untracked, said } = cached;
           const files = Number(/(\d+) files? changed/.exec(stat)?.[1] ?? 0) + untracked;
           if (!files) continue;
           items.push({
-            kind: "diff", agent: a, top, repo, branch: pane.branch, files,
+            kind: "diff", agent: a, top, repo, branch: pane.branch, files, said,
             add: Number(/(\d+) insertion/.exec(stat)?.[1] ?? 0), del: Number(/(\d+) deletion/.exec(stat)?.[1] ?? 0),
           });
         }
@@ -183,7 +187,7 @@ export class Inbox {
         const local = items.sort((x, y) => (x.kind === "blocked" ? 0 : 1) - (y.kind === "blocked" ? 0 : 1) || y.at - x.at);
         // Redraw only when a card or today's time changed, not on every scan.
         const sign = JSON.stringify([
-          local.map((i) => [i.agent.address, i.kind, i.files, i.add, i.del, Math.floor(i.at / 60)]),
+          local.map((i) => [i.agent.address, i.kind, i.files, i.add, i.del, i.said, Math.floor(i.at / 60)]),
           this.today,
         ]);
         this.local = local;
@@ -250,6 +254,11 @@ export class Inbox {
       ...(p.options.length
         ? []
         : [button(t, `reply-${a.address}`, "Reply", (cx) => this.startReply(a, null, cx), { kind: "solid" })]),
+      ...(p.options.length
+        ? [button(t, `note-${a.address}`, "Note", (cx) => this.startReply(a, null, cx, "note"), {
+          tip: "Sent to the agent right after your answer",
+        })]
+        : []),
       button(t, `go-${a.address}`, p.options.length ? "Agent" : "Go to agent", goAgent),
     ];
     return this.card(t, `in-${a.address}`, true,
@@ -262,6 +271,15 @@ export class Inbox {
             .child(div().truncate().text_size(11).text_color(t.muted).child(s.question))
             .child(div().truncate().text_size(11.5).text_color(t.foreground).child(`→ ${s.answer || "(no answer)"}`))))))
         .when(p.options.length > 0, (el) => el.child(v_flex().gap(1).children(p.options.map(row))))
+        .when(Boolean(p.preview), (el) => el.child(div().px(8).py(5).rounded(6).border_1().border_color(t.border)
+          .font_family(settings().font_family ?? "JetBrains Mono").text_size(10.5).text_color(t.muted)
+          .children(p.preview.split("\n").slice(0, 8).map((l) => div().truncate().child(l || " ")))))
+        .when(this.notes.has(a.address), (el) => el.child(h_flex().gap(6).items_center().text_size(11).text_color(t.muted)
+          .child(div().flex_1().min_w(0).truncate().child(`Note: ${this.notes.get(a.address)}`))
+          .child(button(t, `note-clear-${a.address}`, "×", (cx) => {
+            this.notes.delete(a.address);
+            cx.notify();
+          }, { size: "sm", tip: "Drop the note" }))))
         .when(replying, (el) => el.child(div().mt(2).h(28).px(8).flex().items_center().rounded(6).border_1()
           .border_color(t.accent).bg(t.background).child(Input.new(this.reply).h_full()))),
       replying ? [] : [h_flex().gap(5).children(actions)]);
@@ -303,11 +321,22 @@ export class Inbox {
       await cx.sleep(250);
       await this.rereadPrompt(a.address);
       cx.notify();
+      await this.sendNote(a);
       if (!this.prompts.get(a.address)?.prompt.multi) {
         notify({ title: `Answered ${a.tab_name || a.address}`, body: label, level: "success", timeout: 2000 });
       }
       this.scanLocal(cx);
     });
+  }
+
+  // Claude's own notes field sends the answer without a choice when its Enter is pressed (measured), so a note
+  // goes as a message once the question is gone; Claude queues it if the agent is already working.
+  async sendNote(a) {
+    const note = this.notes.get(a.address);
+    if (!note || this.prompts.get(a.address)?.prompt.options.length) return;
+    this.notes.delete(a.address);
+    const r = await exec("hc", ["send", a.address, `Note on my last answer: ${note}`]);
+    if (r.code !== 0) notify({ title: "Could not send the note", body: r.stderr.trim().split("\n")[0], level: "warning" });
   }
 
   async rereadPrompt(address) {
@@ -318,9 +347,10 @@ export class Inbox {
     for (const i of this.local) if (i.agent.address === address) i.prompt = this.prompts.get(address).prompt;
   }
 
-  startReply(a, key, cx) {
+  startReply(a, key, cx, mode = "reply") {
     this.replying = a.address;
     this.replyKey = key;
+    this.replyMode = mode;
     this.reply.set_value("");
     this.reply.focus();
     cx.notify();
@@ -331,9 +361,14 @@ export class Inbox {
   // cursor moves there by arrows; the paste's Enter unchecks the box, so ↑ leaves the field and the number
   // checks it again. hc keys can't type accents, so the words always go as a paste.
   sendReply(cx) {
-    const text = this.reply.value().trim(), address = this.replying, key = this.replyKey;
+    const text = this.reply.value().trim(), address = this.replying, key = this.replyKey, mode = this.replyMode;
     this.replying = null;
     this.replyKey = null;
+    this.replyMode = null;
+    if (mode === "note" && address) {
+      if (text) this.notes.set(address, text);
+      return cx.notify();
+    }
     cx.notify();
     if (!text || !address) return;
     cx.spawn(async (cx) => {
@@ -363,11 +398,14 @@ export class Inbox {
     if (item.kind === "blocked") return this.waitingCard(t, item, goAgent);
     return this.card(t, `in-${a.address}`, false,
       this.head(t, a.status === "done" ? t.done : t.idle, `${item.repo}${item.branch ? ` · ${item.branch}` : ""}`, ago(item.at)),
-      h_flex().gap(8).items_center().text_size(11.5).text_color(t.muted)
-        .child(`${item.files} ${item.files === 1 ? "file" : "files"}`)
-        .child(div().text_color(t.ansi2).child(`+${item.add}`))
-        .child(div().text_color(t.ansi1).child(`−${item.del}`))
-        .child(div().text_color(t.dim).child(a.status === "done" ? "agent finished" : "uncommitted")),
+      v_flex().gap(3)
+        .child(h_flex().gap(8).items_center().text_size(11.5).text_color(t.muted)
+          .child(`${item.files} ${item.files === 1 ? "file" : "files"}`)
+          .child(div().text_color(t.ansi2).child(`+${item.add}`))
+          .child(div().text_color(t.ansi1).child(`−${item.del}`))
+          .child(div().text_color(t.dim).child(a.status === "done" ? "agent finished" : "uncommitted")))
+        .when(Boolean(item.said), (el) => el.child(div().id(`said-${a.address}`).truncate().text_size(11)
+          .text_color(t.dim).italic().tooltip(item.said).child(`“${item.said}”`))),
       [
         button(t, `review-${a.address}`, "Review", () => openReview(item.top, a.address), {
           kind: "solid", tip: withKey("Comment on the diff line by line", "relevo.review"),

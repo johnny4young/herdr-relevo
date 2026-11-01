@@ -7,7 +7,7 @@ import { ownerOf, contextFor } from "../lib/context.js";
 import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
 import { keyMap, formatShortcut } from "../lib/keys.js";
 import { mapMine, mapRequested, unresolved, prChanges } from "../lib/github.js";
-import { readPrompt, submitKeys, freeOption, moveKeys } from "../lib/prompt.js";
+import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "../lib/prompt.js";
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -269,6 +269,8 @@ test("readPrompt: a single choice with a preview beside the choices", () => {
   assert.equal(p.multi, false);
   assert.equal(p.cursor, 1);
   assert.deepEqual(moveKeys(p, 2), ["down"]);
+  assert.equal(p.preview, "feat(auth): add token refresh on 401\n\nRetry the original request once after\nrefreshing the access token.");
+  assert.equal(readPrompt("Pick\n❯ 1. A\n  2. B").preview, "");
 });
 
 test("readPrompt: the answers summary before Submit answers", () => {
@@ -306,4 +308,19 @@ test("runsOut: when a window hits 100% at the pace so far", () => {
   assert.equal(runsOut({ pct: 5, resets: now + hour, pace: 0.01 }, FIVE_HOURS, now), null);
   assert.equal(runsOut({ pct: 100, resets: now + hour, pace: 0.5 }, FIVE_HOURS, now), null);
   assert.equal(runsOut(null, FIVE_HOURS, now), null);
+});
+
+test("lastMessage: the agent's last words, not tool calls or hook noise", () => {
+  const screen = [
+    "⏺ I'll add the tests first.",
+    "⏺ Bash(npm test)",
+    "  ⎿  12 passed",
+    "⏺ Listo: agregué los tests y todos pasan.",
+    "⏺ token-meter: its classic.Stop hook was skipped. \"cc-plugin\" runs first.",
+    "✻ Cooked for 6s",
+    "❯ ",
+  ].join("\n");
+  assert.equal(lastMessage(screen), "Listo: agregué los tests y todos pasan.");
+  assert.equal(lastMessage("• Codex done: updated 3 files"), "Codex done: updated 3 files");
+  assert.equal(lastMessage("no agent here"), "");
 });
