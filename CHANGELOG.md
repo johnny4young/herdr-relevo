@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Checkout selector.** The panel bar's worktree chips become one selector: every checkout of the repo with its uncommitted files, ahead/behind and last use, newest first.
+
 ## 0.3.0 · 2026-11-01
 
 - **Remove all merged worktrees.** One Confirm removes every merged worktree that is clean, unlocked and has no space.
