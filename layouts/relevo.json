@@ -208,7 +208,7 @@
                   "id": "panel-bar",
                   "type": "block",
                   "size": {
-                    "px": 66
+                    "px": 38
                   },
                   "content": {
                     "mod": "relevo",

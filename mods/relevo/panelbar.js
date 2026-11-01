@@ -1,11 +1,14 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, Editor, EditorState } from "gpui-base";
 import { theme, exec, run, spaces, panes, focused, props, openOverlay, closeOverlay, readTextFile, settings } from "herdr";
+import { touchedAt } from "./worktrees.js";
+import { ago } from "./lib/time.js";
+import { spinner, withKey } from "./ui.js";
 
 const LANG = {
   ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", toml: "yaml", jsonc: "json", svelte: "html", vue: "html",
 };
-const MAX_FILES = 20000, SHOWN = 60, CHIPS = 4;
+const MAX_FILES = 20000, SHOWN = 60;
 
 // A mod pane has no folder; a terminal beside it in the same tab speaks for it.
 export function focusedCwd() {
@@ -64,41 +67,23 @@ export class PanelBar {
     });
   }
 
-  go(c) {
-    const s = spaces().find((x) => !x.machine && x.folder === c.path);
-    if (s) run("space.select", { id: s.id });
-    else run("space.new", { folder: c.path });
+  // One control for every checkout of the repo: the current one's name, and ▾ for the rest with their state.
+  selector(t) {
+    const here = this.list.find((c) => c.path === this.top);
+    const name = here ? here.branch ?? here.path.split("/").pop() : this.loading ? "…" : "No repository";
+    return h_flex().id("checkout-selector").h(26).px(8).gap(5).flex_none().max_w(150).items_center().rounded(6)
+      .border_1().border_color(t.border).cursor_pointer().hover((s) => s.bg(t.hover))
+      .tooltip(this.list.length > 1 ? `${this.list.length} checkouts of ${this.top?.split("/").pop()}` : this.top ?? "")
+      .on_click(() => this.list.length && openCheckouts(this.top, this.list))
+      .child(div().flex_1().min_w(0).truncate().text_size(11.5).child(name))
+      .when(this.list.length > 1, (el) => el.child(div().text_size(10).text_color(t.dim).child("▾")));
   }
 
   render() {
-    const t = theme(), more = this.list.length - CHIPS;
-    const chip = (c) => {
-      const on = this.top === c.path, name = c.branch ?? c.path.split("/").pop();
-      return div().id(`wt-chip-${c.path}`).h(22).px(8).flex_none().max_w(120).truncate().flex().items_center().rounded(6)
-        .text_size(11.5).cursor_pointer()
-        .tooltip(c.path)
-        .text_color(on ? t.foreground : t.muted).when(on, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover))
-        .on_click(() => this.go(c))
-        .child(name);
-    };
-    return v_flex().id("relevo-panel-bar").size_full().px(4).gap(4).justify_center().bg(t.chrome).text_color(t.foreground)
-      .child(h_flex().gap(3).items_center().min_w(0)
-        .children(this.list.slice(0, CHIPS).map(chip))
-        .when(more > 0, (el) => el.child(
-          div().id("wt-more").h(22).px(7).flex_none().flex().items_center().rounded(6).text_size(11.5).text_color(t.dim)
-            .cursor_pointer().hover((s) => s.bg(t.hover)).tooltip("All worktrees")
-            .on_click(() => openOverlay({
-              mod: "worktree",
-              kind: "dialog",
-              width: 560,
-              height: 480,
-              props: { folder: this.cwd, action: "open", space: spaces().find((s) => s.active)?.id },
-            }))
-            .child(`+${more}`)))
-        .when(!this.list.length, (el) => el.child(
-          div().px(8).text_size(11.5).text_color(t.dim)
-            .child(this.loading ? "…" : "Not a git repository"))))
-      .child(h_flex().id("find-file").h(26).px(8).gap(6).items_center().rounded(6)
+    const t = theme();
+    return h_flex().id("relevo-panel-bar").size_full().px(4).gap(6).items_center().bg(t.chrome).text_color(t.foreground)
+      .child(this.selector(t))
+      .child(h_flex().id("find-file").flex_1().min_w(0).h(26).px(8).gap(6).items_center().rounded(6)
         .border_1().border_color(t.border).bg(t.background)
         .cursor_pointer().hover((s) => s.bg(t.hover))
         .on_click(() => openFinder())
@@ -251,5 +236,87 @@ export class FileView {
       .child(this.code
         ? Editor.new(this.code).flex_1().min_h(0)
         : div().p(12).text_color(t.dim).child(this.error ?? "Loading…"));
+  }
+}
+
+const goTo = (path) => {
+  const s = spaces().find((x) => !x.machine && x.folder === path);
+  if (s) run("space.select", { id: s.id });
+  else run("space.new", { folder: path });
+};
+
+// The selector for the focused folder, for a key or herdr-app do.
+export async function openCheckoutsHere() {
+  const cwd = focusedCwd();
+  if (!cwd) return;
+  const { top, list } = await checkouts(cwd);
+  if (top) openCheckouts(top, list);
+}
+
+export function openCheckouts(top, list) {
+  openOverlay({
+    mod: "relevo", kind: "popup", width: 380, height: Math.min(440, 74 + list.length * 34),
+    props: { role: "checkout-menu", top, list },
+  });
+}
+
+// Every checkout with what decides which to open: uncommitted files, ahead/behind its upstream, last use.
+export class CheckoutMenu {
+  init(_props, cx) {
+    const p = props() ?? {};
+    this.rows = (p.list ?? []).map((c) => ({ ...c }));
+    this.loaded = false;
+    cx.spawn(async (cx) => {
+      const at = await touchedAt(this.rows.map((c) => c.path));
+      await Promise.all(this.rows.map(async (c) => {
+        c.at = at.get(c.path) ?? 0;
+        const status = await exec("git", ["--no-optional-locks", "status", "--porcelain"], { cwd: c.path });
+        c.dirty = status.stdout.split("\n").filter(Boolean).length;
+        const track = await exec("git", ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"], { cwd: c.path });
+        if (track.code === 0) [c.behind, c.ahead] = track.stdout.trim().split(/\s+/).map(Number);
+      }));
+      this.rows.sort((a, b) => b.at - a.at);
+      this.loaded = true;
+      cx.notify();
+    });
+  }
+
+  render() {
+    const t = theme(), p = props() ?? {};
+    const row = (c) => {
+      const on = c.path === p.top;
+      return h_flex().id(`co-${c.path}`).h(32).px(8).gap(8).items_center().rounded(6).cursor_pointer()
+        .when(on, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover))
+        .tooltip(c.path)
+        .on_click(() => {
+          closeOverlay(p.overlay);
+          if (!on) goTo(c.path);
+        })
+        .child(div().size(6).flex_none().rounded_full().bg(on ? t.accent : t.border))
+        .child(v_flex().flex_1().min_w(0)
+          .child(div().truncate().text_size(12).text_color(t.foreground).child(c.branch ?? c.path.split("/").pop()))
+          .when(Boolean(c.branch) && c.path.split("/").pop() !== c.branch, (el) => el.child(
+            div().truncate().text_size(10.5).text_color(t.dim).child(c.path.split("/").pop()))))
+        .when(c.dirty > 0, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.ansi3).child(`● ${c.dirty}`)))
+        .when(c.ahead > 0, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.ansi2).child(`↑${c.ahead}`)))
+        .when(c.behind > 0, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.ansi1).child(`↓${c.behind}`)))
+        .when(Boolean(c.at), (el) => el.child(div().flex_none().w(34).text_right().text_size(10.5).text_color(t.dim)
+          .child(ago(c.at).replace(" ago", ""))));
+    };
+    return v_flex().id("checkout-menu").w_full().p(4).gap(1).bg(t.popover ?? t.surface).text_color(t.foreground)
+      .child(h_flex().px(8).pt(4).pb(6).gap(6).items_center().text_size(11).text_color(t.dim)
+        .child(div().flex_1().child(`Checkouts of ${p.top?.split("/").pop() ?? ""}`))
+        .when(!this.loaded, (el) => el.child(spinner(t.dim, 10))))
+      // A popup is as tall as its content, so the list has a ceiling rather than a flexible height.
+      .child(v_flex().id("co-list").max_h(340).overflow_y_scrollbar().gap(1).children(this.rows.map(row)))
+      .child(h_flex().id("co-new").h(30).mt(2).px(8).gap(6).items_center().rounded(6).cursor_pointer()
+        .border_t(1).border_color(t.border).hover((s) => s.bg(t.hover)).text_size(11.5).text_color(t.muted)
+        .tooltip(withKey("A new worktree of this repo", "relevo.worktree-new"))
+        .on_click(() => {
+          closeOverlay(p.overlay);
+          openOverlay({ mod: "worktree", kind: "dialog", width: 560, height: 480,
+            props: { folder: p.top, action: "new", space: spaces().find((s) => s.active)?.id } });
+        })
+        .child("＋ New worktree"));
   }
 }

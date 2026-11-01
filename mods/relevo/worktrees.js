@@ -90,3 +90,13 @@ export async function checkoutOf(clone, branch) {
   }
   return null;
 }
+
+// When each checkout was last used: path -> seconds (newest of its last commit, index and HEAD).
+export async function touchedAt(paths) {
+  if (!paths.length) return new Map();
+  const out = (await exec("sh", ["-c", TOUCHED, "sh", ...paths])).stdout;
+  return new Map(out.split("\n").filter(Boolean).map((l) => {
+    const [path, at] = l.split("\t");
+    return [path, Number(at) || 0];
+  }));
+}

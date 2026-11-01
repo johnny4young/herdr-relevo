@@ -4,7 +4,7 @@ import { Sidebar } from "./sidebar.js";
 import { Inbox } from "./inbox.js";
 import { InboxButton, PanelToggle, showPanel } from "./toolbar.js";
 import { AccountMenu } from "./account-menu.js";
-import { PanelBar, FileFinder, FileView, openFinder } from "./panelbar.js";
+import { PanelBar, FileFinder, FileView, CheckoutMenu, openFinder, openCheckoutsHere } from "./panelbar.js";
 import { nextWaiting, openPR, respondPR, worktrees } from "./commands.js";
 import { Handoff, openHandoff, handoffFrom } from "./handoff.js";
 import { ReviewDiff, openReview } from "./review.js";
@@ -15,7 +15,7 @@ import { focusInbox } from "./inbox-keys.js";
 
 const ROLES = {
   accounts: Sidebar, inbox: Inbox, "inbox-button": InboxButton, "account-menu": AccountMenu,
-  "panel-bar": PanelBar, "panel-toggle": PanelToggle, "find-file": FileFinder, "file-view": FileView,
+  "panel-bar": PanelBar, "panel-toggle": PanelToggle, "find-file": FileFinder, "file-view": FileView, "checkout-menu": CheckoutMenu,
   handoff: Handoff, "review-diff": ReviewDiff, "ledger-week": LedgerWeek, settings: Settings,
 };
 
@@ -42,6 +42,9 @@ export default class Relevo extends View {
     else if (name === "next-waiting") nextWaiting();
     else if (name === "handoff") openHandoff();
     else if (name === "ledger-week") openWeek();
+    else if (name === "checkouts") cx.spawn(async () => {
+      await openCheckoutsHere();
+    });
     else if (name === "settings") openSettings();
     else if (name.startsWith("handoff-from-")) handoffFrom(name.slice(13));
     else if (name === "review") cx.spawn(async () => { await openReview(); });
