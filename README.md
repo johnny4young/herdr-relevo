@@ -34,7 +34,7 @@ It needs `git` and the GitHub CLI (`gh auth login`) on your PATH, and `claude` a
 
 ## Tests
 
-`node --test 'test/*.test.mjs'` from `mods/relevo` (Node 22 or newer).
+`node --test 'test/*.test.mjs'` from `mods/relevo`, and `npx eslint@10.13.0 mods` from the root for undefined names (Node from `.nvmrc`). CI runs both on every push.
 
 ## License
 

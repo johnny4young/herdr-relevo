@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          check-latest: true
+      - name: Tests
+        working-directory: mods/relevo
+        run: node --test 'test/*.test.mjs'
+      - name: Lint
+        run: npx --yes eslint@10.13.0 mods
+      - name: No machine paths in the mods
+        run: "! grep -rIn --exclude-dir=test -e '/Users/' -e '/home/[a-z]' mods layouts keys.json"
