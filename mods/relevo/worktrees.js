@@ -79,3 +79,14 @@ export async function removeWorktree(w) {
   if (w.branch) await exec("git", ["-C", w.main, "branch", "-d", w.branch]);
   return null;
 }
+
+// Where a branch is checked out: the clone itself or one of its worktrees; null when nowhere.
+export async function checkoutOf(clone, branch) {
+  const out = (await exec("git", ["-C", clone, "worktree", "list", "--porcelain"])).stdout;
+  let path = null;
+  for (const line of out.split("\n")) {
+    if (line.startsWith("worktree ")) path = line.slice(9);
+    else if (line === `branch refs/heads/${branch}`) return path;
+  }
+  return null;
+}

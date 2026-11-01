@@ -1,4 +1,4 @@
-import { div } from "gpui-kit";
+import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, run, focused, panes, setShared } from "herdr";
 import { BackgroundWatch, quotaAlerts } from "./alerts.js";
@@ -10,6 +10,7 @@ import { syncFolders, foldFor } from "./folders.js";
 import { CONTEXTS } from "./config.js";
 import { ledgerTick } from "./ledger.js";
 import { spinner, withKey } from "./ui.js";
+import { openSettings } from "./settings.js";
 
 const STALE = 30 * 60;
 
@@ -167,7 +168,16 @@ export class Sidebar {
         }
       })
       .child(h_flex().h(22).pl(8).items_center().justify_between().text_size(11).text_color(t.dim)
-        .child("ACCOUNTS")
+        .child(h_flex().gap(4).items_center()
+          .child("ACCOUNTS")
+          .child(div().id("relevo-settings").size(16).flex().items_center().justify_center().rounded(4).cursor_pointer()
+            .text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground))
+            .tooltip(withKey("Settings", "relevo.settings"))
+            .on_click((_e, cx) => {
+              cx.stop_propagation();
+              openSettings();
+            })
+            .child(svg("mods/relevo/settings.svg").size(11))))
         .child(this.focusPicker(t)))
       .children([...ACCOUNTS, CODEX].map((p) => this.row(t, p, this.quota[p.key], barWidth)));
   }

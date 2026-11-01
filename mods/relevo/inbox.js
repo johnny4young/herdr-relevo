@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
-import { theme, exec, run, agents, panes, spaces, shared, setShared } from "herdr";
+import { h_flex, v_flex, InputState, Input } from "gpui-base";
+import { theme, exec, run, notify, agents, panes, spaces, shared, setShared } from "herdr";
 import { loadClaudeQuotas } from "./accounts.js";
 import { accountFor, contextOfPath, inFocus } from "./context.js";
 import { ago } from "./lib/time.js";
@@ -8,6 +8,7 @@ import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { seconds, recent } from "./lib/github.js";
+import { readPrompt, submitKeys, freeOption, moveKeys } from "./lib/prompt.js";
 import { COUNT, showPanel } from "./toolbar.js";
 import { launched } from "./skills.js";
 import { openWeek } from "./week.js";
@@ -38,6 +39,10 @@ export class Inbox {
     this.since = {};
     this.tops = new Map();
     this.stats = new Map();
+    // What each waiting agent asks, read once per wait: address -> { since, prompt }.
+    this.prompts = new Map();
+    this.reply = InputState.new({ value: "", placeholder: "Reply · Enter sends, Esc cancels" });
+    this.reply.on("submit", (_e, cx) => this.sendReply(cx));
     this.today = [];
     const panels = (shared("workspace.panels") ?? ["files", "changes"]).filter((p) => p !== "review");
     if (!panels.includes("inbox")) setShared("workspace.panels", [...panels, "inbox"]);
@@ -145,7 +150,13 @@ export class Inbox {
           const top = this.tops.get(pane.cwd);
           const repo = top.split("/").pop() || a.space_name;
           if (a.status === "blocked") {
-            items.push({ kind: "blocked", agent: a, top, repo, branch: pane.branch });
+            const at = since[`${a.address}:blocked`];
+            if (this.prompts.get(a.address)?.since !== at) {
+              const screen = (await exec("hc", ["read", a.address, "--lines", "0"])).stdout;
+              const prompt = readPrompt(screen);
+              this.prompts.set(a.address, { since: at, prompt, free: freeOption(prompt) });
+            }
+            items.push({ kind: "blocked", agent: a, top, repo, branch: pane.branch, prompt: this.prompts.get(a.address).prompt });
             continue;
           }
           if (!top || seen.has(top)) continue;
@@ -190,6 +201,7 @@ export class Inbox {
   }
 
   card(t, id, hot, head, meta, actions) {
+    if (this.hiddenIds?.has(id)) return null;
     const sel = this.selected(id);
     return v_flex().id(id).p(10).gap(6).rounded(9).bg(sel ? t.selected : t.background).border_1()
       .border_color(sel ? t.accent : hot ? t.blocked : t.border)
@@ -210,15 +222,145 @@ export class Inbox {
       .child(div().flex_none().text_size(10.5).text_color(t.dim).child(when));
   }
 
+  close() {
+    this.reply.release();
+  }
+
+  // A waiting agent's question and its choices as a list: a click answers (or checks, in a multiple choice).
+  waitingCard(t, item, goAgent) {
+    const a = item.agent, p = item.prompt ?? { question: "", options: [] }, replying = this.replying === a.address;
+    const free = this.prompts.get(a.address)?.free;
+    const row = (o) => h_flex().id(`answer-${a.address}-${o.n}`).h(24).px(6).gap(7).items_center().rounded(5)
+      .cursor_pointer()
+      .when(p.cursor === o.n, (el) => el.bg(t.selected)).hover((st) => st.bg(t.hover))
+      .tooltip(o.detail ? `${o.label} · ${o.detail}` : o.label)
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        this.answer(a, o, cx);
+      })
+      .child(div().w(12).flex_none().text_size(10.5).text_color(t.dim).child(String(o.n)))
+      .when("checked" in o, (el) => el.child(div().flex_none().text_size(12)
+        .text_color(o.checked ? t.accent : t.dim).child(o.checked ? "☑" : "☐")))
+      .child(div().flex_none().max_w(200).truncate().text_size(11.5).text_color(t.foreground)
+        .child(o.n === free && /^type something/i.test(o.label) ? "Type something…" : o.label))
+      .when(Boolean(o.detail), (el) => el.child(
+        div().flex_1().min_w(0).truncate().text_size(10.5).text_color(t.dim).child(o.detail)));
+    const actions = [
+      ...(p.submit ? [button(t, `submit-${a.address}`, "Submit", (cx) => this.submit(a, p, cx), { kind: "solid" })] : []),
+      ...(p.options.length
+        ? []
+        : [button(t, `reply-${a.address}`, "Reply", (cx) => this.startReply(a, null, cx), { kind: "solid" })]),
+      button(t, `go-${a.address}`, p.options.length ? "Agent" : "Go to agent", goAgent),
+    ];
+    return this.card(t, `in-${a.address}`, true,
+      this.head(t, t.blocked, `${item.repo} · ${a.tab_name || item.branch || ""}`, ago(item.at)),
+      v_flex().gap(4)
+        .child(v_flex().children((p.question || "Waiting for you").split("\n")
+          .map((l) => div().truncate().text_size(12).text_color(t.foreground).child(l))))
+        .when(Boolean(p.summary?.length), (el) => el.child(v_flex().gap(3).py(4).px(8).rounded(6).bg(t.raised)
+          .children(p.summary.map((s) => v_flex()
+            .child(div().truncate().text_size(11).text_color(t.muted).child(s.question))
+            .child(div().truncate().text_size(11.5).text_color(t.foreground).child(`→ ${s.answer || "(no answer)"}`))))))
+        .when(p.options.length > 0, (el) => el.child(v_flex().gap(1).children(p.options.map(row))))
+        .when(replying, (el) => el.child(div().mt(2).h(28).px(8).flex().items_center().rounded(6).border_1()
+          .border_color(t.accent).bg(t.background).child(Input.new(this.reply).h_full()))),
+      replying ? [] : [h_flex().gap(5).children(actions)]);
+  }
+
+  // Measured on Claude's menus: in a single choice ↑/↓ then Enter answers in every variant (a number answers
+  // at once in some and only moves the cursor in others, like the one with previews). In a multiple choice the
+  // number toggles the box; when the cursor sits in the free-text choice it would be typed, so ↑ leaves first.
+  answer(a, option, cx) {
+    const entry = this.prompts.get(a.address), p = entry?.prompt;
+    if (option.n === entry?.free) return this.startReply(a, option.n, cx);
+    if (p && !p.multi) {
+      // The cursor may have moved in the terminal since the last read.
+      return cx.spawn(async (cx) => {
+        await this.rereadPrompt(a.address);
+        this.press(a, [...moveKeys(this.prompts.get(a.address).prompt, option.n), "enter"], option.label, cx);
+      });
+    }
+    const leave = p?.cursor != null && p.cursor === entry?.free ? ["up"] : [];
+    this.press(a, [...leave, String(option.n)], option.label, cx);
+  }
+
+  submit(a, prompt, cx) {
+    const entry = this.prompts.get(a.address);
+    const leave = prompt.cursor != null && prompt.cursor === entry?.free ? ["up"] : [];
+    // Leaving the field moves the cursor one up, so count the moves to Submit from there.
+    const from = leave.length ? { ...prompt, cursor: prompt.cursor - 1 } : prompt;
+    this.press(a, [...leave, ...submitKeys(from)], "Submitted", cx);
+  }
+
+  // After a key the screen changes (a box checks, the next question shows), so read it again.
+  press(a, keys, label, cx) {
+    cx.spawn(async (cx) => {
+      const r = await exec("hc", ["keys", a.address, ...keys]);
+      if (r.code !== 0) {
+        notify({ title: "Could not answer", body: r.stderr.trim().split("\n")[0], level: "warning" });
+        return;
+      }
+      await cx.sleep(250);
+      await this.rereadPrompt(a.address);
+      cx.notify();
+      if (!this.prompts.get(a.address)?.prompt.multi) {
+        notify({ title: `Answered ${a.tab_name || a.address}`, body: label, level: "success", timeout: 2000 });
+      }
+      this.scanLocal(cx);
+    });
+  }
+
+  async rereadPrompt(address) {
+    const screen = (await exec("hc", ["read", address, "--lines", "0"])).stdout;
+    const was = this.prompts.get(address);
+    const prompt = readPrompt(screen);
+    this.prompts.set(address, { since: was?.since, prompt, free: freeOption(prompt, was?.free) });
+    for (const i of this.local) if (i.agent.address === address) i.prompt = this.prompts.get(address).prompt;
+  }
+
+  startReply(a, key, cx) {
+    this.replying = a.address;
+    this.replyKey = key;
+    this.reply.set_value("");
+    this.reply.focus();
+    cx.notify();
+  }
+
+  // The free-text choice, as Claude's menu takes it (measured): in a single choice its number puts the cursor
+  // in the field and a paste with Enter answers. In a multiple choice the number only toggles the box, so the
+  // cursor moves there by arrows; the paste's Enter unchecks the box, so ↑ leaves the field and the number
+  // checks it again. hc keys can't type accents, so the words always go as a paste.
+  sendReply(cx) {
+    const text = this.reply.value().trim(), address = this.replying, key = this.replyKey;
+    this.replying = null;
+    this.replyKey = null;
+    cx.notify();
+    if (!text || !address) return;
+    cx.spawn(async (cx) => {
+      await this.rereadPrompt(address);
+      const p = this.prompts.get(address)?.prompt;
+      const keys = (list) => (list.length ? exec("hc", ["keys", address, ...list]) : null);
+      if (key && p?.multi) await keys(moveKeys(p, key));
+      else if (key && p?.cursor !== key) await keys([String(key)]);
+      const r = await exec("hc", ["send", "--force", address, text]);
+      if (r.code !== 0) notify({ title: "Could not reply", body: r.stderr.trim().split("\n")[0], level: "warning" });
+      else if (key && p?.multi) {
+        await cx.sleep(250);
+        await this.rereadPrompt(address);
+        const checked = this.prompts.get(address)?.prompt.options.find((o) => o.n === key)?.checked;
+        await keys(checked ? ["up"] : ["up", String(key)]);
+      }
+      await cx.sleep(250);
+      await this.rereadPrompt(address);
+      cx.notify();
+      this.scanLocal(cx);
+    });
+  }
+
   localCard(t, item) {
     const a = item.agent;
     const goAgent = () => run("agent.focus", { terminal: a.address });
-    if (item.kind === "blocked") {
-      return this.card(t, `in-${a.address}`, true,
-        this.head(t, t.blocked, `${item.repo} · ${a.tab_name || item.branch || ""}`, ago(item.at)),
-        div().text_size(11.5).text_color(t.muted).child("waiting for you"),
-        [button(t, `go-${a.address}`, "Go to agent", goAgent, { kind: "solid" })]);
-    }
+    if (item.kind === "blocked") return this.waitingCard(t, item, goAgent);
     return this.card(t, `in-${a.address}`, false,
       this.head(t, a.status === "done" ? t.done : t.idle, `${item.repo}${item.branch ? ` · ${item.branch}` : ""}`, ago(item.at)),
       h_flex().gap(8).items_center().text_size(11.5).text_color(t.muted)
@@ -253,6 +395,9 @@ export class Inbox {
     this.nav = this.navItems(v);
     this.keyboard = this.h.is_focused();
     if (this.sel && !this.nav.some((i) => i.id === this.sel)) this.sel = null;
+    const view = this.viewport();
+    this.hiddenIds = view.hidden;
+    const part = (key, els) => (view.sections.has(key) ? [] : els.filter(Boolean));
     const total = v.local.length + v.mine.length + v.requested.length;
     return v_flex().id("relevo-inbox").size_full().min_h(0).rounded(10).overflow_hidden()
       .bg(t.surface ?? t.chrome).border_1().border_color(this.keyboard ? t.accent : t.border).text_color(t.foreground)
@@ -277,12 +422,13 @@ export class Inbox {
         .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11.5).text_color(t.blocked).child(this.error)))
         .when(!total && !this.error && Boolean(this.prsAt), (el) => el.child(
           div().p(12).text_size(12).text_color(t.dim).child("Nothing waiting")))
-        .children(this.localGroup(t, "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked")))
-        .children(this.localGroup(t, "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff")))
-        .children(this.prGroup(t, "mine", "YOUR PRS", v.mine, false))
-        .children(this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true))
-        .children(this.todayGroup(t, v.today))
-        .children(this.treeGroups(t, v.worktrees)));
+        .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
+        .children(part("waiting", this.localGroup(t, "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
+        .children(part("local", this.localGroup(t, "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"))))
+        .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false)))
+        .children(part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true)))
+        .children(part("today", this.todayGroup(t, v.today)))
+        .children(part("trees", this.treeGroups(t, v.worktrees))));
   }
 }
 

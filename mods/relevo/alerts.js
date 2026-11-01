@@ -74,3 +74,13 @@ export function reviewAlerts(requested, contextOf) {
   }
   if (fresh.length || stored == null) setShared(KNOWN, requested.map((p) => p.url));
 }
+
+// Changes on your PRs; the click opens the Inbox.
+const LOUD = new Set(["ci-failed", "threads", "changes"]);
+const LEVEL = { "ci-failed": "warning", changes: "warning", threads: "info", "ci-passed": "success", approved: "success" };
+
+export function prAlerts(events, contextOf) {
+  const shown = events.filter((e) => inFocus(contextOf(e.repo)));
+  if (shown.some((e) => LOUD.has(e.kind))) playSound("sounds/review.mp3");
+  for (const e of shown) notify({ title: e.title, level: LEVEL[e.kind], action: { name: "relevo.panel-inbox" } });
+}

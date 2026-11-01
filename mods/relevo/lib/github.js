@@ -2,7 +2,7 @@
 
 export const PR_QUERY = `query {
   viewer { login pullRequests(states: OPEN, first: 30, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
-    number title url isDraft updatedAt reviewDecision repository { nameWithOwner }
+    number title url isDraft updatedAt reviewDecision headRefName baseRefName repository { nameWithOwner }
     commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
     reviews(last: 10) { nodes { author { login } state submittedAt } }
     reviewThreads(first: 50) { nodes { isResolved } } } } }
@@ -47,4 +47,30 @@ export function mapRequested(data) {
     ...p, repo: p.repository.nameWithOwner, skills: ["review"], threads: unresolved(p),
   }));
   return list.sort(newest);
+}
+
+const ciOf = (p) => p.commits?.nodes[0]?.commit?.statusCheckRollup?.state ?? null;
+const RED = new Set(["FAILURE", "ERROR"]);
+
+// What changed on your open PRs since the last look; the first look sets the baseline and says nothing.
+export function prChanges(before, data) {
+  const now = new Map(), events = [];
+  for (const p of data.viewer.pullRequests.nodes.filter((x) => !x.isDraft)) {
+    const state = { ci: ciOf(p), threads: unresolved(p), decision: p.reviewDecision ?? null };
+    now.set(p.url, state);
+    const was = before?.get(p.url);
+    if (!was) continue;
+    const name = `${p.repository.nameWithOwner.split("/")[1]} #${p.number}`, base = { url: p.url, repo: p.repository.nameWithOwner };
+    if (RED.has(state.ci) && !RED.has(was.ci)) events.push({ ...base, kind: "ci-failed", title: `CI failed · ${name}` });
+    if (state.ci === "SUCCESS" && was.ci !== "SUCCESS") events.push({ ...base, kind: "ci-passed", title: `CI passed · ${name}` });
+    if (state.threads > was.threads) {
+      const n = state.threads - was.threads;
+      events.push({ ...base, kind: "threads", title: `${n} new review ${n === 1 ? "thread" : "threads"} · ${name}` });
+    }
+    if (state.decision !== was.decision && state.decision === "APPROVED") events.push({ ...base, kind: "approved", title: `Approved · ${name}` });
+    if (state.decision !== was.decision && state.decision === "CHANGES_REQUESTED") {
+      events.push({ ...base, kind: "changes", title: `Changes requested · ${name}` });
+    }
+  }
+  return { state: now, events: before ? events : [] };
 }

@@ -1,15 +1,19 @@
 // The Inbox's pull requests: fetch, cards, skill buttons. Mixed into Inbox, so `this` is the Inbox.
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { home, exec, run, setShared, openOverlay } from "herdr";
+import { home, exec, run, notify, setShared, openOverlay } from "herdr";
 import { ACCOUNTS, accountOf, pickAccount, chip } from "./accounts.js";
-import { accountFor } from "./context.js";
-import { reviewAlerts } from "./alerts.js";
+import { contextFor } from "./context.js";
+import { reviewAlerts, prAlerts } from "./alerts.js";
 import { REPOS_ROOT } from "./config.js";
 import { LAUNCHED, SKILLS, launched, launchSkill } from "./skills.js";
-import { button, sectionHeader, spinner } from "./ui.js";
+import { button, sectionHeader, spinner, withKey } from "./ui.js";
+import { openReview } from "./review.js";
+import { checkoutOf } from "./worktrees.js";
 import { ago } from "./lib/time.js";
-import { PR_QUERY, seconds, recent, mapMine, mapRequested } from "./lib/github.js";
+import { PR_QUERY, seconds, recent, mapMine, mapRequested, prChanges } from "./lib/github.js";
+
+const contextKey = (repo) => contextFor(repo).key;
 
 export class PrViews {
   scanPRs(cx) {
@@ -33,6 +37,9 @@ export class PrViews {
     const data = JSON.parse(r.stdout).data;
     this.mine = mapMine(data);
     this.requested = mapRequested(data);
+    const changes = prChanges(this.prState, data);
+    this.prState = changes.state;
+    prAlerts(changes.events, contextKey);
     for (const p of [...this.mine, ...this.requested]) {
       if (p.repo in this.clones) continue;
       const path = `${home()}/${REPOS_ROOT}/${p.repo.split("/")[1]}`;
@@ -46,7 +53,7 @@ export class PrViews {
     const kept = Object.entries(launched()).filter(([url]) => live.has(url));
     if (kept.length !== Object.keys(launched()).length) setShared(LAUNCHED, Object.fromEntries(kept));
     this.prsAt = Date.now() / 1000;
-    reviewAlerts(this.requested, accountFor);
+    reviewAlerts(this.requested, contextKey);
     this.publish();
   }
 
@@ -120,7 +127,14 @@ export class PrViews {
     if (this.clones[pr.repo] && !(seen && agent)) {
       pr.skills.forEach((s) => actions.push(this.skillButton(t, pr, s, !seen && !requested && pr.hot && s === "fix")));
     }
-    actions.push(button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url]), { kind: done && l.skill === "review" ? "solid" : "outline" }));
+    if (!requested && this.clones[pr.repo]) {
+      actions.push(button(t, `review-pr-${pr.url}`, "Review", () => this.reviewPR(pr), {
+        tip: withKey("The whole PR against its base, line by line", "relevo.review"),
+      }));
+    }
+    actions.push(button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url]), {
+      kind: done && l.skill === "review" ? "solid" : "outline",
+    }));
     const dot = seen ? "ring" : !requested && pr.hot ? t.blocked : t.accent;
     return this.card(t, `pr-${pr.url}`, !seen && !requested && pr.hot,
       this.head(t, dot, `${pr.repo.split("/")[1]} #${pr.number} · ${pr.title}`, ago(seconds(pr.updatedAt)),
@@ -135,6 +149,26 @@ export class PrViews {
   // Old PRs fold under one line so each group shows what needs you this month.
 
   // Old PRs fold under one line so each group shows what needs you this month.
+  // The review pane on the PR's checkout; comments go to its agent, or a new one when none runs.
+  async reviewPR(pr) {
+    const clone = this.clones[pr.repo], head = pr.headRefName;
+    const info = { repo: pr.repo, number: pr.number, url: pr.url, base: pr.baseRefName, head };
+    const folder = await checkoutOf(clone, head);
+    if (!folder) {
+      // Not checked out: review the branch itself from the clone, fetching it when it isn't local.
+      const local = await exec("git", ["-C", clone, "rev-parse", "--verify", "--quiet", `refs/heads/${head}`]);
+      if (local.code === 0) info.ref = head;
+      else {
+        const r = await exec("git", ["-C", clone, "fetch", "--quiet", "origin", head]);
+        if (r.code !== 0) {
+          return notify({ title: `Could not fetch ${head}`, body: r.stderr.trim().split("\n")[0], level: "warning" });
+        }
+        info.ref = `origin/${head}`;
+      }
+    }
+    openReview(folder ?? clone, this.prAgents[pr.url]?.address ?? null, info);
+  }
+
   prGroup(t, key, label, list, requested) {
     if (!list.length) return [];
     const fresh = list.filter(recent), old = list.filter((p) => !recent(p)), open = this.expanded[key];

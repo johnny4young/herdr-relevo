@@ -61,6 +61,7 @@ export class TreeViews {
 
   // One line per merged worktree: Remove asks once more before git runs.
   treeRow(t, w) {
+    if (this.hiddenIds?.has(`wt-${w.path}`)) return null;
     if (this.removing.has(w.path)) return this.removingRow(t, w);
     const err = this.wtError[w.path], sure = this.confirm === w.path;
     const note = err ?? (sure && w.space ? "closes its space" : w.dirty ? "uncommitted changes" : w.locked ? "locked" : null);
@@ -105,7 +106,7 @@ export class TreeViews {
     const merged = worktrees.filter((w) => w.merged);
     const loose = worktrees.filter((w) => !w.merged && !w.open);
     const rows = merged.length
-      ? [sectionHeader(t, "MERGED WORKTREES", merged.length), v_flex().children(merged.map((w) => this.treeRow(t, w)))]
+      ? [sectionHeader(t, "MERGED WORKTREES", merged.length), v_flex().children(merged.map((w) => this.treeRow(t, w)).filter(Boolean))]
       : [];
     if (loose.length) {
       const open = this.expanded.loose;
@@ -116,7 +117,7 @@ export class TreeViews {
           cx.notify();
         })
         .child(`${open ? "▾" : "▸"} ${loose.length} worktrees without a space`));
-      if (open) rows.push(...loose.map((w) => h_flex().id(`loose-${w.path}`).h(26).px(8).gap(8).items_center().rounded(6)
+      if (open) rows.push(...loose.filter((w) => !this.hiddenIds?.has(`loose-${w.path}`)).map((w) => h_flex().id(`loose-${w.path}`).h(26).px(8).gap(8).items_center().rounded(6)
         .when(this.selected(`loose-${w.path}`), (el) => el.bg(t.selected))
         .cursor_pointer().hover((s) => s.bg(t.hover)).tooltip(w.path)
         .on_click(() => this.openTree(w))

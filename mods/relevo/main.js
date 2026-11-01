@@ -10,12 +10,13 @@ import { Handoff, openHandoff, handoffFrom } from "./handoff.js";
 import { ReviewDiff, openReview } from "./review.js";
 import { loadKeys } from "./ui.js";
 import { LedgerWeek, openWeek } from "./week.js";
+import { Settings, openSettings } from "./settings.js";
 import { focusInbox } from "./inbox-keys.js";
 
 const ROLES = {
   accounts: Sidebar, inbox: Inbox, "inbox-button": InboxButton, "account-menu": AccountMenu,
   "panel-bar": PanelBar, "panel-toggle": PanelToggle, "find-file": FileFinder, "file-view": FileView,
-  handoff: Handoff, "review-diff": ReviewDiff, "ledger-week": LedgerWeek,
+  handoff: Handoff, "review-diff": ReviewDiff, "ledger-week": LedgerWeek, settings: Settings,
 };
 
 export default class Relevo extends View {
@@ -41,6 +42,7 @@ export default class Relevo extends View {
     else if (name === "next-waiting") nextWaiting();
     else if (name === "handoff") openHandoff();
     else if (name === "ledger-week") openWeek();
+    else if (name === "settings") openSettings();
     else if (name.startsWith("handoff-from-")) handoffFrom(name.slice(13));
     else if (name === "review") cx.spawn(async () => { await openReview(); });
     else if (name === "open-pr") cx.spawn(async () => { await openPR(); });

@@ -6,7 +6,8 @@ import { diffRows, lineKey } from "../lib/diff.js";
 import { ownerOf, contextFor } from "../lib/context.js";
 import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
 import { keyMap, formatShortcut } from "../lib/keys.js";
-import { mapMine, mapRequested, unresolved } from "../lib/github.js";
+import { mapMine, mapRequested, unresolved, prChanges } from "../lib/github.js";
+import { readPrompt, submitKeys, freeOption, moveKeys } from "../lib/prompt.js";
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -135,4 +136,162 @@ test("weekTable: tab-separated with empty cells for idle days", () => {
   assert.equal(lines[0], "Ticket\tRepo\tD1\tD2\tD3\tD4\tD5\tD6\tD7\tTotal");
   assert.equal(lines[1], "ABC-1\tapi\t1h\t\t\t\t\t\t\t1h");
   assert.equal(lines[2], "Total\t\t1h\t\t\t\t\t\t\t1h");
+});
+
+test("readPrompt: a boxed permission dialog", () => {
+  const screen = [
+    "● Bash(npm test)",
+    "╭──────────────────────────────────────────────╮",
+    "│ Bash command                                 │",
+    "│   rm -rf dist                                │",
+    "│ Do you want to proceed?                      │",
+    "│ ❯ 1. Yes                                     │",
+    "│   2. Yes, and don't ask again for rm commands │",
+    "│   3. No, and tell Claude what to do differently (esc) │",
+    "╰──────────────────────────────────────────────╯",
+  ].join("\n");
+  const p = readPrompt(screen);
+  assert.equal(p.question, "rm -rf dist\nDo you want to proceed?");
+  assert.deepEqual(p.options.map((o) => o.n), [1, 2, 3]);
+  assert.equal(p.options[1].label, "Yes, and don't ask again for rm commands");
+});
+
+test("readPrompt: choices without a frame, then nothing to answer", () => {
+  const p = readPrompt(" Which database?\n › 1. Postgres\n   2. SQLite\n");
+  assert.equal(p.question, "Which database?");
+  assert.deepEqual(p.options.map(({ n, label }) => ({ n, label })), [{ n: 1, label: "Postgres" }, { n: 2, label: "SQLite" }]);
+  const none = readPrompt("I changed three files.\nShould I also update the docs?\n");
+  assert.deepEqual(none.options, []);
+  assert.equal(none.question, "I changed three files.\nShould I also update the docs?");
+});
+
+test("readPrompt: an old numbered list is not a question", () => {
+  const p = readPrompt("Plan:\n1. Read\n3. Write\nWaiting.");
+  assert.deepEqual(p.options, []);
+});
+
+test("prChanges: silent on the first look, then CI, threads and review decisions", () => {
+  const look = (ci, threads, decision) => ({ viewer: { pullRequests: { nodes: [pr({
+    url: "u", number: 7, repository: { nameWithOwner: "me/api" }, reviewDecision: decision,
+    commits: { nodes: [{ commit: { committedDate: "2026-10-30T09:00:00Z", statusCheckRollup: { state: ci } } }] },
+    reviewThreads: { nodes: Array.from({ length: threads }, () => ({ isResolved: false })) },
+  })] } } });
+  const first = prChanges(null, look("PENDING", 0, null));
+  assert.deepEqual(first.events, []);
+  const red = prChanges(first.state, look("FAILURE", 2, "CHANGES_REQUESTED"));
+  assert.deepEqual(red.events.map((e) => e.kind), ["ci-failed", "threads", "changes"]);
+  assert.equal(red.events[1].title, "2 new review threads · api #7");
+  const green = prChanges(red.state, look("SUCCESS", 1, "APPROVED"));
+  assert.deepEqual(green.events.map((e) => e.kind), ["ci-passed", "approved"]);
+  assert.deepEqual(prChanges(green.state, look("SUCCESS", 1, "APPROVED")).events, []);
+});
+
+test("readPrompt: Claude's question menu with descriptions, a separator and a help line", () => {
+  const screen = [
+    "❯ hazme una pregunta sencillo esperando respuesta si o no",
+    "────────────────────────────────",
+    " □ PRs",
+    "",
+    "¿Quieres que revise si hay PRs abiertos pendientes en puntovivo?",
+    "",
+    "❯ 1. Sí",
+    "     Reviso los PRs abiertos del repo.",
+    "  2. No",
+    "     No reviso nada por ahora.",
+    "  3. Type something.",
+    "────────────────────────────────",
+    "  4. Chat about this",
+    "",
+    "Enter to select · ↑/↓ to navigate · Esc to cancel",
+  ].join("\n");
+  const p = readPrompt(screen);
+  assert.equal(p.question, "¿Quieres que revise si hay PRs abiertos pendientes en puntovivo?");
+  assert.deepEqual(p.options.map((o) => [o.n, o.label, o.detail]), [
+    [1, "Sí", "Reviso los PRs abiertos del repo."],
+    [2, "No", "No reviso nada por ahora."],
+    [3, "Type something.", ""],
+    [4, "Chat about this", ""],
+  ]);
+});
+
+test("readPrompt: a multiple choice with checked boxes and a Submit item", () => {
+  const screen = [
+    "❯ hazme una pregunta con seleccion multiple",
+    "────────────────────────────────",
+    "← ☒ CI gates  ✔ Submit  →",
+    "",
+    "¿Qué gates de CI quieres que corra en puntovivo? (puedes elegir varios)",
+    "",
+    "❯ 1. [✔] ci:web",
+    "     Typecheck, lint, tests y build de apps/web.",
+    "  2. [ ] ci:server",
+    "     Typecheck, lint y tests de packages/server.",
+    "  3. [✔] ci:desktop",
+    "  4. [✔] test:e2e:web",
+    "  5. [ ] Type something",
+    "     Submit",
+    "────────────────────────────────",
+    "  6. Chat about this",
+    "",
+    "Enter to select · ↑/↓ to navigate · Esc to cancel",
+  ].join("\n");
+  const p = readPrompt(screen);
+  assert.equal(p.question, "¿Qué gates de CI quieres que corra en puntovivo? (puedes elegir varios)");
+  assert.equal(p.multi, true);
+  assert.equal(freeOption(p), 5);
+  assert.equal(freeOption({ options: [{ n: 5, label: "interesante" }] }, 5), 5);
+  const typed = { ...p, options: p.options.map((o) => (o.n === 5 ? { ...o, label: "interesante" } : o)) };
+  assert.equal(freeOption(typed), 5);
+  assert.equal(freeOption({ options: [{ n: 1, label: "Sí" }, { n: 2, label: "otra" }, { n: 3, label: "Chat about this" }] }), 2);
+  assert.equal(freeOption({ options: [{ n: 1, label: "Yes" }, { n: 2, label: "No" }] }), null);
+  assert.deepEqual(moveKeys(p, 5), ["down", "down", "down", "down"]);
+  assert.deepEqual(moveKeys({ ...p, cursor: 6 }, 5), ["up", "up"]);
+  assert.deepEqual(moveKeys({ ...p, cursor: "submit" }, 5), ["up"]);
+  assert.deepEqual(moveKeys({ ...p, cursor: 5 }, 5), []);
+  assert.deepEqual(p.options.map((o) => [o.n, o.label, o.checked]), [
+    [1, "ci:web", true], [2, "ci:server", false], [3, "ci:desktop", true], [4, "test:e2e:web", true],
+    [5, "Type something", false], [6, "Chat about this", undefined],
+  ]);
+  assert.equal(p.options[4].detail, "");
+  assert.deepEqual(p.submit, { after: 5 });
+  assert.equal(p.cursor, 1);
+  assert.deepEqual(submitKeys(p), ["down", "down", "down", "down", "down", "enter"]);
+  assert.deepEqual(submitKeys({ ...p, cursor: 6 }), ["up", "enter"]);
+  assert.deepEqual(submitKeys({ ...p, cursor: "submit" }), ["enter"]);
+  assert.equal(submitKeys(readPrompt("Pick one\n❯ 1. A\n  2. B")), null);
+});
+
+test("readPrompt: a single choice with a preview beside the choices", () => {
+  const screen = "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n ☐ Commit fmt\nWhich commit message format do you want to use?\n❯ 1. Conventional Commits         ┌──────────────────────────────────────────┐\n  2. Imperative summary           │ feat(auth): add token refresh on 401     │\n  3. Gitmoji                      │                                          │\n                                  │ Retry the original request once after    │\n                                  │ refreshing the access token.             │\n                                  └──────────────────────────────────────────┘\n                                  Notes: press n to add notes\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  Chat about this\nEnter to select · ↑/↓ to navigate · n to add notes · Esc to cancel";
+  const p = readPrompt(screen);
+  assert.equal(p.question, "Which commit message format do you want to use?");
+  assert.deepEqual(p.options.map((o) => o.label), ["Conventional Commits", "Imperative summary", "Gitmoji"]);
+  assert.equal(p.multi, false);
+  assert.equal(p.cursor, 1);
+  assert.deepEqual(moveKeys(p, 2), ["down"]);
+});
+
+test("readPrompt: the answers summary before Submit answers", () => {
+  const screen = [
+    "← ☒ Horario ☒ Tema ☒ Git hosting ✔ Submit →",
+    "",
+    "Review your answers",
+    "",
+    " ● ¿En qué momento del día programas mejor?",
+    "   → Mañana",
+    " ● ¿Qué plataformas de Git usas? (puedes elegir varias)",
+    "   → GitHub, local",
+    "",
+    "Ready to submit your answers?",
+    "",
+    "❯ 1. Submit answers",
+    "  2. Cancel",
+  ].join("\n");
+  const p = readPrompt(screen);
+  assert.equal(p.question, "Ready to submit your answers?");
+  assert.deepEqual(p.summary, [
+    { question: "¿En qué momento del día programas mejor?", answer: "Mañana" },
+    { question: "¿Qué plataformas de Git usas? (puedes elegir varias)", answer: "GitHub, local" },
+  ]);
+  assert.deepEqual(readPrompt("Pick\n❯ 1. A\n  2. B").summary, []);
 });

@@ -25,19 +25,26 @@ task to another account.
   "Open file in …" finder field (`⌘O`), over a stack of Inbox, Files, Changes and Issues.
 - **Inbox**: a rounded (10px) list with a 36px header `Inbox · PRs <age>` and ↻. Groups, each under a 10.5px
   dim header with its count:
-  - `WAITING ON YOU`: a card per blocked agent, red border, "waiting for you", **Go to agent**.
+  - `WAITING ON YOU`: a card per blocked agent, red border, with the question it asks (read from its screen) and
+    its choices as a list: number, a ☑/☐ box in a multiple choice, label and dim description; the agent's cursor
+    row is tinted. Below: **Submit** when the form has one, **Reply** when it asks in words, **Agent**. On a
+    multi-question form's last step a gray block lists each question with its answer before "Submit answers".
   - `UNCOMMITTED WORK`: a card per resting agent whose checkout has changes: files, `+adds −dels`, buttons
     **Review**, **View diff**, **Files**, **Agent**.
   - `YOUR PRS` and `REVIEW REQUESTS`: cards (9px radius) with a dot, `repo #n · title`, an unresolved-threads
     badge (speech bubble + count, `ansi3`), a CI badge (✓ `ansi2`, ✕ `ansi1`, spinning ring `ansi3` while
     running), the age, why it is here ("CI failing", "changes requested", "review from …"), a split skill button
-    (`skill` + account chip | ▾) and **Open PR**. PRs older than 45 days fold under "▸ N older than 45 days".
+    (`skill` + account chip | ▾), **Review** on your own PRs and **Open PR**. PRs older than 45 days fold under
+    "▸ N older than 45 days".
   - `AGENT TIME TODAY` with a **Week** button: one row per ticket (or repo) with today's time.
   - `MERGED WORKTREES`: one 30px row per worktree whose branch merged: repo, branch, age, **Open**/**Go**,
     **Remove**. "▸ N worktrees without a space" folds the rest.
-- **Review pane** (opened beside the terminal): header `Review · <folder>`, the changed files (max 150px) with
-  comment counts, the diff of the open file with old/new line numbers, green and red rows, and a footer
-  "N comments for <agent>" with **Clear** and **Send to agent**.
+- **Review pane** (opened beside the terminal): header `Review · <folder>` (or `<repo> #n · against <base>` for a
+  PR), the changed files (max 150px) with comment counts, a bar with the open file and **Comment on file**, the
+  diff with old/new line numbers, green and red rows, and a footer "N comments for <agent>" with **Clear** and
+  **Send to agent**.
+- **Settings dialog** (800×700, the gear beside ACCOUNTS): accounts (chip preview, label, letter, launcher, Claude
+  dir, colors), Codex's launcher, contexts (label, account, orgs), fallback order, repos root and skills; Save.
 - **Week dialog** (720×460): `Agent time · week of <date>` with ‹ › and **Copy**, a table of tickets × Mon–Sun
   plus total, today's column in the accent color.
 - **Handoff popup** (300px): "Continue <tab> with…" and every other account with its quota.
@@ -59,10 +66,21 @@ task to another account.
 - **PR skills**: the left part runs the skill (`/review`, `/fix-ci`, `/address-comments` by default) in a new tab
   in the repo's space with the repo's account, or the next account in `FALLBACK` when it is at 100%; ▾ picks
   another account. The card then follows that agent ("reviewing…", **Agent**).
-- **Review pane**: a click on a line opens a comment field (Enter saves, Esc cancels); comments survive refreshes
+- **Answering from the Inbox** (measured on Claude Code's menus): a single choice moves the agent's cursor with
+  ↑/↓ and presses Enter; a multiple choice toggles a box with its number and **Submit** moves to Submit and presses
+  Enter; the free-text choice takes the Reply field's words as a paste (in a multiple choice the cursor goes there
+  by arrows and the box is checked again after the paste's Enter). The card rereads the screen after every key.
+- **PR alerts**: every PR scan compares your open PRs with the last one and posts a toast when CI fails or passes,
+  new review threads appear, or a PR is approved or gets changes requested (a sound on the bad ones).
+- **Review pane**: a click on a line opens a comment field, a shift-click extends it to a range, **Comment on file**
+  comments on the whole file (Enter saves, Esc cancels); comments survive refreshes
   (every 10 s while you are not typing), closing the pane and restarting Herdr. **Send to agent** pastes the
   numbered comments into the agent's terminal with `hc send`. **Clear** asks once more. Review on the same
-  checkout twice focuses the open pane.
+  checkout twice focuses the open pane. **Review** on a PR diffs from the merge base with its base branch: the
+  checkout's working tree, or the branch itself when it isn't checked out (fetched when not local); with no agent on
+  the PR, **Send** starts one in its repo with the repo's account.
+- **Settings**: Save validates (required fields, unique keys, the default context claims no orgs, known accounts in
+  contexts and fallback) and writes `config.js` atomically; Herdr reloads the mod.
 - **Worktrees**: **Remove** turns into a red **Confirm** ("closes its space" when it has one); confirming closes the
   space, runs `git worktree remove` (never forced) and `git branch -d`, shows a spinning "Removing…" and folds
   the row away.
@@ -115,7 +133,13 @@ task to another account.
   `cb83ff4`. Without space-folders the folders don't appear and the rest works.
 - Quotas need Claude Code's Keychain item per config dir (`Claude Code-credentials-<sha256(dir)[0:8]>`); an
   expired token is skipped, never refreshed.
-- The Inbox list doesn't scroll to the keyboard selection.
+- Plain containers can't be scrolled from code and virtual lists forbid handlers in rows, so while the keyboard
+  moves down the Inbox hides what is above the selection (keeping one) and shows "↑ N above · Esc".
+- Claude Code's menus differ by variant: a number answers a plain single choice, only moves the cursor in one with
+  previews, and only toggles a box in a multiple choice. Arrows and Enter work in every single choice.
+- `hc keys` rejects non-ASCII keys and drops the whole call; send words as a paste (`hc send`), never key by key.
+- Every save reloads the mod and leaves some memory in Herdr's JS engine; after many reloads it reports "out of
+  memory". Restart Herdr after a long editing session.
 - `/fix-ci` and `/address-comments` are not built into Claude Code; provide them or change `SKILLS`.
 
 ## Done when

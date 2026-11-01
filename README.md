@@ -1,8 +1,9 @@
 # Relevo
 
-A Herdr layout for running coding agents across several Claude accounts: quotas per account, an Inbox of
-pull requests, uncommitted agent work and merged worktrees, a line-by-line review pane that sends comments
-to the agent, handoffs between accounts, and a ledger of agent time per ticket.
+A Herdr layout for running coding agents across several Claude accounts: quotas per account, an Inbox where
+you answer agents waiting on you and triage pull requests, uncommitted work and merged worktrees, a review pane
+for local changes or whole PRs that sends line, range and file comments to the agent, handoffs between accounts,
+alerts when a PR's CI or reviews change, and a ledger of agent time per ticket.
 
 ![Relevo](preview.png)
 
@@ -15,8 +16,8 @@ to the agent, handoffs between accounts, and a ledger of agent time per ticket.
    `~/.config/herdr-app/mods/`).
 2. Copy `layouts/relevo.json` to `~/.config/herdr-app/layouts/` and `mods/relevo` and `mods/relevo-agents`
    to `~/.config/herdr-app/mods/`. Merge `keys.json` into yours.
-3. Edit `mods/relevo/config.js`: your accounts, the GitHub orgs that use each one, and where your clones live.
-   Then `herdr-app check ~/.config/herdr-app/mods/relevo` and switch to the layout (`ctrl-shift-l`).
+3. Switch to the layout (`ctrl-shift-l`) and open Settings (the gear beside ACCOUNTS): your accounts, the GitHub
+   orgs that use each one, and where your clones live. It writes `mods/relevo/config.js`, which you can also edit.
 
 It needs `git` and the GitHub CLI (`gh auth login`) on your PATH, and `claude` and optionally `codex`.
 
