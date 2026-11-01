@@ -6,6 +6,8 @@ to the agent, handoffs between accounts, and a ledger of agent time per ticket.
 
 ![Relevo](preview.png)
 
+*The preview is a mockup with demo data, drawn to match the layout.*
+
 ## Install
 
 1. Install the two community mods it uses: [space-folders](https://github.com/jankeesvw/herdr-space-folders)

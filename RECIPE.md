@@ -9,6 +9,8 @@ task to another account.
 
 ![Relevo](preview.png)
 
+*The preview is a mockup with demo data, drawn to match the layout.*
+
 ## What you see
 
 - **Sidebar** (`chrome`, 268px, collapses to a 44px rail): the Herdr brand row (46px); **Accounts** (158px): a
