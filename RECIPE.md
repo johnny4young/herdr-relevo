@@ -23,6 +23,9 @@ task to another account.
   and a panel toggle (44px, `panel.svg`).
 - **Right panel** (380px): a panel bar (66px) with the branch chips of the focused checkout and an
   "Open file in …" finder field (`⌘O`), over a stack of Inbox, Files, Changes and Issues.
+- **Files**: Herdr's tree with a right-click menu (New file, New folder, Rename, Move to Trash, Reveal in Finder,
+  Copy path, Copy relative path). A preview, and a file opened from the finder, show **Edit**; editing adds a
+  7px unsaved dot and **Save** (`⌘S`), and a change on disk shows a bar with **Reload** and **Keep mine**.
 - **Inbox**: a rounded (10px) list with a 36px header `Inbox · PRs <age>` and ↻. Groups, each under a 10.5px
   dim header with its count:
   - `WAITING ON YOU`: a card per blocked agent, red border, with the question it asks (read from its screen) and
@@ -105,19 +108,25 @@ task to another account.
   relevo `{role: "accounts"}`, `sidebar-lists` column with `spaces` space-folders and `agents` relevo-agents,
   `sidebar-footer` workspace-chrome `{footer: true}`) and `work` column (`tab-bar` row with `tabs`,
   `inbox-button` relevo, `issues-button` issues `{button: true}`, `panel-toggle` relevo; `work-body` row with
-  `main` and `panel` column: `panel-bar` relevo and `panel-body` stack of `inbox` relevo, `files`, `changes`,
+  `main` and `panel` column: `panel-bar` relevo and `panel-body` stack of `inbox` relevo, `files` relevo-files, `changes`,
   `issues`; `status` workspace-status).
 - **mods/relevo**: one View that picks a part by `props().role`: `accounts`, `inbox`, `inbox-button`,
-  `panel-toggle`, `panel-bar`, `account-menu`, `find-file`, `file-view`, `handoff`, `review-diff`, `ledger-week`.
+  `panel-toggle`, `panel-bar`, `account-menu`, `find-file`, `handoff`, `review-diff`, `ledger-week`.
   `config.js` holds accounts, contexts, fallback, `REPOS_ROOT` and skills; `lib/` holds pure helpers with
   `node --test` coverage. Only the accounts copy reads `nextCommand()`, so each `relevo.<command>` runs once.
 - **mods/relevo-agents**: Herdr's agents list with account and ticket chips (from the `agent.account` and
   `agent.jira` labels and the shared `relevo.setup`).
+- **mods/relevo-files**: Herdr's files tree with a right-click menu (`role: "menu"`), a name dialog for New file,
+  New folder and Rename (`role: "name"`) and a file pane (`role: "view"`, opened by the finder). Previews and
+  the file pane edit through `editor.js`: `writeTextFile` with the text that was read as `expected`, so a file
+  changed on disk is never overwritten silently; files of 1 MiB or more, binaries and truncated previews stay
+  read-only. Trash is `/usr/bin/trash`; the tree follows renames and new files through shared
+  `relevo-files.event`.
 - **Community mods**: space-folders (jankeesvw, tested at `cb83ff4`) and issues (jankeesvw).
 - **herdr**: `agents`, `panes`, `spaces`, `terminals`, `focused`, `layout`, `shared`/`setShared`, `exec`, `run`,
-  `notify`, `openOverlay`, `playSound`, `readTextFile`, `nextCommand`; commands `tab.new`, `space.new`,
+  `notify`, `openOverlay`, `playSound`, `readTextFile`, `writeTextFile`, `watchFolder`, `nextCommand`; commands `tab.new`, `space.new`,
   `space.close`, `pane.split`, `pane.focus`, `agent.focus`, `layout.select`, `layout.show`, `layout.toggle`.
-- **Programs**: `git`, `gh` (GraphQL for PRs, `pr list --state merged`, `pr view`), `hc read`/`hc send`, `security`
+- **Programs**: `/usr/bin/trash`, `open -R`, `mv -n`, `mkdir`, `git`, `gh` (GraphQL for PRs, `pr list --state merged`, `pr view`), `hc read`/`hc send`, `security`
   (Keychain), the account launchers.
 
 ## Watch out

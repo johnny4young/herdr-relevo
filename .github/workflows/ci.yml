@@ -20,6 +20,9 @@ jobs:
       - name: Tests
         working-directory: mods/relevo
         run: node --test 'test/*.test.mjs'
+      - name: Tests (relevo-files)
+        working-directory: mods/relevo-files
+        run: node --test 'test/*.test.mjs'
       - name: Lint
         run: npx --yes eslint@10.13.0 mods
       - name: No machine paths in the mods

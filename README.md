@@ -14,8 +14,8 @@ alerts when a PR's CI or reviews change, and a ledger of agent time per ticket.
 1. Install the two community mods it uses: [space-folders](https://github.com/jankeesvw/herdr-space-folders)
    and [issues](https://github.com/jankeesvw/herdr-issues) (from herdr.dev, or copy their folders into
    `~/.config/herdr-app/mods/`).
-2. Copy `layouts/relevo.json` to `~/.config/herdr-app/layouts/` and `mods/relevo` and `mods/relevo-agents`
-   to `~/.config/herdr-app/mods/`. Merge `keys.json` into yours.
+2. Copy `layouts/relevo.json` to `~/.config/herdr-app/layouts/` and `mods/relevo`, `mods/relevo-agents` and
+   `mods/relevo-files` to `~/.config/herdr-app/mods/`. Merge `keys.json` into yours.
 3. Switch to the layout (`ctrl-shift-l`) and open Settings (the gear beside ACCOUNTS): your accounts, the GitHub
    orgs that use each one, and where your clones live. It writes `mods/relevo/config.js`, which you can also edit.
 

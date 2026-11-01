@@ -1,13 +1,10 @@
 import { div } from "gpui-kit";
-import { h_flex, v_flex, InputState, Input, Editor, EditorState } from "gpui-base";
-import { theme, exec, run, spaces, panes, focused, props, openOverlay, closeOverlay, readTextFile, settings } from "herdr";
+import { h_flex, v_flex, InputState, Input } from "gpui-base";
+import { theme, exec, run, spaces, panes, focused, props, openOverlay, closeOverlay } from "herdr";
 import { touchedAt } from "./worktrees.js";
 import { ago } from "./lib/time.js";
 import { spinner, withKey } from "./ui.js";
 
-const LANG = {
-  ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", toml: "yaml", jsonc: "json", svelte: "html", vue: "html",
-};
 const MAX_FILES = 20000, SHOWN = 60;
 
 // A mod pane has no folder; a terminal beside it in the same tab speaks for it.
@@ -156,7 +153,7 @@ export class FileFinder {
     if (!file) return;
     const p = props();
     closeOverlay(p.overlay);
-    run("pane.split", { direction: "right", mod: "relevo", props: { role: "file-view", root: p.root, file } });
+    run("pane.split", { direction: "right", mod: "relevo-files", props: { role: "view", root: p.root, file } });
   }
 
   key(e, cx) {
@@ -186,56 +183,6 @@ export class FileFinder {
             .child(div().flex_none().child(f.slice(cut)))
             .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(f.slice(0, cut)));
         })));
-  }
-}
-
-export class FileView {
-  init(_props, cx) {
-    const { root, file } = props() ?? {};
-    this.file = file ?? "";
-    if (!file) {
-      this.error = "No file";
-      return;
-    }
-    cx.spawn(async (cx) => {
-      try {
-        const text = await readTextFile(`${root}/${file}`);
-        if (text === null) this.error = "This file is no longer available";
-        else if (text.includes("\0")) this.error = "Binary file · no text preview";
-        else {
-          const t = theme(), ext = file.includes(".") ? file.split(".").pop() : "txt";
-          this.code = EditorState.new({
-            language: LANG[ext] ?? ext,
-            readonly: true,
-            value: text.length > 400000 ? `${text.slice(0, 400000)}\n… (file truncated)` : text,
-            font_family: settings().font_family,
-            font_size: 12,
-            syntax: {
-              keyword: t.ansi5, string: t.ansi2, comment: t.dim, function: t.ansi4,
-              type: t.ansi3, number: t.ansi1, constant: t.ansi6,
-            },
-          });
-        }
-      } catch {
-        this.error = "Cannot preview this file";
-      }
-      cx.notify();
-    });
-  }
-
-  close() {
-    this.code?.release();
-  }
-
-  render() {
-    const t = theme();
-    return v_flex().id("relevo-file-view").size_full().min_h(0).bg(t.background).text_color(t.foreground)
-      .child(h_flex().h(30).flex_none().px(12).items_center()
-        .border_b(1).border_color(t.border).text_size(12).text_color(t.muted)
-        .child(this.file))
-      .child(this.code
-        ? Editor.new(this.code).flex_1().min_h(0)
-        : div().p(12).text_color(t.dim).child(this.error ?? "Loading…"));
   }
 }
 
