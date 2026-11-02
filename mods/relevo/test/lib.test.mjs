@@ -8,6 +8,7 @@ import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
 import { keyMap, formatShortcut } from "../lib/keys.js";
 import { mapMine, mapRequested, unresolved, prChanges } from "../lib/github.js";
 import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "../lib/prompt.js";
+import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "../lib/handoff.js";
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -324,3 +325,34 @@ test("lastMessage: the agent's last words, not tool calls or hook noise", () => 
   assert.equal(lastMessage("• Codex done: updated 3 files"), "Codex done: updated 3 files");
   assert.equal(lastMessage("no agent here"), "");
 });
+
+const ACCTS = [{ key: "personal", claudeDir: ".claude" }, { key: "work", claudeDir: ".claude-work" }, { key: "codex" }];
+const SESSION = "/h/.claude/projects/-h-code-api/1f2e-3d4c.jsonl";
+
+test("terminalAccount: the hook's label, else Codex by its app", () => {
+  assert.equal(terminalAccount({ labels: { "agent.account": "work" }, agent: "claude-code" }), "work");
+  assert.equal(terminalAccount({ labels: {}, agent: "codex" }), "codex");
+  assert.equal(terminalAccount({ agent: "claude-code" }), null);
+  assert.equal(terminalAccount(null), null);
+});
+
+test("handoffPlan: Claude to Claude resumes from a copy in the next account's projects folder", () => {
+  assert.deepEqual(handoffPlan({ from: "personal", to: "work", transcript: SESSION, accounts: ACCTS, home: "/h" }),
+    { mode: "resume", src: SESSION, dir: "/h/.claude-work/projects/-h-code-api", id: "1f2e-3d4c" });
+});
+
+test("handoffPlan: Codex on either side, an unknown session or the same account starts from a note", () => {
+  const plan = (o) => handoffPlan({ from: "personal", to: "work", transcript: SESSION, accounts: ACCTS, home: "/h", ...o }).mode;
+  assert.equal(plan({ to: "codex" }), "note");
+  assert.equal(plan({ from: "codex", transcript: null }), "note");
+  assert.equal(plan({ transcript: null }), "note");
+  assert.equal(plan({ from: null }), "note");
+  assert.equal(plan({ to: "personal" }), "note");
+  assert.equal(plan({ transcript: "/h/.claude/projects/-x/bad id;rm.jsonl" }), "note");
+});
+
+test("handoff prompts name the account or the app and the note", () => {
+  assert.match(resumePrompt("Work"), /on the Work account/);
+  assert.match(notePrompt("Codex", "/n.md"), /a Codex session .* Read \/n\.md/);
+});
+

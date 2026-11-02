@@ -1,5 +1,5 @@
 import { terminals, playSound, notify, shared, setShared } from "herdr";
-import { ACCOUNTS, accountOf } from "./accounts.js";
+import { ACCOUNTS, CODEX, accountOf } from "./accounts.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { CONTEXTS } from "./config.js";
 import { runsOut, clock, FIVE_HOURS, WEEK } from "./lib/time.js";
@@ -31,7 +31,7 @@ export class BackgroundWatch {
 }
 
 // One soft alert per account window at 80% and another at 95%, again only after it resets.
-// At 95% a Claude account's alert offers to continue its agent with another account, before it stops.
+// At 95% an account's alert offers to continue its agent with another account, before it stops.
 const HANDOFF_AT = 95;
 export function quotaAlerts(quotas) {
   const first = shared(ALERTED) == null, seen = { ...(shared(ALERTED) ?? {}) };
@@ -47,7 +47,7 @@ export function quotaAlerts(quotas) {
       const context = CONTEXTS.find((c) => c.account === key);
       if (first || (context && !inFocus(context.key))) continue;
       playSound("sounds/quota.mp3");
-      const handoff = full && ACCOUNTS.some((p) => p.key === key);
+      const handoff = full && [...ACCOUNTS, CODEX].some((p) => p.key === key);
       const out = runsOut(w, name === "5h" ? FIVE_HOURS : WEEK);
       const when = w.pct >= 100 ? "" : out ? ` · 100% at ${clock(out)}` : "";
       notify({

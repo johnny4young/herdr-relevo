@@ -50,7 +50,7 @@ task to another account.
   dir, colors), Codex's launcher, contexts (label, account, orgs), fallback order, repos root and skills; Save.
 - **Week dialog** (720×460): `Agent time · week of <date>` with ‹ › and **Copy**, a table of tickets × Mon–Sun
   plus total, today's column in the accent color.
-- **Handoff popup** (300px): "Continue <tab> with…" and every other account with its quota.
+- **Handoff popup** (300px): "Continue <tab> with…" and every other account, Codex included, with its quota.
 
 ## How it behaves
 
@@ -95,9 +95,11 @@ task to another account.
   left. `⌥⌘1–4` show Files, Changes, Inbox, Issues; `⌥⌘B` the panel; `⌥⌘D` review; `⌥⌘A` handoff;
   `⌥⌘G` the branch's PR; `⌥⌘R` respond to it; `⌥⌘W`/`⌥⇧⌘W` new or open worktree; `⌥⌘P/O/X` start an account.
   Tooltips show the key from `keys.json`.
-- **Handoff**: writes a note with the agent's last 160 screen lines, `git status` and the last 5 commits, then opens
-  a tab in the same folder with the other account and a prompt to read the note (the screen is marked as a
-  record, not instructions).
+- **Handoff**: between two Claude accounts, when the agent's `agent.transcript` label names its session file, it
+  copies that file into the next account's `projects/` folder and opens a tab with `--resume <id> --fork-session`:
+  the same conversation, told to check `git status` first. Otherwise (Codex on either side, or no label) it writes a
+  note with the agent's last 160 screen lines, `git status` and the last 5 commits, and the new tab reads it (the
+  screen is marked as a record, not instructions). Then it interrupts the old agent, so only one edits the tree.
 - **Ledger**: every 3 s working agents open a stretch and stopped ones close it into
   `~/.local/state/relevo/ledger.jsonl` (`{start, end, jira, repo, branch, account}`). Parallel agents on one ticket
   count once; a stretch across midnight splits.

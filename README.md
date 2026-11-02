@@ -28,7 +28,8 @@ when the branch isn't checked out.
 ### Never stop at 100%
 
 Each quota bar says when it runs out at the current pace. At 95%, an alert offers to continue the agent with another
-account; it writes the handoff note for you.
+account. Between Claude accounts the next one resumes the same conversation; to or from Codex it starts from a note
+with the last screen and the working tree.
 
 ![A quota at 95% and the handoff to another account](screenshots/handoff.png)
 
@@ -66,11 +67,12 @@ outside it, it decides on its own.
 - Runs `git`, `gh`, `hc` and the launchers in `config.js`; Files runs `/usr/bin/trash`, `open -R`, `mv -n` and `mkdir`.
 - Reaches the network for quotas: each Claude account's login from the macOS Keychain goes to Anthropic's usage
   endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token.
-- Writes `~/.local/state/relevo/ledger.jsonl` (agent time) and `~/.local/state/relevo/handoff/` (handoff notes),
+- Writes `~/.local/state/relevo/ledger.jsonl` (agent time) and `~/.local/state/relevo/handoff/` (handoff notes);
+  a handoff between Claude accounts copies the session file into the next account's `projects/` folder;
   the folders it adds to space-folders' file, and files you create, rename or save in Files.
 - Optional: sounds at `~/.config/herdr-app/sounds/{quota,review,bg-done}.mp3`; quota snapshots a Claude
-  statusline writes to `~/.cache/herdr-relevo/quota-<account>.json`; `agent.account` and `agent.jira`
-  terminal labels from a Claude hook, for account chips and per-ticket time.
+  statusline writes to `~/.cache/herdr-relevo/quota-<account>.json`; `agent.account`, `agent.jira` and
+  `agent.transcript` terminal labels from a Claude hook, for account chips, per-ticket time and resumed handoffs.
 
 ## Tests
 

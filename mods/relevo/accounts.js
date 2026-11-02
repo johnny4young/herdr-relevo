@@ -12,9 +12,10 @@ export const CODEX = withFile(CODEX_ACCOUNT);
 
 export const accountOf = (key) => [...ACCOUNTS, CODEX].find((p) => p.key === key) ?? ACCOUNTS[0];
 
-export function launchArgv(key, prompt) {
-  const p = accountOf(key);
-  return prompt ? ["zsh", "-ilc", `${p.launcher} "$1"`, "zsh", prompt] : ["zsh", "-ilc", p.launcher];
+// `args` go before the prompt as positional parameters, never into the shell text.
+export function launchArgv(key, prompt, args = []) {
+  const p = accountOf(key), refs = args.map((_, i) => ` "$${i + 2}"`).join("");
+  return prompt ? ["zsh", "-ilc", `${p.launcher}${refs} "$1"`, "zsh", prompt, ...args] : ["zsh", "-ilc", p.launcher];
 }
 
 
