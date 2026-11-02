@@ -34,8 +34,10 @@ export function handoffFrom(account) {
 
 // A copy of the session file in the next account's config dir, so it can resume that conversation.
 // Replacing an earlier copy is fine: --fork-session writes the new turns under another id.
+// Copied beside it and renamed into place, so a link already there is replaced, not written through.
 async function seedResume(plan) {
-  const r = await exec("sh", ["-c", 'test -f "$1" && ! test -L "$1" && mkdir -p "$2" && cp "$1" "$2/"', "sh", plan.src, plan.dir]);
+  const script = 'test -f "$1" && ! test -L "$1" && mkdir -p "$2" && cp "$1" "$2/.relevo-seed.$$" && mv -f "$2/.relevo-seed.$$" "$2/$3.jsonl"';
+  const r = await exec("sh", ["-c", script, "sh", plan.src, plan.dir, plan.id]);
   return r.code === 0;
 }
 
