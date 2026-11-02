@@ -84,18 +84,56 @@ def ours(hook):
     return NAME in (hook.get("command") or "")
 
 
+def command():
+    """Exits 0 whatever happens: on Stop a hook's exit 2 stops the agent from finishing, and python3 exits 2 for a moved script."""
+    path = shlex.quote(SCRIPT)
+    return "[ -f %s ] && python3 %s || true" % (path, path)
+
+
+def generated(hook):
+    """Only commands this script wrote: anything else that mentions it is someone's own and stays as it is."""
+    try:
+        parts = shlex.split(hook.get("command") or "")
+    except ValueError:
+        return False
+    if len(parts) == 2 and parts[0] == "python3":
+        return os.path.basename(parts[1]) == NAME
+    return len(parts) == 9 and parts[:2] == ["[", "-f"] and parts[3:6] == ["]", "&&", "python3"] and parts[7:] == ["||", "true"] \
+        and parts[2] == parts[6] and os.path.basename(parts[2]) == NAME
+
+
+def entries(settings, event):
+    return [h for group in (settings.get("hooks") or {}).get(event) or [] for h in group.get("hooks") or [] if generated(h)]
+
+
 def installed(settings):
-    hooks = settings.get("hooks") or {}
-    return all(any(ours(h) for group in hooks.get(e) or [] for h in group.get("hooks") or []) for e in EVENTS)
+    current = command()
+    return all([h.get("command") for h in entries(settings, e)] == [current] for e in EVENTS)
+
+
+def outdated(settings):
+    return not installed(settings) and any(entries(settings, e) for e in EVENTS)
 
 
 def add(settings):
-    command = "python3 " + shlex.quote(SCRIPT)
     hooks = settings.setdefault("hooks", {})
     for event in EVENTS:
-        groups = hooks.setdefault(event, [])
-        if not any(ours(h) for group in groups for h in group.get("hooks") or []):
-            groups.append({"hooks": [{"type": "command", "command": command}]})
+        found = False
+        groups = []
+        for group in hooks.get(event) or []:
+            kept = []
+            for hook in group.get("hooks") or []:
+                if generated(hook):
+                    if found:
+                        continue
+                    found = True
+                    hook["command"] = command()
+                kept.append(hook)
+            if kept:
+                groups.append(dict(group, hooks=kept))
+        if not found:
+            groups.append({"hooks": [{"type": "command", "command": command()}]})
+        hooks[event] = groups
 
 
 def remove(settings):
@@ -144,6 +182,7 @@ def manage(action, dirs):
             code = 1
             continue
         has = installed(settings)
+        old = outdated(settings)
         if action == "--install" and not has:
             add(settings)
             save(path, settings)
@@ -152,7 +191,7 @@ def manage(action, dirs):
             save(path, settings)
         elif action == "--check" and not has:
             code = 1
-        state = {"--install": "installed", "--uninstall": "removed"}.get(action, "installed" if has else "not installed")
+        state = {"--install": "installed", "--uninstall": "removed"}.get(action, "installed" if has else "outdated" if old else "not installed")
         print("%s (%s): %s" % (key, folder, state))
     return code
 

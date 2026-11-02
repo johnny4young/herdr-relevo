@@ -26,7 +26,7 @@ async function directory(path, on) {
   return out;
 }
 
-class Files {
+export class Files {
   init(_props, cx) {
     this.saved = new Map();
     this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {};
@@ -144,11 +144,15 @@ class Files {
       }
       this.folders = new Set([...this.folders].map(f => moved(f, e.path, e.to)));
     } else if (e.kind === "trashed") {
-      if (this.file && isUnder(this.file, e.path)) this.show(null);
+      // Unsaved edits stay; the editor offers Keep mine, as for any file deleted on disk.
+      if (this.file && isUnder(this.file, e.path)) {
+        if (this.editor?.dirty) this.editor.disk = null;
+        else this.show(null);
+      }
       for (const f of [...this.folders]) if (isUnder(f, e.path)) this.folders.delete(f);
     } else {
       for (let f = e.kind === "folder" ? e.path : parentOf(e.path); f; f = parentOf(f)) this.folders.add(f);
-      if (e.kind === "open") this.show(e.path, cx);
+      if (e.kind === "open" && !this.editor?.dirty) this.show(e.path, cx);
     }
     this.refresh(cx);
   }
