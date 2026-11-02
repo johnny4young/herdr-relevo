@@ -1,6 +1,6 @@
 // What a waiting agent is asking, read from the bottom of its screen: the question, its numbered choices,
 // whether they are checkboxes, where the cursor is and where a Submit item sits.
-const OPTION = /^([❯›>]\s*)?(\d)\.\s+(.+?)\s*$/;
+const OPTION = /^([❯›>]\s*)?(\d+)\.\s+(.+?)\s*$/;
 const SUBMIT = /^([❯›>]\s*)?(Submit|Submit answers)$/i;
 const BOX = /^\[([ xX✔✓✗])?\]\s*/;
 const FRAME = /^[│┃╭╮╰╯─━┌┐└┘|\s]+|[│┃╭╮╰╯─━┌┐└┘|\s]+$/g;
@@ -9,13 +9,19 @@ const MAX_GAP = 4;
 // A dialog's top edge is a whole solid line at the margin; a command's lines are indented and a diff is fenced with ╌.
 const EDGE = /^[╭┌─━][─━]{2,}[╮┐]?\s*$/;
 const PREVIEW = /\s{3,}[┌│└╭╰].*$/;
+// A menu sits at the bottom of the screen: its help and frame fit in these lines. A list higher up is old output.
+const TAIL = 10;
+const MARK = /^[❯›]\s*\S/;
 
 export function readPrompt(screen) {
   const lines = (screen ?? "").split("\n").map((l) => l.replace(FRAME, "")).slice(-60);
   const none = { question: lastLines(lines, 2), options: [], multi: false, submit: null, cursor: null, dialog: "" };
   let last = -1;
   for (let i = lines.length - 1; i >= 0 && last < 0; i--) if (OPTION.test(lines[i])) last = i;
-  if (last < 0) return none;
+  const filled = lines.filter((l) => l.trim());
+  const below = lines.slice(last + 1).filter((l) => l.trim()).length;
+  // Keys must not go to a menu this can't read: a cursor with no numbered choice under it is one.
+  if (last < 0 || below > TAIL) return filled.slice(-TAIL).some((l) => MARK.test(l)) ? { ...none, unparsed: true } : none;
   // Walk up from the last choice to choice 1.
   const found = [{ i: last, n: Number(OPTION.exec(lines[last])[2]) }];
   let gap = 0;
@@ -29,7 +35,7 @@ export function readPrompt(screen) {
     found.unshift({ i, n: Number(m[2]) });
     gap = 0;
   }
-  if (found[0].n !== 1) return { ...none, unparsed: true };
+  if (found[0].n !== 1 || found.at(-1).n > 9) return { ...none, unparsed: true };
   let submit = null, cursor = null;
   const options = found.map(({ i, n }, k) => {
     // A preview drawn beside the choices shares their lines; it starts after a wide gap with a box edge.
@@ -50,6 +56,8 @@ export function readPrompt(screen) {
     if (box) option.checked = Boolean(box[1] && box[1] !== " ");
     return option;
   });
+  // Without a cursor these are a numbered list, or a menu whose cursor is on a row that isn't read.
+  if (cursor === null) return { ...none, unparsed: true };
   const multi = options.some((o) => "checked" in o);
   const preview = previewBeside(screen);
   return {

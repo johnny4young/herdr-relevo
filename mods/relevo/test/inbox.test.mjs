@@ -508,3 +508,28 @@ test("PR data that arrived stays dated when a later step fails", async () => {
   assert.match(text(ui()), /PRs now/);
   assert.equal(inbox.mine.length, 1);
 });
+
+test("a second click during a send sends nothing", async () => {
+  const { ui, cx } = await waiting(DB);
+  const row = find(ui(), "answer-t1-1");
+  click(row, cx);
+  click(row, cx);
+  await flush();
+  assert.deepEqual(calls(/^hc keys t1/), ["hc keys t1 enter"]);
+});
+
+test("a numbered list with no cursor offers no choices and no reply", async () => {
+  const { ui } = await waiting("Plan:\n1. Rebuild\n2. Test\nPress Enter to continue\n");
+  assert.equal(find(ui(), "answer-t1-1"), null);
+  assert.equal(find(ui(), "reply-t1"), null);
+});
+
+test("a digit held with a modifier answers nothing", async () => {
+  const { inbox, ui, cx } = await waiting(DB);
+  ui();
+  inbox.keyboard = true;
+  inbox.sel = "in-t1";
+  inbox.navKey({ key: "1", modifiers: { platform: true } }, cx);
+  await flush();
+  assert.deepEqual(sent(), []);
+});

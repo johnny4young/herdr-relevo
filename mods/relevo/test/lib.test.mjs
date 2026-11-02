@@ -566,3 +566,12 @@ test("gitStateChanged: refs, HEAD and the index count; objects and locks don't",
   assert.equal(changed(`${dir}/objects/ab/cd`), false, "a folder named refs above the repo doesn't count");
   assert.equal(changed(`${dir}/index.lock`, `${dir}/refs/heads/main.lock`), false);
 });
+
+test("readPrompt: menus it can't read are flagged, old lists are not", () => {
+  assert.equal(readPrompt("Pick\n❯ 10. A\n  11. B").unparsed, true);
+  assert.equal(readPrompt("Pick\n❯ Yes\n  No").unparsed, true);
+  assert.equal(readPrompt("1. A\n2. B\nSee above.").unparsed, true);
+  const old = readPrompt(["1. A", "2. B", ...Array.from({ length: 12 }, (_, i) => `line ${i}`)].join("\n"));
+  assert.deepEqual(old.options, []);
+  assert.equal(old.unparsed, undefined);
+});

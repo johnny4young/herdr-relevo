@@ -98,6 +98,8 @@ export class KeyNav {
     }
     const items = this.nav ?? [];
     const at = items.findIndex((i) => i.id === this.sel);
+    const held = e.modifiers?.platform || e.modifiers?.control || e.modifiers?.alt;
+    if (/^[1-9]$/.test(e.key) && held) return;
     if (/^[1-9]$/.test(e.key) && items[at]?.choose) {
       items[at].choose(Number(e.key), cx);
     } else if (e.key === "down" || e.key === "up") {

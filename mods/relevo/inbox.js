@@ -57,6 +57,7 @@ export class Inbox {
     this.prompts = new Map();
     // A note to send right after the answer: address -> text.
     this.notes = new Map();
+    this.answering = new Set();
     this.reply = InputState.new({ value: "", placeholder: "Reply · Enter sends, Esc cancels" });
     this.reply.on("submit", (_e, cx) => this.sendReply(cx));
     this.today = [];
@@ -150,7 +151,7 @@ export class Inbox {
           const url = byTab.get(a.tab_name);
           if (url) {
             prAgents[url] = a;
-            continue;
+            if (a.status !== "blocked") continue;
           }
           if (a.address.includes("/") || a.status === "working") continue;
           const pane = byPane.get(a.pane);
@@ -262,7 +263,7 @@ export class Inbox {
         div().flex_1().min_w(0).truncate().text_size(10.5).text_color(t.dim).child(o.detail)));
     const actions = [
       ...(p.submit ? [button(t, `submit-${a.address}`, "Submit", (cx) => this.submit(a, p, cx), { kind: "solid" })] : []),
-      ...(p.options.length
+      ...(p.options.length || p.unparsed
         ? []
         : [button(t, `reply-${a.address}`, "Reply", (cx) => this.startReply(a, null, cx), { kind: "solid" })]),
       ...(p.options.length
@@ -301,24 +302,32 @@ export class Inbox {
   // number toggles the box; when the cursor sits in the free-text choice it would be typed, so ↑ leaves first.
   answer(a, option, cx, seen) {
     if (option.n === this.prompts.get(a.address)?.free) return this.startReply(a, option.n, cx, "reply", seen);
-    cx.spawn(async (cx) => {
-      // The cursor may have moved in the terminal since the last read.
-      if (!await this.stillAsking(a.address, seen, cx)) return;
-      const entry = this.prompts.get(a.address), p = entry.prompt;
+    this.sendOnce(a.address, seen, cx, async ({ prompt: p, free }) => {
       if (!p.multi) return this.press(a, [...moveKeys(p, option.n), "enter"], option.label, cx);
-      const leave = p.cursor != null && p.cursor === entry.free ? ["up"] : [];
-      this.press(a, [...leave, String(option.n)], option.label, cx);
+      const leave = p.cursor != null && p.cursor === free ? ["up"] : [];
+      return this.press(a, [...leave, String(option.n)], option.label, cx);
     });
   }
 
   submit(a, seen, cx) {
-    cx.spawn(async (cx) => {
-      if (!await this.stillAsking(a.address, seen, cx)) return;
-      const entry = this.prompts.get(a.address), prompt = entry.prompt;
-      const leave = prompt.cursor != null && prompt.cursor === entry.free ? ["up"] : [];
+    this.sendOnce(a.address, seen, cx, async ({ prompt, free }) => {
+      const leave = prompt.cursor != null && prompt.cursor === free ? ["up"] : [];
       // Leaving the field moves the cursor one up, so count the moves to Submit from there.
       const from = leave.length ? { ...prompt, cursor: prompt.cursor - 1 } : prompt;
-      this.press(a, [...leave, ...submitKeys(from)], "Submitted", cx);
+      return this.press(a, [...leave, ...submitKeys(from)], "Submitted", cx);
+    });
+  }
+
+  // One send per agent at a time: a second click's Enter would land in whatever dialog the first one reveals.
+  sendOnce(address, seen, cx, send) {
+    if (this.answering.has(address)) return;
+    this.answering.add(address);
+    cx.spawn(async (cx) => {
+      try {
+        if (await this.stillAsking(address, seen, cx)) await send(this.prompts.get(address), cx);
+      } finally {
+        this.answering.delete(address);
+      }
     });
   }
 
@@ -330,36 +339,36 @@ export class Inbox {
       return false;
     }
     const now = this.prompts.get(address).prompt;
-    if (seen ? samePrompt(seen, now) : !now.options.length && !now.unparsed) return true;
+    const live = agents().find((a) => a.address === address)?.status === "blocked";
+    if (live && (seen ? samePrompt(seen, now) : !now.options.length && !now.unparsed)) return true;
     notify({ title: "The question changed", body: "Nothing was sent. Read the card and answer again.", level: "warning" });
     cx.notify();
     return false;
   }
 
   // After a key the screen changes (a box checks, the next question shows), so read it again.
-  press(a, keys, label, cx) {
-    cx.spawn(async (cx) => {
-      const r = await exec("hc", ["keys", a.address, ...keys]);
-      if (r.code !== 0) {
-        notify({ title: "Could not answer", body: r.stderr.trim().split("\n")[0], level: "warning" });
-        return;
-      }
-      await cx.sleep(250);
-      await this.rereadPrompt(a.address);
-      cx.notify();
-      await this.sendNote(a);
-      if (!this.prompts.get(a.address)?.prompt.multi) {
-        notify({ title: `Answered ${a.tab_name || a.address}`, body: label, level: "success", timeout: 2000 });
-      }
-      this.scanLocal(cx);
-    });
+  async press(a, keys, label, cx) {
+    const r = await exec("hc", ["keys", a.address, ...keys]);
+    if (r.code !== 0) {
+      notify({ title: "Could not answer", body: r.stderr.trim().split("\n")[0], level: "warning" });
+      return;
+    }
+    await cx.sleep(250);
+    await this.rereadPrompt(a.address);
+    cx.notify();
+    await this.sendNote(a);
+    if (!this.prompts.get(a.address)?.prompt.multi) {
+      notify({ title: `Answered ${a.tab_name || a.address}`, body: label, level: "success", timeout: 2000 });
+    }
+    this.scanLocal(cx);
   }
 
   // Claude's own notes field sends the answer without a choice when its Enter is pressed (measured), so a note
   // goes as a message once the question is gone; Claude queues it if the agent is already working.
   async sendNote(a) {
     const note = this.notes.get(a.address);
-    if (!note || this.prompts.get(a.address)?.prompt.options.length) return;
+    const now = this.prompts.get(a.address)?.prompt;
+    if (!note || now?.options.length || now?.unparsed) return;
     this.notes.delete(a.address);
     const r = await exec("hc", ["send", a.address, `Note on my last answer: ${note}`]);
     if (r.code !== 0) notify({ title: "Could not send the note", body: r.stderr.trim().split("\n")[0], level: "warning" });
@@ -402,19 +411,21 @@ export class Inbox {
     }
     cx.notify();
     if (!text || !address) return;
-    cx.spawn(async (cx) => {
-      if (!await this.stillAsking(address, seen, cx)) return;
-      const p = this.prompts.get(address)?.prompt;
+    this.sendOnce(address, seen, cx, async ({ prompt: p }, cx) => {
+      const failed = (r) => {
+        if (!r || r.code === 0) return false;
+        notify({ title: "Could not reply", body: r.stderr.trim().split("\n")[0], level: "warning" });
+        return true;
+      };
       const keys = (list) => (list.length ? exec("hc", ["keys", address, ...list]) : null);
-      if (key && p?.multi) await keys(moveKeys(p, key));
-      else if (key && p?.cursor !== key) await keys([String(key)]);
-      const r = await exec("hc", ["send", "--force", address, text]);
-      if (r.code !== 0) notify({ title: "Could not reply", body: r.stderr.trim().split("\n")[0], level: "warning" });
-      else if (key && p?.multi) {
+      const moved = key && p?.multi ? await keys(moveKeys(p, key)) : key && p?.cursor !== key ? await keys([String(key)]) : null;
+      if (failed(moved)) return;
+      if (failed(await exec("hc", ["send", "--force", address, text]))) return;
+      if (key && p?.multi) {
         await cx.sleep(250);
         await this.rereadPrompt(address);
-        const checked = this.prompts.get(address)?.prompt.options.find((o) => o.n === key)?.checked;
-        await keys(checked ? ["up"] : ["up", String(key)]);
+        const now = this.prompts.get(address)?.prompt;
+        if (now && samePrompt(p, now)) await keys(now.options.find((o) => o.n === key)?.checked ? ["up"] : ["up", String(key)]);
       }
       await cx.sleep(250);
       await this.rereadPrompt(address);
