@@ -127,6 +127,9 @@ task to another account.
   `panel-toggle`, `panel-bar`, `account-menu`, `find-file`, `handoff`, `review-diff`, `ledger-week`.
   `config.js` holds accounts, contexts, fallback, `REPOS_ROOT` and skills; `lib/` holds pure helpers with
   `node --test` coverage. Only the accounts copy reads `nextCommand()`, so each `relevo.<command>` runs once.
+- **hooks/relevo-labels.py** (in mods/relevo): the optional Claude hook behind the `agent.*` labels, reading the
+  account from `config.js`. `--check`, `--install` and `--uninstall` change only the `hooks` key of each account's
+  settings, with a backup; `HOOK.md` is the runbook for an agent.
 - **mods/relevo-agents**: Herdr's agents list with account and ticket chips (from the `agent.account` and
   `agent.jira` labels and the shared `relevo.setup`) and a background marker from `agent.bg` (`⧗2` in `working`
   color, the full "2 shells" in its tooltip).

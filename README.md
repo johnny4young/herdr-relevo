@@ -77,9 +77,9 @@ outside it, it decides on its own.
   statusline writes to `~/.cache/herdr-relevo/quota-<account>.json`; `agent.account`, `agent.jira` and
   `agent.transcript` terminal labels from a Claude hook, for account chips, per-ticket time and resumed handoffs.
 - That hook is one optional Claude hook on three events (SessionStart, Stop, SessionEnd), and it only sets terminal
-  labels: account, ticket, session file and background tasks. It isn't in this repo yet. Without it Relevo still runs;
-  you lose account chips, resumed handoffs (handoffs use the note) and the background-task marker, while ticket time
-  falls back to the ticket in the branch name.
+  labels: account, ticket, session file and background tasks. Without it Relevo still runs; you lose account chips,
+  resumed handoffs (handoffs use the note) and the background-task marker, while ticket time falls back to the ticket
+  in the branch name. To set it up, tell your agent: `Read ~/.config/herdr-app/mods/relevo/hooks/HOOK.md and follow it.`
 
 ## Tests
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 · 2026-11-01
+
+- **The hook ships with Relevo.** `mods/relevo/hooks/relevo-labels.py` sets the account, ticket, session file and background labels, with `--check`, `--install` and `--uninstall`. Tell your agent to follow `hooks/HOOK.md`.
+
 ## 0.5.0 · 2026-11-01
 
 - **Mark a PR addressed.** ✓ on a PR card hides it until the PR has new activity (a comment, review or push); addressed ones fold under one line with Undo.
