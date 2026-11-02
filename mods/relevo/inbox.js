@@ -11,7 +11,7 @@ import { seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
 import { GIT_READ } from "./lib/git.js";
 import { STATS_FOR } from "./lib/refresh.js";
-import { readPrompt, samePrompt, submitKeys, freeOption, moveKeys, lastMessage } from "./lib/prompt.js";
+import { readPrompt, samePrompt, sameChoicesBut, submitKeys, freeOption, moveKeys, lastMessage } from "./lib/prompt.js";
 import { COUNT, showPanel } from "./toolbar.js";
 import { launched } from "./skills.js";
 import { openWeek } from "./week.js";
@@ -20,6 +20,9 @@ import { TreeViews } from "./inbox-trees.js";
 import { KeyNav, INBOX_FOCUS } from "./inbox-keys.js";
 import { LiveViews } from "./inbox-live.js";
 import { LocalAddressed } from "./inbox-addressed.js";
+
+// How long a send waits for its dialog to go, in 250 ms reads.
+const SETTLE_TRIES = 8;
 
 // Local work, pull requests and merged worktrees in one list; the PR and worktree parts live in their own files.
 function savedSince() {
@@ -306,7 +309,7 @@ export class Inbox {
       if (!p.multi) return this.press(a, [...moveKeys(p, option.n), "enter"], option.label, cx);
       const leave = p.cursor != null && p.cursor === free ? ["up"] : [];
       return this.press(a, [...leave, String(option.n)], option.label, cx);
-    });
+    }, seen?.multi);
   }
 
   submit(a, seen, cx) {
@@ -319,10 +322,10 @@ export class Inbox {
   }
 
   // One send per agent at a time: a second click's Enter would land in whatever dialog the first one reveals.
-  // Boxes of a multiple choice don't move on to anything, so those clicks wait their turn.
-  sendOnce(address, seen, cx, send) {
+  // A box of a multiple choice doesn't move on to anything, so those clicks wait their turn.
+  sendOnce(address, seen, cx, send, queue = false) {
     const busy = this.answering.get(address);
-    if (busy && !seen?.multi) return;
+    if (busy && !queue) return;
     let done;
     const turn = new Promise((resolve) => { done = resolve; });
     this.answering.set(address, turn);
@@ -352,15 +355,25 @@ export class Inbox {
     return false;
   }
 
+  // Holds the send's turn until the dialog it answered has gone, so a late click can't reach the next one.
+  async settle(address, before, cx) {
+    for (let i = 0; i < SETTLE_TRIES; i++) {
+      await cx.sleep(250);
+      await this.rereadPrompt(address);
+      const now = this.prompts.get(address)?.prompt;
+      if (!before?.options.length || before.multi || !now || !samePrompt(before, now)) return;
+    }
+  }
+
   // After a key the screen changes (a box checks, the next question shows), so read it again.
   async press(a, keys, label, cx) {
+    const before = this.prompts.get(a.address)?.prompt;
     const r = await exec("hc", ["keys", a.address, ...keys]);
     if (r.code !== 0) {
       notify({ title: "Could not answer", body: r.stderr.trim().split("\n")[0], level: "warning" });
       return;
     }
-    await cx.sleep(250);
-    await this.rereadPrompt(a.address);
+    await this.settle(a.address, before, cx);
     cx.notify();
     await this.sendNote(a);
     if (!this.prompts.get(a.address)?.prompt.multi) {
@@ -408,6 +421,10 @@ export class Inbox {
   sendReply(cx) {
     const text = this.reply.value().trim(), address = this.replying, key = this.replyKey, mode = this.replyMode;
     const seen = this.replySeen;
+    if (mode !== "note" && text && this.answering.has(address)) {
+      notify({ title: "Still answering this agent", body: "Nothing was sent. Try again in a moment.", level: "warning" });
+      return;
+    }
     this.replying = null;
     this.replyKey = null;
     this.replyMode = null;
@@ -431,10 +448,9 @@ export class Inbox {
         await cx.sleep(250);
         await this.rereadPrompt(address);
         const now = this.prompts.get(address)?.prompt;
-        if (now && samePrompt(p, now)) await keys(now.options.find((o) => o.n === key)?.checked ? ["up"] : ["up", String(key)]);
+        if (now && sameChoicesBut(key, p, now)) await keys(now.options.find((o) => o.n === key)?.checked ? ["up"] : ["up", String(key)]);
       }
-      await cx.sleep(250);
-      await this.rereadPrompt(address);
+      await this.settle(address, p, cx);
       cx.notify();
       this.scanLocal(cx);
     });

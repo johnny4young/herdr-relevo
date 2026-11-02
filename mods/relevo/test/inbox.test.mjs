@@ -558,3 +558,55 @@ test("a blocked agent in a PR's tab gets a card, and a resting one doesn't", asy
   await flush();
   assert.equal(find(ui(), "answer-t1-1"), null);
 });
+
+test("Submit clicked twice on a static screen presses once", async () => {
+  const boxes = " Pick\n › 1. [ ] A\n   2. [ ] B\n     Submit\n";
+  const { ui, cx } = await waiting(boxes);
+  const row = find(ui(), "submit-t1");
+  click(row, cx);
+  click(row, cx);
+  await flush();
+  assert.equal(calls(/^hc keys t1/).length, 1);
+});
+
+test("a click during a slow redraw can't reach the next dialog", async () => {
+  const { ui, cx, screen, inbox } = await waiting(DB);
+  const row = find(ui(), "answer-t1-1");
+  let sleeps = 0;
+  cx.sleep = async () => {
+    if (++sleeps === 2) click(row, cx);
+    if (sleeps === 3) screen.now = DELETE;
+  };
+  click(row, cx);
+  await flush();
+  assert.deepEqual(calls(/^hc keys t1/), ["hc keys t1 enter"]);
+  assert.equal(inbox.answering.size, 0);
+});
+
+test("a typed answer in a multiple choice is checked again after its label changes", async () => {
+  const before = " Pick\n   1. [ ] A\n › 2. [ ] Type something\n     Submit\n";
+  const { ui, cx, screen, inbox } = await waiting(before);
+  click(find(ui(), "answer-t1-2"), cx);
+  await flush();
+  inbox.reply.set_value("my words");
+  const realExec = fake.exec;
+  fake.exec = (cmd, args) => {
+    if (cmd === "hc" && args[0] === "send") screen.now = " Pick\n   1. [ ] A\n › 2. [ ] my words\n     Submit\n";
+    return realExec(cmd, args);
+  };
+  inbox.sendReply(cx);
+  await flush();
+  assert.deepEqual(calls(/^hc keys t1/).slice(-1), ["hc keys t1 up 2"]);
+});
+
+test("a reply while the agent is still being answered keeps its text", async () => {
+  const { inbox, cx } = await waiting("Should I go on?\n");
+  inbox.startReply({ address: "t1" }, null, cx);
+  inbox.reply.set_value("yes");
+  inbox.answering.set("t1", Promise.resolve());
+  inbox.sendReply(cx);
+  await flush();
+  assert.equal(inbox.replying, "t1");
+  assert.equal(fake.notices.at(-1).title, "Still answering this agent");
+  assert.deepEqual(sent(), []);
+});

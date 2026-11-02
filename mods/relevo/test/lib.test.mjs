@@ -567,17 +567,39 @@ test("gitStateChanged: refs, HEAD and the index count; objects and locks don't",
   assert.equal(changed(`${dir}/index.lock`, `${dir}/refs/heads/main.lock`), false);
 });
 
-test("readPrompt: menus it can't read are flagged, old lists are not", () => {
+test("readPrompt: menus it can't read are flagged, old lists and lone cursors are not", () => {
   assert.equal(readPrompt("Pick\n❯ 10. A\n  11. B").unparsed, true);
   assert.equal(readPrompt("Pick\n❯ Yes\n  No").unparsed, true);
+  assert.equal(readPrompt("Pick\n> Yes\n  No").unparsed, true);
   assert.equal(readPrompt("1. A\n2. B\nSee above.").unparsed, true);
   const old = readPrompt(["1. A", "2. B", ...Array.from({ length: 12 }, (_, i) => `line ${i}`)].join("\n"));
   assert.deepEqual(old.options, []);
   assert.equal(old.unparsed, undefined);
+  assert.equal(readPrompt("❯ fix the login bug\n\n⏺ Which file should I change?").unparsed, undefined);
+  assert.equal(readPrompt("Should I go on?\n› Ask Codex to do anything").unparsed, undefined);
 });
 
-test("samePrompt: a rule inside a dialog can't hide a command above it, and timers still don't count", () => {
+test("readPrompt: a menu with a cursor counts however tall its preview is", () => {
+  const rows = Array.from({ length: 14 }, (_, i) => `                     │ row ${i} │`);
+  const p = readPrompt([" Which?", " ❯ 1. Short          ┌────┐", "   2. Long           │ a  │", ...rows].join("\n"));
+  assert.equal(p.options.length, 2);
+  assert.equal(p.cursor, 1);
+});
+
+test("samePrompt: a rule inside a dialog can't hide a command above it", () => {
   const dialog = (above, command) => readPrompt([above, `   ${command}`, "────────────────", "   safe text", " Proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
-  assert.equal(samePrompt(dialog("Bash command", "npm test"), dialog("Bash command", "rm -rf /data")), false);
-  assert.equal(samePrompt(dialog("● Task (3s)", "npm test"), dialog("● Task (9s)", "npm test")), true);
+  const same = (a, b) => samePrompt(dialog(...a), dialog(...b));
+  assert.equal(same(["Bash command", "npm test"], ["Bash command", "rm -rf /data"]), false);
+  assert.equal(same(["Bash command", "chmod 700 x"], ["Bash command", "chmod 777 x"]), false);
+  const far = (c) => readPrompt([`   ${c}`, ...Array(25).fill("   echo ok"), "────────", " Proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
+  assert.equal(samePrompt(far("rm -rf /data"), far("npm test")), false);
+  const inner = (c) => readPrompt([`   ${c}`, "┌───┐", " Proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
+  assert.equal(samePrompt(inner("rm -rf /data"), inner("npm test")), false);
+});
+
+test("samePrompt: status lines above the edge don't count", () => {
+  const dialog = (status) => readPrompt([status, "────────", "   npm test", " Proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
+  for (const [a, b] of [["● Task (59s)", "● Task (1m 0s)"], ["✻ Thinking (950 tokens)", "✶ Thinking (1.2k tokens)"], ["⠋ Working", "⠙ Working"], ["  ⎿ Read a.js", "  ⎿ Read b.js"]]) {
+    assert.equal(samePrompt(dialog(a), dialog(b)), true, a);
+  }
 });
