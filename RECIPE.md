@@ -74,8 +74,10 @@ task to another account.
   `~/.herdr/worktrees/<repo>/<branch>` plus `gh pr checkout`, or the branch's existing checkout, then a space with the
   chosen account's agent and a prompt naming only the repo, number and URL (the title and branch are the author's
   text, so the agent reads them with `gh pr view`), told to wait for instructions. A fork's PR gets a local branch
-  `pr-<n>`, never a checkout matched by its branch name. Someone else's fork takes a second click ("Its code can run
-  on this Mac") and starts with `--setting-sources user`, so its project hooks don't run; Codex doesn't open it.
+  `pr-<n>`, never a checkout matched by its branch name. Someone else's fork doesn't get a session: an agent there
+  could run its code, and no launch flag makes that safe, so the row is disabled.
+- **Review on a PR**: uses the PR's checkout when it has one (uncommitted changes included); otherwise fetches
+  `+refs/pull/<n>/head:refs/relevo/pr/<n>` and reviews that exact head, with no branch made or moved.
 - **Addressed**: ✓ stores the moment in `~/.local/state/relevo/addressed.json`; the card stays out of its group and
   the count until the PR's `updatedAt` is later (a comment, review or push).
 - **Answering from the Inbox** (measured on Claude Code's menus): a single choice moves the agent's cursor with

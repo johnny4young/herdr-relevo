@@ -188,7 +188,7 @@ export class ReviewDiff {
 
   subject() {
     if (!this.pr) return undefined;
-    const where = this.pr.ref ? `; ${this.pr.head} is not checked out here, so work on it in a worktree` : "";
+    const where = this.pr.ref ? `; it is not checked out here, so work on it in a worktree (gh pr checkout ${this.pr.number})` : "";
     return `PR #${this.pr.number} (${this.pr.url}), the branch against ${this.pr.base}${where}`;
   }
 

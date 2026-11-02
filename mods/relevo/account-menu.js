@@ -24,11 +24,6 @@ export class AccountMenu {
   session(cx) {
     const p = props();
     if (this.busy) return;
-    // Someone else's fork takes a second click: its code can run on this machine.
-    if (p.pr.untrusted && !this.sure) {
-      this.sure = true;
-      return cx.notify();
-    }
     this.busy = true;
     this.error = null;
     cx.notify();
@@ -77,11 +72,9 @@ export class AccountMenu {
         }, claude)))
       .when(!claude, (el) => el.child(div().px(8).pb(2).text_size(10.5).text_color(t.dim).child("Skills run on Claude accounts")))
       .child(div().h(1).mx(6).my(2).bg(t.border))
-      .child(row("menu-session", this.busy ? "Creating the worktree…"
-        : this.sure ? "Its code can run on this Mac. Open it"
-          : `New session in a worktree of ${localBranch(p.pr)}`,
-      p.pr.untrusted ? "fork" : null, (cx) => this.session(cx), !this.busy && !(p.pr.untrusted && !claude)))
-      .when(p.pr.untrusted && !claude, (el) => el.child(div().px(8).pb(4).text_size(10.5).text_color(t.dim).child("Forks open on Claude accounts, without project settings")))
+      .child(row("menu-session", this.busy ? "Creating the worktree…" : `New session in a worktree of ${localBranch(p.pr)}`,
+        null, (cx) => this.session(cx), !this.busy && !p.pr.untrusted))
+      .when(Boolean(p.pr.untrusted), (el) => el.child(div().px(8).pb(4).text_size(10.5).text_color(t.dim).child("Someone else's fork: check it out yourself")))
       .when(Boolean(this.error), (el) => el.child(div().px(8).pb(4).text_size(11).text_color(t.blocked).child(this.error)));
   }
 }

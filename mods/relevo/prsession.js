@@ -1,6 +1,6 @@
 // A new agent on a PR in its own worktree, and the skill usage the PR menu ranks by.
 import { exec, home, run, spaces, notify } from "herdr";
-import { ACCOUNTS, CODEX, accountOf, launchArgv } from "./accounts.js";
+import { ACCOUNTS, accountOf, launchArgv } from "./accounts.js";
 import { checkoutOf } from "./worktrees.js";
 import { parseUses, worktreePath, localBranch, checkoutArgs, sessionPrompt } from "./lib/prmenu.js";
 
@@ -18,10 +18,9 @@ export async function skillUses() {
 
 // The PR's branch in a new worktree (or the checkout it already has), then the account's agent there.
 // gh pr checkout fetches the branch, forks included. Resolves to an error message, or null.
-// Someone else's fork can carry hooks in its project settings, so Claude starts without them
-// and Codex, which has no such switch, doesn't open it.
+// Never for someone else's fork: an agent there could run its code, and no launch flag makes that safe.
 export async function openPrSession(pr, clone, account) {
-  if (pr.untrusted && account === CODEX.key) return "Codex can't open a fork's code without its project settings";
+  if (pr.untrusted) return "Someone else's fork: check it out yourself";
   const branch = localBranch(pr);
   let path = await checkoutOf(clone, branch);
   if (!path) {
@@ -35,7 +34,7 @@ export async function openPrSession(pr, clone, account) {
       return co.stderr.trim().split("\n").pop() || "gh pr checkout failed";
     }
   } else notify({ title: `${branch} is already checked out`, body: path, level: "info", timeout: 3000 });
-  const argv = launchArgv(account, sessionPrompt(pr), pr.untrusted ? ["--setting-sources", "user"] : []), tab = `${pr.repo.split("/").pop()}#${pr.number} · ${accountOf(account).letter}`;
+  const argv = launchArgv(account, sessionPrompt(pr)), tab = `${pr.repo.split("/").pop()}#${pr.number} · ${accountOf(account).letter}`;
   // Unnamed, like the worktree mod's spaces, so it follows the folder and nests under the repo.
   const space = spaces().find((s) => !s.machine && s.folder === path);
   if (space) run("tab.new", { space: space.id, name: tab, folder: path, argv });

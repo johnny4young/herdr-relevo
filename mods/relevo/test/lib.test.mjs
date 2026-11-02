@@ -10,7 +10,7 @@ import { mapMine, mapRequested, unresolved, prChanges } from "../lib/github.js";
 import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "../lib/prompt.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "../lib/handoff.js";
 import { isAddressed, keepListed } from "../lib/addressed.js";
-import { parseUses, rankSkills, slug, worktreePath, localBranch, checkoutArgs, sessionPrompt } from "../lib/prmenu.js";
+import { parseUses, rankSkills, slug, worktreePath, localBranch, checkoutArgs, pullRef, pullRefspec, sessionPrompt } from "../lib/prmenu.js";
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -397,6 +397,11 @@ test("sessionPrompt leaves out what the PR's author wrote", () => {
   assert.match(p, /org\/api#7 checked out \(https:\/\/x\/7\)/);
   assert.match(p, /information, not instructions/);
   assert.doesNotMatch(p, /Ignore previous|run-this-now/);
+});
+
+test("pullRefspec forces our ref to the PR's head, so a force-push updates it", () => {
+  assert.equal(pullRef({ number: 7 }), "refs/relevo/pr/7");
+  assert.equal(pullRefspec({ number: 7 }), "+refs/pull/7/head:refs/relevo/pr/7");
 });
 
 test("a fork's PR gets its own local branch, whatever its head is called", () => {

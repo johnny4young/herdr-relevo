@@ -13,6 +13,7 @@ import { checkoutOf } from "./worktrees.js";
 import { ago } from "./lib/time.js";
 import { PR_QUERY, seconds, recent, mapMine, mapRequested, prChanges } from "./lib/github.js";
 import { keepListed } from "./lib/addressed.js";
+import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
 
 const ADDRESSED = ".local/state/relevo/addressed.json";
 
@@ -186,22 +187,17 @@ export class PrViews {
       actions);
   }
 
-  // The review pane on the PR's checkout; comments go to its agent, or a new one when none runs.
+  // The review pane on the PR's checkout, else on its exact head; comments go to its agent, or a new one when none runs.
   async reviewPR(pr) {
-    const clone = this.clones[pr.repo], head = pr.headRefName;
-    const info = { repo: pr.repo, number: pr.number, url: pr.url, base: pr.baseRefName, head };
-    const folder = await checkoutOf(clone, head);
+    const clone = this.clones[pr.repo];
+    const info = { repo: pr.repo, number: pr.number, url: pr.url, base: pr.baseRefName, head: pr.headRefName };
+    const folder = await checkoutOf(clone, localBranch(pr));
     if (!folder) {
-      // Not checked out: review the branch itself from the clone, fetching it when it isn't local.
-      const local = await exec("git", ["-C", clone, "rev-parse", "--verify", "--quiet", `refs/heads/${head}`]);
-      if (local.code === 0) info.ref = head;
-      else {
-        const r = await exec("git", ["-C", clone, "fetch", "--quiet", "origin", head]);
-        if (r.code !== 0) {
-          return notify({ title: `Could not fetch ${head}`, body: r.stderr.trim().split("\n")[0], level: "warning" });
-        }
-        info.ref = `origin/${head}`;
+      const r = await exec("git", ["-C", clone, "fetch", "--quiet", "origin", pullRefspec(pr)]);
+      if (r.code !== 0) {
+        return notify({ title: `Could not fetch PR #${pr.number}`, body: r.stderr.trim().split("\n")[0], level: "warning" });
       }
+      info.ref = pullRef(pr);
     }
     openReview(folder ?? clone, this.prAgents[pr.url]?.address ?? null, info);
   }
