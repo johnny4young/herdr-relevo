@@ -331,7 +331,11 @@ test("real git: a search that can't finish stops it", async (t) => {
   const { w, path } = realTree(t, "vendor/\n");
   const closed = join(path, "vendor", "closed");
   mkdirSync(closed, { recursive: true });
+  writeFileSync(join(path, "vendor", "kept.txt"), "x");
   chmodSync(closed, 0o000);
-  t.after(() => chmodSync(closed, 0o755));
-  assert.equal((await removalCheck(w)).error, "could not check its files");
+  try {
+    assert.equal((await removalCheck(w)).error, "could not check its files");
+  } finally {
+    chmodSync(closed, 0o755);
+  }
 });
