@@ -1,0 +1,52 @@
+{
+  "utc": "2026-11-02T17:08:06.532230+00:00",
+  "core_fix_verified": true,
+  "only_changed_condition": "daemon launch cwd Documents -> /tmp/hmnb-20261102; PWD matched cwd",
+  "before": {
+    "terminal_run_timeout_s": 8,
+    "status_get_timeout_s": 3,
+    "sample_main_thread": "__private_getcwd -> __getcwd -> open$NOCANCEL -> __open_nocancel"
+  },
+  "after": {
+    "terminal_run_s": 0.052569708,
+    "exit_code": 0,
+    "readback": "MNB_TERMINAL_PROBE_DONE",
+    "status_after_s": 0.00636625
+  },
+  "auth": {
+    "codex_cli": "0.166.0",
+    "claude_cli": "2.1.316",
+    "isolated_codex_logged_in": false,
+    "isolated_claude_logged_in": false
+  },
+  "models_started": 0,
+  "cpu_benchmarks_repeated": 0,
+  "permissions_or_security_changed": false,
+  "boundary": "Observed main-thread getcwd/open stall from Documents. Underlying macOS/security cause is not established; no permissions were changed. Starting in the same temporary fixture directory avoided it.",
+  "native_inbox_result": {
+    "synthetic_agent": true,
+    "real_pty": true,
+    "selection": 2,
+    "success": true,
+    "received_hex": "1b5b420d",
+    "elapsed_s": 2.023669375
+  },
+  "native_inbox_source": {
+    "utc": "2026-11-02T17:17:03.243555+00:00",
+    "source_pr": 4,
+    "source_commit": "03363101e20accfd0109d307d10757d9f14429d8",
+    "identical_inbox_source_copy": true,
+    "inbox_sha256": "64472cf8ceb8856b104d935e6724fcf21ba91f012308d075da9ee04e58216277",
+    "controller_modified_only_main_entry": true,
+    "models_started": 0,
+    "limits": "programmatic answer invocation; not mouse input or genuine provider UI"
+  },
+  "cold_native_acceptance": {
+    "utc": "2026-11-02T17:24:39.839850+00:00",
+    "cold_core_started_by_app": true,
+    "core_version": "0.1.17",
+    "readback_marker_found": true,
+    "initial_immediate_read_was_premature": true,
+    "core_status_responded": true
+  }
+}
