@@ -5,9 +5,9 @@ import { focusedCwd } from "./panelbar.js";
 import { button } from "./ui.js";
 import { launchInRepo } from "./accounts.js";
 import { accountFor } from "./context.js";
+import { GIT_READ as READ } from "./lib/git.js";
 import { diffRows, lineKey, selectRange, lineComment, fileComment, commentId, rangeRows, reviewMessage } from "./lib/diff.js";
 
-const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false"];
 const MAX_ROWS = 4000;
 // Open review panes by checkout, so a second Review focuses the first.
 const OPEN = "relevo.reviews";

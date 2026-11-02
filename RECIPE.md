@@ -33,7 +33,8 @@ task to another account.
     row is tinted. Below: **Submit** when the form has one, **Reply** when it asks in words, **Agent**. On a
     multi-question form's last step a gray block lists each question with its answer before "Submit answers".
   - `UNCOMMITTED WORK`: a card per resting agent whose checkout has changes: files, `+adds −dels`, buttons
-    **Review**, **View diff**, **Files**, **Agent**.
+    **Review**, **View diff**, **Files**, **Agent** and **✓** (addressed); addressed ones fold under "▸ N addressed",
+    each with **Undo**.
   - `YOUR PRS` and `REVIEW REQUESTS`: cards (9px radius) with a dot, `repo #n · title`, an unresolved-threads
     badge (speech bubble + count, `ansi3`), a CI badge (✓ `ansi2`, ✕ `ansi1`, spinning ring `ansi3` while
     running), the age, why it is here ("CI failing", "changes requested", "review from …"), a split skill button
@@ -56,15 +57,19 @@ task to another account.
 
 - **Agent status**: blocked agents become `WAITING ON YOU` cards; a working agent's checkout is left alone until
   it rests; done and idle agents with changes show under `UNCOMMITTED WORK`. A card's age is how long that status
-  has lasted.
+  has lasted, kept in `localStorage` across reloads.
 - **Accounts**: a click on a row starts that account's launcher in the focused folder. Hovering a meter shows when
   the window resets. Every 30 s it rereads the statusline snapshots; every 5 min it asks the usage endpoints.
   At 80% and again at 100% a quota plays `sounds/quota.mp3` and posts a toast; at 100% the toast hands off that
   account's focused, waiting or working agent.
 - **Focus picker**: `All`, or one context: the Inbox shows only that context's repos, its space folder unfolds and
   the other's folds, and alerts from the other context are muted. `⌥⌘F` cycles it.
-- **Inbox scans**: an in-memory check every 1.5 s of agents and spaces; a change rescans local work or worktrees.
-  Fallbacks: local work 60 s, PRs 3 min, worktrees 10 min. GitHub's merged-PR lists are cached 15 min per repo;
+- **Inbox scans**: an in-memory check every 1.5 s of agents, their turns and spaces; a change rescans local work or
+  worktrees. So does a shell command ending in a repo, and a change to the git state of a repo with a resting agent
+  (`watchFolder` on its git folder, 2 s after the last write; new objects and locks don't count). Reads use
+  `--no-optional-locks` with `core.fsmonitor` and `diff.autoRefreshIndex` off, so they can't wake the watch.
+  Fallbacks: local work 60 s and worktrees 10 min while the window is active, PRs 3 min. GitHub's merged-PR lists
+  are cached 15 min per repo;
   ↻ skips the cache. The Inbox redraws only when a card changes.
 - **PR skills**: the left part runs the skill (`/review`, `/fix-ci`, `/address-comments` by default) in a new tab
   in the repo's space with the repo's account, or the next account in `FALLBACK` when it is at 100%. The card then
@@ -79,9 +84,16 @@ task to another account.
 - **Review on a PR**: uses the PR's checkout when it has one (uncommitted changes included); otherwise fetches
   `+refs/pull/<n>/head:refs/relevo/pr/<n>` and reviews that exact head, with no branch made or moved.
 - **Addressed**: ✓ stores the moment in `~/.local/state/relevo/addressed.json`; the card stays out of its group and
-  the count until the PR's `updatedAt` is later (a comment, review or push).
-- **Answering from the Inbox** (measured on Claude Code's menus): a single choice moves the agent's cursor with
-  ↑/↓ and presses Enter; a multiple choice toggles a box with its number and **Submit** moves to Submit and presses
+  the count until the PR's `updatedAt` is later (a comment, review or push). On an uncommitted-work card ✓ sets the
+  terminal label `relevo.addressed=<ms>:<turn>` with `hc label`; the card returns when the agent works, waits or
+  starts a later turn. A label takes about 0.65 s to show, so the Inbox keeps the pending value until then.
+- **Answering from the Inbox**: before any key, it reads the screen again and compares the dialog with the card as
+  drawn: from the dialog's top edge, a whole solid line at the margin (the whole screen without one; a command's lines
+  are indented and `╌` fences a diff), to its last choice, plus each choice's label and whether it has Submit. The
+  cursor, boxes and a preview beside the choices don't count. If they differ it sends nothing, toasts "The question
+  changed" and redraws the card. Reply on a card without choices only checks that no menu, whole or unparsed, has
+  appeared, since the paste's Enter would pick an option. A failed or blank read of the screen sends nothing. Measured on Claude Code's menus: a single choice moves the agent's cursor
+  with ↑/↓ and presses Enter; a multiple choice toggles a box with its number and **Submit** moves to Submit and presses
   Enter; the free-text choice takes the Reply field's words as a paste (in a multiple choice the cursor goes there
   by arrows and the box is checked again after the paste's Enter). The card rereads the screen after every key.
 - **PR alerts**: every PR scan compares your open PRs with the last one and posts a toast when CI fails or passes,
@@ -103,9 +115,10 @@ task to another account.
 - **Keyboard**: `⌥⌘3` shows the Inbox and gives it the keyboard (accent border); ↑/↓ select cards and rows,
   Enter runs the main action (go to the agent, review, run the PR's skill or go to its agent, open the
   worktree), Esc returns to the previous pane. `⌘J` jumps to the next agent waiting on you and says how many are
-  left. `⌥⌘1–4` show Files, Changes, Inbox, Issues; `⌥⌘B` the panel; `⌥⌘D` review; `⌥⌘A` handoff;
+  left. `⌘]`/`⌘[` walk the agents in the Agents list's order. `⌥⌘1–4` show Files, Changes, Inbox, Issues; `⌥⌘B`
+  the panel; `⌥⌘D` review; `⌥⌘A` handoff;
   `⌥⌘G` the branch's PR; `⌥⌘R` respond to it; `⌥⌘W`/`⌥⇧⌘W` new or open worktree; `⌥⌘P/O/X` start an account.
-  Tooltips show the key from `keys.json`.
+  Keys live in the `layout:relevo` section of `keys.json`, and tooltips show them from there.
 - **Handoff**: between two Claude accounts, when the agent's `agent.transcript` label names its session file, it
   copies that file into the next account's `projects/` folder and opens a tab with `--resume <id> --fork-session`:
   the same conversation, told to check `git status` first. Otherwise (Codex on either side, or no label) it writes a
@@ -117,7 +130,7 @@ task to another account.
 
 ## Built from
 
-- **Layout** `layouts/relevo.json`: `root` row → `sidebar` column (`brand` workspace-chrome, `accounts`
+- **Layout** `layouts/relevo.json`, with `layouts/relevo.svg` as the picture Settings shows: `root` row → `sidebar` column (`brand` workspace-chrome, `accounts`
   relevo `{role: "accounts"}`, `sidebar-lists` column with `spaces` space-folders and `agents` relevo-agents,
   `sidebar-footer` workspace-chrome `{footer: true}`) and `work` column (`tab-bar` row with `tabs`,
   `inbox-button` relevo, `issues-button` issues `{button: true}`, `panel-toggle` relevo; `work-body` row with
@@ -141,9 +154,9 @@ task to another account.
   `relevo-files.event`.
 - **Community mods**: space-folders (jankeesvw, tested at `cb83ff4`) and issues (jankeesvw).
 - **herdr**: `agents`, `panes`, `spaces`, `terminals`, `focused`, `layout`, `shared`/`setShared`, `exec`, `run`,
-  `notify`, `openOverlay`, `playSound`, `readTextFile`, `writeTextFile`, `watchFolder`, `nextCommand`; commands `tab.new`, `space.new`,
+  `notify`, `openOverlay`, `playSound`, `readTextFile`, `writeTextFile`, `watchFolder`, `nextCommand`, `window`; commands `tab.new`, `space.new`,
   `space.close`, `pane.split`, `pane.focus`, `agent.focus`, `layout.select`, `layout.show`, `layout.toggle`.
-- **Programs**: `/usr/bin/trash`, `open -R`, `mv -n`, `mkdir`, `git`, `gh` (GraphQL for PRs, `pr list --state merged`, `pr view`), `hc read`/`hc send`, `security`
+- **Programs**: `/usr/bin/trash`, `open -R`, `mv -n`, `mkdir`, `git`, `gh` (GraphQL for PRs, `pr list --state merged`, `pr view`), `hc read`/`hc send`/`hc label`, `security`
   (Keychain), the account launchers.
 
 ## Watch out
@@ -178,4 +191,6 @@ task to another account.
 - A merged worktree's **Remove** → **Confirm** removes it with the spinner and the row folds away.
 - **Week** opens the table and **Copy** pastes as a table.
 - `⌥⌘3`, ↓, Enter on a waiting agent focuses that agent; Esc returns to the terminal.
+- ✓ on an uncommitted-work card folds it under "▸ 1 addressed"; a new turn of its agent brings it back.
+- A commit in a repo with a resting agent updates its card in about 2 s.
 - `node --test 'test/*.test.mjs'` passes in `mods/relevo`.

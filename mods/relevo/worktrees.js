@@ -1,6 +1,7 @@
 import { exec, home, spaces, panes } from "herdr";
 import { REPOS_ROOT as ROOT } from "./config.js";
 import { mergedHeads } from "./lib/github.js";
+import { GIT_READ } from "./lib/git.js";
 
 // Every linked worktree of the clones in ROOT, as "<main>\t<porcelain line>".
 const LIST = 'for d in "$1"/*/; do [ -d "$d.git" ] || continue; git -C "$d" worktree list --porcelain 2>/dev/null | awk -v d="${d%/}" \'{ print d "\t" $0 }\'; done';
@@ -67,7 +68,7 @@ export async function scanWorktrees(force = false) {
     w.open = [...open].some((p) => p === w.path || p.startsWith(`${w.path}/`));
     w.merged = Boolean(w.branch && merged[w.main].has(w.branch));
     if (w.merged) {
-      w.dirty = (await exec("git", ["--no-optional-locks", "status", "--porcelain"], { cwd: w.path })).stdout.trim() !== "";
+      w.dirty = (await exec("git", [...GIT_READ, "status", "--porcelain"], { cwd: w.path })).stdout.trim() !== "";
     }
   }
   return list.sort((a, b) => b.at - a.at);
