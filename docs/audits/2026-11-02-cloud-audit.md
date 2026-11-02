@@ -1,0 +1,11 @@
+# Reliability investigations — 2026-11-02
+
+Checked by reading the code at `5ad8b16` (0.5.6). None of these failures has been reproduced, and native GUI CPU, RAM and rendering weren't measured. This is not a production-readiness assessment.
+
+## Investigations, in priority order
+
+1. **Bound the quota refresh.** `mods/relevo/quota.js` collects accounts one at a time, with no deadline on fetches, `exec` calls or file reads. The Claude path awaits `shasum` and `security find-generic-password` before any fetch, so one stalled step could stop later accounts from updating, while the 5-minute timer in `mods/relevo/sidebar.js` starts another collection. Give each account's whole job a deadline, allow one collection at a time and keep per-account errors. Test with a job that never resolves, not only a stubbed fetch.
+2. **Keep addressed marks and report partial PR lists.** In `mods/relevo/inbox-prs.js`, the `live` set comes from the filtered PR lists, and it prunes both addressed marks and launched records. So a mark is lost once a PR stops needing attention, even with a complete list, and it can come back unmarked. Separately, `mods/relevo/lib/github.js` caps the lists at 30 and 20 PRs and threads at 50 per PR, and nothing tells the reader a list is partial. Prune from what GitHub returned before filtering, and show when a list is capped.
+3. **Alert on a new failure after a push.** `prChanges` in `mods/relevo/lib/github.js` compares states only. If a push goes from red to red and no poll lands while CI is pending, no "CI failed" alert fires. Compare the head commit as well. CI state and head already come from one GraphQL snapshot, so stale CI beside a new head isn't the risk here.
+4. **Confirm a handoff before interrupting.** `mods/relevo/handoff.js` starts the next agent and then interrupts the old one. Check what the host's launch call acknowledges before calling this a bug. Then test a failed launch, a slow start and a double click, keeping the old agent until the new one is ready.
+5. **Bound ledger reads.** `mods/relevo/ledger.js` reads and splits the whole ledger file. Benchmark synthetic histories of 10,000 and 1,000,000 rows before choosing a streaming tail, date shards or stored aggregates. Don't discard history silently.
