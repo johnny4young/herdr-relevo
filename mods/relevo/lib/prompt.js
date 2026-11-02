@@ -6,10 +6,14 @@ const BOX = /^\[([ xX✔✓✗])?\]\s*/;
 const FRAME = /^[│┃╭╮╰╯─━┌┐└┘|\s]+|[│┃╭╮╰╯─━┌┐└┘|\s]+$/g;
 // Lines between two choices that still belong to the menu: a description, a blank, a separator, Submit.
 const MAX_GAP = 4;
+// A dialog's solid top edge; a diff inside it is fenced with ╌, so that doesn't count.
+const EDGE = /^[\s│┃]*[╭┌─━][─━]{2,}/;
+const PREVIEW = /\s{3,}[┌│└╭╰].*$/;
+const DIALOG_LINES = 30;
 
 export function readPrompt(screen) {
   const lines = (screen ?? "").split("\n").map((l) => l.replace(FRAME, "")).slice(-60);
-  const none = { question: lastLines(lines, 2), options: [], multi: false, submit: null, cursor: null };
+  const none = { question: lastLines(lines, 2), options: [], multi: false, submit: null, cursor: null, dialog: "" };
   let last = -1;
   for (let i = lines.length - 1; i >= 0 && last < 0; i--) if (OPTION.test(lines[i])) last = i;
   if (last < 0) return none;
@@ -31,7 +35,7 @@ export function readPrompt(screen) {
   const options = found.map(({ i, n }, k) => {
     // A preview drawn beside the choices shares their lines; it starts after a wide gap with a box edge.
     const [, mark, , full] = OPTION.exec(lines[i]);
-    const raw = full.replace(/\s{3,}[┌│└╭╰].*$/, "");
+    const raw = full.replace(PREVIEW, "");
     if (mark) cursor = n;
     const box = BOX.exec(raw);
     const next = found[k + 1]?.i ?? Math.min(lines.length, i + 1 + MAX_GAP);
@@ -52,14 +56,22 @@ export function readPrompt(screen) {
   return {
     question: questionAbove(lines, found[0].i), options, multi, submit, cursor, preview,
     summary: summaryAbove(lines, found[0].i),
+    dialog: dialogWords((screen ?? "").split("\n").slice(-60), found[0].i, last),
   };
 }
 
-// Still what the card showed: the same words and choices, wherever the cursor is and whatever the boxes say.
-export const samePrompt = (seen, now) => seen.question === now.question
-  && Boolean(seen.submit) === Boolean(now.submit)
-  && seen.options.length === now.options.length
-  && seen.options.every((o, i) => o.label === now.options[i].label);
+// The dialog from its top edge to its last choice, without what the cursor changes: a permission's command can
+// sit far above the question. With no edge in reach it takes those lines, so a change there refuses rather than passes.
+function dialogWords(raw, first, last) {
+  let top = first;
+  while (top > 0 && first - top < DIALOG_LINES && !EDGE.test(raw[top - 1])) top--;
+  const clean = (l) => l.replace(FRAME, "").replace(/^[❯›>]\s*/, "").replace(/^(\d\.\s+)\[[^\]]?\]\s*/, "$1");
+  return [...raw.slice(top, first), ...raw.slice(first, last + 1).map((l) => l.replace(PREVIEW, ""))]
+    .map(clean).filter(Boolean).join("\n");
+}
+
+// Still the dialog the card came from, wherever the cursor is and whatever the boxes say.
+export const samePrompt = (seen, now) => seen.dialog === now.dialog && Boolean(seen.submit) === Boolean(now.submit);
 
 // The keys that move the cursor onto Submit and press it.
 export function submitKeys(prompt) {

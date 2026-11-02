@@ -362,3 +362,49 @@ test("a typed answer isn't sent to a question that changed while typing", async 
   assert.deepEqual(sent(), []);
   assert.equal(fake.notices.at(-1).title, "The question changed");
 });
+
+test("Reply on a card without choices sends, but not once a menu has appeared", async () => {
+  const { ui, inbox, cx, screen } = await waiting("Should I also update the docs?\n");
+  click(find(ui(), "reply-t1"), cx);
+  inbox.reply.set_value("yes");
+  screen.now = "Thinking about it.\nShould I also update the docs?\n";
+  inbox.sendReply(cx);
+  await flush();
+  assert.deepEqual(calls(/^hc send/), ["hc send --force t1 yes"]);
+  fake.execs.length = 0;
+  click(find(ui(), "reply-t1"), cx);
+  inbox.reply.set_value("yes");
+  screen.now = DELETE;
+  inbox.sendReply(cx);
+  await flush();
+  assert.deepEqual(sent(), []);
+  assert.equal(fake.notices.at(-1).title, "The question changed");
+});
+
+test("the keyboard answers the card as drawn, even if a read refreshed it before the redraw", async () => {
+  const { ui, inbox, cx, screen } = await waiting(DB);
+  ui();
+  const item = inbox.nav.find((i) => i.id === "in-t1");
+  screen.now = DELETE;
+  await inbox.rereadPrompt("t1");
+  item.choose(1, cx);
+  await flush();
+  assert.deepEqual(sent(), []);
+});
+
+test("a new question redraws the card, even within the same minute", async () => {
+  mock.timers.enable({ apis: ["Date"], now: 1_000_000_000 });
+  const { ui, inbox, cx, screen } = await waiting(DB);
+  ui();
+  setAgents(["t1", "working"]);
+  inbox.scanLocal(cx);
+  await flush();
+  mock.timers.tick(1000);
+  screen.now = DELETE;
+  setAgents(["t1", "blocked"]);
+  const redraws = cx.notified;
+  inbox.scanLocal(cx);
+  await flush();
+  assert.ok(cx.notified > redraws);
+  assert.match(text(ui()), /Delete the staging data/);
+});

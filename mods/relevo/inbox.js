@@ -323,9 +323,11 @@ export class Inbox {
   }
 
   // Keys only go to the question the card showed; if it changed, the card redraws with the new one.
+  // A card without choices (no seen) only needs none to have appeared: a paste's Enter would pick one.
   async stillAsking(address, seen, cx) {
     await this.rereadPrompt(address);
-    if (samePrompt(seen, this.prompts.get(address).prompt)) return true;
+    const now = this.prompts.get(address).prompt;
+    if (seen ? samePrompt(seen, now) : !now.options.length) return true;
     notify({ title: "The question changed", body: "Nothing was sent. Read the card and answer again.", level: "warning" });
     cx.notify();
     return false;
@@ -395,9 +397,7 @@ export class Inbox {
     cx.notify();
     if (!text || !address) return;
     cx.spawn(async (cx) => {
-      if (seen) {
-        if (!await this.stillAsking(address, seen, cx)) return;
-      } else await this.rereadPrompt(address);
+      if (!await this.stillAsking(address, seen, cx)) return;
       const p = this.prompts.get(address)?.prompt;
       const keys = (list) => (list.length ? exec("hc", ["keys", address, ...list]) : null);
       if (key && p?.multi) await keys(moveKeys(p, key));

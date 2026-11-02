@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.5 · 2026-11-02
+
+- **The check covers the whole dialog.** 0.5.4 compared only the question and choices, so two permissions with the same words and different commands looked alike. It now compares the dialog from its top edge to its last choice, including the command, diff and descriptions.
+- **Reply stops if a menu appears.** On a card without choices, a typed reply isn't sent once a menu has appeared, since its Enter would pick an option.
+- **The keyboard answers what's drawn.** A choice made by key now checks against the card on screen, like a click.
+
 ## 0.5.4 · 2026-11-02
 
 - **Answers only reach the question you saw.** Before sending a choice, Submit or a typed answer, the Inbox reads the agent's screen again. If the question or its choices changed, it sends nothing, says so and shows the new question.

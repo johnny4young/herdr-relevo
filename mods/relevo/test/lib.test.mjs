@@ -79,6 +79,30 @@ test("samePrompt: the cursor, boxes and a preview don't matter; the words and ch
   assert.equal(samePrompt(read(preview(1, "aaa")), read(preview(2, "bbb"))), true);
 });
 
+test("samePrompt: a permission for another command isn't the same, though its words and choices are", () => {
+  const dialog = (...command) => readPrompt([
+    "● Working (12s)", "────────────────", " Bash command", "", ...command.map((c) => `   ${c}`), "",
+    " Do you want to proceed?", " ❯ 1. Yes", "   2. No", "",
+  ].join("\n"));
+  assert.equal(samePrompt(dialog("npm test"), dialog("rm -rf /data")), false);
+  assert.equal(samePrompt(dialog("cd a", "npm test", "echo ok"), dialog("cd a", "rm -rf x", "echo ok")), false);
+  assert.equal(samePrompt(dialog("npm test"), dialog("npm test")), true);
+});
+
+test("samePrompt: what's above the dialog's edge can change; a diff inside it can't", () => {
+  const edit = (above, line) => readPrompt([
+    above, "────────────────", " Edit file", "╌╌╌╌╌╌╌╌", `  + ${line}`, "╌╌╌╌╌╌╌╌", " Make this edit?", " ❯ 1. Yes", "   2. No",
+  ].join("\n"));
+  assert.equal(samePrompt(edit("● Task (3s)", "a"), edit("● Task (9s)", "a")), true);
+  assert.equal(samePrompt(edit("● Task (3s)", "a"), edit("● Task (3s)", "b")), false);
+});
+
+test("samePrompt: a choice's description counts, a preview beside it doesn't", () => {
+  const menu = (detail, inner, cursor) => readPrompt(` Which?\n ${cursor === 1 ? "›" : " "} 1. Short     ┌────┐\n     ${detail}      │ ${inner} │\n ${cursor === 2 ? "›" : " "} 2. Long      └────┘\n`);
+  assert.equal(samePrompt(menu("keeps it", "aaa", 1), menu("keeps it", "bbb", 2)), true);
+  assert.equal(samePrompt(menu("keeps it", "aaa", 1), menu("deletes it", "aaa", 1)), false);
+});
+
 test("relevoKeys: the layout's section counts and wins over global", () => {
   const map = relevoKeys({
     global: { "cmd-t": "tab.new", "cmd-g": "relevo.review" },
