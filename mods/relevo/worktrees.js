@@ -1,5 +1,6 @@
 import { exec, home, spaces, panes } from "herdr";
 import { REPOS_ROOT as ROOT } from "./config.js";
+import { mergedHeads } from "./lib/github.js";
 
 // Every linked worktree of the clones in ROOT, as "<main>\t<porcelain line>".
 const LIST = 'for d in "$1"/*/; do [ -d "$d.git" ] || continue; git -C "$d" worktree list --porcelain 2>/dev/null | awk -v d="${d%/}" \'{ print d "\t" $0 }\'; done';
@@ -35,9 +36,9 @@ async function githubMerged(main, force) {
   const branches = new Set();
   const repo = slug((await exec("git", ["-C", main, "remote", "get-url", "origin"])).stdout);
   if (repo) {
-    const r = await exec("gh", ["pr", "list", "-R", repo, "--state", "merged", "--limit", "100", "--json", "headRefName"]);
+    const r = await exec("gh", ["pr", "list", "-R", repo, "--state", "merged", "--limit", "100", "--json", "headRefName,isCrossRepository"]);
     if (r.code !== 0) return hit?.branches ?? branches;
-    for (const p of JSON.parse(r.stdout)) branches.add(p.headRefName);
+    for (const name of mergedHeads(JSON.parse(r.stdout))) branches.add(name);
   }
   mergedOnGitHub.set(main, { at: Date.now(), branches });
   return branches;

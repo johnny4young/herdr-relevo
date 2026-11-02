@@ -6,7 +6,7 @@ import { diffRows, lineKey } from "../lib/diff.js";
 import { ownerOf, contextFor } from "../lib/context.js";
 import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
 import { keyMap, formatShortcut } from "../lib/keys.js";
-import { mapMine, mapRequested, unresolved, prChanges } from "../lib/github.js";
+import { mapMine, mapRequested, unresolved, prChanges, mergedHeads } from "../lib/github.js";
 import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "../lib/prompt.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "../lib/handoff.js";
 import { isAddressed, keepListed } from "../lib/addressed.js";
@@ -411,5 +411,12 @@ test("a fork's PR gets its own local branch, whatever its head is called", () =>
   const same = { ...fork, headRefName: "feat/a", isCrossRepository: false };
   assert.equal(localBranch(same), "feat/a");
   assert.deepEqual(checkoutArgs(same), ["pr", "checkout", "7", "-R", "org/api"]);
+});
+
+test("mergedHeads ignores a fork's branch, even one named like yours", () => {
+  assert.deepEqual(mergedHeads([
+    { headRefName: "feat/a", isCrossRepository: false },
+    { headRefName: "main", isCrossRepository: true },
+  ]), ["feat/a"]);
 });
 

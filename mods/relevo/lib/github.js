@@ -49,6 +49,9 @@ export function mapRequested(data) {
   return list.sort(newest);
 }
 
+// Branch names of merged PRs from this repo; a fork's branch named like one of yours says nothing about yours.
+export const mergedHeads = (prs) => prs.filter((p) => !p.isCrossRepository).map((p) => p.headRefName);
+
 const ciOf = (p) => p.commits?.nodes[0]?.commit?.statusCheckRollup?.state ?? null;
 const RED = new Set(["FAILURE", "ERROR"]);
 

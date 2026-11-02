@@ -1,11 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 · 2026-11-01
 
 - **Mark a PR addressed.** ✓ on a PR card hides it until the PR has new activity (a comment, review or push); addressed ones fold under one line with Undo.
 - **More from a PR's ▾.** Pick any account, run the recommended skill or the two you use most, or open a new session on the PR in its own worktree with the PR checked out. Someone else's fork doesn't get a session, since an agent there could run its code.
 - **Review shows the PR's exact code.** Without a checkout it reviews the head GitHub publishes for the PR, so a stale local branch or a fork's branch named like one of yours can't show the wrong code.
 - **Background work shows on agents.** An agent with background shells or wakeups shows ⧗ and the count beside its account chip.
+- **Merged worktrees ignore forks.** A merged fork PR whose branch is named like one of yours no longer marks your worktree as merged.
 
 ## 0.4.1 · 2026-11-01
 
