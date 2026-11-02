@@ -11,7 +11,7 @@ import { seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
 import { GIT_READ } from "./lib/git.js";
 import { STATS_FOR } from "./lib/refresh.js";
-import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "./lib/prompt.js";
+import { readPrompt, samePrompt, submitKeys, freeOption, moveKeys, lastMessage } from "./lib/prompt.js";
 import { COUNT, showPanel } from "./toolbar.js";
 import { launched } from "./skills.js";
 import { openWeek } from "./week.js";
@@ -141,6 +141,9 @@ export class Inbox {
         const since = nextSince(this.since, all, Date.now() / 1000);
         if (JSON.stringify(since) !== JSON.stringify(this.since)) localStorage.setItem("since", JSON.stringify(since));
         this.since = since;
+        // A saved age outlives an absence, so it can't vouch for the question read before it.
+        const listed = new Set(all.map((a) => a.address));
+        for (const address of this.prompts.keys()) if (!listed.has(address)) this.prompts.delete(address);
         // A repo's one card goes to an agent not marked addressed, if it has one.
         const marked = (a) => (this.addressedLabel(a.address) ? 1 : 0);
         for (const a of [...all].sort((x, y) => marked(x) - marked(y))) {
@@ -248,7 +251,7 @@ export class Inbox {
       .tooltip(o.detail ? `${o.label} · ${o.detail}` : o.label)
       .on_click((_e, cx) => {
         cx.stop_propagation();
-        this.answer(a, o, cx);
+        this.answer(a, o, cx, p);
       })
       .child(div().w(12).flex_none().text_size(10.5).text_color(t.dim).child(String(o.n)))
       .when("checked" in o, (el) => el.child(div().flex_none().text_size(12)
@@ -296,26 +299,36 @@ export class Inbox {
   // Measured on Claude's menus: in a single choice ↑/↓ then Enter answers in every variant (a number answers
   // at once in some and only moves the cursor in others, like the one with previews). In a multiple choice the
   // number toggles the box; when the cursor sits in the free-text choice it would be typed, so ↑ leaves first.
-  answer(a, option, cx) {
-    const entry = this.prompts.get(a.address), p = entry?.prompt;
-    if (option.n === entry?.free) return this.startReply(a, option.n, cx);
-    if (p && !p.multi) {
+  answer(a, option, cx, seen) {
+    if (option.n === this.prompts.get(a.address)?.free) return this.startReply(a, option.n, cx, "reply", seen);
+    cx.spawn(async (cx) => {
       // The cursor may have moved in the terminal since the last read.
-      return cx.spawn(async (cx) => {
-        await this.rereadPrompt(a.address);
-        this.press(a, [...moveKeys(this.prompts.get(a.address).prompt, option.n), "enter"], option.label, cx);
-      });
-    }
-    const leave = p?.cursor != null && p.cursor === entry?.free ? ["up"] : [];
-    this.press(a, [...leave, String(option.n)], option.label, cx);
+      if (!await this.stillAsking(a.address, seen, cx)) return;
+      const entry = this.prompts.get(a.address), p = entry.prompt;
+      if (!p.multi) return this.press(a, [...moveKeys(p, option.n), "enter"], option.label, cx);
+      const leave = p.cursor != null && p.cursor === entry.free ? ["up"] : [];
+      this.press(a, [...leave, String(option.n)], option.label, cx);
+    });
   }
 
-  submit(a, prompt, cx) {
-    const entry = this.prompts.get(a.address);
-    const leave = prompt.cursor != null && prompt.cursor === entry?.free ? ["up"] : [];
-    // Leaving the field moves the cursor one up, so count the moves to Submit from there.
-    const from = leave.length ? { ...prompt, cursor: prompt.cursor - 1 } : prompt;
-    this.press(a, [...leave, ...submitKeys(from)], "Submitted", cx);
+  submit(a, seen, cx) {
+    cx.spawn(async (cx) => {
+      if (!await this.stillAsking(a.address, seen, cx)) return;
+      const entry = this.prompts.get(a.address), prompt = entry.prompt;
+      const leave = prompt.cursor != null && prompt.cursor === entry.free ? ["up"] : [];
+      // Leaving the field moves the cursor one up, so count the moves to Submit from there.
+      const from = leave.length ? { ...prompt, cursor: prompt.cursor - 1 } : prompt;
+      this.press(a, [...leave, ...submitKeys(from)], "Submitted", cx);
+    });
+  }
+
+  // Keys only go to the question the card showed; if it changed, the card redraws with the new one.
+  async stillAsking(address, seen, cx) {
+    await this.rereadPrompt(address);
+    if (samePrompt(seen, this.prompts.get(address).prompt)) return true;
+    notify({ title: "The question changed", body: "Nothing was sent. Read the card and answer again.", level: "warning" });
+    cx.notify();
+    return false;
   }
 
   // After a key the screen changes (a box checks, the next question shows), so read it again.
@@ -355,10 +368,11 @@ export class Inbox {
     for (const i of this.local) if (i.agent.address === address) i.prompt = this.prompts.get(address).prompt;
   }
 
-  startReply(a, key, cx, mode = "reply") {
+  startReply(a, key, cx, mode = "reply", seen = null) {
     this.replying = a.address;
     this.replyKey = key;
     this.replyMode = mode;
+    this.replySeen = seen;
     this.reply.set_value("");
     this.reply.focus();
     cx.notify();
@@ -370,6 +384,7 @@ export class Inbox {
   // checks it again. hc keys can't type accents, so the words always go as a paste.
   sendReply(cx) {
     const text = this.reply.value().trim(), address = this.replying, key = this.replyKey, mode = this.replyMode;
+    const seen = this.replySeen;
     this.replying = null;
     this.replyKey = null;
     this.replyMode = null;
@@ -380,7 +395,9 @@ export class Inbox {
     cx.notify();
     if (!text || !address) return;
     cx.spawn(async (cx) => {
-      await this.rereadPrompt(address);
+      if (seen) {
+        if (!await this.stillAsking(address, seen, cx)) return;
+      } else await this.rereadPrompt(address);
       const p = this.prompts.get(address)?.prompt;
       const keys = (list) => (list.length ? exec("hc", ["keys", address, ...list]) : null);
       if (key && p?.multi) await keys(moveKeys(p, key));

@@ -87,8 +87,10 @@ task to another account.
   the count until the PR's `updatedAt` is later (a comment, review or push). On an uncommitted-work card ✓ sets the
   terminal label `relevo.addressed=<ms>:<turn>` with `hc label`; the card returns when the agent works, waits or
   starts a later turn. A label takes about 0.65 s to show, so the Inbox keeps the pending value until then.
-- **Answering from the Inbox** (measured on Claude Code's menus): a single choice moves the agent's cursor with
-  ↑/↓ and presses Enter; a multiple choice toggles a box with its number and **Submit** moves to Submit and presses
+- **Answering from the Inbox**: before any key, it reads the screen again and compares the question, choices and
+  Submit with the card as drawn (the cursor and boxes don't count). If they differ it sends nothing, toasts "The
+  question changed" and redraws the card. Measured on Claude Code's menus: a single choice moves the agent's cursor
+  with ↑/↓ and presses Enter; a multiple choice toggles a box with its number and **Submit** moves to Submit and presses
   Enter; the free-text choice takes the Reply field's words as a paste (in a multiple choice the cursor goes there
   by arrows and the box is checked again after the paste's Enter). The card rereads the screen after every key.
 - **PR alerts**: every PR scan compares your open PRs with the last one and posts a toast when CI fails or passes,

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.4 · 2026-11-02
+
+- **Answers only reach the question you saw.** Before sending a choice, Submit or a typed answer, the Inbox reads the agent's screen again. If the question or its choices changed, it sends nothing, says so and shows the new question.
+- **A returning agent shows its current question.** Fixes a bug from 0.5.3: an agent that left the list and came back waiting could show its old question, and a click then answered the new one.
+
 ## 0.5.3 · 2026-11-02
 
 - **Walk your agents.** `⌘]` and `⌘[` move to the next or previous agent, in the Agents list's order.

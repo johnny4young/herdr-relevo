@@ -24,7 +24,7 @@ export class KeyNav {
         id: `in-${i.agent.address}`, section: "waiting", go: () => run("agent.focus", { terminal: i.agent.address }),
         choose: (n, cx) => {
           const option = i.prompt?.options.find((o) => o.n === n);
-          if (option) this.answer(i.agent, option, cx);
+          if (option) this.answer(i.agent, option, cx, i.prompt);
         },
       });
     }

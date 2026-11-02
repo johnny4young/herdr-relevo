@@ -7,7 +7,7 @@ import { ownerOf, contextFor } from "../lib/context.js";
 import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
 import { keyMap, relevoKeys, formatShortcut } from "../lib/keys.js";
 import { mapMine, mapRequested, unresolved, prChanges, mergedHeads } from "../lib/github.js";
-import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "../lib/prompt.js";
+import { readPrompt, samePrompt, submitKeys, freeOption, moveKeys, lastMessage } from "../lib/prompt.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "../lib/handoff.js";
 import { isAddressed, keepListed, addressedValue, staleAddressed } from "../lib/addressed.js";
 import { isDue, runningCommands, endedFolders, repoOf, gitStateChanged } from "../lib/refresh.js";
@@ -62,6 +62,21 @@ test("totals: overlapping stretches on one ticket count once", () => {
     { key: "ABC-1", repo: "api", jira: "ABC-1", seconds: 900 },
     { key: "web", repo: "web", jira: null, seconds: 100 },
   ]);
+});
+
+test("samePrompt: the cursor, boxes and a preview don't matter; the words and choices do", () => {
+  const read = (s) => readPrompt(s);
+  const base = read(" Which database?\n › 1. Postgres\n   2. SQLite\n");
+  assert.equal(samePrompt(base, read(" Which database?\n   1. Postgres\n › 2. SQLite\n")), true);
+  assert.equal(samePrompt(base, read(" Which cache?\n › 1. Postgres\n   2. SQLite\n")), false);
+  assert.equal(samePrompt(base, read(" Which database?\n › 1. MySQL\n   2. SQLite\n")), false);
+  assert.equal(samePrompt(base, read(" Which database?\n › 1. Postgres\n")), false);
+  assert.equal(samePrompt(base, read("I changed three files.\n")), false);
+  const boxes = " Pick\n › 1. [ ] A\n   2. [ ] B\n   Submit\n";
+  assert.equal(samePrompt(read(boxes), read(" Pick\n   1. [x] A\n › 2. [ ] B\n   Submit\n")), true);
+  assert.equal(samePrompt(read(boxes), read(" Pick\n › 1. [ ] A\n   2. [ ] B\n")), false);
+  const preview = (cursor, inner) => ` Which?\n ${cursor === 1 ? "›" : " "} 1. Short     ┌────┐\n ${cursor === 2 ? "›" : " "} 2. Long      │ ${inner} │\n              └────┘\n`;
+  assert.equal(samePrompt(read(preview(1, "aaa")), read(preview(2, "bbb"))), true);
 });
 
 test("relevoKeys: the layout's section counts and wins over global", () => {

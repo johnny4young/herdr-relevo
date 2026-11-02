@@ -252,3 +252,113 @@ test("the PR and quota timers keep running behind other apps", async () => {
   assert.equal(calls(/^gh api graphql/).length, before + 1);
   assert.equal(cx.timers.some((t) => t.ms === 60000), true);
 });
+
+test("an agent that leaves the list and returns waiting shows the question on its screen, not the old one", async () => {
+  let screen = " Delete the staging data?\n › 1. Yes\n   2. No\n";
+  fake.exec = (cmd, args) => (cmd === "hc" && args[0] === "read" ? { stdout: screen } : repoOutput(cmd, args));
+  setAgents(["t1", "blocked"]);
+  const { ui, inbox, cx } = await open();
+  assert.match(text(ui()), /Delete the staging data/);
+  setAgents();
+  inbox.scanLocal(cx);
+  await flush();
+  screen = " Which database?\n › 1. Postgres\n   2. SQLite\n";
+  setAgents(["t1", "blocked"]);
+  inbox.scanLocal(cx);
+  await flush();
+  const view = text(ui());
+  assert.match(view, /Which database/);
+  assert.doesNotMatch(view, /Delete the staging data/);
+});
+
+// A waiting agent whose screen the test can change after the card was drawn.
+async function waiting(first) {
+  const screen = { now: first };
+  fake.exec = (cmd, args) => (cmd === "hc" && args[0] === "read" ? { stdout: screen.now } : repoOutput(cmd, args));
+  setAgents(["t1", "blocked"]);
+  return { screen, ...await open() };
+}
+const DB = " Which database?\n › 1. Postgres\n   2. SQLite\n";
+const DELETE = " Delete the staging data?\n › 1. Yes\n   2. No\n";
+const sent = () => [...calls(/^hc keys t1/), ...calls(/^hc send/)];
+
+test("a choice is pressed when the question is still the one the card showed", async () => {
+  const { ui, cx, screen } = await waiting(DB);
+  const row = find(ui(), "answer-t1-2");
+  screen.now = " Which database?\n   1. Postgres\n › 2. SQLite\n";
+  click(row, cx);
+  await flush();
+  assert.deepEqual(calls(/^hc keys t1/), ["hc keys t1 enter"]);
+  assert.equal(fake.notices.filter((n) => n.title === "The question changed").length, 0);
+});
+
+test("a question that changed after the card was drawn gets no keys, and the card shows the new one", async () => {
+  const { ui, cx, screen } = await waiting(DB);
+  const row = find(ui(), "answer-t1-1");
+  screen.now = DELETE;
+  click(row, cx);
+  await flush();
+  assert.deepEqual(sent(), []);
+  assert.equal(fake.notices.at(-1).title, "The question changed");
+  assert.match(text(ui()), /Delete the staging data/);
+});
+
+test("a click compares with the card as drawn, even if a read already refreshed the question behind it", async () => {
+  const { ui, inbox, cx, screen } = await waiting(DB);
+  const row = find(ui(), "answer-t1-1");
+  screen.now = DELETE;
+  await inbox.rereadPrompt("t1");
+  click(row, cx);
+  await flush();
+  assert.deepEqual(sent(), []);
+});
+
+test("the keyboard's choice checks against the card too", async () => {
+  const { inbox, cx, screen } = await waiting(DB);
+  const item = inbox.navItems(inbox.shown()).find((i) => i.id === "in-t1");
+  screen.now = DELETE;
+  item.choose(1, cx);
+  await flush();
+  assert.deepEqual(sent(), []);
+});
+
+test("a box in a multiple choice toggles after the cursor moved, and not on another question", async () => {
+  const MULTI = " Pick\n › 1. [ ] A\n   2. [ ] B\n   3. [ ] Other\n   Submit\n";
+  const { ui, cx, screen } = await waiting(MULTI);
+  const row = find(ui(), "answer-t1-2");
+  screen.now = " Pick\n   1. [x] A\n › 2. [ ] B\n   3. [ ] Other\n   Submit\n";
+  click(row, cx);
+  await flush();
+  assert.deepEqual(calls(/^hc keys t1/), ["hc keys t1 2"]);
+  fake.execs.length = 0;
+  const again = find(ui(), "answer-t1-1");
+  screen.now = " Another\n › 1. [ ] A\n   2. [ ] B\n   3. [ ] Other\n   Submit\n";
+  click(again, cx);
+  await flush();
+  assert.deepEqual(sent(), []);
+});
+
+test("Submit presses nothing if the form changed", async () => {
+  const MULTI = " Pick\n › 1. [x] A\n   2. [ ] B\n   Submit\n";
+  const { ui, cx, screen } = await waiting(MULTI);
+  const button = find(ui(), "submit-t1");
+  screen.now = DELETE;
+  click(button, cx);
+  await flush();
+  assert.deepEqual(sent(), []);
+  assert.equal(fake.notices.at(-1).title, "The question changed");
+});
+
+test("a typed answer isn't sent to a question that changed while typing", async () => {
+  const FREE = " Why?\n › 1. Because\n   2. Type something.\n";
+  const { ui, inbox, cx, screen } = await waiting(FREE);
+  click(find(ui(), "answer-t1-2"), cx);
+  await flush();
+  assert.equal(inbox.replying, "t1");
+  inbox.reply.set_value("my words");
+  screen.now = DELETE;
+  inbox.sendReply(cx);
+  await flush();
+  assert.deepEqual(sent(), []);
+  assert.equal(fake.notices.at(-1).title, "The question changed");
+});

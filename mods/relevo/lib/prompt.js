@@ -55,6 +55,12 @@ export function readPrompt(screen) {
   };
 }
 
+// Still what the card showed: the same words and choices, wherever the cursor is and whatever the boxes say.
+export const samePrompt = (seen, now) => seen.question === now.question
+  && Boolean(seen.submit) === Boolean(now.submit)
+  && seen.options.length === now.options.length
+  && seen.options.every((o, i) => o.label === now.options[i].label);
+
 // The keys that move the cursor onto Submit and press it.
 export function submitKeys(prompt) {
   if (!prompt?.submit) return null;
