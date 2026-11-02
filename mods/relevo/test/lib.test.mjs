@@ -327,7 +327,7 @@ test("lastMessage: the agent's last words, not tool calls or hook noise", () => 
 });
 
 const ACCTS = [{ key: "personal", claudeDir: ".claude" }, { key: "work", claudeDir: ".claude-work" }, { key: "codex" }];
-const SESSION = "/h/.claude/projects/-h-code-api/1f2e-3d4c.jsonl";
+const ID = "0b5e6f4a-12cd-4e8f-9a01-23456789abcd", SESSION = `/h/.claude/projects/-h-code-api/${ID}.jsonl`;
 
 test("terminalAccount: the hook's label, else Codex by its app", () => {
   assert.equal(terminalAccount({ labels: { "agent.account": "work" }, agent: "claude-code" }), "work");
@@ -338,7 +338,7 @@ test("terminalAccount: the hook's label, else Codex by its app", () => {
 
 test("handoffPlan: Claude to Claude resumes from a copy in the next account's projects folder", () => {
   assert.deepEqual(handoffPlan({ from: "personal", to: "work", transcript: SESSION, accounts: ACCTS, home: "/h" }),
-    { mode: "resume", src: SESSION, dir: "/h/.claude-work/projects/-h-code-api", id: "1f2e-3d4c" });
+    { mode: "resume", src: SESSION, dir: "/h/.claude-work/projects/-h-code-api", id: ID });
 });
 
 test("handoffPlan: Codex on either side, an unknown session or the same account starts from a note", () => {
@@ -349,6 +349,16 @@ test("handoffPlan: Codex on either side, an unknown session or the same account 
   assert.equal(plan({ from: null }), "note");
   assert.equal(plan({ to: "personal" }), "note");
   assert.equal(plan({ transcript: "/h/.claude/projects/-x/bad id;rm.jsonl" }), "note");
+});
+
+test("handoffPlan: only a UUID file in the source account's own projects folder is trusted", () => {
+  const plan = (transcript) => handoffPlan({ from: "personal", to: "work", transcript, accounts: ACCTS, home: "/h" }).mode;
+  assert.equal(plan(`/h/.claude/projects/-x/-${ID.slice(1)}.jsonl`), "note");
+  assert.equal(plan("/h/.claude/projects/-x/--help.jsonl"), "note");
+  assert.equal(plan(`/h/.claude/projects/../../.ssh/${ID}.jsonl`), "note");
+  assert.equal(plan(`/h/.claude/projects/a/b/${ID}.jsonl`), "note");
+  assert.equal(plan(`/h/.claude-work/projects/-x/${ID}.jsonl`), "note");
+  assert.equal(plan(`/tmp/.claude/projects/-x/${ID}.jsonl`), "note");
 });
 
 test("handoff prompts name the account or the app and the note", () => {

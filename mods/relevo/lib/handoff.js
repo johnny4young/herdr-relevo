@@ -5,12 +5,17 @@ export function terminalAccount(terminal) {
   return terminal?.labels?.["agent.account"] || (terminal?.agent === "codex" ? "codex" : null);
 }
 
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
 // Between two Claude accounts with a known session file, the next agent resumes the same
 // conversation from a copy in its own config dir; anything else starts from a note.
+// The label is only trusted as <home>/<source claudeDir>/projects/<folder>/<uuid>.jsonl.
 export function handoffPlan({ from, to, transcript, accounts, home }) {
   const src = accounts.find((a) => a.key === from), dst = accounts.find((a) => a.key === to);
-  const m = /\/([^/]+)\/([\w-]+)\.jsonl$/.exec(transcript ?? "");
-  if (!src?.claudeDir || !dst?.claudeDir || from === to || !m) return { mode: "note" };
+  if (!src?.claudeDir || !dst?.claudeDir || from === to) return { mode: "note" };
+  const root = `${home}/${src.claudeDir}/projects/`;
+  const m = (transcript ?? "").startsWith(root) && new RegExp(`^([\\w-]+)/(${UUID})\\.jsonl$`, "i").exec(transcript.slice(root.length));
+  if (!m) return { mode: "note" };
   return { mode: "resume", src: transcript, dir: `${home}/${dst.claudeDir}/projects/${m[1]}`, id: m[2] };
 }
 

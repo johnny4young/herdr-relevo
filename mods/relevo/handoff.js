@@ -33,8 +33,9 @@ export function handoffFrom(account) {
 }
 
 // A copy of the session file in the next account's config dir, so it can resume that conversation.
+// Replacing an earlier copy is fine: --fork-session writes the new turns under another id.
 async function seedResume(plan) {
-  const r = await exec("sh", ["-c", 'test -f "$1" && mkdir -p "$2" && cp "$1" "$2/"', "sh", plan.src, plan.dir]);
+  const r = await exec("sh", ["-c", 'test -f "$1" && ! test -L "$1" && mkdir -p "$2" && cp "$1" "$2/"', "sh", plan.src, plan.dir]);
   return r.code === 0;
 }
 
