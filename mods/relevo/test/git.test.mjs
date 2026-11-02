@@ -23,6 +23,8 @@ test("GIT_READ: status, diff and ls-files write nothing under .git, even with a 
     git("init", "-q");
     git("config", "user.email", "test@example.com");
     git("config", "user.name", "Test");
+    // A commit starts background maintenance, whose lock would come and go between the snapshots.
+    git("config", "maintenance.auto", "false");
     writeFileSync(join(repo, "a.txt"), "one\n");
     git("add", ".");
     git("commit", "-qm", "first");
