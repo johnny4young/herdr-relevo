@@ -53,6 +53,7 @@ async function mergedBranches(main, force) {
   return out;
 }
 
+const spaceOf = (w) => spaces().find((s) => s.folder === w.path && !s.machine);
 const inside = (w, p) => p === w.path || Boolean(p?.startsWith(`${w.path}/`));
 
 export async function scanWorktrees(force = false) {
@@ -66,7 +67,7 @@ export async function scanWorktrees(force = false) {
     w.at = Number(touched.get(w.path)) || 0;
     w.repo = w.main.split("/").pop();
     w.name = w.path.split("/").pop();
-    w.space = spaces().find((s) => s.folder === w.path)?.id ?? null;
+    w.space = spaceOf(w)?.id ?? null;
     w.open = [...open].some((p) => inside(w, p));
     w.merged = Boolean(w.branch && merged[w.main].has(w.branch));
     if (w.merged) {
@@ -85,12 +86,15 @@ const REBUILT = new Set([
 ]);
 const gitStatus = (w) => exec("git", [...GIT_READ, "status", "--porcelain"], { cwd: w.path });
 const ignoredFiles = (w) => exec("git", [...GIT_READ, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], { cwd: w.path });
-const worthKeeping = (out) => out.split("\0").filter(Boolean).map((l) => l.replace(/\/$/, ""))
-  .filter((l) => !REBUILT.has(l.split("/").pop()));
+// git also lists the folders holding ignored entries; only the entries themselves count.
+const worthKeeping = (out) => {
+  const all = out.split("\0").filter(Boolean).map((l) => l.replace(/\/$/, ""));
+  return all.filter((l) => !REBUILT.has(l.split("/").pop()) && !all.some((o) => o.startsWith(`${l}/`)));
+};
 
 // Looks again right before removing, since the last scan can be minutes old and closing a space can't be undone.
 export async function removalCheck(w) {
-  const space = spaces().find((s) => s.folder === w.path);
+  const space = spaceOf(w);
   // A space's own terminals close with it; any other terminal here would lose its folder.
   const own = new Set(space?.tabs?.map((t) => t.id));
   if (panes().some((p) => inside(w, p.cwd) && !own.has(p.tab))) return { error: "open in a terminal" };

@@ -59,6 +59,31 @@ test("an ignored name with a newline is one file", async () => {
   assert.deepEqual(w.ignored, ["a\nb.env"]);
 });
 
+test("folders that only hold rebuilt or listed entries aren't named", async () => {
+  files({ ignored: "emptyish/\0emptyish/node_modules/\0mixed/\0mixed/.env\0mixed/node_modules/\0" });
+  const v = view(), w = tree(), cx = fakeCx();
+  await clickRemove(v, w, cx);
+  assert.deepEqual(w.ignored, ["mixed/.env"]);
+});
+
+test("a second Confirm while the check runs removes once", async () => {
+  const v = view(), w = tree(), cx = fakeCx();
+  await clickRemove(v, w, cx);
+  v.removeTree(w, cx);
+  v.removeTree(w, cx);
+  await flush();
+  assert.equal(calls(REMOVE).length, 1);
+});
+
+test("a space on another machine with the same folder isn't closed", async () => {
+  fake.spaces = [{ id: "sp9", folder: PATH, machine: "devbox", tabs: [] }];
+  const v = view(), w = tree(), cx = fakeCx();
+  await clickRemove(v, w, cx);
+  await clickRemove(v, w, cx);
+  assert.deepEqual(fake.runs, []);
+  assert.equal(calls(REMOVE).length, 1);
+});
+
 test("files that appear after the question ask again", async () => {
   const v = view(), w = tree(), cx = fakeCx();
   await clickRemove(v, w, cx);

@@ -92,8 +92,8 @@ def command():
 
 def installed(settings):
     hooks = settings.get("hooks") or {}
-    current = command()
-    return all(any(h.get("command") == current for group in hooks.get(e) or [] for h in group.get("hooks") or []) for e in EVENTS)
+    mine = lambda e: [h.get("command") for group in hooks.get(e) or [] for h in group.get("hooks") or [] if ours(h)]
+    return all(mine(e) == [command()] for e in EVENTS)
 
 
 def add(settings):

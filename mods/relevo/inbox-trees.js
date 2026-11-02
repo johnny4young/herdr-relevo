@@ -35,8 +35,11 @@ export class TreeViews {
   // Only clean, unlocked worktrees get here; one with a space closes it first, as Herdr's dialog does.
   removeTree(w, cx) {
     const asked = this.confirm === w.path, shown = JSON.stringify([w.space ?? null, w.ignored ?? []]);
+    // A second click while the check runs would remove it twice.
+    if (this.checking?.has(w.path)) return;
+    (this.checking ??= new Set()).add(w.path);
     cx.spawn(async (cx) => {
-      const check = await removalCheck(w);
+      const check = await removalCheck(w).finally(() => this.checking.delete(w.path));
       if (check.error) {
         this.confirm = null;
         this.wtError[w.path] = check.error;
