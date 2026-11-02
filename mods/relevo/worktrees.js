@@ -1,4 +1,4 @@
-import { agents, exec, home, notify, spaces, panes } from "herdr";
+import { exec, home, notify, spaces, panes } from "herdr";
 import { REPOS_ROOT as ROOT } from "./config.js";
 import { mergedHeads } from "./lib/github.js";
 import { GIT_READ } from "./lib/git.js";
@@ -87,17 +87,16 @@ const worthKeeping = (out) => out.split("\n").filter(Boolean).map((l) => l.repla
 // Looks again right before removing, since the last scan can be minutes old and closing a space can't be undone.
 export async function removalCheck(w) {
   const inside = (p) => p === w.path || p?.startsWith(`${w.path}/`);
-  const space = spaces().find((s) => s.folder === w.path)?.id ?? null;
-  const here = new Set(panes().filter((p) => inside(p.cwd)).map((p) => p.pane));
-  // A space's own terminals close with it; without one, any terminal here would lose its folder.
-  const busy = space ? agents().some((a) => here.has(a.pane) && a.space !== space) : here.size > 0;
-  if (busy) return { error: "open in a terminal" };
+  const space = spaces().find((s) => s.folder === w.path);
+  // A space's own terminals close with it; any other terminal here would lose its folder.
+  const own = new Set(space?.tabs?.map((t) => t.id));
+  if (panes().some((p) => inside(p.cwd) && !own.has(p.tab))) return { error: "open in a terminal" };
   const status = await exec("git", [...GIT_READ, "status", "--porcelain"], { cwd: w.path });
   if (status.code !== 0) return { error: "could not check its files" };
   if (status.stdout.trim()) return { error: "uncommitted changes" };
   const ignored = await ignoredFiles(w);
   if (ignored.code !== 0) return { error: "could not check its files" };
-  return { space, ignored: worthKeeping(ignored.stdout) };
+  return { space: space?.id ?? null, ignored: worthKeeping(ignored.stdout) };
 }
 
 // Never forced: git keeps a worktree with changes, and -d keeps a branch with unmerged commits.

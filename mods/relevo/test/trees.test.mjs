@@ -80,16 +80,25 @@ test("a terminal opened here since the scan stops it", async () => {
   assert.equal(calls(REMOVE).length, 0);
 });
 
-test("a space's own agent closes with it; another space's agent stops it", async () => {
-  fake.spaces = [{ id: "sp1", folder: PATH }];
-  fake.panes = [{ pane: "p1", cwd: PATH }];
-  fake.agents = [{ pane: "p1", space: "sp1" }];
+test("a space's own terminals close with it; one from another space stops it", async () => {
+  fake.spaces = [{ id: "sp1", folder: PATH, tabs: [{ id: "tb1" }] }];
+  fake.panes = [{ pane: "p1", cwd: PATH, tab: "tb1" }];
   const v = view(), w = tree({ space: "sp1" }), cx = fakeCx();
   await clickRemove(v, w, cx);
   assert.equal(v.wtError[PATH], undefined);
-  fake.agents = [{ pane: "p1", space: "sp2" }];
+  fake.panes.push({ pane: "p2", cwd: `${PATH}/src`, tab: "tb2" });
   await clickRemove(v, w, cx);
   assert.equal(v.wtError[PATH], "open in a terminal");
+});
+
+test("a space opened after the question asks again before closing it", async () => {
+  const v = view(), w = tree(), cx = fakeCx();
+  await clickRemove(v, w, cx);
+  fake.spaces = [{ id: "sp1", folder: PATH, tabs: [] }];
+  await clickRemove(v, w, cx);
+  assert.deepEqual(fake.runs, []);
+  assert.equal(calls(REMOVE).length, 0);
+  assert.match(text(v.treeRow({}, w)), /closes its space/);
 });
 
 test("Remove all leaves out worktrees with ignored work, even found after the scan", async () => {

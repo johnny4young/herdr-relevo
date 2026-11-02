@@ -34,7 +34,7 @@ export class TreeViews {
 
   // Only clean, unlocked worktrees get here; one with a space closes it first, as Herdr's dialog does.
   removeTree(w, cx) {
-    const asked = this.confirm === w.path, shown = JSON.stringify(w.ignored ?? []);
+    const asked = this.confirm === w.path, shown = JSON.stringify([w.space ?? null, w.ignored ?? []]);
     cx.spawn(async (cx) => {
       const check = await removalCheck(w);
       if (check.error) {
@@ -46,7 +46,7 @@ export class TreeViews {
       w.space = check.space;
       w.ignored = check.ignored;
       // What the confirmation names must be what goes.
-      if (!asked || JSON.stringify(check.ignored) !== shown) {
+      if (!asked || JSON.stringify([check.space, check.ignored]) !== shown) {
         this.confirm = w.path;
         return cx.notify();
       }
