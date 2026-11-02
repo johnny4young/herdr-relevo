@@ -1,5 +1,7 @@
 {
-  "global": {
+  "layout:relevo": {
+    "cmd-[": "agent.prev",
+    "cmd-]": "agent.next",
     "cmd-alt-1": "relevo.panel-files",
     "cmd-alt-2": "relevo.panel-changes",
     "cmd-alt-3": "relevo.panel-inbox",

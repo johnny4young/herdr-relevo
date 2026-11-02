@@ -1,6 +1,7 @@
 {
   "id": "root",
   "type": "row",
+  "preview": "layouts/relevo.svg",
   "titlebar": "none",
   "traffic_lights": [
     12,

@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.5.6 · 2026-11-02
+
+- **Long and framed dialogs are compared whole.** An indented frame could drop the choices from the comparison, and a rule inside a command or a very long command could hide the lines above it. The check now compares everything up to the dialog's real top edge, and the choices one by one.
+- **No screen, no answer.** If the agent's screen can't be read, or it shows a menu that can't be parsed, a reply sends nothing instead of treating it as no menu.
+
+## 0.5.5 · 2026-11-02
+
+- **The check covers the whole dialog.** 0.5.4 compared only the question and choices, so two permissions with the same words and different commands looked alike. It now compares the dialog from its top edge to its last choice, including the command, diff and descriptions.
+- **Reply stops if a menu appears.** On a card without choices, a typed reply isn't sent once a menu has appeared, since its Enter would pick an option.
+- **The keyboard answers what's drawn.** A choice made by key now checks against the card on screen, like a click.
+
+## 0.5.4 · 2026-11-02
+
+- **Answers only reach the question you saw.** Before sending a choice, Submit or a typed answer, the Inbox reads the agent's screen again. If the question or its choices changed, it sends nothing, says so and shows the new question.
+- **A returning agent shows its current question.** Fixes a bug from 0.5.3: an agent that left the list and came back waiting could show its old question, and a click then answered the new one.
+
+## 0.5.3 · 2026-11-02
+
+- **Walk your agents.** `⌘]` and `⌘[` move to the next or previous agent, in the Agents list's order.
+- **Keys only where they belong.** Relevo's keys move to a `layout:relevo` section, so they act only while Relevo shows. If yours are under `global`, they keep working until you move them.
+- **Cards keep their age.** Reloading the mod no longer resets a card's age or its place in the list.
+- **A picture in Settings.** The layout now shows a preview instead of an empty frame.
+- **How to update.** The README has an Update section whose commands keep your accounts in `config.js`.
+
+## 0.5.2 · 2026-11-02
+
+- **Mark local work addressed.** ✓ on an uncommitted-work card hides it until its agent works again; addressed ones fold under one line with Undo. A waiting agent always stays in the list.
+- **The Inbox follows events.** Local cards update about 2 s after a commit, checkout or stash, and when a shell command ends. The slow fallback scans only run while the window is in front.
+- **Git reads leave `.git` alone.** Repeated status and diff reads no longer refresh the index or take a lock.
+- **Tests that draw the mods.** The Inbox and every Relevo role now render against a fake Herdr in CI.
+
 ## 0.5.1 · 2026-11-01
 
 - **The hook ships with Relevo.** `mods/relevo/hooks/relevo-labels.py` sets the account, ticket, session file and background labels, with `--check`, `--install` and `--uninstall`. Tell your agent to follow `hooks/HOOK.md`.
