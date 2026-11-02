@@ -116,6 +116,28 @@ class Manage(unittest.TestCase):
         self.assertEqual(stop[0], other)
         self.assertEqual(len(stop), 2)
 
+    def test_a_stale_command_beside_the_current_one_is_cleaned(self):
+        self.run_it("--install")
+        settings = self.read()
+        stale = {"type": "command", "command": "python3 /moved/away/" + hook.NAME}
+        settings["hooks"]["Stop"].append({"hooks": [stale]})
+        self.path.write_text(json.dumps(settings), encoding="utf-8")
+        code, out = self.run_it("--check")
+        self.assertEqual(code, 1)
+        self.assertIn("outdated", out)
+        self.run_it("--install")
+        self.assertEqual(self.run_it("--check")[0], 0)
+        self.assertEqual(len(self.read()["hooks"]["Stop"]), 1)
+
+    def test_someone_elses_command_and_settings_on_the_entry_stay(self):
+        own = {"type": "command", "command": "tee log | python3 /old/%s; backup.sh" % hook.NAME}
+        old = {"type": "command", "command": "python3 /old/" + hook.NAME, "timeout": 5}
+        self.path.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [own, old]}]}}), encoding="utf-8")
+        self.run_it("--install")
+        stop = self.read()["hooks"]["Stop"]
+        self.assertEqual(stop[0]["hooks"][0], own)
+        self.assertEqual(stop[0]["hooks"][1]["timeout"], 5)
+        self.assertEqual(stop[0]["hooks"][1]["command"], hook.command())
     def test_an_older_command_beside_the_current_one_is_not_installed(self):
         self.run_it("--install")
         settings = self.read()

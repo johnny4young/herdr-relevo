@@ -34,27 +34,31 @@ export class TreeViews {
 
   // Only clean, unlocked worktrees get here; one with a space closes it first, as Herdr's dialog does.
   removeTree(w, cx) {
-    const asked = this.confirm === w.path, shown = JSON.stringify([w.space ?? null, w.ignored ?? []]);
-    // A second click while the check runs would remove it twice.
-    if (this.checking?.has(w.path)) return;
-    (this.checking ??= new Set()).add(w.path);
+    this.checking ??= new Set();
+    if (this.checking.has(w.path)) return;
+    this.checking.add(w.path);
+    const asked = this.confirm === w.path, shown = JSON.stringify([w.ignored ?? [], w.space ?? null]);
     cx.spawn(async (cx) => {
-      const check = await removalCheck(w).finally(() => this.checking.delete(w.path));
-      if (check.error) {
+      try {
+        const check = await removalCheck(w);
+        if (check.error) {
+          this.confirm = null;
+          this.wtError[w.path] = check.error;
+          return cx.notify();
+        }
+        delete this.wtError[w.path];
+        w.space = check.space;
+        w.ignored = check.ignored;
+        // What the confirmation names must be what goes.
+        if (!asked || JSON.stringify([check.ignored, check.space]) !== shown) {
+          this.confirm = w.path;
+          return cx.notify();
+        }
         this.confirm = null;
-        this.wtError[w.path] = check.error;
-        return cx.notify();
+        await this.removeOne(w, cx);
+      } finally {
+        this.checking.delete(w.path);
       }
-      delete this.wtError[w.path];
-      w.space = check.space;
-      w.ignored = check.ignored;
-      // What the confirmation names must be what goes.
-      if (!asked || JSON.stringify([check.space, check.ignored]) !== shown) {
-        this.confirm = w.path;
-        return cx.notify();
-      }
-      this.confirm = null;
-      await this.removeOne(w, cx);
     });
   }
 
@@ -105,6 +109,8 @@ export class TreeViews {
   }
 
   // One line per merged worktree: Remove asks once more before git runs.
+
+  // One line per merged worktree: Remove asks once more before git runs.
   treeRow(t, w) {
     if (this.hiddenIds?.has(`wt-${w.path}`)) return null;
     if (this.removing.has(w.path)) return this.removingRow(t, w);
@@ -115,7 +121,7 @@ export class TreeViews {
       button(t, id, label, onClick, { size: "sm", tip, kind: danger ? "danger" : "outline" });
     return h_flex().id(`wt-${w.path}`).h(30).px(8).gap(6).items_center().rounded(6)
       .when(this.selected(`wt-${w.path}`), (el) => el.bg(t.selected))
-      .hover((s) => s.bg(t.hover)).tooltip(w.path)
+      .hover((s) => s.bg(t.hover)).tooltip(note ? `${note}\n${w.path}` : w.path)
       .child(div().flex_none().text_size(11.5).text_color(t.muted).child(w.repo))
       .child(div().flex_1().min_w(0).truncate().text_size(11.5).child(w.branch ?? w.name))
       .when(Boolean(note), (el) => el.child(
