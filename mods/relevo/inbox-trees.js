@@ -2,9 +2,11 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { run } from "herdr";
-import { scanWorktrees, removeWorktree } from "./worktrees.js";
+import { scanWorktrees, removeWorktree, removalCheck } from "./worktrees.js";
 import { button, spinner } from "./ui.js";
 import { ago } from "./lib/time.js";
+
+const deletes = (files) => `deletes ${files.slice(0, 2).join(", ")}${files.length > 2 ? ` +${files.length - 2}` : ""}`;
 
 export class TreeViews {
   scanTrees(cx, force = false) {
@@ -32,13 +34,26 @@ export class TreeViews {
 
   // Only clean, unlocked worktrees get here; one with a space closes it first, as Herdr's dialog does.
   removeTree(w, cx) {
-    if (this.confirm !== w.path) {
-      this.confirm = w.path;
-      cx.notify();
-      return;
-    }
-    this.confirm = null;
+    const asked = this.confirm === w.path, shown = JSON.stringify([w.space ?? null, w.ignored ?? []]);
+    // A second click while the check runs would remove it twice.
+    if (this.checking?.has(w.path)) return;
+    (this.checking ??= new Set()).add(w.path);
     cx.spawn(async (cx) => {
+      const check = await removalCheck(w).finally(() => this.checking.delete(w.path));
+      if (check.error) {
+        this.confirm = null;
+        this.wtError[w.path] = check.error;
+        return cx.notify();
+      }
+      delete this.wtError[w.path];
+      w.space = check.space;
+      w.ignored = check.ignored;
+      // What the confirmation names must be what goes.
+      if (!asked || JSON.stringify([check.space, check.ignored]) !== shown) {
+        this.confirm = w.path;
+        return cx.notify();
+      }
+      this.confirm = null;
       await this.removeOne(w, cx);
     });
   }
@@ -65,7 +80,7 @@ export class TreeViews {
   // Merged, clean, unlocked and not open anywhere: safe to remove together. One with a space stays for its own
   // Remove, because closing several spaces at once is easy to regret.
   removable(merged) {
-    return merged.filter((w) => !w.dirty && !w.locked && !w.space && !w.open && !this.removing.has(w.path));
+    return merged.filter((w) => !w.dirty && !w.locked && !w.space && !w.open && !w.ignored?.length && !this.removing.has(w.path));
   }
 
   removeAll(list, cx) {
@@ -76,18 +91,26 @@ export class TreeViews {
     }
     this.confirm = null;
     cx.spawn(async (cx) => {
-      for (const w of list) await this.removeOne(w, cx);
+      for (const w of list) {
+        const check = await removalCheck(w);
+        if (check.error || check.space || check.ignored.length) {
+          this.wtError[w.path] = check.error ?? (check.space ? "has a space" : deletes(check.ignored));
+          w.ignored = check.ignored ?? w.ignored;
+          cx.notify();
+          continue;
+        }
+        await this.removeOne(w, cx);
+      }
     });
   }
-
-  // One line per merged worktree: Remove asks once more before git runs.
 
   // One line per merged worktree: Remove asks once more before git runs.
   treeRow(t, w) {
     if (this.hiddenIds?.has(`wt-${w.path}`)) return null;
     if (this.removing.has(w.path)) return this.removingRow(t, w);
     const err = this.wtError[w.path], sure = this.confirm === w.path;
-    const note = err ?? (sure && w.space ? "closes its space" : w.dirty ? "uncommitted changes" : w.locked ? "locked" : null);
+    const warn = sure ? [w.space && "closes its space", w.ignored?.length && deletes(w.ignored)].filter(Boolean).join(", ") : "";
+    const note = err ?? (warn || (w.dirty ? "uncommitted changes" : w.locked ? "locked" : null));
     const action = (id, label, tip, onClick, danger = false) =>
       button(t, id, label, onClick, { size: "sm", tip, kind: danger ? "danger" : "outline" });
     return h_flex().id(`wt-${w.path}`).h(30).px(8).gap(6).items_center().rounded(6)
@@ -101,7 +124,7 @@ export class TreeViews {
       .child(action(`wt-open-${w.path}`, w.space ? "Go" : "Open", w.space ? "Go to its space" : "Open a space here",
         () => this.openTree(w)))
       .when(!w.dirty && !w.locked, (el) => el.child(action(`wt-rm-${w.path}`, sure ? "Confirm" : "Remove",
-        "Removes the worktree and its local branch; git refuses if anything would be lost",
+        "Removes the worktree and its local branch. Files git ignores go with it",
         (cx) => this.removeTree(w, cx), sure)));
   }
 
@@ -136,7 +159,7 @@ export class TreeViews {
       .when(clean.length > 1, (el) => el.child(button(t, "wt-rm-all", sure ? `Confirm ${clean.length}` : `Remove ${clean.length}`,
         (cx) => this.removeAll(clean, cx), {
           size: "sm", kind: sure ? "danger" : "outline",
-          tip: "Removes every merged worktree that is clean, unlocked and has no space, with its local branch",
+          tip: "Removes every merged worktree that is clean, unlocked, has no space and no ignored files to keep, with its local branch",
         })));
     const rows = merged.length
       ? [header, v_flex().children(merged.map((w) => this.treeRow(t, w)).filter(Boolean))]

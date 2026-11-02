@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -97,6 +98,33 @@ class Manage(unittest.TestCase):
         self.run_it("--install")
         self.assertEqual(self.path.read_text(encoding="utf-8"), first)
         self.assertEqual(len(self.backups()), 1)
+
+    def test_the_command_exits_zero_when_the_script_is_gone(self):
+        self.run_it("--install")
+        command = self.read()["hooks"]["Stop"][0]["hooks"][0]["command"]
+        gone = command.replace(hook.SCRIPT, os.path.join(self.home.name, "moved", hook.NAME))
+        self.assertEqual(subprocess.run(["sh", "-c", gone], capture_output=True).returncode, 0)
+
+    def test_an_older_command_is_reported_and_replaced(self):
+        old = {"hooks": [{"type": "command", "command": "python3 /old/place/" + hook.NAME}]}
+        other = {"hooks": [{"type": "command", "command": "other"}]}
+        self.path.write_text(json.dumps({"hooks": {e: [old] for e in hook.EVENTS} | {"Stop": [other, old]}}), encoding="utf-8")
+        self.assertEqual(self.run_it("--check")[0], 1)
+        self.run_it("--install")
+        self.assertEqual(self.run_it("--check")[0], 0)
+        stop = self.read()["hooks"]["Stop"]
+        self.assertEqual(stop[0], other)
+        self.assertEqual(len(stop), 2)
+
+    def test_an_older_command_beside_the_current_one_is_not_installed(self):
+        self.run_it("--install")
+        settings = self.read()
+        settings["hooks"]["Stop"].append({"hooks": [{"type": "command", "command": "python3 /old/place/" + hook.NAME}]})
+        self.path.write_text(json.dumps(settings), encoding="utf-8")
+        self.assertEqual(self.run_it("--check")[0], 1)
+        self.run_it("--install")
+        self.assertEqual(self.run_it("--check")[0], 0)
+        self.assertEqual(len(self.read()["hooks"]["Stop"]), 1)
 
     def test_uninstall_removes_only_this_hook(self):
         other = {"hooks": [{"type": "command", "command": "other"}]}
