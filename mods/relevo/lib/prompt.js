@@ -12,6 +12,8 @@ const PREVIEW = /\s{3,}[┌│└╭╰].*$/;
 // A menu sits at the bottom of the screen: its help and frame fit in these lines. A list higher up is old output.
 const TAIL = 10;
 const MARK = /^[❯›]\s*\S/;
+// A rule drawn inside a dialog looks like its edge, so these lines above it count too, without their timers.
+const ABOVE_EDGE = 20;
 
 export function readPrompt(screen) {
   const lines = (screen ?? "").split("\n").map((l) => l.replace(FRAME, "")).slice(-60);
@@ -64,15 +66,27 @@ export function readPrompt(screen) {
     question: questionAbove(lines, found[0].i), options, multi, submit, cursor, preview,
     summary: summaryAbove(lines, found[0].i),
     dialog: dialogWords(screen, found[0].i, last),
+    above: aboveEdge(screen, found[0].i),
   };
 }
 
 // The dialog from its top edge to its last choice, without what the cursor changes: a permission's command can
 // sit far above the question. With no edge it takes the whole screen, so a change there refuses rather than passes.
-function dialogWords(screen, first, last) {
-  const raw = (screen ?? "").split("\n"), at = Math.max(0, raw.length - 60), start = first + at;
+function edgeAbove(raw, start) {
   let top = start;
   while (top > 0 && !EDGE.test(raw[top - 1])) top--;
+  return top;
+}
+
+function aboveEdge(screen, first) {
+  const raw = (screen ?? "").split("\n"), start = first + Math.max(0, raw.length - 60), top = edgeAbove(raw, start);
+  if (top === 0 || /^[╭┌]/.test(raw[top - 1])) return "";
+  return raw.slice(Math.max(0, top - 1 - ABOVE_EDGE), top - 1).map((l) => l.replace(/\d+/g, "").trim()).join("\n");
+}
+
+function dialogWords(screen, first, last) {
+  const raw = (screen ?? "").split("\n"), at = Math.max(0, raw.length - 60), start = first + at;
+  const top = edgeAbove(raw, start);
   const framed = /^\s*[│┃]/.test(raw[start]);
   const row = (l) => (framed ? l.replace(/^\s*[│┃]/, "") : l).replace(PREVIEW, "");
   const clean = (l) => l.replace(FRAME, "").replace(/^[❯›>]\s*/, "").replace(/^(\d\.\s+)\[[^\]]?\]\s*/, "$1");
@@ -81,6 +95,7 @@ function dialogWords(screen, first, last) {
 
 // Still the dialog the card came from, wherever the cursor is and whatever the boxes say.
 export const samePrompt = (seen, now) => Boolean(seen.dialog) && seen.dialog === now.dialog
+  && (seen.above ?? "") === (now.above ?? "")
   && Boolean(seen.submit) === Boolean(now.submit)
   && seen.options.length === now.options.length
   && seen.options.every((o, i) => o.label === now.options[i].label);

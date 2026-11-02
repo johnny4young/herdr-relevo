@@ -57,7 +57,7 @@ export class Inbox {
     this.prompts = new Map();
     // A note to send right after the answer: address -> text.
     this.notes = new Map();
-    this.answering = new Set();
+    this.answering = new Map();
     this.reply = InputState.new({ value: "", placeholder: "Reply · Enter sends, Esc cancels" });
     this.reply.on("submit", (_e, cx) => this.sendReply(cx));
     this.today = [];
@@ -319,14 +319,20 @@ export class Inbox {
   }
 
   // One send per agent at a time: a second click's Enter would land in whatever dialog the first one reveals.
+  // Boxes of a multiple choice don't move on to anything, so those clicks wait their turn.
   sendOnce(address, seen, cx, send) {
-    if (this.answering.has(address)) return;
-    this.answering.add(address);
+    const busy = this.answering.get(address);
+    if (busy && !seen?.multi) return;
+    let done;
+    const turn = new Promise((resolve) => { done = resolve; });
+    this.answering.set(address, turn);
     cx.spawn(async (cx) => {
       try {
+        await busy;
         if (await this.stillAsking(address, seen, cx)) await send(this.prompts.get(address), cx);
       } finally {
-        this.answering.delete(address);
+        if (this.answering.get(address) === turn) this.answering.delete(address);
+        done();
       }
     });
   }

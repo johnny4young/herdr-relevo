@@ -6,6 +6,7 @@ import { fake, resetFake, calls, changeFolder, watched } from "./fake/herdr.mjs"
 import { fakeCx, find, text, click, flush, spinners } from "./fake/ui.mjs";
 
 const { Inbox } = await import("../inbox.js");
+const { LAUNCHED } = await import("../skills.js");
 
 const TOP = "/work/app", GIT_DIR = "/work/app/.git";
 const LABEL = "relevo.addressed";
@@ -532,4 +533,28 @@ test("a digit held with a modifier answers nothing", async () => {
   inbox.navKey({ key: "1", modifiers: { platform: true } }, cx);
   await flush();
   assert.deepEqual(sent(), []);
+});
+
+test("quick clicks on two boxes both land, in order", async () => {
+  const boxes = " Pick\n › 1. [ ] A\n   2. [ ] B\n";
+  const { ui, cx } = await waiting(boxes);
+  const one = find(ui(), "answer-t1-1"), two = find(ui(), "answer-t1-2");
+  click(one, cx);
+  click(two, cx);
+  await flush();
+  assert.deepEqual(calls(/^hc keys t1/), ["hc keys t1 1", "hc keys t1 2"]);
+});
+
+test("a blocked agent in a PR's tab gets a card, and a resting one doesn't", async () => {
+  fake.stored[LAUNCHED] = { "https://github.com/o/r/pull/1": { tab: "r#1 review", skill: "fix" } };
+  const screen = { now: DB };
+  fake.exec = (cmd, args) => (cmd === "hc" && args[0] === "read" ? { stdout: screen.now } : repoOutput(cmd, args));
+  setAgents(["t1", "blocked"]);
+  fake.agents[0].tab_name = "r#1 review";
+  const { ui, inbox, cx } = await open();
+  assert.ok(find(ui(), "answer-t1-1"));
+  fake.agents[0].status = "idle";
+  inbox.scanLocal(cx);
+  await flush();
+  assert.equal(find(ui(), "answer-t1-1"), null);
 });

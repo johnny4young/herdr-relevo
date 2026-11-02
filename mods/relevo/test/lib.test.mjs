@@ -575,3 +575,9 @@ test("readPrompt: menus it can't read are flagged, old lists are not", () => {
   assert.deepEqual(old.options, []);
   assert.equal(old.unparsed, undefined);
 });
+
+test("samePrompt: a rule inside a dialog can't hide a command above it, and timers still don't count", () => {
+  const dialog = (above, command) => readPrompt([above, `   ${command}`, "────────────────", "   safe text", " Proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
+  assert.equal(samePrompt(dialog("Bash command", "npm test"), dialog("Bash command", "rm -rf /data")), false);
+  assert.equal(samePrompt(dialog("● Task (3s)", "npm test"), dialog("● Task (9s)", "npm test")), true);
+});
