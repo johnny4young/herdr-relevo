@@ -3,7 +3,7 @@ const never = new Promise(() => {});
 const blank = () => ({
   agents: [], terminals: [], panes: [], spaces: [], layout: { id: "root", children: [] }, focused: null, props: {},
   window: { platform: "macos", titlebar: "none", active: true }, stored: {}, files: {},
-  exec: () => null, execs: [], runs: [], notices: [], overlays: [], folderChanges: new Map(), folderWaits: new Map(),
+  read: null, write: null, exec: () => null, execs: [], runs: [], notices: [], overlays: [], folderChanges: new Map(), folderWaits: new Map(),
 });
 
 export const fake = blank();
@@ -42,8 +42,11 @@ export const closeOverlay = () => {};
 export const playSound = () => {};
 export const setAgentOrder = () => null;
 export const nextCommand = () => never;
-export const readTextFile = async (path) => fake.files[path] ?? null;
-export const writeTextFile = async (path, body) => { fake.files[path] = body; };
+export const readTextFile = async (path) => (fake.read ? fake.read(path) : fake.files[path] ?? null);
+export const writeTextFile = async (path, body, expected) => {
+  if (fake.write) return fake.write(path, body, expected);
+  fake.files[path] = body;
+};
 export const exec = async (cmd, args = [], options = {}) => {
   fake.execs.push([cmd, ...args].join(" "));
   return { code: 0, stdout: "", stderr: "", ...fake.exec(cmd, args, options) };
