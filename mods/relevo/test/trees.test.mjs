@@ -3,7 +3,7 @@ import "./fake/register.mjs";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fake, resetFake, calls } from "./fake/herdr.mjs";
@@ -325,4 +325,17 @@ test("real git: a repo beside a tool's folder still stops it", async (t) => {
   mkdirSync(join(path, "vendor", "mylib"), { recursive: true });
   execFileSync("git", ["init", "-q"], { cwd: join(path, "vendor", "mylib") });
   assert.equal((await removalCheck(w)).error, "holds a repo: vendor/mylib");
+});
+
+test("real git: a search that can't finish stops it", async (t) => {
+  const { w, path } = realTree(t, "vendor/\n");
+  const closed = join(path, "vendor", "closed");
+  mkdirSync(closed, { recursive: true });
+  writeFileSync(join(path, "vendor", "kept.txt"), "x");
+  chmodSync(closed, 0o000);
+  try {
+    assert.equal((await removalCheck(w)).error, "could not check its files");
+  } finally {
+    chmodSync(closed, 0o755);
+  }
 });
