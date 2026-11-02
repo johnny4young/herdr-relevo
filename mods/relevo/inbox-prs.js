@@ -221,17 +221,7 @@ export class PrViews {
         .child(`${open ? "▾" : "▸"} ${old.length} older than 45 days`));
       if (open) rows.push(...old.map((p) => this.prCard(t, p, requested)));
     }
-    if (done.length) {
-      const shown = this.expanded[`${key}-done`];
-      rows.push(div().id(`addressed-${key}`).px(4).py(2).text_size(11).text_color(t.dim).cursor_pointer()
-        .hover((s) => s.text_color(t.muted))
-        .on_click((_e, cx) => {
-          this.expanded[`${key}-done`] = !shown;
-          cx.notify();
-        })
-        .child(`${shown ? "▾" : "▸"} ${done.length} addressed`));
-      if (shown) rows.push(...done.map((p) => this.prCard(t, p, requested, true)));
-    }
+    rows.push(...this.addressedFold(t, key, done, (p) => this.prCard(t, p, requested, true)));
     return rows;
   }
 }

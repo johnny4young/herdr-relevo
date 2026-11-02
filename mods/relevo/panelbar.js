@@ -3,6 +3,7 @@ import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { theme, exec, run, spaces, panes, focused, props, openOverlay, closeOverlay } from "herdr";
 import { touchedAt } from "./worktrees.js";
 import { ago } from "./lib/time.js";
+import { GIT_READ } from "./lib/git.js";
 import { spinner, withKey } from "./ui.js";
 
 const MAX_FILES = 20000, SHOWN = 60;
@@ -217,7 +218,7 @@ export class CheckoutMenu {
       const at = await touchedAt(this.rows.map((c) => c.path));
       await Promise.all(this.rows.map(async (c) => {
         c.at = at.get(c.path) ?? 0;
-        const status = await exec("git", ["--no-optional-locks", "status", "--porcelain"], { cwd: c.path });
+        const status = await exec("git", [...GIT_READ, "status", "--porcelain"], { cwd: c.path });
         c.dirty = status.stdout.split("\n").filter(Boolean).length;
         const track = await exec("git", ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"], { cwd: c.path });
         if (track.code === 0) [c.behind, c.ahead] = track.stdout.trim().split(/\s+/).map(Number);

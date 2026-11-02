@@ -3,6 +3,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { theme, exec, run, home, agents, panes, terminals, notify, props, openOverlay, closeOverlay } from "herdr";
 import { ACCOUNTS, CODEX, accountOf, launchArgv, loadClaudeQuotas, chip } from "./accounts.js";
 import { spinner } from "./ui.js";
+import { GIT_READ } from "./lib/git.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "./lib/handoff.js";
 
 const NOTES = ".local/state/relevo/handoff";
@@ -45,7 +46,7 @@ async function seedResume(plan) {
 async function writeNote({ terminal, cwd, from }, to) {
   const screen = (await exec("hc", ["read", terminal, "--lines", "400"])).stdout
     .split("\n").slice(-160).join("\n").trim().replace(/`{5,}/g, "````");
-  const git = async (args) => (await exec("git", ["--no-optional-locks", ...args], { cwd })).stdout.trim();
+  const git = async (args) => (await exec("git", [...GIT_READ, ...args], { cwd })).stdout.trim();
   const note = [
     `# Handoff from ${from ? accountOf(from).label : "another account"} to ${accountOf(to).label}`,
     "", `Folder: ${cwd}`, `Branch: ${await git(["branch", "--show-current"]) || "(detached)"}`,

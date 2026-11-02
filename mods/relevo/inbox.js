@@ -1,23 +1,35 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { theme, exec, run, notify, settings, agents, panes, spaces, shared, setShared } from "herdr";
+import { theme, exec, run, notify, settings, agents, panes, shared, setShared } from "herdr";
 import { loadClaudeQuotas } from "./accounts.js";
 import { accountFor, contextOfPath, inFocus } from "./context.js";
-import { ago } from "./lib/time.js";
+import { ago, nextSince } from "./lib/time.js";
 import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
-import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "./lib/prompt.js";
+import { GIT_READ } from "./lib/git.js";
+import { STATS_FOR } from "./lib/refresh.js";
+import { readPrompt, samePrompt, submitKeys, freeOption, moveKeys, lastMessage } from "./lib/prompt.js";
 import { COUNT, showPanel } from "./toolbar.js";
 import { launched } from "./skills.js";
 import { openWeek } from "./week.js";
 import { PrViews } from "./inbox-prs.js";
 import { TreeViews } from "./inbox-trees.js";
 import { KeyNav, INBOX_FOCUS } from "./inbox-keys.js";
+import { LiveViews } from "./inbox-live.js";
+import { LocalAddressed } from "./inbox-addressed.js";
 
 // Local work, pull requests and merged worktrees in one list; the PR and worktree parts live in their own files.
+function savedSince() {
+  try {
+    return JSON.parse(localStorage.getItem("since")) ?? {};
+  } catch {
+    return {};
+  }
+}
+
 export class Inbox {
   init(_props, cx) {
     this.local = [];
@@ -39,7 +51,7 @@ export class Inbox {
     this.wtError = {};
     this.removing = new Set();
     this.gone = new Set();
-    this.since = {};
+    this.since = savedSince();
     this.tops = new Map();
     this.stats = new Map();
     // What each waiting agent asks, read once per wait: address -> { since, prompt }.
@@ -51,34 +63,17 @@ export class Inbox {
     this.today = [];
     const panels = (shared("workspace.panels") ?? ["files", "changes"]).filter((p) => p !== "review");
     if (!panels.includes("inbox")) setShared("workspace.panels", [...panels, "inbox"]);
-    this.live = this.liveSigns();
+    this.labelling = {};
+    this.terms = new Map();
+    this.startLive(cx);
     this.scanLocal(cx);
     this.loadAddressed(cx);
     this.scanPRs(cx);
     this.loadQuotas(cx);
     this.scanTrees(cx);
-    // Scans follow what changed; the slow timers only catch edits no agent or space reports.
-    cx.timer.every(1500, (cx) => this.watchLive(cx));
-    cx.timer.every(60000, (cx) => this.scanLocal(cx));
+    // These feed alerts, so they keep running behind other apps.
     cx.timer.every(180000, (cx) => this.scanPRs(cx));
     cx.timer.every(60000, (cx) => this.loadQuotas(cx));
-    cx.timer.every(600000, (cx) => this.scanTrees(cx));
-  }
-
-  // In-memory only: no git and no redraw unless a scan finds something new.
-  liveSigns() {
-    const cwd = new Map(panes().map((p) => [p.pane, p.cwd]));
-    return {
-      agents: agents().map((a) => `${a.address}:${a.status}:${cwd.get(a.pane) ?? ""}`).join("|"),
-      spaces: spaces().map((s) => s.folder).join("|"),
-    };
-  }
-
-  watchLive(cx) {
-    const now = this.liveSigns(), was = this.live;
-    this.live = now;
-    if (now.agents !== was.agents) this.scanLocal(cx);
-    if (now.spaces !== was.spaces) this.scanTrees(cx);
   }
 
   todayGroup(t, list) {
@@ -112,8 +107,10 @@ export class Inbox {
   shown() {
     const pr = (p) => inFocus(accountFor(p.repo)), open = (p) => pr(p) && !isAddressed(p, this.addressed);
     const done = (p) => pr(p) && isAddressed(p, this.addressed);
+    const local = this.local.filter((i) => inFocus(contextOfPath(i.top)));
+    const off = (i) => i.kind === "diff" && Boolean(this.addressedLabel(i.agent.address));
     return {
-      local: this.local.filter((i) => inFocus(contextOfPath(i.top))),
+      local: local.filter((i) => !off(i)), localDone: local.filter(off),
       mine: this.mine.filter(open), requested: this.requested.filter(open),
       mineDone: this.mine.filter(done), requestedDone: this.requested.filter(done),
       worktrees: this.worktrees.filter((w) => inFocus(contextOfPath(w.main))),
@@ -134,17 +131,23 @@ export class Inbox {
     }
     this.scanning = true;
     this.again = false;
+    this.localAt = Date.now();
     cx.spawn(async (cx) => {
       try {
         const byPane = new Map(panes().map((p) => [p.pane, p]));
         const byTab = new Map(Object.entries(launched()).map(([url, l]) => [l.tab, url]));
-        const seen = new Set(), items = [], prAgents = {}, since = {};
+        const seen = new Set(), items = [], prAgents = {}, all = agents();
+        this.readLabels(all, cx);
         // Agents carry no timestamps, so a card's age is how long this status has been seen.
-        for (const a of agents()) {
-          since[`${a.address}:${a.status}`] = this.since[`${a.address}:${a.status}`] ?? Date.now() / 1000;
-        }
+        const since = nextSince(this.since, all, Date.now() / 1000);
+        if (JSON.stringify(since) !== JSON.stringify(this.since)) localStorage.setItem("since", JSON.stringify(since));
         this.since = since;
-        for (const a of agents()) {
+        // A saved age outlives an absence, so it can't vouch for the question read before it.
+        const listed = new Set(all.map((a) => a.address));
+        for (const address of this.prompts.keys()) if (!listed.has(address)) this.prompts.delete(address);
+        // A repo's one card goes to an agent not marked addressed, if it has one.
+        const marked = (a) => (this.addressedLabel(a.address) ? 1 : 0);
+        for (const a of [...all].sort((x, y) => marked(x) - marked(y))) {
           const url = byTab.get(a.tab_name);
           if (url) {
             prAgents[url] = a;
@@ -172,9 +175,9 @@ export class Inbox {
           seen.add(top);
           // The diff of a resting agent only changes when its status does; re-read it at most once a minute otherwise.
           let cached = this.stats.get(top);
-          if (!cached || cached.status !== a.status || Date.now() - cached.at > 60000) {
-            const stat = (await exec("git", ["--no-optional-locks", "diff", "HEAD", "--shortstat"], { cwd: top })).stdout;
-            const untracked = (await exec("git", ["--no-optional-locks", "ls-files", "--others", "--exclude-standard"], { cwd: top }))
+          if (!cached || this.dirty.delete(top) || cached.status !== a.status || Date.now() - cached.at > STATS_FOR) {
+            const stat = (await exec("git", [...GIT_READ, "diff", "HEAD", "--shortstat"], { cwd: top })).stdout;
+            const untracked = (await exec("git", [...GIT_READ, "ls-files", "--others", "--exclude-standard"], { cwd: top }))
               .stdout.split("\n").filter(Boolean).length;
             // What the agent said last, so the card tells whether to review or to answer it.
             const said = lastMessage((await exec("hc", ["read", a.address, "--lines", "20"])).stdout);
@@ -194,10 +197,11 @@ export class Inbox {
         const local = items.sort((x, y) => (x.kind === "blocked" ? 0 : 1) - (y.kind === "blocked" ? 0 : 1) || y.at - x.at);
         // Redraw only when a card or today's time changed, not on every scan.
         const sign = JSON.stringify([
-          local.map((i) => [i.agent.address, i.kind, i.files, i.add, i.del, i.said, Math.floor(i.at / 60)]),
+          local.map((i) => [i.agent.address, i.kind, i.files, i.add, i.del, i.said, Math.floor(i.at / 60), this.addressedLabel(i.agent.address)]),
           this.today,
         ]);
         this.local = local;
+        await this.watchRepos(seen, cx);
         if (sign !== this.sign) {
           this.sign = sign;
           this.publish();
@@ -235,6 +239,7 @@ export class Inbox {
 
   close() {
     this.reply.release();
+    this.wanted.clear();
   }
 
   // A waiting agent's question and its choices as a list: a click answers (or checks, in a multiple choice).
@@ -247,7 +252,7 @@ export class Inbox {
       .tooltip(o.detail ? `${o.label} · ${o.detail}` : o.label)
       .on_click((_e, cx) => {
         cx.stop_propagation();
-        this.answer(a, o, cx);
+        this.answer(a, o, cx, p);
       })
       .child(div().w(12).flex_none().text_size(10.5).text_color(t.dim).child(String(o.n)))
       .when("checked" in o, (el) => el.child(div().flex_none().text_size(12)
@@ -295,26 +300,41 @@ export class Inbox {
   // Measured on Claude's menus: in a single choice ↑/↓ then Enter answers in every variant (a number answers
   // at once in some and only moves the cursor in others, like the one with previews). In a multiple choice the
   // number toggles the box; when the cursor sits in the free-text choice it would be typed, so ↑ leaves first.
-  answer(a, option, cx) {
-    const entry = this.prompts.get(a.address), p = entry?.prompt;
-    if (option.n === entry?.free) return this.startReply(a, option.n, cx);
-    if (p && !p.multi) {
+  answer(a, option, cx, seen) {
+    if (option.n === this.prompts.get(a.address)?.free) return this.startReply(a, option.n, cx, "reply", seen);
+    cx.spawn(async (cx) => {
       // The cursor may have moved in the terminal since the last read.
-      return cx.spawn(async (cx) => {
-        await this.rereadPrompt(a.address);
-        this.press(a, [...moveKeys(this.prompts.get(a.address).prompt, option.n), "enter"], option.label, cx);
-      });
-    }
-    const leave = p?.cursor != null && p.cursor === entry?.free ? ["up"] : [];
-    this.press(a, [...leave, String(option.n)], option.label, cx);
+      if (!await this.stillAsking(a.address, seen, cx)) return;
+      const entry = this.prompts.get(a.address), p = entry.prompt;
+      if (!p.multi) return this.press(a, [...moveKeys(p, option.n), "enter"], option.label, cx);
+      const leave = p.cursor != null && p.cursor === entry.free ? ["up"] : [];
+      this.press(a, [...leave, String(option.n)], option.label, cx);
+    });
   }
 
-  submit(a, prompt, cx) {
-    const entry = this.prompts.get(a.address);
-    const leave = prompt.cursor != null && prompt.cursor === entry?.free ? ["up"] : [];
-    // Leaving the field moves the cursor one up, so count the moves to Submit from there.
-    const from = leave.length ? { ...prompt, cursor: prompt.cursor - 1 } : prompt;
-    this.press(a, [...leave, ...submitKeys(from)], "Submitted", cx);
+  submit(a, seen, cx) {
+    cx.spawn(async (cx) => {
+      if (!await this.stillAsking(a.address, seen, cx)) return;
+      const entry = this.prompts.get(a.address), prompt = entry.prompt;
+      const leave = prompt.cursor != null && prompt.cursor === entry.free ? ["up"] : [];
+      // Leaving the field moves the cursor one up, so count the moves to Submit from there.
+      const from = leave.length ? { ...prompt, cursor: prompt.cursor - 1 } : prompt;
+      this.press(a, [...leave, ...submitKeys(from)], "Submitted", cx);
+    });
+  }
+
+  // Keys only go to the question the card showed; if it changed, the card redraws with the new one.
+  // A card without choices (no seen) only needs none to have appeared: a paste's Enter would pick one.
+  async stillAsking(address, seen, cx) {
+    if (!await this.rereadPrompt(address)) {
+      notify({ title: "Could not read the agent's screen", body: "Nothing was sent.", level: "warning" });
+      return false;
+    }
+    const now = this.prompts.get(address).prompt;
+    if (seen ? samePrompt(seen, now) : !now.options.length && !now.unparsed) return true;
+    notify({ title: "The question changed", body: "Nothing was sent. Read the card and answer again.", level: "warning" });
+    cx.notify();
+    return false;
   }
 
   // After a key the screen changes (a box checks, the next question shows), so read it again.
@@ -346,18 +366,22 @@ export class Inbox {
     if (r.code !== 0) notify({ title: "Could not send the note", body: r.stderr.trim().split("\n")[0], level: "warning" });
   }
 
+  // False when there's no screen to go by; what the card knows stays as it was.
   async rereadPrompt(address) {
-    const screen = (await exec("hc", ["read", address, "--lines", "0"])).stdout;
+    const r = await exec("hc", ["read", address, "--lines", "0"]);
+    if (r.code !== 0 || !r.stdout.trim()) return false;
     const was = this.prompts.get(address);
-    const prompt = readPrompt(screen);
+    const prompt = readPrompt(r.stdout);
     this.prompts.set(address, { since: was?.since, prompt, free: freeOption(prompt, was?.free) });
     for (const i of this.local) if (i.agent.address === address) i.prompt = this.prompts.get(address).prompt;
+    return true;
   }
 
-  startReply(a, key, cx, mode = "reply") {
+  startReply(a, key, cx, mode = "reply", seen = null) {
     this.replying = a.address;
     this.replyKey = key;
     this.replyMode = mode;
+    this.replySeen = seen;
     this.reply.set_value("");
     this.reply.focus();
     cx.notify();
@@ -369,6 +393,7 @@ export class Inbox {
   // checks it again. hc keys can't type accents, so the words always go as a paste.
   sendReply(cx) {
     const text = this.reply.value().trim(), address = this.replying, key = this.replyKey, mode = this.replyMode;
+    const seen = this.replySeen;
     this.replying = null;
     this.replyKey = null;
     this.replyMode = null;
@@ -379,7 +404,7 @@ export class Inbox {
     cx.notify();
     if (!text || !address) return;
     cx.spawn(async (cx) => {
-      await this.rereadPrompt(address);
+      if (!await this.stillAsking(address, seen, cx)) return;
       const p = this.prompts.get(address)?.prompt;
       const keys = (list) => (list.length ? exec("hc", ["keys", address, ...list]) : null);
       if (key && p?.multi) await keys(moveKeys(p, key));
@@ -399,7 +424,7 @@ export class Inbox {
     });
   }
 
-  localCard(t, item) {
+  localCard(t, item, addressed = false) {
     const a = item.agent;
     const goAgent = () => run("agent.focus", { terminal: a.address });
     if (item.kind === "blocked") return this.waitingCard(t, item, goAgent);
@@ -426,11 +451,21 @@ export class Inbox {
           showPanel("files");
         }),
         button(t, `agent-${a.address}`, "Agent", goAgent),
+        addressed
+          ? button(t, `undo-${a.address}`, "Undo", (cx) => this.setLocalAddressed(a, false, cx), { tip: "Back to the list" })
+          : button(t, `addressed-${a.address}`, "✓", (cx) => this.setLocalAddressed(a, true, cx), {
+            tip: "Addressed: hide until its agent works again",
+          }),
       ]);
   }
 
-  localGroup(t, label, items) {
-    return items.length ? [sectionHeader(t, label, items.length), ...items.map((i) => this.localCard(t, i))] : [];
+  localGroup(t, key, label, items, done = []) {
+    if (!items.length && !done.length) return [];
+    return [
+      sectionHeader(t, label, items.length),
+      ...items.map((i) => this.localCard(t, i)),
+      ...this.addressedFold(t, key, done, (i) => this.localCard(t, i, true)),
+    ];
   }
 
   render(cx) {
@@ -468,8 +503,8 @@ export class Inbox {
         .when(!total && !this.error && Boolean(this.prsAt), (el) => el.child(
           div().p(12).text_size(12).text_color(t.dim).child("Nothing waiting")))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
-        .children(part("waiting", this.localGroup(t, "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
-        .children(part("local", this.localGroup(t, "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"))))
+        .children(part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
+        .children(part("local", this.localGroup(t, "local", "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"), v.localDone)))
         .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone)))
         .children(part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true, v.requestedDone)))
         .children(part("today", this.todayGroup(t, v.today)))
@@ -478,7 +513,7 @@ export class Inbox {
 }
 
 
-for (const views of [PrViews, TreeViews, KeyNav]) {
+for (const views of [PrViews, TreeViews, KeyNav, LiveViews, LocalAddressed]) {
   for (const name of Object.getOwnPropertyNames(views.prototype)) {
     if (name !== "constructor") Inbox.prototype[name] = views.prototype[name];
   }

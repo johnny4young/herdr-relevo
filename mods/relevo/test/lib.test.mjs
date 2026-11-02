@@ -1,15 +1,16 @@
 // From this folder: node --test 'test/*.test.mjs'. Covers the pure helpers in lib/.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ago, duration, windowOf, FIVE_HOURS, runsOut } from "../lib/time.js";
+import { ago, duration, windowOf, FIVE_HOURS, runsOut, nextSince } from "../lib/time.js";
 import { diffRows, lineKey } from "../lib/diff.js";
 import { ownerOf, contextFor } from "../lib/context.js";
 import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
-import { keyMap, formatShortcut } from "../lib/keys.js";
+import { keyMap, relevoKeys, formatShortcut } from "../lib/keys.js";
 import { mapMine, mapRequested, unresolved, prChanges, mergedHeads } from "../lib/github.js";
-import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "../lib/prompt.js";
+import { readPrompt, samePrompt, submitKeys, freeOption, moveKeys, lastMessage } from "../lib/prompt.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "../lib/handoff.js";
-import { isAddressed, keepListed } from "../lib/addressed.js";
+import { isAddressed, keepListed, addressedValue, staleAddressed } from "../lib/addressed.js";
+import { isDue, runningCommands, endedFolders, repoOf, gitStateChanged } from "../lib/refresh.js";
 import { parseUses, rankSkills, slug, worktreePath, localBranch, checkoutArgs, pullRef, pullRefspec, sessionPrompt } from "../lib/prmenu.js";
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -61,6 +62,98 @@ test("totals: overlapping stretches on one ticket count once", () => {
     { key: "ABC-1", repo: "api", jira: "ABC-1", seconds: 900 },
     { key: "web", repo: "web", jira: null, seconds: 100 },
   ]);
+});
+
+test("samePrompt: the cursor, boxes and a preview don't matter; the words and choices do", () => {
+  const read = (s) => readPrompt(s);
+  const base = read(" Which database?\n › 1. Postgres\n   2. SQLite\n");
+  assert.equal(samePrompt(base, read(" Which database?\n   1. Postgres\n › 2. SQLite\n")), true);
+  assert.equal(samePrompt(base, read(" Which cache?\n › 1. Postgres\n   2. SQLite\n")), false);
+  assert.equal(samePrompt(base, read(" Which database?\n › 1. MySQL\n   2. SQLite\n")), false);
+  assert.equal(samePrompt(base, read(" Which database?\n › 1. Postgres\n")), false);
+  assert.equal(samePrompt(base, read("I changed three files.\n")), false);
+  const boxes = " Pick\n › 1. [ ] A\n   2. [ ] B\n   Submit\n";
+  assert.equal(samePrompt(read(boxes), read(" Pick\n   1. [x] A\n › 2. [ ] B\n   Submit\n")), true);
+  assert.equal(samePrompt(read(boxes), read(" Pick\n › 1. [ ] A\n   2. [ ] B\n")), false);
+  const preview = (cursor, inner) => ` Which?\n ${cursor === 1 ? "›" : " "} 1. Short     ┌────┐\n ${cursor === 2 ? "›" : " "} 2. Long      │ ${inner} │\n              └────┘\n`;
+  assert.equal(samePrompt(read(preview(1, "aaa")), read(preview(2, "bbb"))), true);
+});
+
+test("samePrompt: a permission for another command isn't the same, though its words and choices are", () => {
+  const dialog = (...command) => readPrompt([
+    "● Working (12s)", "────────────────", " Bash command", "", ...command.map((c) => `   ${c}`), "",
+    " Do you want to proceed?", " ❯ 1. Yes", "   2. No", "",
+  ].join("\n"));
+  assert.equal(samePrompt(dialog("npm test"), dialog("rm -rf /data")), false);
+  assert.equal(samePrompt(dialog("cd a", "npm test", "echo ok"), dialog("cd a", "rm -rf x", "echo ok")), false);
+  assert.equal(samePrompt(dialog("npm test"), dialog("npm test")), true);
+});
+
+test("samePrompt: what's above the dialog's edge can change; a diff inside it can't", () => {
+  const edit = (above, line) => readPrompt([
+    above, "────────────────", " Edit file", "╌╌╌╌╌╌╌╌", `  + ${line}`, "╌╌╌╌╌╌╌╌", " Make this edit?", " ❯ 1. Yes", "   2. No",
+  ].join("\n"));
+  assert.equal(samePrompt(edit("● Task (3s)", "a"), edit("● Task (9s)", "a")), true);
+  assert.equal(samePrompt(edit("● Task (3s)", "a"), edit("● Task (3s)", "b")), false);
+});
+
+test("samePrompt: a choice's description counts, a preview beside it doesn't", () => {
+  const menu = (detail, inner, cursor) => readPrompt(` Which?\n ${cursor === 1 ? "›" : " "} 1. Short     ┌────┐\n     ${detail}      │ ${inner} │\n ${cursor === 2 ? "›" : " "} 2. Long      └────┘\n`);
+  assert.equal(samePrompt(menu("keeps it", "aaa", 1), menu("keeps it", "bbb", 2)), true);
+  assert.equal(samePrompt(menu("keeps it", "aaa", 1), menu("deletes it", "aaa", 1)), false);
+});
+
+test("samePrompt: an indented frame keeps its choices in the comparison", () => {
+  const box = (one) => readPrompt(["   ╭──────────╮", "   │ Proceed? │", `   │ ❯ 1. ${one}   │`, "   │   2. No    │", "   ╰──────────╯"].join("\n"));
+  assert.equal(box("Yes").dialog, "Proceed?\n1. Yes\n2. No");
+  assert.equal(samePrompt(box("Yes"), box("Yes")), true);
+  assert.equal(samePrompt(box("Yes"), box("Allow all")), false);
+});
+
+test("samePrompt: a rule inside a command isn't the dialog's edge, and a long command counts whole", () => {
+  const dialog = (...command) => readPrompt([
+    "────────────────", " Bash command", ...command.map((c) => `   ${c}`), " Do you want to proceed?", " ❯ 1. Yes", "   2. No",
+  ].join("\n"));
+  assert.equal(samePrompt(dialog("rm -rf /data", "echo ────────"), dialog("npm test", "echo ok", "────────")), false);
+  assert.equal(samePrompt(dialog("rm -rf /data", "────────", "echo ok"), dialog("npm test", "────────", "echo ok")), false);
+  const long = (first) => [first, ...Array(40).fill("echo ok")];
+  assert.equal(samePrompt(dialog(...long("rm -rf /data")), dialog(...long("npm test"))), false);
+  const below = (command) => readPrompt([...Array(80).fill("old output"), "────────", `   ${command}`, " Proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
+  assert.equal(below("npm test").dialog, "npm test\nProceed?\n1. Yes\n2. No");
+  assert.equal(samePrompt(below("rm -rf /data"), below("npm test")), false);
+});
+
+test("samePrompt: the same text with other choices, or nothing to compare, isn't the same", () => {
+  const seen = { dialog: "Pick\n1. A", submit: null, question: "Pick", options: [{ n: 1, label: "A" }] };
+  assert.equal(samePrompt(seen, { ...seen, options: [{ n: 1, label: "B" }] }), false);
+  assert.equal(samePrompt(seen, { ...seen, options: [] }), false);
+  assert.equal(samePrompt({ ...seen, dialog: "" }, { ...seen, dialog: "" }), false);
+});
+
+test("readPrompt: numbered lines that aren't a whole menu are flagged", () => {
+  assert.equal(readPrompt(" Which?\n   2. B\n › 3. C\n").unparsed, true);
+  assert.equal(readPrompt("I changed three files.\n").unparsed, undefined);
+});
+
+test("relevoKeys: the layout's section counts and wins over global", () => {
+  const map = relevoKeys({
+    global: { "cmd-t": "tab.new", "cmd-g": "relevo.review" },
+    "layout:relevo": { "cmd-alt-d": "relevo.review", "cmd-j": "relevo.next-waiting" },
+    terminal: { "cmd-c": "terminal.copy" },
+  });
+  assert.equal(map["relevo.review"], "cmd-alt-d");
+  assert.equal(map["relevo.next-waiting"], "cmd-j");
+  assert.equal(map["tab.new"], "cmd-t");
+  assert.equal(map["terminal.copy"], undefined);
+  assert.deepEqual(relevoKeys({}), {});
+});
+
+test("nextSince: keeps a status's start, restarts on a new one, and holds gone agents for a while", () => {
+  const day = 86400, at = 100 * day;
+  const was = { "t1:done": 50, "t2:done": at - 100, "t3:idle": at - day, "t4:idle": at - 31 * day, "m/t5:done": at - 2 * day };
+  const next = nextSince(was, [{ address: "t1", status: "done" }, { address: "t2", status: "blocked" }], at);
+  assert.deepEqual(next, { "t1:done": 50, "t2:blocked": at, "t3:idle": at - day, "m/t5:done": at - 2 * day });
+  assert.deepEqual(nextSince(was, [], at + 40 * day), {});
 });
 
 test("shortcuts: first combo per action, macOS modifier order", () => {
@@ -420,3 +513,56 @@ test("mergedHeads ignores a fork's branch, even one named like yours", () => {
   ]), ["feat/a"]);
 });
 
+test("addressedValue: when and which turn, a missing turn counts as zero", () => {
+  assert.equal(addressedValue(7, 100), "100:7");
+  assert.equal(addressedValue(undefined, 100), "100:0");
+});
+
+test("staleAddressed: new work ends the mark, looking at the agent doesn't", () => {
+  assert.equal(staleAddressed("", "done", 3), false);
+  assert.equal(staleAddressed("100:3", "done", 3), false);
+  assert.equal(staleAddressed("100:3", "idle", 3), false);
+  assert.equal(staleAddressed("100:3", "idle", 4), true);
+  assert.equal(staleAddressed("100:3", "working", 3), true);
+  assert.equal(staleAddressed("100:3", "blocked", 3), true);
+  assert.equal(staleAddressed("garbage", "idle", 3), true);
+});
+
+test("isDue: only with the window in front, and once the period has passed", () => {
+  assert.equal(isDue(0, 60, 59, true), false);
+  assert.equal(isDue(0, 60, 60, true), true);
+  assert.equal(isDue(0, 60, 600, false), false);
+});
+
+test("runningCommands: a program in front of a shell, not a shell, an agent or a mod pane", () => {
+  const panes = [
+    { pane: "a", terminal: "t1", cwd: "/r", status: null, program: { name: "npm" } },
+    { pane: "b", terminal: "t2", cwd: "/r", status: null, program: { shell: true } },
+    { pane: "c", terminal: "t3", cwd: "/r", status: "idle", program: { agent: true } },
+    { pane: "d", terminal: null, cwd: null, status: null, program: null },
+  ];
+  assert.deepEqual([...runningCommands(panes).keys()], ["a"]);
+});
+
+test("endedFolders: panes that were running and no longer are", () => {
+  assert.deepEqual(endedFolders(new Map([["a", "/r"], ["b", "/s"]]), new Map([["b", "/s"]])), ["/r"]);
+});
+
+test("repoOf: the deepest repo holding the folder, not a sibling sharing its prefix", () => {
+  const tops = ["/w/app", "/w/app/vendor/lib", "", "/w/app2"];
+  assert.equal(repoOf("/w/app", tops), "/w/app");
+  assert.equal(repoOf("/w/app/src", tops), "/w/app");
+  assert.equal(repoOf("/w/app/vendor/lib/x", tops), "/w/app/vendor/lib");
+  assert.equal(repoOf("/w/app3", tops), null);
+});
+
+test("gitStateChanged: refs, HEAD and the index count; objects and locks don't", () => {
+  const dir = "/w/refs/app/.git", changed = (...paths) => gitStateChanged(dir, paths);
+  assert.equal(changed(`${dir}/refs/heads/main`), true);
+  assert.equal(changed(`${dir}/HEAD`), true);
+  assert.equal(changed(`${dir}/index`), true);
+  assert.equal(changed(`${dir}/worktrees/x/index`), true);
+  assert.equal(changed(dir), true);
+  assert.equal(changed(`${dir}/objects/ab/cd`), false, "a folder named refs above the repo doesn't count");
+  assert.equal(changed(`${dir}/index.lock`, `${dir}/refs/heads/main.lock`), false);
+});

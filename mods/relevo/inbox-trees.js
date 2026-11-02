@@ -10,6 +10,7 @@ export class TreeViews {
   scanTrees(cx, force = false) {
     if (this.scanningTrees) return;
     this.scanningTrees = true;
+    this.treesAt = Date.now();
     cx.spawn(async (cx) => {
       try {
         this.worktrees = await scanWorktrees(force);
