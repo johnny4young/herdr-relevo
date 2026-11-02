@@ -25,7 +25,7 @@ function files({ status = "", ignored = "", tracked = "", nested = "", locked = 
     if (cmd === "find") return { stdout: nested };
     if (args.includes("worktree") && args.includes("list")) return { stdout: `worktree ${PATH}\nHEAD abc\n${locked ? "locked\n" : ""}\n` };
     if (args.includes("--porcelain")) return { stdout: status };
-    if (args.includes("--ignored")) return { stdout: ignored.replaceAll("\n", "\0") };
+    if (args.includes("--ignored")) return { stdout: ignored.includes("\0") ? ignored : ignored.replaceAll("\n", "\0") };
     if (args.includes("--stage")) return { stdout: tracked };
     return null;
   };
@@ -60,10 +60,42 @@ test("ignored work is named before it goes, while rebuilt folders aren't", async
   assert.equal(calls(REMOVE).length, 1);
 });
 
+test("an ignored name with a newline is one file", async () => {
+  files({ ignored: "a\nb.env\0" });
+  const v = view(), w = tree(), cx = fakeCx();
+  await clickRemove(v, w, cx);
+  assert.deepEqual(w.ignored, ["a\nb.env"]);
+});
+
+test("folders that only hold rebuilt or listed entries aren't named", async () => {
+  files({ ignored: "emptyish/\0emptyish/node_modules/\0mixed/\0mixed/.env\0mixed/node_modules/\0" });
+  const v = view(), w = tree(), cx = fakeCx();
+  await clickRemove(v, w, cx);
+  assert.deepEqual(w.ignored, ["mixed/.env"]);
+});
+
+test("a second Confirm while the check runs removes once", async () => {
+  const v = view(), w = tree(), cx = fakeCx();
+  await clickRemove(v, w, cx);
+  v.removeTree(w, cx);
+  v.removeTree(w, cx);
+  await flush();
+  assert.equal(calls(REMOVE).length, 1);
+});
+
+test("a space on another machine with the same folder isn't closed", async () => {
+  fake.spaces = [{ id: "sp9", folder: PATH, machine: "devbox", tabs: [] }];
+  const v = view(), w = tree(), cx = fakeCx();
+  await clickRemove(v, w, cx);
+  await clickRemove(v, w, cx);
+  assert.deepEqual(fake.runs, []);
+  assert.equal(calls(REMOVE).length, 1);
+});
+
 test("files that appear after the question ask again", async () => {
   const v = view(), w = tree(), cx = fakeCx();
   await clickRemove(v, w, cx);
-  files({ ignored: ".env\n" });
+  files({ ignored: ".env\0" });
   await clickRemove(v, w, cx);
   assert.equal(calls(REMOVE).length, 0);
   assert.equal(v.confirm, PATH);
@@ -102,16 +134,40 @@ test("a space's own terminals close with it; another's, or a working agent, stop
   assert.equal(v.wtError[PATH], "an agent is working here");
 });
 
+test("a space opened after the question asks again before closing it", async () => {
+  const v = view(), w = tree(), cx = fakeCx();
+  await clickRemove(v, w, cx);
+  fake.spaces = [{ id: "sp1", folder: PATH, tabs: [] }];
+  await clickRemove(v, w, cx);
+  assert.deepEqual(fake.runs, []);
+  assert.equal(calls(REMOVE).length, 0);
+  assert.match(text(v.treeRow({}, w)), /closes its space/);
+});
+
 test("Remove all leaves out worktrees with ignored work, even found after the scan", async () => {
   const a = tree(), b = tree({ path: "/work/wt2", ignored: [".env"] });
   const v = view(a, b), cx = fakeCx();
   assert.deepEqual(v.removable([a, b]), [a]);
-  files({ ignored: "notes.md\n" });
+  files({ ignored: "notes.md\0" });
   v.confirm = "all";
   v.removeAll([a], cx);
   await flush();
   assert.equal(calls(REMOVE).length, 0);
   assert.equal(v.wtError[PATH], "deletes notes.md");
+});
+
+test("Remove all leaves out a worktree that gained a space or a terminal after the scan", async () => {
+  const a = tree(), b = tree({ path: "/work/wt2" });
+  fake.spaces = [{ id: "sp1", folder: PATH, tabs: [] }];
+  fake.panes = [{ pane: "p1", cwd: "/work/wt2", tab: "tb9" }];
+  const v = view(a, b), cx = fakeCx();
+  v.confirm = "all";
+  v.removeAll([a, b], cx);
+  await flush();
+  assert.equal(calls(REMOVE).length, 0);
+  assert.deepEqual(fake.runs, []);
+  assert.equal(v.wtError[PATH], "has a space");
+  assert.equal(v.wtError["/work/wt2"], "open in a terminal");
 });
 
 test("a branch git keeps is reported", async () => {

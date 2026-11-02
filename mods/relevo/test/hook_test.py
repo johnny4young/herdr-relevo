@@ -138,6 +138,15 @@ class Manage(unittest.TestCase):
         self.assertEqual(stop[0]["hooks"][0], own)
         self.assertEqual(stop[0]["hooks"][1]["timeout"], 5)
         self.assertEqual(stop[0]["hooks"][1]["command"], hook.command())
+    def test_an_older_command_beside_the_current_one_is_not_installed(self):
+        self.run_it("--install")
+        settings = self.read()
+        settings["hooks"]["Stop"].append({"hooks": [{"type": "command", "command": "python3 /old/place/" + hook.NAME}]})
+        self.path.write_text(json.dumps(settings), encoding="utf-8")
+        self.assertEqual(self.run_it("--check")[0], 1)
+        self.run_it("--install")
+        self.assertEqual(self.run_it("--check")[0], 0)
+        self.assertEqual(len(self.read()["hooks"]["Stop"]), 1)
 
     def test_uninstall_removes_only_this_hook(self):
         other = {"hooks": [{"type": "command", "command": "other"}]}

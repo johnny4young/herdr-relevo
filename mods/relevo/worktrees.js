@@ -81,7 +81,8 @@ const ignoredFiles = async (w) => {
   const r = await exec("git", [...GIT_READ, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], { cwd: w.path });
   return { ...r, paths: r.stdout.split("\0").filter(Boolean).map((l) => l.replace(/\/$/, "")) };
 };
-const worthKeeping = (paths) => paths.filter((l) => !REBUILT.has(l.split("/").pop()));
+// git also lists the folders holding ignored entries; only the entries themselves count.
+const worthKeeping = (paths) => paths.filter((l) => !REBUILT.has(l.split("/").pop()) && !paths.some((o) => o.startsWith(`${l}/`)));
 // showUntrackedFiles=no would hide new files from this check and from git's own refusal.
 const statusOf = (w) => exec("git", [...GIT_READ, "status", "--porcelain", "--untracked-files=normal"], { cwd: w.path });
 
