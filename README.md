@@ -68,19 +68,19 @@ Herdr doesn't update mods from others, and adding Relevo again installs a rename
 over the old ones. From a clone of this repo:
 
 ```sh
-rsync -a --delete --exclude config.js mods/relevo/ ~/.config/herdr-app/mods/relevo/
-rsync -a --delete mods/relevo-agents/ ~/.config/herdr-app/mods/relevo-agents/
-rsync -a --delete mods/relevo-files/ ~/.config/herdr-app/mods/relevo-files/
+rsync -a --exclude config.js mods/relevo/ ~/.config/herdr-app/mods/relevo/
+rsync -a mods/relevo-agents/ ~/.config/herdr-app/mods/relevo-agents/
+rsync -a mods/relevo-files/ ~/.config/herdr-app/mods/relevo-files/
 cp layouts/relevo.json layouts/relevo.svg ~/.config/herdr-app/layouts/
 ```
 
-Mods reload by themselves. `--exclude config.js` keeps your accounts; copying that file over yours resets them. Compare
+Mods reload by themselves. `--exclude config.js` keeps your accounts; copying that file over yours resets them. Don't add `--delete`: it removes your own icons. Compare
 `keys.json` with yours and add what's new. Relevo's keys now live in a `layout:relevo` section; if yours are under
 `global`, move them so they only act while Relevo shows.
 
 ## What it reads and runs
 
-- Runs `git`, `gh`, `hc` and the launchers in `config.js`; Files runs `/usr/bin/trash`, `open -R`, `mv -n` and `mkdir`.
+- Runs `git`, `gh`, `hc`, `find` (to look for repos in a worktree's ignored folders) and the launchers in `config.js`; Files runs `/usr/bin/trash`, `open -R`, `mv -n` and `mkdir`.
 - Reaches the network for quotas: each Claude account's login from the macOS Keychain goes to Anthropic's usage
   endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token.
 - Reads each Claude account's `history.jsonl` to rank the skills a PR's menu offers (counts only).
