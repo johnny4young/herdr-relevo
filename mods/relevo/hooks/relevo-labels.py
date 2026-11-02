@@ -84,18 +84,23 @@ def ours(hook):
     return NAME in (hook.get("command") or "")
 
 
+def command():
+    """Exits 0 whatever happens: on Stop a hook's exit 2 stops the agent from finishing, and python3 exits 2 for a moved script."""
+    path = shlex.quote(SCRIPT)
+    return "[ -f %s ] && python3 %s || true" % (path, path)
+
+
 def installed(settings):
     hooks = settings.get("hooks") or {}
-    return all(any(ours(h) for group in hooks.get(e) or [] for h in group.get("hooks") or []) for e in EVENTS)
+    current = command()
+    return all(any(h.get("command") == current for group in hooks.get(e) or [] for h in group.get("hooks") or []) for e in EVENTS)
 
 
 def add(settings):
-    command = "python3 " + shlex.quote(SCRIPT)
+    remove(settings)
     hooks = settings.setdefault("hooks", {})
     for event in EVENTS:
-        groups = hooks.setdefault(event, [])
-        if not any(ours(h) for group in groups for h in group.get("hooks") or []):
-            groups.append({"hooks": [{"type": "command", "command": command}]})
+        hooks.setdefault(event, []).append({"hooks": [{"type": "command", "command": command()}]})
 
 
 def remove(settings):

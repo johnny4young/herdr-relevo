@@ -1,4 +1,4 @@
-import { exec, home, spaces, panes } from "herdr";
+import { agents, exec, home, notify, spaces, panes } from "herdr";
 import { REPOS_ROOT as ROOT } from "./config.js";
 import { mergedHeads } from "./lib/github.js";
 import { GIT_READ } from "./lib/git.js";
@@ -69,16 +69,45 @@ export async function scanWorktrees(force = false) {
     w.merged = Boolean(w.branch && merged[w.main].has(w.branch));
     if (w.merged) {
       w.dirty = (await exec("git", [...GIT_READ, "status", "--porcelain"], { cwd: w.path })).stdout.trim() !== "";
+      w.ignored = worthKeeping((await ignoredFiles(w)).stdout);
     }
   }
   return list.sort((a, b) => b.at - a.at);
+}
+
+// Ignored files that a build or install brings back; anything else, like .env or notes, is someone's work.
+const REBUILT = new Set([
+  "node_modules", "dist", "build", "out", "target", "coverage", ".next", ".nuxt", ".turbo", ".cache", ".build", ".gradle",
+  "__pycache__", ".pytest_cache", ".venv", "venv", "DerivedData", ".DS_Store",
+]);
+const ignoredFiles = (w) => exec("git", [...GIT_READ, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory"], { cwd: w.path });
+const worthKeeping = (out) => out.split("\n").filter(Boolean).map((l) => l.replace(/\/$/, ""))
+  .filter((l) => !REBUILT.has(l.split("/").pop()));
+
+// Looks again right before removing, since the last scan can be minutes old and closing a space can't be undone.
+export async function removalCheck(w) {
+  const inside = (p) => p === w.path || p?.startsWith(`${w.path}/`);
+  const space = spaces().find((s) => s.folder === w.path)?.id ?? null;
+  const here = new Set(panes().filter((p) => inside(p.cwd)).map((p) => p.pane));
+  // A space's own terminals close with it; without one, any terminal here would lose its folder.
+  const busy = space ? agents().some((a) => here.has(a.pane) && a.space !== space) : here.size > 0;
+  if (busy) return { error: "open in a terminal" };
+  const status = await exec("git", [...GIT_READ, "status", "--porcelain"], { cwd: w.path });
+  if (status.code !== 0) return { error: "could not check its files" };
+  if (status.stdout.trim()) return { error: "uncommitted changes" };
+  const ignored = await ignoredFiles(w);
+  if (ignored.code !== 0) return { error: "could not check its files" };
+  return { space, ignored: worthKeeping(ignored.stdout) };
 }
 
 // Never forced: git keeps a worktree with changes, and -d keeps a branch with unmerged commits.
 export async function removeWorktree(w) {
   const r = await exec("git", ["-C", w.main, "worktree", "remove", w.path]);
   if (r.code !== 0) return r.stderr.trim().split("\n")[0] || "git worktree remove failed";
-  if (w.branch) await exec("git", ["-C", w.main, "branch", "-d", w.branch]);
+  if (w.branch) {
+    const b = await exec("git", ["-C", w.main, "branch", "-d", w.branch]);
+    if (b.code !== 0) notify({ title: `Kept branch ${w.branch}`, body: b.stderr.trim().split("\n")[0], level: "warning" });
+  }
   return null;
 }
 
