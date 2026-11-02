@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 · 2026-11-01
 
 - **Handoffs keep the conversation.** Between Claude accounts the next one resumes the same session (`--resume --fork-session` from a copy of its file), so it doesn't start cold and re-read the repo. Handoffs to and from Codex start from the note, and Codex's own quota alert offers one too. The old agent is interrupted once the new one starts.
+- **Safer handoff copies.** The session label is trusted only as a UUID file in the source account's own projects folder, and the copy never follows a symlink; anything else falls back to the note.
 
 ## 0.4.0 · 2026-11-01
 
