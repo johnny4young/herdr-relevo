@@ -6,10 +6,13 @@ const BOX = /^\[([ xX✔✓✗])?\]\s*/;
 const FRAME = /^[│┃╭╮╰╯─━┌┐└┘|\s]+|[│┃╭╮╰╯─━┌┐└┘|\s]+$/g;
 // Lines between two choices that still belong to the menu: a description, a blank, a separator, Submit.
 const MAX_GAP = 4;
+// A dialog's top edge is a whole solid line at the margin; a command's lines are indented and a diff is fenced with ╌.
+const EDGE = /^[╭┌─━][─━]{2,}[╮┐]?\s*$/;
+const PREVIEW = /\s{3,}[┌│└╭╰].*$/;
 
 export function readPrompt(screen) {
   const lines = (screen ?? "").split("\n").map((l) => l.replace(FRAME, "")).slice(-60);
-  const none = { question: lastLines(lines, 2), options: [], multi: false, submit: null, cursor: null };
+  const none = { question: lastLines(lines, 2), options: [], multi: false, submit: null, cursor: null, dialog: "" };
   let last = -1;
   for (let i = lines.length - 1; i >= 0 && last < 0; i--) if (OPTION.test(lines[i])) last = i;
   if (last < 0) return none;
@@ -26,12 +29,12 @@ export function readPrompt(screen) {
     found.unshift({ i, n: Number(m[2]) });
     gap = 0;
   }
-  if (found[0].n !== 1) return none;
+  if (found[0].n !== 1) return { ...none, unparsed: true };
   let submit = null, cursor = null;
   const options = found.map(({ i, n }, k) => {
     // A preview drawn beside the choices shares their lines; it starts after a wide gap with a box edge.
     const [, mark, , full] = OPTION.exec(lines[i]);
-    const raw = full.replace(/\s{3,}[┌│└╭╰].*$/, "");
+    const raw = full.replace(PREVIEW, "");
     if (mark) cursor = n;
     const box = BOX.exec(raw);
     const next = found[k + 1]?.i ?? Math.min(lines.length, i + 1 + MAX_GAP);
@@ -52,8 +55,27 @@ export function readPrompt(screen) {
   return {
     question: questionAbove(lines, found[0].i), options, multi, submit, cursor, preview,
     summary: summaryAbove(lines, found[0].i),
+    dialog: dialogWords(screen, found[0].i, last),
   };
 }
+
+// The dialog from its top edge to its last choice, without what the cursor changes: a permission's command can
+// sit far above the question. With no edge it takes the whole screen, so a change there refuses rather than passes.
+function dialogWords(screen, first, last) {
+  const raw = (screen ?? "").split("\n"), at = Math.max(0, raw.length - 60), start = first + at;
+  let top = start;
+  while (top > 0 && !EDGE.test(raw[top - 1])) top--;
+  const framed = /^\s*[│┃]/.test(raw[start]);
+  const row = (l) => (framed ? l.replace(/^\s*[│┃]/, "") : l).replace(PREVIEW, "");
+  const clean = (l) => l.replace(FRAME, "").replace(/^[❯›>]\s*/, "").replace(/^(\d\.\s+)\[[^\]]?\]\s*/, "$1");
+  return [...raw.slice(top, start), ...raw.slice(start, last + at + 1).map(row)].map(clean).filter(Boolean).join("\n");
+}
+
+// Still the dialog the card came from, wherever the cursor is and whatever the boxes say.
+export const samePrompt = (seen, now) => Boolean(seen.dialog) && seen.dialog === now.dialog
+  && Boolean(seen.submit) === Boolean(now.submit)
+  && seen.options.length === now.options.length
+  && seen.options.every((o, i) => o.label === now.options[i].label);
 
 // The keys that move the cursor onto Submit and press it.
 export function submitKeys(prompt) {

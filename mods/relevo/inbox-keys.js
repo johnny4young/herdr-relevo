@@ -20,11 +20,12 @@ export class KeyNav {
   navItems(v) {
     const items = [];
     for (const i of v.local.filter((x) => x.kind === "blocked")) {
+      const drawn = i.prompt;
       items.push({
         id: `in-${i.agent.address}`, section: "waiting", go: () => run("agent.focus", { terminal: i.agent.address }),
         choose: (n, cx) => {
-          const option = i.prompt?.options.find((o) => o.n === n);
-          if (option) this.answer(i.agent, option, cx);
+          const option = drawn?.options.find((o) => o.n === n);
+          if (option) this.answer(i.agent, option, cx, drawn);
         },
       });
     }
