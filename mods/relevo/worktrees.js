@@ -117,7 +117,8 @@ export async function removalCheck(w) {
     // Clones under these belong to the tool that made them, like SwiftPM's .build/checkouts.
     const dirs = ignored.paths.filter((p) => !REBUILT.has(p.split("/").pop())).map((p) => `./${p}`);
     const skip = [...REBUILT].flatMap((name, i) => (i ? ["-o", "-name", name] : ["-name", name]));
-    const nested = dirs.length ? await exec("find", [...dirs, "(", ...skip, ")", "-prune", "-o", "-name", ".git", "-print"], { cwd: w.path }) : { stdout: "" };
+    const nested = dirs.length ? await exec("find", [...dirs, "(", ...skip, ")", "-prune", "-o", "-name", ".git", "-print"], { cwd: w.path }) : { code: 0, stdout: "" };
+    if (nested.code !== 0) return { error: "could not check its files" };
     const repo = nested.stdout.split("\n").find(Boolean);
     if (repo) return { error: `holds a repo: ${repo.replace(/^\.\//, "").replace(/\/?\.git$/, "")}` };
     return { space: space?.id ?? null, ignored: worthKeeping(ignored.paths) };

@@ -2,7 +2,7 @@
 
 ## 0.5.8 · 2026-11-02
 
-- **Swift worktrees can go.** Remove refused any worktree with SwiftPM's `.build/checkouts`, since it holds clones. Folders a tool manages no longer count as a repo or as work to keep. A repo elsewhere still stops it.
+- **Swift worktrees can go.** Remove refused any worktree with SwiftPM's `.build/checkouts`, since it holds clones. Folders a tool manages no longer count as a repo or as work to keep. A repo elsewhere still stops it, and so does a search that can't finish.
 
 ## 0.5.7 · 2026-11-02
 
