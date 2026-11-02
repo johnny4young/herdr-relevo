@@ -62,3 +62,22 @@ test("reviewMessage: numbered in order after the instruction", () => {
   assert.match(msg, /^Review comments on the uncommitted changes\./);
   assert.match(msg, /\n\n1\. a\.ts \(whole file\)\n {3}one\n\n2\. b\.ts:11\n/);
 });
+
+test("rangeRows: overlapping, adjacent, stale and reversed intervals preserve the union", () => {
+  const lines = [{kind:"+",number:1}, {kind:"@"}, {kind:"+",number:2}, {kind:"-",number:3}, {kind:"+",number:4}];
+  assert.deepEqual([...rangeRows(lines, [
+    {start:"+1",key:"+2"}, {start:"+2",key:"-3"}, {start:"+4",key:"+4"},
+    {start:"+99",key:"+4"}, {start:"+4",key:"+1"}, {key:"+1"},
+  ])], [0,1,2,3,4]);
+  assert.deepEqual([...rangeRows([], [{start:"+1",key:"+2"}])], []);
+});
+
+test("rangeRows: matches the simple reference for many synthetic ranges", () => {
+  const lines = Array.from({length:80}, (_, i) => i % 7 === 0 ? {kind:"@"} : {kind:i % 3 ? "+" : "-",number:i});
+  const key = r => `${r.kind === "-" ? "-" : "+"}${r.number}`;
+  const comments = Array.from({length:200}, (_, i) => ({start:key(lines[(i * 13) % 80]),key:key(lines[(i * 31) % 80])}));
+  const at = new Map(lines.flatMap((r, i) => r.number === undefined ? [] : [[key(r),i]]));
+  const expected = new Set();
+  for (const c of comments) for (let i = at.get(c.start); i <= at.get(c.key); i++) expected.add(i);
+  assert.deepEqual([...rangeRows(lines, comments)], [...expected].sort((a,b)=>a-b));
+});

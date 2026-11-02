@@ -56,11 +56,20 @@ export function rangeRows(rows, comments) {
   rows.forEach((r, i) => {
     if (numbered(r)) at.set(lineKey(r), i);
   });
-  const marked = new Set();
+  // Count interval boundaries once instead of revisiting every row for every
+  // overlapping comment. This runs on each review render, including hover.
+  const edges = new Int32Array(rows.length + 1);
   for (const c of comments) {
     const from = c.start ? at.get(c.start) : undefined, to = at.get(c.key);
-    if (from === undefined || to === undefined) continue;
-    for (let i = from; i <= to; i++) marked.add(i);
+    if (from === undefined || to === undefined || from > to) continue;
+    edges[from]++;
+    edges[to + 1]--;
+  }
+  const marked = new Set();
+  let active = 0;
+  for (let i = 0; i < rows.length; i++) {
+    active += edges[i];
+    if (active > 0) marked.add(i);
   }
   return marked;
 }
