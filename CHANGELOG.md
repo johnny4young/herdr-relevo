@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.8 · 2026-11-02
+
+- **Swift worktrees can go.** Remove refused any worktree with SwiftPM's `.build/checkouts`, since it holds clones. Folders a tool manages no longer count as a repo or as work to keep. A repo elsewhere still stops it.
+
 ## 0.5.7 · 2026-11-02
 
 - **One answer at a time.** A second click on a card could land its Enter in the next dialog. A send now holds that agent's turn until its dialog has gone, and needs the agent to still be waiting. Clicks on a multiple choice's boxes wait their turn.
