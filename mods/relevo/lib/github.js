@@ -2,12 +2,12 @@
 
 export const PR_QUERY = `query {
   viewer { login pullRequests(states: OPEN, first: 30, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
-    number title url isDraft updatedAt reviewDecision headRefName baseRefName repository { nameWithOwner }
+    number title url isDraft updatedAt reviewDecision headRefName baseRefName isCrossRepository repository { nameWithOwner }
     commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
     reviews(last: 10) { nodes { author { login } state submittedAt } }
     reviewThreads(first: 50) { nodes { isResolved } } } } }
   search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 20) { nodes {
-    ... on PullRequest { number title url updatedAt headRefName baseRefName author { login } repository { nameWithOwner }
+    ... on PullRequest { number title url updatedAt headRefName baseRefName isCrossRepository author { login } repository { nameWithOwner }
       commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       reviewThreads(first: 50) { nodes { isResolved } } } } }
 }`;
@@ -44,7 +44,7 @@ export function mapMine(data) {
 
 export function mapRequested(data) {
   const list = data.search.nodes.filter((p) => p.url).map((p) => ({
-    ...p, repo: p.repository.nameWithOwner, skills: ["review"], threads: unresolved(p),
+    ...p, repo: p.repository.nameWithOwner, skills: ["review"], threads: unresolved(p), untrusted: p.isCrossRepository,
   }));
   return list.sort(newest);
 }

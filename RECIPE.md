@@ -71,8 +71,11 @@ task to another account.
   follows that agent ("reviewing…", **Agent**). ▾ opens a 320px menu: one chip per account (Codex included), the
   recommended skill and up to two other configured skills you have run, most used first ("used N×", counted from
   each account's `history.jsonl`), and **New session in a worktree of <branch>**: `git worktree add --detach` under
-  `~/.herdr/worktrees/<repo>/<branch>` plus `gh pr checkout` (forks too), or the branch's existing checkout, then a
-  space with the chosen account's agent and a prompt with the PR, its branch and base, told to wait for instructions.
+  `~/.herdr/worktrees/<repo>/<branch>` plus `gh pr checkout`, or the branch's existing checkout, then a space with the
+  chosen account's agent and a prompt naming only the repo, number and URL (the title and branch are the author's
+  text, so the agent reads them with `gh pr view`), told to wait for instructions. A fork's PR gets a local branch
+  `pr-<n>`, never a checkout matched by its branch name. Someone else's fork takes a second click ("Its code can run
+  on this Mac") and starts with `--setting-sources user`, so its project hooks don't run; Codex doesn't open it.
 - **Addressed**: ✓ stores the moment in `~/.local/state/relevo/addressed.json`; the card stays out of its group and
   the count until the PR's `updatedAt` is later (a comment, review or push).
 - **Answering from the Inbox** (measured on Claude Code's menus): a single choice moves the agent's cursor with

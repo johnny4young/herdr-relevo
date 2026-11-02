@@ -122,6 +122,7 @@ export class PrViews {
               pr: {
                 url: pr.url, number: pr.number, repo: pr.repo, updatedAt: pr.updatedAt, title: pr.title,
                 headRefName: pr.headRefName, baseRefName: pr.baseRefName,
+                isCrossRepository: pr.isCrossRepository, untrusted: Boolean(pr.untrusted),
               },
               skill, folder, current: pick.key,
             },
