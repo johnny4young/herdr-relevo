@@ -1,0 +1,25 @@
+{
+  "completed_utc": "2026-11-02T16:16:08.502996+00:00",
+  "samples": 420,
+  "operations": {
+    "edit-save": 40,
+    "diff": 40,
+    "sustained": 130
+  },
+  "sha256": {
+    "relevo/sustained.jsonl": "e7cb5027b6c79dd5b2a94814e1f8e848328ccb9098d137cd0db2f0535325836c",
+    "relevo/operations-edit-save.json": "703593e5555e29f471497b7d61205776d6af05ddb7297bbb0d2e48d253641831",
+    "relevo/diff.png": "2e871606389760745a75f2c8e34c56d149cb048c78e9bb6588423a00c417f9e3",
+    "relevo/sustained.png": "ca83fd516a54c2a5a771bdd921f9247ffbd795b1cf881f9427e996de0ddd2e62",
+    "relevo/diff.jsonl": "15091fa439812e8b1576536ea3f2e66fe76f9d7d1b265f1bd52713a3ab2b6f0c",
+    "relevo/edit-save.png": "53b1c0f9f7ad352ed2bfa9ced3df3bb2ad6b63441f977b5017f3fb65d09e1184",
+    "relevo/operations-diff.json": "158db49e6a276026392560a3c128ac913614d0c6d20abc6ae27191d22cf9d312",
+    "relevo/operations-sustained.json": "f6516d920a378178ed5c1503111adbeff50490170722d9cffea83275760d9ceb",
+    "relevo/idle.png": "5c642badc3fb89ae5dff00e9b0bd2f70902f26d1e2f879a02715cb6106121632",
+    "relevo/inbox.png": "1d2895cf24749087ea018229588d9c3660d9c8bc5d1df71cfc01eca575026b2e",
+    "relevo/commands.json": "7e7af58e6a5fba556d8acd9b2877f18fed1e41454214d692731a4e5b4b9fd0b8",
+    "relevo/edit-save.jsonl": "e276a34ca4ddac3770c56366e1868d52ef532728ae53ab0ae6d6eeedf01d5e02",
+    "relevo/idle.jsonl": "c9661e12547a6c0e9aa597661dcf439fa82b35379c4dc5b31b75bb6564995a4a",
+    "relevo/inbox.jsonl": "861b10c15f340c66ef9bd1e5bf9d759777b50cbdc0fd2eb372243d1efc8c8d3f"
+  }
+}

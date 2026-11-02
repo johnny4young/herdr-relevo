@@ -1,0 +1,44 @@
+{
+  "completed_utc": "2026-11-02T16:07:28.805943+00:00",
+  "samples": 420,
+  "operation_logs": {
+    "idle": {
+      "operation_samples": 0,
+      "errors": 0
+    },
+    "inbox": {
+      "operation_samples": 0,
+      "errors": 0
+    },
+    "edit-save": {
+      "operation_samples": 40,
+      "errors": 0
+    },
+    "diff": {
+      "operation_samples": 40,
+      "errors": 0
+    },
+    "sustained": {
+      "operation_samples": 130,
+      "errors": 0
+    }
+  },
+  "sha256": {
+    "baseline/commands.json": "7e2cc7b26059bbc858049a1b05a2bdf61775318e18264174e43fcbb6ae786f63",
+    "baseline/diff.jsonl": "92e482cf84cd2a5874f85943d5fefed1307b3a9162aed1171200ce69de32274c",
+    "baseline/diff.png": "a468925c4b501d8011e5e5ae8ed87621f9c7ac7667cc9a023bd6d3a673922381",
+    "baseline/edit-save.jsonl": "2a7c617d6e6c2313df643a52edb991d2a3b41f14d36cf4f9a62c600d5c139c20",
+    "baseline/edit-save.png": "bdb0c1672046a7a660481fc659cbab06bd8035a5e1b89f2e138a20f216290454",
+    "baseline/idle.jsonl": "032dbca1b87a6edabfd13ac69ec6bae1f53c49e9440dc979b1d6d2e9d6809632",
+    "baseline/idle.png": "268c87d77a82e47858ff8560b385629b416a9981a7052240701811d99010923d",
+    "baseline/inbox.jsonl": "27f1c6d33a1454860f4f7f0fd4fcdae70a0e8c484d67366d6e38040f052e782b",
+    "baseline/inbox.png": "89fcede554b24344d011b91b9ca97653d4b565b6915533244f5ee3e3770792e5",
+    "baseline/operations-diff.json": "c6a61f59d51201e79df0235f6906ec6c1e8cff7851ccd21a21480a3ed883f6e2",
+    "baseline/operations-edit-save.json": "ec1038bad47b6cab90408992f3d47885c930b78ce799b206e7d312b8af262967",
+    "baseline/operations-idle.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "baseline/operations-inbox.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "baseline/operations-sustained.json": "efe5a204fccca1b914224da4c108c0fc09baaba642c9f195e2018c4907a76298",
+    "baseline/sustained.jsonl": "cad4f14d7f37f5f6c7c5e0d33a23fe3e8cf0a90e0cdbf5c182afae011f64e048",
+    "baseline/sustained.png": "b7ec8b922282a060644c87b174a4fd84fd555e743a1daf45f022393ce00b1e5f"
+  }
+}

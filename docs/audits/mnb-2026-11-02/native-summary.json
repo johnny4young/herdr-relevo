@@ -1,0 +1,1784 @@
+{
+  "baseline": {
+    "idle": {
+      "samples": 60,
+      "start_utc": "2026-11-02T15:59:22.609016+00:00",
+      "end_utc": "2026-11-02T16:00:21.618617+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 129.34375,
+          "rss_mib_peak": 129.796875,
+          "rss_mib_first": 129.703125,
+          "rss_mib_last": 129.359375,
+          "cpu_percent_mean": 1.406691865391665,
+          "replicates": [
+            {
+              "rss_mib_median": 129.78125,
+              "cpu_percent_mean": 1.3678997232874155
+            },
+            {
+              "rss_mib_median": 129.296875,
+              "cpu_percent_mean": 1.5789467307652443
+            },
+            {
+              "rss_mib_median": 129.34375,
+              "cpu_percent_mean": 1.3160204511770326
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 13.0,
+          "rss_mib_peak": 13.0,
+          "rss_mib_first": 13.0,
+          "rss_mib_last": 13.0,
+          "cpu_percent_mean": 0.033968309556105,
+          "replicates": [
+            {
+              "rss_mib_median": 13.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 13.0,
+              "cpu_percent_mean": 0.05263168863180767
+            },
+            {
+              "rss_mib_median": 13.0,
+              "cpu_percent_mean": 0.05284885156872889
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      }
+    },
+    "inbox": {
+      "samples": 60,
+      "start_utc": "2026-11-02T16:00:23.065599+00:00",
+      "end_utc": "2026-11-02T16:01:22.075151+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 138.1875,
+          "rss_mib_peak": 149.453125,
+          "rss_mib_first": 149.453125,
+          "rss_mib_last": 138.1875,
+          "cpu_percent_mean": 1.3389589768752155,
+          "replicates": [
+            {
+              "rss_mib_median": 138.1875,
+              "cpu_percent_mean": 1.473177110733473
+            },
+            {
+              "rss_mib_median": 138.1875,
+              "cpu_percent_mean": 1.2102348643141547
+            },
+            {
+              "rss_mib_median": 138.1875,
+              "cpu_percent_mean": 1.2631969541346129
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 12.9375,
+          "rss_mib_peak": 16.234375,
+          "rss_mib_first": 13.0,
+          "rss_mib_last": 12.9375,
+          "cpu_percent_mean": 0.03390857961158076,
+          "replicates": [
+            {
+              "rss_mib_median": 12.9375,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 12.9375,
+              "cpu_percent_mean": 0.05266138307841253
+            },
+            {
+              "rss_mib_median": 12.9375,
+              "cpu_percent_mean": 0.05263367992596982
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      }
+    },
+    "edit-save": {
+      "samples": 60,
+      "start_utc": "2026-11-02T16:01:23.511033+00:00",
+      "end_utc": "2026-11-02T16:02:22.517981+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 136.6484375,
+          "rss_mib_peak": 141.53125,
+          "rss_mib_first": 138.890625,
+          "rss_mib_last": 134.40625,
+          "cpu_percent_mean": 38.47675492575625,
+          "replicates": [
+            {
+              "rss_mib_median": 141.4609375,
+              "cpu_percent_mean": 38.94140409122695
+            },
+            {
+              "rss_mib_median": 137.7421875,
+              "cpu_percent_mean": 38.899636569735996
+            },
+            {
+              "rss_mib_median": 134.359375,
+              "cpu_percent_mean": 39.0603927782857
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 12.15625,
+          "rss_mib_peak": 12.9375,
+          "rss_mib_first": 12.9375,
+          "rss_mib_last": 11.375,
+          "cpu_percent_mean": 0.033897504256750075,
+          "replicates": [
+            {
+              "rss_mib_median": 12.9375,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 12.15625,
+              "cpu_percent_mean": 0.05263054607290186
+            },
+            {
+              "rss_mib_median": 11.375,
+              "cpu_percent_mean": 0.052630125040164163
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      },
+      "operations": {
+        "count": 40,
+        "errors": 0,
+        "median_ms": 474.0,
+        "p95_ms": 484,
+        "max_ms": 487
+      }
+    },
+    "diff": {
+      "samples": 60,
+      "start_utc": "2026-11-02T16:02:24.119750+00:00",
+      "end_utc": "2026-11-02T16:03:23.129517+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 137.5625,
+          "rss_mib_peak": 137.625,
+          "rss_mib_first": 136.625,
+          "rss_mib_last": 137.546875,
+          "cpu_percent_mean": 57.99385441427271,
+          "replicates": [
+            {
+              "rss_mib_median": 137.53125,
+              "cpu_percent_mean": 57.21913325319734
+            },
+            {
+              "rss_mib_median": 137.59375,
+              "cpu_percent_mean": 59.395213471542675
+            },
+            {
+              "rss_mib_median": 137.546875,
+              "cpu_percent_mean": 57.91480906407529
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 11.375,
+          "rss_mib_peak": 11.375,
+          "rss_mib_first": 11.375,
+          "rss_mib_last": 11.375,
+          "cpu_percent_mean": 0.016947003103128386,
+          "replicates": [
+            {
+              "rss_mib_median": 11.375,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 11.375,
+              "cpu_percent_mean": 0.05262490437287235
+            },
+            {
+              "rss_mib_median": 11.375,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      },
+      "operations": {
+        "count": 40,
+        "errors": 0,
+        "median_ms": 444.0,
+        "p95_ms": 449,
+        "max_ms": 452
+      }
+    },
+    "sustained": {
+      "samples": 180,
+      "start_utc": "2026-11-02T16:03:24.547941+00:00",
+      "end_utc": "2026-11-02T16:06:23.557948+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 137.9453125,
+          "rss_mib_peak": 138.21875,
+          "rss_mib_first": 137.921875,
+          "rss_mib_last": 137.6875,
+          "cpu_percent_mean": 49.153793543291734,
+          "replicates": [
+            {
+              "rss_mib_median": 138.078125,
+              "cpu_percent_mean": 49.208035371829645
+            },
+            {
+              "rss_mib_median": 137.953125,
+              "cpu_percent_mean": 49.529433569870015
+            },
+            {
+              "rss_mib_median": 137.578125,
+              "cpu_percent_mean": 49.56249189439622
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 11.375,
+          "rss_mib_peak": 11.375,
+          "rss_mib_first": 11.375,
+          "rss_mib_last": 11.375,
+          "cpu_percent_mean": 0.03902208011147119,
+          "replicates": [
+            {
+              "rss_mib_median": 11.375,
+              "cpu_percent_mean": 0.03390787544570082
+            },
+            {
+              "rss_mib_median": 11.375,
+              "cpu_percent_mean": 0.05071068067324108
+            },
+            {
+              "rss_mib_median": 11.375,
+              "cpu_percent_mean": 0.03377046659213171
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      },
+      "operations": {
+        "count": 130,
+        "errors": 0,
+        "median_ms": 452.0,
+        "p95_ms": 487,
+        "max_ms": 490
+      }
+    },
+    "status_latency": {
+      "count": 15,
+      "median_ms": 15.183583000009548,
+      "max_ms": 218.10225000001537
+    }
+  },
+  "relevo": {
+    "idle": {
+      "samples": 60,
+      "start_utc": "2026-11-02T16:08:24.116399+00:00",
+      "end_utc": "2026-11-02T16:09:23.126226+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 140.171875,
+          "rss_mib_peak": 140.265625,
+          "rss_mib_first": 140.046875,
+          "rss_mib_last": 140.25,
+          "cpu_percent_mean": 6.72755414081022,
+          "replicates": [
+            {
+              "rss_mib_median": 140.0625,
+              "cpu_percent_mean": 6.732984808504655
+            },
+            {
+              "rss_mib_median": 140.171875,
+              "cpu_percent_mean": 6.684365430902467
+            },
+            {
+              "rss_mib_median": 140.1875,
+              "cpu_percent_mean": 6.73680453327597
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 13.03125,
+          "rss_mib_peak": 13.03125,
+          "rss_mib_first": 13.03125,
+          "rss_mib_last": 13.03125,
+          "cpu_percent_mean": 0.033952841223523565,
+          "replicates": [
+            {
+              "rss_mib_median": 13.03125,
+              "cpu_percent_mean": 0.05279433728994123
+            },
+            {
+              "rss_mib_median": 13.03125,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 13.03125,
+              "cpu_percent_mean": 0.05263816966731617
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      }
+    },
+    "inbox": {
+      "samples": 60,
+      "start_utc": "2026-11-02T16:09:24.626968+00:00",
+      "end_utc": "2026-11-02T16:10:23.636880+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 146.0078125,
+          "rss_mib_peak": 162.078125,
+          "rss_mib_first": 162.078125,
+          "rss_mib_last": 146.078125,
+          "cpu_percent_mean": 5.965052518579131,
+          "replicates": [
+            {
+              "rss_mib_median": 162.015625,
+              "cpu_percent_mean": 5.524219259386462
+            },
+            {
+              "rss_mib_median": 145.7578125,
+              "cpu_percent_mean": 6.315401973429891
+            },
+            {
+              "rss_mib_median": 145.9609375,
+              "cpu_percent_mean": 6.051652397240514
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 11.40625,
+          "rss_mib_peak": 13.03125,
+          "rss_mib_first": 13.03125,
+          "rss_mib_last": 11.40625,
+          "cpu_percent_mean": 0.033847927526122895,
+          "replicates": [
+            {
+              "rss_mib_median": 13.03125,
+              "cpu_percent_mean": 0.05285883228205724
+            },
+            {
+              "rss_mib_median": 11.40625,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 11.40625,
+              "cpu_percent_mean": 0.052247890035903334
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 5.4375,
+          "rss_mib_first": 5.4375,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      }
+    },
+    "edit-save": {
+      "samples": 60,
+      "start_utc": "2026-11-02T16:10:25.098184+00:00",
+      "end_utc": "2026-11-02T16:11:24.102273+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 149.8828125,
+          "rss_mib_peak": 150.1875,
+          "rss_mib_first": 148.625,
+          "rss_mib_last": 150.1875,
+          "cpu_percent_mean": 40.648745830342875,
+          "replicates": [
+            {
+              "rss_mib_median": 149.6640625,
+              "cpu_percent_mean": 41.096098580230205
+            },
+            {
+              "rss_mib_median": 149.8828125,
+              "cpu_percent_mean": 41.319978233569074
+            },
+            {
+              "rss_mib_median": 150.0859375,
+              "cpu_percent_mean": 41.068758031025176
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 11.40625,
+          "rss_mib_peak": 11.40625,
+          "rss_mib_first": 11.40625,
+          "rss_mib_last": 11.40625,
+          "cpu_percent_mean": 0.033993074390172025,
+          "replicates": [
+            {
+              "rss_mib_median": 11.40625,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 11.40625,
+              "cpu_percent_mean": 0.05262141201697395
+            },
+            {
+              "rss_mib_median": 11.40625,
+              "cpu_percent_mean": 0.052936029510402334
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      },
+      "operations": {
+        "count": 40,
+        "errors": 0,
+        "median_ms": 478.0,
+        "p95_ms": 484,
+        "max_ms": 484
+      }
+    },
+    "diff": {
+      "samples": 60,
+      "start_utc": "2026-11-02T16:11:25.799775+00:00",
+      "end_utc": "2026-11-02T16:12:24.809706+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 158.796875,
+          "rss_mib_peak": 159.0,
+          "rss_mib_first": 157.578125,
+          "rss_mib_last": 158.015625,
+          "cpu_percent_mean": 60.42677740759004,
+          "replicates": [
+            {
+              "rss_mib_median": 158.7421875,
+              "cpu_percent_mean": 58.88312986984873
+            },
+            {
+              "rss_mib_median": 158.8515625,
+              "cpu_percent_mean": 60.5506571678299
+            },
+            {
+              "rss_mib_median": 158.9375,
+              "cpu_percent_mean": 60.7335272677752
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 11.40625,
+          "rss_mib_peak": 11.40625,
+          "rss_mib_first": 11.40625,
+          "rss_mib_last": 11.40625,
+          "cpu_percent_mean": 0.016950926033009198,
+          "replicates": [
+            {
+              "rss_mib_median": 11.40625,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 11.40625,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 11.40625,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      },
+      "operations": {
+        "count": 40,
+        "errors": 0,
+        "median_ms": 440.5,
+        "p95_ms": 446,
+        "max_ms": 448
+      }
+    },
+    "sustained": {
+      "samples": 180,
+      "start_utc": "2026-11-02T16:12:26.497268+00:00",
+      "end_utc": "2026-11-02T16:15:25.504988+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 160.6484375,
+          "rss_mib_peak": 163.140625,
+          "rss_mib_first": 162.234375,
+          "rss_mib_last": 158.0,
+          "cpu_percent_mean": 51.626759640624954,
+          "replicates": [
+            {
+              "rss_mib_median": 162.953125,
+              "cpu_percent_mean": 51.152400898111246
+            },
+            {
+              "rss_mib_median": 160.1875,
+              "cpu_percent_mean": 51.18236132895793
+            },
+            {
+              "rss_mib_median": 160.6484375,
+              "cpu_percent_mean": 51.88695391929833
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 11.40625,
+          "rss_mib_peak": 11.40625,
+          "rss_mib_first": 11.40625,
+          "rss_mib_last": 11.40625,
+          "cpu_percent_mean": 0.028003239971349868,
+          "replicates": [
+            {
+              "rss_mib_median": 11.40625,
+              "cpu_percent_mean": 0.016963535500034595
+            },
+            {
+              "rss_mib_median": 11.40625,
+              "cpu_percent_mean": 0.050978880290630975
+            },
+            {
+              "rss_mib_median": 11.40625,
+              "cpu_percent_mean": 0.0170165664952942
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      },
+      "operations": {
+        "count": 130,
+        "errors": 0,
+        "median_ms": 452.0,
+        "p95_ms": 485,
+        "max_ms": 509
+      }
+    },
+    "status_latency": {
+      "count": 15,
+      "median_ms": 14.047542000000135,
+      "max_ms": 272.4558330000093
+    }
+  },
+  "fixed": {
+    "idle": {
+      "samples": 60,
+      "start_utc": "2026-11-02T16:16:59.411980+00:00",
+      "end_utc": "2026-11-02T16:17:58.418815+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 142.90625,
+          "rss_mib_peak": 143.453125,
+          "rss_mib_first": 143.453125,
+          "rss_mib_last": 129.859375,
+          "cpu_percent_mean": 2.1522879391304617,
+          "replicates": [
+            {
+              "rss_mib_median": 143.390625,
+              "cpu_percent_mean": 1.9988433190681352
+            },
+            {
+              "rss_mib_median": 142.90625,
+              "cpu_percent_mean": 2.316024083015109
+            },
+            {
+              "rss_mib_median": 142.90625,
+              "cpu_percent_mean": 2.158042208863348
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 13.046875,
+          "rss_mib_peak": 13.046875,
+          "rss_mib_first": 13.046875,
+          "rss_mib_last": 12.859375,
+          "cpu_percent_mean": 0.03389845127852026,
+          "replicates": [
+            {
+              "rss_mib_median": 13.046875,
+              "cpu_percent_mean": 0.0526325460704025
+            },
+            {
+              "rss_mib_median": 13.046875,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 13.046875,
+              "cpu_percent_mean": 0.05263106579447619
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 3.0625,
+          "rss_mib_first": 3.0625,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      }
+    },
+    "inbox": {
+      "samples": 60,
+      "start_utc": "2026-11-02T16:18:00.014739+00:00",
+      "end_utc": "2026-11-02T16:18:59.021818+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 131.828125,
+          "rss_mib_peak": 141.703125,
+          "rss_mib_first": 141.703125,
+          "rss_mib_last": 131.90625,
+          "cpu_percent_mean": 1.8640257825943307,
+          "replicates": [
+            {
+              "rss_mib_median": 131.6875,
+              "cpu_percent_mean": 1.4200859506771057
+            },
+            {
+              "rss_mib_median": 131.8046875,
+              "cpu_percent_mean": 2.052416153391858
+            },
+            {
+              "rss_mib_median": 131.875,
+              "cpu_percent_mean": 2.157894639571248
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 11.375,
+          "rss_mib_peak": 11.40625,
+          "rss_mib_first": 11.40625,
+          "rss_mib_last": 11.375,
+          "cpu_percent_mean": 0.03397128730553135,
+          "replicates": [
+            {
+              "rss_mib_median": 11.375,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 11.375,
+              "cpu_percent_mean": 0.05285814215919869
+            },
+            {
+              "rss_mib_median": 11.375,
+              "cpu_percent_mean": 0.05263164473692497
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 8.03125,
+          "rss_mib_first": 8.03125,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      }
+    },
+    "edit-save": {
+      "samples": 60,
+      "start_utc": "2026-11-02T16:19:00.503602+00:00",
+      "end_utc": "2026-11-02T16:19:59.509392+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 146.8984375,
+          "rss_mib_peak": 147.078125,
+          "rss_mib_first": 143.5625,
+          "rss_mib_last": 147.078125,
+          "cpu_percent_mean": 38.70655222251886,
+          "replicates": [
+            {
+              "rss_mib_median": 146.796875,
+              "cpu_percent_mean": 39.333668557849606
+            },
+            {
+              "rss_mib_median": 146.8984375,
+              "cpu_percent_mean": 39.16038858726745
+            },
+            {
+              "rss_mib_median": 147.03125,
+              "cpu_percent_mean": 39.118663359256765
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 11.375,
+          "rss_mib_peak": 11.375,
+          "rss_mib_first": 11.375,
+          "rss_mib_last": 11.375,
+          "cpu_percent_mean": 0.033965400064508516,
+          "replicates": [
+            {
+              "rss_mib_median": 11.375,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 11.375,
+              "cpu_percent_mean": 0.052632175480444986
+            },
+            {
+              "rss_mib_median": 11.375,
+              "cpu_percent_mean": 0.05283932998302884
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 2.28125,
+          "rss_mib_first": 2.28125,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      },
+      "operations": {
+        "count": 40,
+        "errors": 0,
+        "median_ms": 478.5,
+        "p95_ms": 485,
+        "max_ms": 488
+      }
+    },
+    "diff": {
+      "samples": 60,
+      "start_utc": "2026-11-02T16:20:01.167729+00:00",
+      "end_utc": "2026-11-02T16:21:00.177368+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 157.84375,
+          "rss_mib_peak": 157.90625,
+          "rss_mib_first": 156.796875,
+          "rss_mib_last": 157.890625,
+          "cpu_percent_mean": 58.507007525235814,
+          "replicates": [
+            {
+              "rss_mib_median": 157.7734375,
+              "cpu_percent_mean": 56.99073861466784
+            },
+            {
+              "rss_mib_median": 157.84375,
+              "cpu_percent_mean": 59.52555365452826
+            },
+            {
+              "rss_mib_median": 157.8828125,
+              "cpu_percent_mean": 59.29959751975969
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 11.328125,
+          "rss_mib_peak": 11.375,
+          "rss_mib_first": 11.375,
+          "rss_mib_last": 11.328125,
+          "cpu_percent_mean": 0.01708980591752556,
+          "replicates": [
+            {
+              "rss_mib_median": 11.34375,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 11.328125,
+              "cpu_percent_mean": 0.05306834469126358
+            },
+            {
+              "rss_mib_median": 11.328125,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      },
+      "operations": {
+        "count": 40,
+        "errors": 0,
+        "median_ms": 445.0,
+        "p95_ms": 452,
+        "max_ms": 452
+      }
+    },
+    "sustained": {
+      "samples": 180,
+      "start_utc": "2026-11-02T16:21:01.665435+00:00",
+      "end_utc": "2026-11-02T16:24:00.675564+00:00",
+      "groups": {
+        "herdr_gui": {
+          "rss_mib_median": 162.8203125,
+          "rss_mib_peak": 163.125,
+          "rss_mib_first": 162.34375,
+          "rss_mib_last": 147.4375,
+          "cpu_percent_mean": 49.30381676592663,
+          "replicates": [
+            {
+              "rss_mib_median": 162.859375,
+              "cpu_percent_mean": 49.17654980333852
+            },
+            {
+              "rss_mib_median": 163.0,
+              "cpu_percent_mean": 49.71119513709926
+            },
+            {
+              "rss_mib_median": 147.3203125,
+              "cpu_percent_mean": 49.69509912927862
+            }
+          ]
+        },
+        "herdr_core": {
+          "rss_mib_median": 11.328125,
+          "rss_mib_peak": 11.4375,
+          "rss_mib_first": 11.328125,
+          "rss_mib_last": 11.328125,
+          "cpu_percent_mean": 0.033569121999399036,
+          "replicates": [
+            {
+              "rss_mib_median": 11.328125,
+              "cpu_percent_mean": 0.03390371547291355
+            },
+            {
+              "rss_mib_median": 11.328125,
+              "cpu_percent_mean": 0.01706369616922127
+            },
+            {
+              "rss_mib_median": 11.328125,
+              "cpu_percent_mean": 0.05087789069502496
+            }
+          ]
+        },
+        "plugin": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "agent": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        },
+        "other_child": {
+          "rss_mib_median": 0.0,
+          "rss_mib_peak": 0.0,
+          "rss_mib_first": 0.0,
+          "rss_mib_last": 0.0,
+          "cpu_percent_mean": 0.0,
+          "replicates": [
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            },
+            {
+              "rss_mib_median": 0.0,
+              "cpu_percent_mean": 0.0
+            }
+          ]
+        }
+      },
+      "operations": {
+        "count": 130,
+        "errors": 0,
+        "median_ms": 450.0,
+        "p95_ms": 485,
+        "max_ms": 487
+      }
+    },
+    "status_latency": {
+      "count": 15,
+      "median_ms": 16.478667000001224,
+      "max_ms": 214.8085419999859
+    }
+  },
+  "reversal": {
+    "original": {
+      "samples": 60,
+      "discarded_initial_samples": 10,
+      "cpu_percent_mean": 6.576862684130641,
+      "rss_mib_median": 172.7421875,
+      "start_utc": "2026-11-02T16:26:04.609928+00:00",
+      "end_utc": "2026-11-02T16:27:03.610042+00:00"
+    },
+    "fixed": {
+      "samples": 60,
+      "discarded_initial_samples": 10,
+      "cpu_percent_mean": 2.118590959706135,
+      "rss_mib_median": 171.8828125,
+      "start_utc": "2026-11-02T16:27:14.755151+00:00",
+      "end_utc": "2026-11-02T16:28:13.755329+00:00"
+    }
+  }
+}

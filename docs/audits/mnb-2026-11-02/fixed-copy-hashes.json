@@ -1,0 +1,16 @@
+{
+  "local_commit": "654a80bbbacaf0e70e51a0bbcee2c346f3f221b2",
+  "files": {
+    "inbox.js": {
+      "before": "2a98f6457e9c1f2757964e4d3ac9c548c5e2bdb98fd96626468220636ff2a710",
+      "after": "64472cf8ceb8856b104d935e6724fcf21ba91f012308d075da9ee04e58216277"
+    },
+    "inbox-prs.js": {
+      "before": "1b7f2f60010acdff7a1fd792109b8e15feabb485a6493b444b13d1b7beb25bbd",
+      "after": "cf1ae0a09359b92694503ba8b71417c2081c4d445498020e3feb154b913d07ba"
+    }
+  },
+  "published_pr": "https://github.com/johnny4young/herdr-relevo/pull/4",
+  "remote_commit": "03363101e20accfd0109d307d10757d9f14429d8",
+  "local_and_remote_tree": "9f2d801e628e5679f79bddb7015d555c1089a844"
+}

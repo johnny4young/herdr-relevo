@@ -1,0 +1,14 @@
+✔ a failed first PR scan clears loading and preserves its error (1.516333ms)
+✔ a nonthrowing gh failure also clears loading (0.376ms)
+✔ overlapping PR scans keep loading until every request settles (0.365166ms)
+✔ an unavailable first snapshot renders a static header, not an endless animation (1.113667ms)
+✔ a pending initial scan displays loading (0.348292ms)
+✔ refreshing an existing snapshot animates only while it is pending (0.609667ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 44.812208

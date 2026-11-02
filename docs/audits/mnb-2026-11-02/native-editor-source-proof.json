@@ -1,0 +1,6 @@
+{
+  "source_commit": "b53664ac8ab62ad0f2ecbaf756048329c435e84a",
+  "sha256": "cbc040000abd0973efc855b473e8c4b1339d8cc515eb7aea335c813c3adf0235",
+  "identical_source_copy": true,
+  "scope": "10 programmatic native-host load/edit/save/readback cycles; not keyboard/pointer automation or concurrency coverage"
+}

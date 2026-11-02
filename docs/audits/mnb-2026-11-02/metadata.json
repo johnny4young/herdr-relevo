@@ -1,0 +1,13 @@
+{
+  "captured_at_utc": "2026-11-02T15:36:43.105330+00:00",
+  "host": "test-mac",
+  "app_version": "0.1.12",
+  "build": "0.1.12",
+  "bundle_id": "dev.herdr.app",
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.2\nBuildVersion:\t\t26B123\n",
+  "hardware": "Hardware:\n\n    Hardware Overview:\n\n      Model Name: MacBook Pro\n      Model Identifier: Mac15,6\n      Model Number: MRX33B/A\n      Chip: Apple M3 Pro\n      Total Number of Cores: 11 (5 Performance and 6 Efficiency)\n      Memory: 18 GB\n      System Firmware Version: 20457.41.3\n      OS Loader Version: 20457.41.3\n",
+  "native_binary_sha256": "c5b7f631979405fdae7ca0a05704087af1740fd3e66dbf39a1567e546f291d32",
+  "tui_version": "0.9.5",
+  "core_binary_version": "0.1.17",
+  "personal_profile_enabled_relevo": false
+}

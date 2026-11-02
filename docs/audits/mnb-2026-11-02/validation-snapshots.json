@@ -1,0 +1,5 @@
+{
+  "PR1": "292899a30d6a96cd9fb610f85b1e3246369bc0c6",
+  "PR2": "53a5c2beb6240d2eb9168fca5bf236915aa1081d",
+  "purpose": "source-only snapshots on the same Mac; no additional app/core or agents started"
+}

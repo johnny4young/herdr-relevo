@@ -1,0 +1,25 @@
+{
+  "completed_utc": "2026-11-02T16:25:46.563645+00:00",
+  "samples": 420,
+  "operations": {
+    "edit-save": 40,
+    "diff": 40,
+    "sustained": 130
+  },
+  "sha256": {
+    "fixed/sustained.jsonl": "35d18cee38ef0c2c4a04df888de1c97662be946144a2fb38fdeb1c334cad532b",
+    "fixed/operations-edit-save.json": "47dd8908435169dc4c43221ef0e683a71d978c2c59e781266d17adefd8e7dd8b",
+    "fixed/diff.png": "4c29336fb7f1be56c302215c9da8ad1ceb1a344b1de9e0cf82bc830710d4b2a3",
+    "fixed/sustained.png": "58bd5e82bf362740a5491a2292a791632959cee328d22b62506b8816902af0a0",
+    "fixed/diff.jsonl": "53de6ca46e581e8bcd22daa28a7cf348e3a293e133a103cdd84e9fb60b11d997",
+    "fixed/edit-save.png": "53da12b2dad0d9ed247b6da29b0b185db151931d42765f2c49a836d0507fdc90",
+    "fixed/operations-diff.json": "bb2b6fd4e2c6333d39f51dca1eafdb4b73a963280f5dba4b097fe49d3527b63f",
+    "fixed/operations-sustained.json": "f1b41a202cfce51acfa7e578a0afcea0fbc831e104e3c65b96add9921785cf1c",
+    "fixed/idle.png": "e49fd1179ea9d7568e7fea1ba75780c6be80ba0504f5680c2aa319248d886715",
+    "fixed/inbox.png": "fb443c38705162afcbbd4e7e9b82424e1036ea8f1b81df55b4bf7ae45d0766b8",
+    "fixed/commands.json": "03e843bd772a43b043a330dc2e9db592ab99428470ec89a1273e93ba95e245e4",
+    "fixed/edit-save.jsonl": "016a8b690e827858490e178e0dc6a2132568b4e7abf47b44c148aaf3091f8278",
+    "fixed/idle.jsonl": "14ede3f9f964678aacaa8fb6989615ed615f917109fb7a9b2896df07ee643f38",
+    "fixed/inbox.jsonl": "9f60f32997bbba1c5280bf6f82f8d5f18fdf61f240517ab301e6e428fb538877"
+  }
+}

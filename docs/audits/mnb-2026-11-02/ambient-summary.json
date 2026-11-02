@@ -1,0 +1,67 @@
+{
+  "start_utc": "2026-11-02T15:37:27.817936+00:00",
+  "end_utc": "2026-11-02T15:38:56.828288+00:00",
+  "samples": 90,
+  "groups": {
+    "herdr_gui": {
+      "rss_mib_median": 74.7109375,
+      "rss_mib_max": 75.375,
+      "interval_cpu_percent_mean": 2.021768835801369,
+      "replicate_rss_mib_medians": [
+        75.125,
+        74.6484375,
+        74.609375
+      ]
+    },
+    "herdr_core": {
+      "rss_mib_median": 17.359375,
+      "rss_mib_max": 17.359375,
+      "interval_cpu_percent_mean": 0.40427987012215644,
+      "replicate_rss_mib_medians": [
+        17.359375,
+        17.359375,
+        17.359375
+      ]
+    },
+    "herdr_tui": {
+      "rss_mib_median": 13.984375,
+      "rss_mib_max": 13.984375,
+      "interval_cpu_percent_mean": 0.8870414434768358,
+      "replicate_rss_mib_medians": [
+        13.984375,
+        13.984375,
+        13.984375
+      ]
+    },
+    "plugin": {
+      "rss_mib_median": 43.21875,
+      "rss_mib_max": 44.109375,
+      "interval_cpu_percent_mean": 1.2029175761664337,
+      "replicate_rss_mib_medians": [
+        43.984375,
+        42.8671875,
+        43.21875
+      ]
+    },
+    "agent": {
+      "rss_mib_median": 425.953125,
+      "rss_mib_max": 443.90625,
+      "interval_cpu_percent_mean": 2.3931941749321926,
+      "replicate_rss_mib_medians": [
+        376.2890625,
+        425.953125,
+        432.46875
+      ]
+    },
+    "other_child": {
+      "rss_mib_median": 57.234375,
+      "rss_mib_max": 63.0,
+      "interval_cpu_percent_mean": 0.011245082318409897,
+      "replicate_rss_mib_medians": [
+        57.234375,
+        57.234375,
+        57.234375
+      ]
+    }
+  }
+}

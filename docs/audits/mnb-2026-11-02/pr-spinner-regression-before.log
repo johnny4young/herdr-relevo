@@ -1,0 +1,115 @@
+✖ a failed first PR scan clears loading and preserves its error (2.51475ms)
+✖ a nonthrowing gh failure also clears loading (0.6015ms)
+✖ overlapping PR scans keep loading until every request settles (0.503ms)
+✖ an unavailable first snapshot renders a static header, not an endless animation (1.944334ms)
+✔ a pending initial scan displays loading (0.423542ms)
+✖ refreshing an existing snapshot animates only while it is pending (0.390333ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 1
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 53.299667
+
+✖ failing tests:
+
+test at mods/relevo/test/pr-loading.test.mjs:18:1
+✖ a failed first PR scan clears loading and preserves its error (2.51475ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  undefined !== 1
+
+      at TestContext.<anonymous> (file://<WORKSPACE>/herdr-relevo/mods/relevo/test/pr-loading.test.mjs:21:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at mods/relevo/test/pr-loading.test.mjs:28:1
+✖ a nonthrowing gh failure also clears loading (0.6015ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  undefined !== 0
+
+      at TestContext.<anonymous> (file://<WORKSPACE>/herdr-relevo/mods/relevo/test/pr-loading.test.mjs:32:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at mods/relevo/test/pr-loading.test.mjs:36:1
+✖ overlapping PR scans keep loading until every request settles (0.503ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  undefined !== 2
+
+      at TestContext.<anonymous> (file://<WORKSPACE>/herdr-relevo/mods/relevo/test/pr-loading.test.mjs:40:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at mods/relevo/test/pr-loading.test.mjs:74:1
+✖ an unavailable first snapshot renders a static header, not an endless animation (1.944334ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  1 !== 0
+
+      at TestContext.<anonymous> (file://<WORKSPACE>/herdr-relevo/mods/relevo/test/pr-loading.test.mjs:76:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at mods/relevo/test/pr-loading.test.mjs:86:1
+✖ refreshing an existing snapshot animates only while it is pending (0.390333ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 1
+
+      at TestContext.<anonymous> (file://<WORKSPACE>/herdr-relevo/mods/relevo/test/pr-loading.test.mjs:87:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
