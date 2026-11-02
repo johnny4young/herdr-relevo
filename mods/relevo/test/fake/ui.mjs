@@ -12,6 +12,7 @@ export function element(kind = "div") {
         else if (name === "child") target.items.push(args[0]);
         else if (name === "children") target.items.push(...args[0]);
         else if (name === "tooltip") target.tip = args[0];
+        else if (name === "spin") target.spinning = true;
         else if (name === "when") { if (args[0]) args[1](el); }
         else if (name === "map") return args[0](el);
         else if (name === "hover" || name === "active") args[0](element());
@@ -33,6 +34,8 @@ export function find(root, id) {
   }
   return null;
 }
+
+export const spinners = (node) => (node?.spinning === true ? 1 : 0) + kids(node).reduce((sum, child) => sum + spinners(child), 0);
 
 export const text = (node) => (typeof node === "string" || typeof node === "number"
   ? String(node)

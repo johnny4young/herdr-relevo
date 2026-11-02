@@ -3,7 +3,7 @@ import "./fake/register.mjs";
 import { test, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { fake, resetFake, calls, changeFolder, watched } from "./fake/herdr.mjs";
-import { fakeCx, find, text, click, flush } from "./fake/ui.mjs";
+import { fakeCx, find, text, click, flush, spinners } from "./fake/ui.mjs";
 
 const { Inbox } = await import("../inbox.js");
 
@@ -428,4 +428,83 @@ test("Reply stops on a screen that looks like a menu but can't be read as one", 
   inbox.sendReply(cx);
   await flush();
   assert.deepEqual(sent(), []);
+});
+
+// Holds the PR query until the test answers it.
+function holdPRs() {
+  let answer;
+  const held = new Promise((resolve) => { answer = resolve; });
+  fake.exec = (cmd, args) => (cmd === "gh" && args[0] === "api" ? held : repoOutput(cmd, args));
+  return answer;
+}
+
+const PRS = /^gh api graphql/;
+
+test("a first PR scan spins while pending and stops when gh fails", async () => {
+  const answer = holdPRs();
+  const { inbox, ui } = await open();
+  assert.match(text(ui()), /loading/);
+  assert.equal(spinners(ui()), 1);
+  answer({ code: 1, stderr: "offline\ndetail" });
+  await flush();
+  assert.match(text(ui()), /PRs unavailable/);
+  assert.equal(spinners(ui()), 0);
+  assert.equal(inbox.error, "offline");
+});
+
+test("a first PR scan that throws also stops the spinner", async () => {
+  const answer = holdPRs();
+  const { inbox, ui } = await open();
+  answer({ stdout: "not json" });
+  await flush();
+  assert.match(text(ui()), /PRs unavailable/);
+  assert.equal(spinners(ui()), 0);
+  assert.match(inbox.error, /^PRs: /);
+});
+
+test("gh failing with blank stderr still shows an error", async () => {
+  const answer = holdPRs();
+  const { inbox } = await open();
+  answer({ code: 1, stderr: "\n" });
+  await flush();
+  assert.equal(inbox.error, "gh failed");
+});
+
+test("refreshing an existing PR snapshot keeps the header still", async () => {
+  const { cx, ui } = await open();
+  assert.match(text(ui()), /PRs now/);
+  holdPRs();
+  click(find(ui(), "inbox-refresh"), cx);
+  await flush();
+  assert.match(text(ui()), /PRs now/);
+  assert.equal(spinners(ui()), 0);
+});
+
+test("a PR scan already running is not started again", async () => {
+  const answer = holdPRs();
+  const { inbox, cx } = await open();
+  inbox.scanPRs(cx);
+  await flush();
+  assert.equal(calls(PRS).length, 1);
+  answer({ code: 1, stderr: "offline" });
+  await flush();
+  inbox.scanPRs(cx);
+  await flush();
+  assert.equal(calls(PRS).length, 2);
+});
+
+test("PR data that arrived stays dated when a later step fails", async () => {
+  const node = {
+    url: "https://github.com/o/r/pull/1", number: 1, title: "t", isDraft: false, updatedAt: new Date().toISOString(), reviewDecision: "CHANGES_REQUESTED",
+    repository: { nameWithOwner: "o/r" }, commits: { nodes: [] }, reviews: { nodes: [] }, reviewThreads: { nodes: [] },
+  };
+  fake.exec = (cmd, args) => {
+    if (cmd === "git" && args.includes("get-url")) throw new Error("no git");
+    if (cmd === "gh" && args[0] === "api") return { stdout: JSON.stringify({ data: { viewer: { login: "me", pullRequests: { nodes: [node] } }, search: { nodes: [] } } }) };
+    return repoOutput(cmd, args);
+  };
+  const { inbox, ui } = await open();
+  assert.match(inbox.error, /^PRs: no git/);
+  assert.match(text(ui()), /PRs now/);
+  assert.equal(inbox.mine.length, 1);
 });
