@@ -1,4 +1,4 @@
-import { agents, exec, home, notify, spaces, panes } from "herdr";
+import { exec, home, notify, spaces, panes } from "herdr";
 import { REPOS_ROOT as ROOT } from "./config.js";
 import { mergedHeads } from "./lib/github.js";
 import { GIT_READ } from "./lib/git.js";
@@ -64,40 +64,63 @@ export async function scanWorktrees(force = false) {
     w.at = Number(touched.get(w.path)) || 0;
     w.repo = w.main.split("/").pop();
     w.name = w.path.split("/").pop();
-    w.space = spaces().find((s) => s.folder === w.path)?.id ?? null;
+    w.space = spaces().find((s) => !s.machine && s.folder === w.path)?.id ?? null;
     w.open = [...open].some((p) => p === w.path || p.startsWith(`${w.path}/`));
     w.merged = Boolean(w.branch && merged[w.main].has(w.branch));
     if (w.merged) {
-      w.dirty = (await exec("git", [...GIT_READ, "status", "--porcelain"], { cwd: w.path })).stdout.trim() !== "";
-      w.ignored = worthKeeping((await ignoredFiles(w)).stdout);
+      w.dirty = (await statusOf(w)).stdout.trim() !== "";
+      w.ignored = worthKeeping((await ignoredFiles(w)).paths);
     }
   }
   return list.sort((a, b) => b.at - a.at);
 }
 
-// Ignored files that a build or install brings back; anything else, like .env or notes, is someone's work.
-const REBUILT = new Set([
-  "node_modules", "dist", "build", "out", "target", "coverage", ".next", ".nuxt", ".turbo", ".cache", ".build", ".gradle",
-  "__pycache__", ".pytest_cache", ".venv", "venv", "DerivedData", ".DS_Store",
-]);
-const ignoredFiles = (w) => exec("git", [...GIT_READ, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory"], { cwd: w.path });
-const worthKeeping = (out) => out.split("\n").filter(Boolean).map((l) => l.replace(/\/$/, ""))
-  .filter((l) => !REBUILT.has(l.split("/").pop()));
+// Only what an install or a tool always brings back. "build" or "out" can hold someone's work, so those get named.
+const REBUILT = new Set(["node_modules", "__pycache__", ".pytest_cache", ".next", ".nuxt", ".turbo", ".gradle", ".venv", "DerivedData", ".DS_Store"]);
+const ignoredFiles = async (w) => {
+  const r = await exec("git", [...GIT_READ, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], { cwd: w.path });
+  return { ...r, paths: r.stdout.split("\0").filter(Boolean).map((l) => l.replace(/\/$/, "")) };
+};
+const worthKeeping = (paths) => paths.filter((l) => !REBUILT.has(l.split("/").pop()));
+// showUntrackedFiles=no would hide new files from this check and from git's own refusal.
+const statusOf = (w) => exec("git", [...GIT_READ, "status", "--porcelain", "--untracked-files=normal"], { cwd: w.path });
+
+async function isLocked(w) {
+  const out = (await exec("git", ["-C", w.main, "worktree", "list", "--porcelain"])).stdout;
+  return out.split("\n\n").some((b) => b.split("\n")[0] === `worktree ${w.path}` && /^locked\b/m.test(b));
+}
 
 // Looks again right before removing, since the last scan can be minutes old and closing a space can't be undone.
 export async function removalCheck(w) {
-  const inside = (p) => p === w.path || p?.startsWith(`${w.path}/`);
-  const space = spaces().find((s) => s.folder === w.path)?.id ?? null;
-  const here = new Set(panes().filter((p) => inside(p.cwd)).map((p) => p.pane));
-  // A space's own terminals close with it; without one, any terminal here would lose its folder.
-  const busy = space ? agents().some((a) => here.has(a.pane) && a.space !== space) : here.size > 0;
-  if (busy) return { error: "open in a terminal" };
-  const status = await exec("git", [...GIT_READ, "status", "--porcelain"], { cwd: w.path });
-  if (status.code !== 0) return { error: "could not check its files" };
-  if (status.stdout.trim()) return { error: "uncommitted changes" };
-  const ignored = await ignoredFiles(w);
-  if (ignored.code !== 0) return { error: "could not check its files" };
-  return { space, ignored: worthKeeping(ignored.stdout) };
+  try {
+    const inside = (p) => p === w.path || p?.startsWith(`${w.path}/`);
+    const space = spaces().find((s) => !s.machine && s.folder === w.path);
+    const own = new Set((space?.tabs ?? []).map((t) => t.id));
+    const here = panes().filter((p) => inside(p.cwd));
+    // A space's own terminals close with it; any other would lose its folder.
+    if (here.some((p) => !own.has(p.tab))) return { error: "open in a terminal" };
+    if (here.some((p) => p.status === "working")) return { error: "an agent is working here" };
+    if (await isLocked(w)) return { error: "locked" };
+    const git = (args) => exec("git", [...GIT_READ, ...args], { cwd: w.path });
+    const tracked = await git(["ls-files", "--stage", "-v"]);
+    if (tracked.code !== 0) return { error: "could not check its files" };
+    const rows = tracked.stdout.split("\n").filter(Boolean);
+    // git refuses a worktree with submodules, and only after the space would have closed.
+    if (rows.some((l) => /^\S+ 160000 /.test(l))) return { error: "has submodules" };
+    if (rows.some((l) => /^[Sa-z]/.test(l))) return { error: "has files git skips" };
+    const status = await statusOf(w);
+    if (status.code !== 0) return { error: "could not check its files" };
+    if (status.stdout.trim()) return { error: "uncommitted changes" };
+    const ignored = await ignoredFiles(w);
+    if (ignored.code !== 0) return { error: "could not check its files" };
+    const dirs = ignored.paths.map((p) => `./${p}`);
+    const nested = dirs.length ? await exec("find", [...dirs, "-name", ".git"], { cwd: w.path }) : { stdout: "" };
+    const repo = nested.stdout.split("\n").find(Boolean);
+    if (repo) return { error: `holds a repo: ${repo.replace(/^\.\//, "").replace(/\/?\.git$/, "")}` };
+    return { space: space?.id ?? null, ignored: worthKeeping(ignored.paths) };
+  } catch {
+    return { error: "could not check its files" };
+  }
 }
 
 // Never forced: git keeps a worktree with changes, and -d keeps a branch with unmerged commits.

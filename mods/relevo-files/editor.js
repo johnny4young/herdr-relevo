@@ -109,7 +109,13 @@ export class FileEditor {
     const text = await readTextFile(this.path).catch(() => null);
     if (!this.open) return;
     if (version !== this.loadVersion) return this.changedOnDisk(cx);
-    if (text === this.base) return;
+    if (text === this.base) {
+      if (this.disk !== undefined) {
+        this.disk = undefined;
+        cx.notify();
+      }
+      return;
+    }
     if (this.dirty) {
       this.disk = text;
       cx.notify();
@@ -225,9 +231,10 @@ export class FileEditor {
         .bg(t.raised ?? t.surface).border_b(1).border_color(t.border).text_size(12)
         .child(div().flex_1().min_w(0).truncate().text_color(t.foreground)
           .child(this.disk === null ? "Deleted on disk" : "Changed on disk"))
-        .child(div().id("fe-reload").px(8).h(22).flex().items_center().rounded(5).cursor_pointer()
+        // Nothing to reload from a deleted file, and it would discard the edits.
+        .when(this.disk !== null, (el) => el.child(div().id("fe-reload").px(8).h(22).flex().items_center().rounded(5).cursor_pointer()
           .border(1).border_color(t.border).hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => cx.spawn(async (cx) => this.reload(cx))).child("Reload"))
+          .on_click((_e, cx) => cx.spawn(async (cx) => this.reload(cx))).child("Reload")))
         .child(div().id("fe-keep").px(8).h(22).flex().items_center().rounded(5).cursor_pointer()
           .bg(t.solid ?? t.accent).text_color(t.solid_foreground ?? t.accent_foreground)
           .on_click((_e, cx) => cx.spawn(async (cx) => this.keepMine(cx))).child("Keep mine"))))

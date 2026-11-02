@@ -3,7 +3,7 @@ import "../../relevo/test/fake/register.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fake, resetFake } from "../../relevo/test/fake/herdr.mjs";
-import { fakeCx, flush } from "../../relevo/test/fake/ui.mjs";
+import { fakeCx, find, flush } from "../../relevo/test/fake/ui.mjs";
 
 const { FileEditor } = await import("../editor.js");
 const PATH = "/synthetic/example.txt";
@@ -410,4 +410,22 @@ test("an automatic load never discards edits that were already dirty", async () 
   assert.equal(h.editor.state.value(), "first edit");
   assert.equal(h.editor.dirty, true);
   assert.equal(h.editor.disk, "external");
+});
+
+test("a file put back with its original text clears the deleted bar", async () => {
+  const h = await harness(async () => "original");
+  h.editor.disk = null;
+  await h.editor.changedOnDisk(h.cx);
+  assert.equal(h.editor.disk, undefined);
+  assert.equal(h.editor.state.value(), "first edit");
+});
+
+test("a deleted file offers Keep mine, not Reload", async () => {
+  const h = await harness();
+  h.editor.disk = null;
+  const t = {};
+  assert.equal(find(h.editor.body(t), "fe-reload"), null);
+  assert.ok(find(h.editor.body(t), "fe-keep"));
+  h.editor.disk = "other";
+  assert.ok(find(h.editor.body(t), "fe-reload"));
 });
