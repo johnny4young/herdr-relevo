@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.9 · 2026-11-02
+
+Needs Herdr 0.1.12 for pins to work.
+
+- **Pins follow you.** Pinned agents now show across Herdr windows and the phone app. Pins you already have move over the next time their agent is listed.
+- **Unnamed tabs say what's happening.** The agents list shows what the agent is doing instead of a tab number.
+- **Files keeps up.** Files inside a new folder get their mark, and a symlink to a folder opens like a folder.
+- **No empty strip.** The space under the agents list in a wide sidebar is gone.
+
 ## 0.5.8 · 2026-11-02
 
 - **Quota windows stand alone.** A source missing a window, or whose window ended, no longer hides the one another source has. If your statusline writes the snapshots, write only when the values change: an idle session rewriting old values with a fresh date makes the bars jump.

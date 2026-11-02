@@ -2,10 +2,14 @@
 import "../../relevo/test/fake/register.mjs";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fake, resetFake } from "../../relevo/test/fake/herdr.mjs";
 import { fakeCx, flush } from "../../relevo/test/fake/ui.mjs";
 
-const { Files } = await import("../main.js");
+const { Files, directory } = await import("../main.js");
 const ROOT = "/work", EVENT = "relevo-files.event";
 let n = 0;
 
@@ -53,4 +57,28 @@ test("trashing a clean file closes it", async () => {
   event({ kind: "trashed", path: "a.txt" });
   assert.equal(files.file, null);
   assert.equal(files.editor, null);
+});
+
+test("a folder symlink opens as a folder, and a dangling one stays a file", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "relevo-files-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "real"));
+  symlinkSync(join(root, "real"), join(root, "linked"));
+  symlinkSync(join(root, "gone"), join(root, "dangling"));
+  fake.exec = (cmd, args) => {
+    const r = spawnSync(cmd, args, { encoding: "utf8" });
+    return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+  };
+  const kinds = Object.fromEntries((await directory(root)).map((e) => [e.name, e.dir]));
+  assert.deepEqual(kinds, { real: true, linked: true, dangling: false });
+});
+
+test("git status is asked for the files inside a new folder", async () => {
+  const seen = [];
+  fake.exec = (cmd, args) => {
+    if (cmd === "git") seen.push(args);
+    return cmd === "git" && args.includes("--show-toplevel") ? { stdout: `${ROOT}\n` } : null;
+  };
+  await open({ dirty: false });
+  assert.ok(seen.some((a) => a.includes("--untracked-files=all")));
 });
