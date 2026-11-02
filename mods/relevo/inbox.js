@@ -3,7 +3,7 @@ import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { theme, exec, run, notify, settings, agents, panes, shared, setShared } from "herdr";
 import { loadClaudeQuotas } from "./accounts.js";
 import { accountFor, contextOfPath, inFocus } from "./context.js";
-import { ago } from "./lib/time.js";
+import { ago, nextSince } from "./lib/time.js";
 import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { button, sectionHeader, spinner, withKey } from "./ui.js";
@@ -22,6 +22,14 @@ import { LiveViews } from "./inbox-live.js";
 import { LocalAddressed } from "./inbox-addressed.js";
 
 // Local work, pull requests and merged worktrees in one list; the PR and worktree parts live in their own files.
+function savedSince() {
+  try {
+    return JSON.parse(localStorage.getItem("since")) ?? {};
+  } catch {
+    return {};
+  }
+}
+
 export class Inbox {
   init(_props, cx) {
     this.local = [];
@@ -42,7 +50,7 @@ export class Inbox {
     this.wtError = {};
     this.removing = new Set();
     this.gone = new Set();
-    this.since = {};
+    this.since = savedSince();
     this.tops = new Map();
     this.stats = new Map();
     // What each waiting agent asks, read once per wait: address -> { since, prompt }.
@@ -127,12 +135,11 @@ export class Inbox {
       try {
         const byPane = new Map(panes().map((p) => [p.pane, p]));
         const byTab = new Map(Object.entries(launched()).map(([url, l]) => [l.tab, url]));
-        const seen = new Set(), items = [], prAgents = {}, since = {}, all = agents();
+        const seen = new Set(), items = [], prAgents = {}, all = agents();
         this.readLabels(all, cx);
         // Agents carry no timestamps, so a card's age is how long this status has been seen.
-        for (const a of all) {
-          since[`${a.address}:${a.status}`] = this.since[`${a.address}:${a.status}`] ?? Date.now() / 1000;
-        }
+        const since = nextSince(this.since, all, Date.now() / 1000);
+        if (JSON.stringify(since) !== JSON.stringify(this.since)) localStorage.setItem("since", JSON.stringify(since));
         this.since = since;
         // A repo's one card goes to an agent not marked addressed, if it has one.
         const marked = (a) => (this.addressedLabel(a.address) ? 1 : 0);

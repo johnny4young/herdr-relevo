@@ -10,6 +10,8 @@ const { default: Agents } = await import("../../relevo-agents/main.js");
 const { default: Files } = await import("../../relevo-files/main.js");
 
 const PR = { url: "https://github.com/acme/app/pull/1", number: 1, repo: "acme/app", title: "Fix", updatedAt: "2026-01-01T00:00:00Z" };
+const { loadKeys, shortcut } = await import("../ui.js");
+
 const ROLES = {
   accounts: {}, inbox: {}, "inbox-button": {}, "panel-bar": {}, "panel-toggle": {}, settings: {},
   "account-menu": { pr: PR, skill: "review", folder: "/work/app", current: "personal" },
@@ -40,3 +42,9 @@ for (const [role, props] of Object.entries(ROLES)) {
 }
 test("relevo-agents draws", () => draw(Agents, {}));
 test("relevo-files draws", () => draw(Files, {}));
+
+test("tooltips read a key from the layout's section of keys.json", async () => {
+  fake.files["/home/test/.config/herdr-app/keys.json"] = JSON.stringify({ "layout:relevo": { "cmd-j": "relevo.next-waiting" } });
+  await loadKeys();
+  assert.equal(shortcut("relevo.next-waiting"), "⌘J");
+});

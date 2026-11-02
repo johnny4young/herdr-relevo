@@ -52,7 +52,7 @@ worktrees that are safe to remove go in one Confirm.
 1. Install the two community mods it uses: [space-folders](https://github.com/jankeesvw/herdr-space-folders)
    and [issues](https://github.com/jankeesvw/herdr-issues) (from herdr.dev, or copy their folders into
    `~/.config/herdr-app/mods/`).
-2. Copy `layouts/relevo.json` to `~/.config/herdr-app/layouts/` and `mods/relevo`, `mods/relevo-agents` and
+2. Copy `layouts/relevo.json` and `layouts/relevo.svg` to `~/.config/herdr-app/layouts/` and `mods/relevo`, `mods/relevo-agents` and
    `mods/relevo-files` to `~/.config/herdr-app/mods/`. Merge `keys.json` into yours.
 3. Switch to the layout (`ctrl-shift-l`) and open Settings (the gear beside ACCOUNTS): your accounts, the GitHub
    orgs that use each one, and where your clones live. It writes `mods/relevo/config.js`, which you can also edit.
@@ -61,6 +61,22 @@ It needs `git` and the GitHub CLI (`gh auth login`) on your PATH, and `claude` a
 
 Waiting agents' questions are answered from the Inbox for Claude Code and Codex. Codex only asks them in Plan mode;
 outside it, it decides on its own.
+
+## Update
+
+Herdr doesn't update mods from others, and adding Relevo again installs a renamed second copy, so copy the new files
+over the old ones. From a clone of this repo:
+
+```sh
+rsync -a --delete --exclude config.js mods/relevo/ ~/.config/herdr-app/mods/relevo/
+rsync -a --delete mods/relevo-agents/ ~/.config/herdr-app/mods/relevo-agents/
+rsync -a --delete mods/relevo-files/ ~/.config/herdr-app/mods/relevo-files/
+cp layouts/relevo.json layouts/relevo.svg ~/.config/herdr-app/layouts/
+```
+
+Mods reload by themselves. `--exclude config.js` keeps your accounts; copying that file over yours resets them. Compare
+`keys.json` with yours and add what's new. Relevo's keys now live in a `layout:relevo` section; if yours are under
+`global`, move them so they only act while Relevo shows.
 
 ## What it reads and runs
 

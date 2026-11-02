@@ -1,11 +1,11 @@
 // From this folder: node --test 'test/*.test.mjs'. Covers the pure helpers in lib/.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ago, duration, windowOf, FIVE_HOURS, runsOut } from "../lib/time.js";
+import { ago, duration, windowOf, FIVE_HOURS, runsOut, nextSince } from "../lib/time.js";
 import { diffRows, lineKey } from "../lib/diff.js";
 import { ownerOf, contextFor } from "../lib/context.js";
 import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
-import { keyMap, formatShortcut } from "../lib/keys.js";
+import { keyMap, relevoKeys, formatShortcut } from "../lib/keys.js";
 import { mapMine, mapRequested, unresolved, prChanges, mergedHeads } from "../lib/github.js";
 import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "../lib/prompt.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "../lib/handoff.js";
@@ -62,6 +62,27 @@ test("totals: overlapping stretches on one ticket count once", () => {
     { key: "ABC-1", repo: "api", jira: "ABC-1", seconds: 900 },
     { key: "web", repo: "web", jira: null, seconds: 100 },
   ]);
+});
+
+test("relevoKeys: the layout's section counts and wins over global", () => {
+  const map = relevoKeys({
+    global: { "cmd-t": "tab.new", "cmd-g": "relevo.review" },
+    "layout:relevo": { "cmd-alt-d": "relevo.review", "cmd-j": "relevo.next-waiting" },
+    terminal: { "cmd-c": "terminal.copy" },
+  });
+  assert.equal(map["relevo.review"], "cmd-alt-d");
+  assert.equal(map["relevo.next-waiting"], "cmd-j");
+  assert.equal(map["tab.new"], "cmd-t");
+  assert.equal(map["terminal.copy"], undefined);
+  assert.deepEqual(relevoKeys({}), {});
+});
+
+test("nextSince: keeps a status's start, restarts on a new one, and holds gone agents for a while", () => {
+  const day = 86400, at = 100 * day;
+  const was = { "t1:done": 50, "t2:done": at - 100, "t3:idle": at - day, "t4:idle": at - 31 * day, "m/t5:done": at - 2 * day };
+  const next = nextSince(was, [{ address: "t1", status: "done" }, { address: "t2", status: "blocked" }], at);
+  assert.deepEqual(next, { "t1:done": 50, "t2:blocked": at, "t3:idle": at - day, "m/t5:done": at - 2 * day });
+  assert.deepEqual(nextSince(was, [], at + 40 * day), {});
 });
 
 test("shortcuts: first combo per action, macOS modifier order", () => {

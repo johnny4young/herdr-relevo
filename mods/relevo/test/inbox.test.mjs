@@ -44,7 +44,33 @@ const count = () => fake.stored["relevo.inbox.count"];
 beforeEach(() => {
   mock.timers.reset();
   resetFake();
+  localStorage.removeItem("since");
   fake.exec = repoOutput;
+});
+
+test("a card keeps its age when the mod reloads", async () => {
+  mock.timers.enable({ apis: ["Date"], now: 1_000_000_000 });
+  setAgents(["t1", "done"]);
+  const first = await open();
+  const at = first.inbox.local[0].at;
+  mock.timers.tick(3_600_000);
+  const again = await open();
+  assert.equal(again.inbox.local[0].at, at);
+});
+
+test("a card's age starts over when its agent's status changes, and a broken save is ignored", async () => {
+  mock.timers.enable({ apis: ["Date"], now: 1_000_000_000 });
+  setAgents(["t1", "done"]);
+  const { inbox } = await open();
+  const at = inbox.local[0].at;
+  mock.timers.tick(3_600_000);
+  setAgents(["t1", "idle"]);
+  const again = await open();
+  assert.equal(again.inbox.local[0].at, at + 3600);
+  localStorage.setItem("since", "{not json");
+  setAgents(["t1", "done"]);
+  const broken = await open();
+  assert.equal(broken.inbox.local.length, 1);
 });
 
 test("a finished agent's diff is a card that can be marked addressed", async () => {

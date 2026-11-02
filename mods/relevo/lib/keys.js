@@ -7,6 +7,9 @@ export function keyMap(global) {
   return map;
 }
 
+// Relevo's keys live in its layout's section, which wins over global as it does in Herdr.
+export const relevoKeys = (file) => ({ ...keyMap(file.global ?? {}), ...keyMap(file["layout:relevo"] ?? {}) });
+
 // "cmd-alt-shift-w" -> "⌥⇧⌘W", in macOS modifier order.
 export function formatShortcut(combo) {
   if (!combo) return "";

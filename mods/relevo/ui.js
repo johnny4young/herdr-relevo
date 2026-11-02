@@ -1,7 +1,7 @@
 import { div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { appHome, readTextFile } from "herdr";
-import { keyMap, formatShortcut } from "./lib/keys.js";
+import { relevoKeys, formatShortcut } from "./lib/keys.js";
 
 const SIZES = {
   sm: { h: 20, px: 7, text: 11, radius: 5 },
@@ -37,7 +37,7 @@ let keys = {};
 
 export async function loadKeys() {
   try {
-    keys = keyMap(JSON.parse(await readTextFile(`${appHome()}/keys.json`) ?? "{}").global ?? {});
+    keys = relevoKeys(JSON.parse(await readTextFile(`${appHome()}/keys.json`) ?? "{}"));
   } catch {
     keys = {};
   }

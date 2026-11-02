@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400" font-family="system-ui,sans-serif">
+  <rect width="640" height="400" rx="12" fill="#1a1b2c"/>
+  <!-- Sidebar: accounts, spaces, agents -->
+  <path d="M0 12a12 12 0 0 1 12-12h107v400H12a12 12 0 0 1-12-12z" fill="#1f2133"/>
+  <path d="M119 0v400M119 19h521M0 275h119M119 387h521" stroke="#33364f"/>
+  <g><circle cx="11" cy="10" r="3.5" fill="#ff6b6b"/><circle cx="21" cy="10" r="3.5" fill="#f2c14e"/><circle cx="31" cy="10" r="3.5" fill="#4fd17a"/></g>
+  <text x="8" y="32" font-size="7" fill="#7f84a3">ACCOUNTS</text>
+  <g font-size="8" fill="#d6d9ec"><text x="20" y="46">Personal</text><text x="20" y="60">Work</text><text x="20" y="74">Codex</text></g>
+  <rect x="8" y="39" width="9" height="9" rx="2.5" fill="#c3e88d"/><rect x="8" y="53" width="9" height="9" rx="2.5" fill="#82aaff"/><rect x="8" y="67" width="9" height="9" rx="2.5" fill="#4fd6be"/>
+  <g fill="#33364f"><rect x="58" y="43" width="26" height="3" rx="1.5"/><rect x="88" y="43" width="24" height="3" rx="1.5"/><rect x="58" y="57" width="26" height="3" rx="1.5"/><rect x="88" y="57" width="24" height="3" rx="1.5"/><rect x="58" y="71" width="26" height="3" rx="1.5"/><rect x="88" y="71" width="24" height="3" rx="1.5"/></g>
+  <g fill="#82aaff"><rect x="58" y="43" width="9" height="3" rx="1.5"/><rect x="88" y="43" width="5" height="3" rx="1.5"/><rect x="88" y="57" width="10" height="3" rx="1.5"/><rect x="58" y="71" width="4" height="3" rx="1.5"/></g>
+  <rect x="58" y="57" width="17" height="3" rx="1.5" fill="#f2c14e"/><rect x="88" y="71" width="21" height="3" rx="1.5" fill="#ff6b6b"/>
+  <text x="8" y="100" font-size="7" fill="#7f84a3">Spaces</text>
+  <rect x="4" y="107" width="111" height="15" rx="4" fill="#2c2f48"/>
+  <g font-size="8" fill="#d6d9ec"><text x="18" y="118">api-gateway</text><text x="18" y="134">billing-web</text><text x="18" y="150">relevo</text></g>
+  <rect x="8" y="110" width="7" height="8" rx="2" fill="#c099ff"/><rect x="8" y="126" width="7" height="8" rx="2" fill="#ffc777"/><rect x="8" y="142" width="7" height="8" rx="2" fill="#65bcff"/>
+  <text x="8" y="289" font-size="7" fill="#7f84a3">Agents</text>
+  <g font-size="8" fill="#d6d9ec"><text x="18" y="305">billing-web</text><text x="18" y="321">api-gateway</text><text x="18" y="337">relevo</text></g>
+  <circle cx="11" cy="302" r="3" fill="#ff6b6b"/><circle cx="11" cy="318" r="3" fill="none" stroke="#f2c14e" stroke-width="1.5"/><circle cx="11" cy="334" r="3" fill="#c3e88d"/>
+  <!-- Tabs -->
+  <rect x="124" y="4" width="84" height="12" rx="3" fill="#2c2f48"/>
+  <text x="130" y="13" font-size="7.5" fill="#d6d9ec">api-gateway</text><text x="218" y="13" font-size="7.5" fill="#7f84a3">billing-web</text>
+  <text x="564" y="13" font-size="7.5" fill="#d6d9ec">Inbox</text><circle cx="591" cy="10" r="4.5" fill="#ff6b6b"/><text x="591" y="12.5" font-size="6.5" fill="#1a1b2c" text-anchor="middle">3</text>
+  <!-- The agent's terminal -->
+  <rect x="124" y="23" width="344" height="360" rx="5" fill="#1f2133" stroke="#33364f"/>
+  <path d="M124 37h344" stroke="#33364f"/>
+  <text x="132" y="33" font-size="7" fill="#a4a9c7">Claude Code</text>
+  <g font-family="ui-monospace,Menlo,monospace" font-size="7">
+    <text x="132" y="52" fill="#d6d9ec">› Add rate limit headers</text>
+    <text x="132" y="70" fill="#d6d9ec">I'll add a middleware for each API key.</text>
+    <text x="132" y="86" fill="#82aaff">Update(src/server.ts)</text>
+    <text x="140" y="97" fill="#c3e88d">+ app.use(rateLimit())</text>
+    <text x="132" y="113" fill="#82aaff">Bash(npm test)</text>
+    <text x="140" y="124" fill="#c3e88d">✓ sets the headers</text>
+    <text x="140" y="135" fill="#ff6b6b">× resets the bucket</text>
+    <text x="132" y="153" fill="#ffc777">* Refactoring…</text>
+  </g>
+  <!-- The panel: Inbox cards -->
+  <rect x="472" y="23" width="163" height="360" rx="5" fill="#1f2133" stroke="#82aaff"/>
+  <text x="480" y="36" font-size="8.5" font-weight="600" fill="#d6d9ec">Inbox</text>
+  <g font-size="6" fill="#7f84a3"><text x="480" y="50">WAITING ON YOU</text><text x="480" y="124">UNCOMMITTED WORK</text><text x="480" y="186">YOUR PRS</text><text x="480" y="248">REVIEW REQUESTS</text></g>
+  <g fill="#232640" stroke-width="1">
+    <rect x="477" y="54" width="153" height="62" rx="4" stroke="#ff6b6b"/>
+    <rect x="477" y="128" width="153" height="50" rx="4" stroke="#82aaff"/>
+    <rect x="477" y="190" width="153" height="50" rx="4" stroke="#ff6b6b"/>
+    <rect x="477" y="252" width="153" height="50" rx="4" stroke="#33364f"/>
+  </g>
+  <g font-size="7" font-weight="600" fill="#d6d9ec"><text x="490" y="65">billing-web</text><text x="490" y="139">relevo · fix/inbox-keys</text><text x="490" y="201">api-gateway #214</text><text x="490" y="263">notes-app #88</text></g>
+  <circle cx="484" cy="63" r="2.5" fill="#ff6b6b"/><circle cx="484" cy="137" r="2.5" fill="#c3e88d"/><circle cx="484" cy="199" r="2.5" fill="#ff6b6b"/><circle cx="484" cy="261" r="2.5" fill="#82aaff"/>
+  <g font-size="6.5" fill="#a4a9c7"><text x="482" y="76">Which date should it keep?</text><text x="482" y="150">4 files +86 −12</text><text x="482" y="212">CI failing</text><text x="482" y="274">review requested</text></g>
+  <rect x="481" y="81" width="145" height="11" rx="2.5" fill="#2c2f48"/><text x="486" y="89" font-size="6.5" fill="#d6d9ec">1  Issue date</text><text x="486" y="102" font-size="6.5" fill="#a4a9c7">2  Payment date</text>
+  <g fill="#c8d3f5"><rect x="482" y="157" width="28" height="13" rx="3"/><rect x="482" y="219" width="28" height="13" rx="3"/><rect x="482" y="281" width="28" height="13" rx="3"/></g>
+  <g font-size="6.5" fill="#1a1b2c" text-anchor="middle"><text x="496" y="166">Review</text><text x="496" y="228">fix-ci</text><text x="496" y="290">review</text></g>
+  <g fill="none" stroke="#33364f"><rect x="514" y="157" width="30" height="13" rx="3"/><rect x="514" y="219" width="30" height="13" rx="3"/><rect x="514" y="281" width="30" height="13" rx="3"/></g>
+  <g font-size="6.5" fill="#a4a9c7" text-anchor="middle"><text x="529" y="166">View diff</text><text x="529" y="228">Open PR</text><text x="529" y="290">Open PR</text></g>
+  <text x="124" y="396" font-size="6.5" fill="#7f84a3">This computer</text>
+</svg>

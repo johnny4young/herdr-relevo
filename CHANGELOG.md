@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.3 · 2026-11-02
+
+- **Walk your agents.** `⌘]` and `⌘[` move to the next or previous agent, in the Agents list's order.
+- **Keys only where they belong.** Relevo's keys move to a `layout:relevo` section, so they act only while Relevo shows. If yours are under `global`, they keep working until you move them.
+- **Cards keep their age.** Reloading the mod no longer resets a card's age or its place in the list.
+- **A picture in Settings.** The layout now shows a preview instead of an empty frame.
+- **How to update.** The README has an Update section whose commands keep your accounts in `config.js`.
+
 ## 0.5.2 · 2026-11-02
 
 - **Mark local work addressed.** ✓ on an uncommitted-work card hides it until its agent works again; addressed ones fold under one line with Undo. A waiting agent always stays in the list.

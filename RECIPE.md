@@ -57,7 +57,7 @@ task to another account.
 
 - **Agent status**: blocked agents become `WAITING ON YOU` cards; a working agent's checkout is left alone until
   it rests; done and idle agents with changes show under `UNCOMMITTED WORK`. A card's age is how long that status
-  has lasted.
+  has lasted, kept in `localStorage` across reloads.
 - **Accounts**: a click on a row starts that account's launcher in the focused folder. Hovering a meter shows when
   the window resets. Every 30 s it rereads the statusline snapshots; every 5 min it asks the usage endpoints.
   At 80% and again at 100% a quota plays `sounds/quota.mp3` and posts a toast; at 100% the toast hands off that
@@ -110,9 +110,10 @@ task to another account.
 - **Keyboard**: `⌥⌘3` shows the Inbox and gives it the keyboard (accent border); ↑/↓ select cards and rows,
   Enter runs the main action (go to the agent, review, run the PR's skill or go to its agent, open the
   worktree), Esc returns to the previous pane. `⌘J` jumps to the next agent waiting on you and says how many are
-  left. `⌥⌘1–4` show Files, Changes, Inbox, Issues; `⌥⌘B` the panel; `⌥⌘D` review; `⌥⌘A` handoff;
+  left. `⌘]`/`⌘[` walk the agents in the Agents list's order. `⌥⌘1–4` show Files, Changes, Inbox, Issues; `⌥⌘B`
+  the panel; `⌥⌘D` review; `⌥⌘A` handoff;
   `⌥⌘G` the branch's PR; `⌥⌘R` respond to it; `⌥⌘W`/`⌥⇧⌘W` new or open worktree; `⌥⌘P/O/X` start an account.
-  Tooltips show the key from `keys.json`.
+  Keys live in the `layout:relevo` section of `keys.json`, and tooltips show them from there.
 - **Handoff**: between two Claude accounts, when the agent's `agent.transcript` label names its session file, it
   copies that file into the next account's `projects/` folder and opens a tab with `--resume <id> --fork-session`:
   the same conversation, told to check `git status` first. Otherwise (Codex on either side, or no label) it writes a
@@ -124,7 +125,7 @@ task to another account.
 
 ## Built from
 
-- **Layout** `layouts/relevo.json`: `root` row → `sidebar` column (`brand` workspace-chrome, `accounts`
+- **Layout** `layouts/relevo.json`, with `layouts/relevo.svg` as the picture Settings shows: `root` row → `sidebar` column (`brand` workspace-chrome, `accounts`
   relevo `{role: "accounts"}`, `sidebar-lists` column with `spaces` space-folders and `agents` relevo-agents,
   `sidebar-footer` workspace-chrome `{footer: true}`) and `work` column (`tab-bar` row with `tabs`,
   `inbox-button` relevo, `issues-button` issues `{button: true}`, `panel-toggle` relevo; `work-body` row with
