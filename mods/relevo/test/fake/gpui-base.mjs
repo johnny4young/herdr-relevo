@@ -6,7 +6,11 @@ export const Scrollbar = { vertical: () => element("scrollbar"), horizontal: () 
 
 const field = (options = {}) => {
   let value = options.value ?? "";
-  return { value: () => value, set_value(next) { value = next; }, on() {}, focus() {}, release() {} };
+  const listeners = [];
+  return {
+    value: () => value, set_value(next) { value = next; }, on(_name, fn) { listeners.push(fn); }, focus() {}, release() {},
+    type(next, cx) { value = next; listeners.forEach((fn) => fn({}, cx)); },
+  };
 };
 export const InputState = { new: field };
 export const EditorState = { new: field };

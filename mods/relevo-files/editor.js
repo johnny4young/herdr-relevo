@@ -26,13 +26,16 @@ export class FileEditor {
     this.open = true;
     this.loadVersion = 0;
     this.editVersion = 0;
+    this.saving = null;
+    this.again = false; // Save was asked for again during a write
+    this.recheck = false; // the file changed during a write
   }
 
   async load(cx, read = (p) => readTextFile(p), discard = false) {
     if (!this.open || this.saving) return;
     const version = ++this.loadVersion, state = this.state;
     const value = state?.value(), edits = this.editVersion;
-    const current = () => this.open && version === this.loadVersion && !this.saving;
+    const current = () => this.open && version === this.loadVersion;
     const edited = () => this.state !== state || this.editVersion !== edits || this.state?.value() !== value;
     try {
       const [text, bytes] = await Promise.all([read(this.path), this.local ? sizeOf(this.path) : null]);
@@ -49,6 +52,7 @@ export class FileEditor {
       this.base = s.editable ? text : null;
       this.disk = undefined;
       this.dirty = false;
+      this.note = null;
       if (!this.editable) this.editing = false;
       this.make(s.error ? null : s.value);
     } catch {
@@ -96,8 +100,16 @@ export class FileEditor {
   }
 
   async changedOnDisk(cx) {
+    // A read overlapping a save can't tell the save's text from someone else's.
+    if (this.saving) {
+      this.recheck = true;
+      return;
+    }
+    const version = this.loadVersion;
     const text = await readTextFile(this.path).catch(() => null);
-    if (!this.open || text === this.base) return;
+    if (!this.open) return;
+    if (version !== this.loadVersion) return this.changedOnDisk(cx);
+    if (text === this.base) return;
     if (this.dirty) {
       this.disk = text;
       cx.notify();
@@ -112,52 +124,66 @@ export class FileEditor {
   }
 
   save(cx) {
-    if (this.saving) return this.saving;
+    if (this.saving) {
+      this.again = true;
+      return this.saving;
+    }
     if (!this.open || !this.editing || !this.state) return;
     ++this.loadVersion; // Any older read predates this write and must not replace it.
-    const state = this.state, path = this.path, text = state.value(), base = this.base;
-    const current = () => this.open && this.state === state && this.path === path;
-    // A second click/shortcut waits for this write instead of racing its old base.
+    const state = this.state, text = state.value(), base = this.base;
     this.saving = (async () => {
+      let saved = false;
       try {
-        await writeTextFile(path, text, base);
-        if (!current()) return;
+        await writeTextFile(this.path, text, base);
+        if (!this.open) return;
         this.base = text;
-        // Editing remains enabled while saving. Only the captured text is on disk.
+        // Editing stays on while saving, so only the captured text is on disk.
         this.dirty = state.value() !== text;
         this.disk = undefined;
-        if (!this.dirty) this.flash("Saved", cx);
+        this.flash("Saved", cx);
+        saved = true;
       } catch (e) {
-        if (!current()) return;
-        const disk = await readTextFile(path).catch(() => null);
-        if (!current()) return;
+        if (!this.open) return;
+        const disk = await readTextFile(this.path).catch(() => null);
+        if (!this.open) return;
         if (disk !== this.base) this.disk = disk;
         else this.note = `Not saved: ${String(e?.message ?? e)}`;
       } finally {
         this.saving = null;
-        if (current()) cx.notify();
+        if (this.open) cx.notify();
       }
+      const again = saved && this.again && this.dirty, recheck = this.recheck;
+      this.again = this.recheck = false;
+      if (again) await this.save(cx);
+      if (recheck) await this.changedOnDisk(cx);
     })();
     return this.saving;
   }
 
   // Writes over whatever is on disk now; null there means it was deleted and is created again.
   async keepMine(cx) {
-    if (this.saving) return this.saving;
-    const expected = this.disk ?? null;
+    await this.saving;
+    // The save in progress may have settled the conflict; then this is an ordinary save.
+    if (this.disk === undefined) return this.dirty ? this.save(cx) : undefined;
+    const expected = this.disk;
     this.disk = undefined;
     this.base = expected;
     await this.save(cx);
   }
 
   async reload(cx) {
+    if (this.saving) {
+      const edits = this.editVersion;
+      await this.saving;
+      if (this.disk === undefined || this.editVersion !== edits) return;
+    }
     await this.load(cx, undefined, true);
   }
 
   flash(text, cx) {
     this.note = text;
     cx.timer.after(1500, (cx) => {
-      if (this.note !== text) return;
+      if (!this.open || this.note !== text) return;
       this.note = null;
       cx.notify();
     });
