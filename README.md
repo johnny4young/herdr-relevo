@@ -67,12 +67,19 @@ outside it, it decides on its own.
 - Runs `git`, `gh`, `hc` and the launchers in `config.js`; Files runs `/usr/bin/trash`, `open -R`, `mv -n` and `mkdir`.
 - Reaches the network for quotas: each Claude account's login from the macOS Keychain goes to Anthropic's usage
   endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token.
-- Writes `~/.local/state/relevo/ledger.jsonl` (agent time) and `~/.local/state/relevo/handoff/` (handoff notes);
+- Reads each Claude account's `history.jsonl` to rank the skills a PR's menu offers (counts only).
+- Writes `~/.local/state/relevo/ledger.jsonl` (agent time), `~/.local/state/relevo/addressed.json` (PRs marked
+  addressed) and `~/.local/state/relevo/handoff/` (handoff notes); a PR session adds a worktree under
+  `~/.herdr/worktrees/`;
   a handoff between Claude accounts copies the session file into the next account's `projects/` folder;
   the folders it adds to space-folders' file, and files you create, rename or save in Files.
 - Optional: sounds at `~/.config/herdr-app/sounds/{quota,review,bg-done}.mp3`; quota snapshots a Claude
   statusline writes to `~/.cache/herdr-relevo/quota-<account>.json`; `agent.account`, `agent.jira` and
   `agent.transcript` terminal labels from a Claude hook, for account chips, per-ticket time and resumed handoffs.
+- That hook is one optional Claude hook on three events (SessionStart, Stop, SessionEnd), and it only sets terminal
+  labels: account, ticket, session file and background tasks. It isn't in this repo yet. Without it Relevo still runs;
+  you lose account chips, resumed handoffs (handoffs use the note) and the background-task marker, while ticket time
+  falls back to the ticket in the branch name.
 
 ## Tests
 

@@ -82,6 +82,16 @@ function repoAccount(cwd) {
   return (owner ?? contexts[0])?.account ?? null;
 }
 
+// Background shells or wakeups the Claude hook reports (agent.bg); full text in the tooltip.
+function backgroundTag(t, a, labels) {
+  const bg = labels["agent.bg"];
+  if (!bg) return null;
+  const glyph = [...bg][0], n = /\d+/.exec(bg)?.[0] ?? "";
+  return div().id(`bg-${a.address}`).flex_none().text_size(10.5).text_color(t.working)
+    .tooltip(`Running in the background: ${bg.slice(glyph.length).trim()}. You'll be told when it finishes.`)
+    .child(`${glyph}${n}`);
+}
+
 function accountTag(t, a, labels) {
   const accounts = setup().accounts, acc = accounts[labels["agent.account"]], jira = labels["agent.jira"];
   if (!acc && !jira) return null;
@@ -307,6 +317,7 @@ export default class Agents extends View {
     const row = (a, i, subs = []) => {
       const pic = icon(a.program, 16, t.foreground);
       const tag = accountTag(t, a, labels.get(a.address) ?? {});
+      const bg = backgroundTag(t, a, labels.get(a.address) ?? {});
       const more = detail.get(a.address);
       // An agent on another machine (`vps/t7`) says which.
       const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
@@ -374,6 +385,7 @@ export default class Agents extends View {
           .child(div().min_w(0).max_w(full && more ? 120 : 200).truncate().text_color(idle ? t.muted : t.foreground).child(name))
           .when(full && Boolean(more), el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`\u00b7 ${more}`))))
         .when(Boolean(machine), el => el.child(div().text_size(10).text_color(t.dim).child(machine)))
+        .when(Boolean(bg), el => el.child(bg))
         .when(Boolean(tag), el => el.child(tag))
         .when(subs.length > 0, el => el.child(fold(a, subs)))
         .when(this.hovered === a.address, el => el.child(pin))

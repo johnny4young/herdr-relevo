@@ -9,6 +9,8 @@ import { keyMap, formatShortcut } from "../lib/keys.js";
 import { mapMine, mapRequested, unresolved, prChanges } from "../lib/github.js";
 import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "../lib/prompt.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "../lib/handoff.js";
+import { isAddressed, keepListed } from "../lib/addressed.js";
+import { parseUses, rankSkills, slug, worktreePath, sessionPrompt } from "../lib/prmenu.js";
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -364,5 +366,30 @@ test("handoffPlan: only a UUID file in the source account's own projects folder 
 test("handoff prompts name the account or the app and the note", () => {
   assert.match(resumePrompt("Work"), /on the Work account/);
   assert.match(notePrompt("Codex", "/n.md"), /a Codex session .* Read \/n\.md/);
+});
+
+test("isAddressed: hidden until GitHub shows activity after the mark", () => {
+  const pr = { url: "u", updatedAt: "2026-11-01T10:00:00Z" }, at = Date.parse(pr.updatedAt) / 1000;
+  assert.equal(isAddressed(pr, {}), false);
+  assert.equal(isAddressed(pr, { u: at + 60 }), true);
+  assert.equal(isAddressed({ ...pr, updatedAt: "2026-11-01T10:05:00Z" }, { u: at + 60 }), false);
+  assert.deepEqual(keepListed({ u: 1, gone: 2 }, new Set(["u"])), { u: 1 });
+});
+
+test("parseUses and rankSkills: the recommended skill, then up to two used ones by count", () => {
+  const uses = parseUses('  73 "display":"/review\n  28 "display":"/fix-ci\n22059 "display":"/usage\njunk');
+  assert.deepEqual(uses, { "review": 73, "fix-ci": 28, usage: 22059 });
+  const skills = { review: { name: "review" }, fix: { name: "fix-ci" }, comments: { name: "address-comments" } };
+  assert.deepEqual(rankSkills("comments", skills, uses).map((s) => s.verb), ["comments", "review", "fix"]);
+  assert.deepEqual(rankSkills("comments", skills, {}).map((s) => s.verb), ["comments"]);
+  assert.deepEqual(rankSkills("review", skills, uses), [{ verb: "review", uses: 73 }, { verb: "fix", uses: 28 }]);
+});
+
+test("worktreePath and sessionPrompt for a PR session", () => {
+  assert.equal(slug("feat/ABC-1 add x"), "feat-ABC-1-add-x");
+  assert.equal(worktreePath("/h", "org/api", "feat/rate-limits"), "/h/.herdr/worktrees/api/feat-rate-limits");
+  const p = sessionPrompt({ repo: "org/api", number: 7, title: "Add limits", url: "https://x/7", headRefName: "feat/a", baseRefName: "main" });
+  assert.match(p, /org\/api#7 checked out: "Add limits"/);
+  assert.match(p, /wait for my instructions\.$/);
 });
 

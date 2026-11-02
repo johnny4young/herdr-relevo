@@ -8,6 +8,7 @@ import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { seconds, recent } from "./lib/github.js";
+import { isAddressed } from "./lib/addressed.js";
 import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "./lib/prompt.js";
 import { COUNT, showPanel } from "./toolbar.js";
 import { launched } from "./skills.js";
@@ -31,6 +32,7 @@ export class Inbox {
     this.expanded = {};
     this.quotas = {};
     this.prsAt = 0;
+    this.addressed = {};
     this.worktrees = [];
     this.confirm = null;
     this.wtError = {};
@@ -50,6 +52,7 @@ export class Inbox {
     if (!panels.includes("inbox")) setShared("workspace.panels", [...panels, "inbox"]);
     this.live = this.liveSigns();
     this.scanLocal(cx);
+    this.loadAddressed(cx);
     this.scanPRs(cx);
     this.loadQuotas(cx);
     this.scanTrees(cx);
@@ -104,11 +107,14 @@ export class Inbox {
     return Boolean(l) && seconds(pr.updatedAt) <= l.at;
   }
 
+  // Addressed PRs leave the lists (and the count) and fold under one line per group.
   shown() {
-    const pr = (p) => inFocus(accountFor(p.repo));
+    const pr = (p) => inFocus(accountFor(p.repo)), open = (p) => pr(p) && !isAddressed(p, this.addressed);
+    const done = (p) => pr(p) && isAddressed(p, this.addressed);
     return {
       local: this.local.filter((i) => inFocus(contextOfPath(i.top))),
-      mine: this.mine.filter(pr), requested: this.requested.filter(pr),
+      mine: this.mine.filter(open), requested: this.requested.filter(open),
+      mineDone: this.mine.filter(done), requestedDone: this.requested.filter(done),
       worktrees: this.worktrees.filter((w) => inFocus(contextOfPath(w.main))),
       today: this.today.filter((d) => inFocus(contextOfPath(d.repo))),
     };
@@ -463,8 +469,8 @@ export class Inbox {
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
         .children(part("waiting", this.localGroup(t, "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
         .children(part("local", this.localGroup(t, "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"))))
-        .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false)))
-        .children(part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true)))
+        .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone)))
+        .children(part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true, v.requestedDone)))
         .children(part("today", this.todayGroup(t, v.today)))
         .children(part("trees", this.treeGroups(t, v.worktrees))));
   }

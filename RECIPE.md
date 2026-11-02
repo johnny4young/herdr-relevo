@@ -37,8 +37,8 @@ task to another account.
   - `YOUR PRS` and `REVIEW REQUESTS`: cards (9px radius) with a dot, `repo #n · title`, an unresolved-threads
     badge (speech bubble + count, `ansi3`), a CI badge (✓ `ansi2`, ✕ `ansi1`, spinning ring `ansi3` while
     running), the age, why it is here ("CI failing", "changes requested", "review from …"), a split skill button
-    (`skill` + account chip | ▾), **Review** on your own PRs and **Open PR**. PRs older than 45 days fold under
-    "▸ N older than 45 days".
+    (`skill` + account chip | ▾), **Review** on your own PRs, **Open PR** and **✓** (addressed). PRs older than 45
+    days fold under "▸ N older than 45 days"; addressed ones under "▸ N addressed", each with **Undo**.
   - `AGENT TIME TODAY` with a **Week** button: one row per ticket (or repo) with today's time.
   - `MERGED WORKTREES`: one 30px row per worktree whose branch merged: repo, branch, age, **Open**/**Go**,
     **Remove**. "▸ N worktrees without a space" folds the rest.
@@ -67,8 +67,14 @@ task to another account.
   Fallbacks: local work 60 s, PRs 3 min, worktrees 10 min. GitHub's merged-PR lists are cached 15 min per repo;
   ↻ skips the cache. The Inbox redraws only when a card changes.
 - **PR skills**: the left part runs the skill (`/review`, `/fix-ci`, `/address-comments` by default) in a new tab
-  in the repo's space with the repo's account, or the next account in `FALLBACK` when it is at 100%; ▾ picks
-  another account. The card then follows that agent ("reviewing…", **Agent**).
+  in the repo's space with the repo's account, or the next account in `FALLBACK` when it is at 100%. The card then
+  follows that agent ("reviewing…", **Agent**). ▾ opens a 320px menu: one chip per account (Codex included), the
+  recommended skill and up to two other configured skills you have run, most used first ("used N×", counted from
+  each account's `history.jsonl`), and **New session in a worktree of <branch>**: `git worktree add --detach` under
+  `~/.herdr/worktrees/<repo>/<branch>` plus `gh pr checkout` (forks too), or the branch's existing checkout, then a
+  space with the chosen account's agent and a prompt with the PR, its branch and base, told to wait for instructions.
+- **Addressed**: ✓ stores the moment in `~/.local/state/relevo/addressed.json`; the card stays out of its group and
+  the count until the PR's `updatedAt` is later (a comment, review or push).
 - **Answering from the Inbox** (measured on Claude Code's menus): a single choice moves the agent's cursor with
   ↑/↓ and presses Enter; a multiple choice toggles a box with its number and **Submit** moves to Submit and presses
   Enter; the free-text choice takes the Reply field's words as a paste (in a multiple choice the cursor goes there
@@ -117,7 +123,8 @@ task to another account.
   `config.js` holds accounts, contexts, fallback, `REPOS_ROOT` and skills; `lib/` holds pure helpers with
   `node --test` coverage. Only the accounts copy reads `nextCommand()`, so each `relevo.<command>` runs once.
 - **mods/relevo-agents**: Herdr's agents list with account and ticket chips (from the `agent.account` and
-  `agent.jira` labels and the shared `relevo.setup`).
+  `agent.jira` labels and the shared `relevo.setup`) and a background marker from `agent.bg` (`⧗2` in `working`
+  color, the full "2 shells" in its tooltip).
 - **mods/relevo-files**: Herdr's files tree with a right-click menu (`role: "menu"`), a name dialog for New file,
   New folder and Rename (`role: "name"`) and a file pane (`role: "view"`, opened by the finder). Previews and
   the file pane edit through `editor.js`: `writeTextFile` with the text that was read as `expected`, so a file

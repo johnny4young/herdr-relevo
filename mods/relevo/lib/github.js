@@ -7,7 +7,7 @@ export const PR_QUERY = `query {
     reviews(last: 10) { nodes { author { login } state submittedAt } }
     reviewThreads(first: 50) { nodes { isResolved } } } } }
   search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 20) { nodes {
-    ... on PullRequest { number title url updatedAt author { login } repository { nameWithOwner }
+    ... on PullRequest { number title url updatedAt headRefName baseRefName author { login } repository { nameWithOwner }
       commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       reviewThreads(first: 50) { nodes { isResolved } } } } }
 }`;

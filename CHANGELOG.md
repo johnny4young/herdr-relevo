@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Mark a PR addressed.** ✓ on a PR card hides it until the PR has new activity (a comment, review or push); addressed ones fold under one line with Undo.
+- **More from a PR's ▾.** Pick any account, run the recommended skill or the two you use most, or open a new session on the PR in its own worktree with the PR checked out (`gh pr checkout`, forks too).
+- **Background work shows on agents.** An agent with background shells or wakeups shows ⧗ and the count beside its account chip.
+
 ## 0.4.1 · 2026-11-01
 
 - **Handoffs keep the conversation.** Between Claude accounts the next one resumes the same session (`--resume --fork-session` from a copy of its file), so it doesn't start cold and re-read the repo. Handoffs to and from Codex start from the note, and Codex's own quota alert offers one too. The old agent is interrupted once the new one starts.
