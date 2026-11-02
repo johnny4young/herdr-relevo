@@ -1,6 +1,6 @@
 // What a waiting agent is asking, read from the bottom of its screen: the question, its numbered choices,
 // whether they are checkboxes, where the cursor is and where a Submit item sits.
-const OPTION = /^([❯›>]\s*)?(\d)\.\s+(.+?)\s*$/;
+const OPTION = /^([❯›>]\s*)?(\d+)\.\s+(.+?)\s*$/;
 const SUBMIT = /^([❯›>]\s*)?(Submit|Submit answers)$/i;
 const BOX = /^\[([ xX✔✓✗])?\]\s*/;
 const FRAME = /^[│┃╭╮╰╯─━┌┐└┘|\s]+|[│┃╭╮╰╯─━┌┐└┘|\s]+$/g;
@@ -9,13 +9,18 @@ const MAX_GAP = 4;
 // A dialog's top edge is a whole solid line at the margin; a command's lines are indented and a diff is fenced with ╌.
 const EDGE = /^[╭┌─━][─━]{2,}[╮┐]?\s*$/;
 const PREVIEW = /\s{3,}[┌│└╭╰].*$/;
+// A list with no cursor this far above the bottom is old output.
+const TAIL = 10;
+// Output that moves on its own above a dialog: spinners, timers and tool results.
+const STATUS = /^\s*[●⏺•⎿✻✶✢✳✽∗·⠀-⣿]/;
 
 export function readPrompt(screen) {
   const lines = (screen ?? "").split("\n").map((l) => l.replace(FRAME, "")).slice(-60);
   const none = { question: lastLines(lines, 2), options: [], multi: false, submit: null, cursor: null, dialog: "" };
   let last = -1;
   for (let i = lines.length - 1; i >= 0 && last < 0; i--) if (OPTION.test(lines[i])) last = i;
-  if (last < 0) return none;
+  const noList = () => (unnumberedMenu(screen) ? { ...none, unparsed: true } : none);
+  if (last < 0) return noList();
   // Walk up from the last choice to choice 1.
   const found = [{ i: last, n: Number(OPTION.exec(lines[last])[2]) }];
   let gap = 0;
@@ -29,7 +34,9 @@ export function readPrompt(screen) {
     found.unshift({ i, n: Number(m[2]) });
     gap = 0;
   }
-  if (found[0].n !== 1) return { ...none, unparsed: true };
+  const marked = found.some(({ i }) => OPTION.exec(lines[i])[1]);
+  if (!marked && lines.slice(last + 1).filter((l) => l.trim()).length > TAIL) return noList();
+  if (found[0].n !== 1 || found.at(-1).n > 9) return { ...none, unparsed: true };
   let submit = null, cursor = null;
   const options = found.map(({ i, n }, k) => {
     // A preview drawn beside the choices shares their lines; it starts after a wide gap with a box edge.
@@ -50,21 +57,44 @@ export function readPrompt(screen) {
     if (box) option.checked = Boolean(box[1] && box[1] !== " ");
     return option;
   });
+  // Without a cursor these are a numbered list, or a menu whose cursor is on a row that isn't read.
+  if (cursor === null) return { ...none, unparsed: true };
   const multi = options.some((o) => "checked" in o);
   const preview = previewBeside(screen);
   return {
     question: questionAbove(lines, found[0].i), options, multi, submit, cursor, preview,
     summary: summaryAbove(lines, found[0].i),
     dialog: dialogWords(screen, found[0].i, last),
+    above: aboveEdge(screen, found[0].i),
   };
 }
 
 // The dialog from its top edge to its last choice, without what the cursor changes: a permission's command can
 // sit far above the question. With no edge it takes the whole screen, so a change there refuses rather than passes.
-function dialogWords(screen, first, last) {
-  const raw = (screen ?? "").split("\n"), at = Math.max(0, raw.length - 60), start = first + at;
+function edgeAbove(raw, start) {
   let top = start;
   while (top > 0 && !EDGE.test(raw[top - 1])) top--;
+  return top;
+}
+
+// A rule drawn inside a dialog looks like its edge, so what's above it counts too.
+function aboveEdge(screen, first) {
+  const raw = (screen ?? "").split("\n"), top = edgeAbove(raw, first + Math.max(0, raw.length - 60));
+  return raw.slice(0, Math.max(0, top - 1)).filter((l) => !STATUS.test(l)).map((l) => l.trim()).join("\n");
+}
+
+// A cursor with a sibling row lined up under it. A cursor alone is an old message or an input prompt.
+function unnumberedMenu(screen) {
+  const rows = (screen ?? "").split("\n").map((l) => l.replace(/^\s*[│┃]/, "")).filter((l) => l.trim()).slice(-TAIL);
+  return rows.some((l, i) => {
+    const m = /^(\s*)[❯›>]\s+\S/.exec(l);
+    return Boolean(m && rows[i + 1]?.startsWith(`${m[1]}  `));
+  });
+}
+
+function dialogWords(screen, first, last) {
+  const raw = (screen ?? "").split("\n"), at = Math.max(0, raw.length - 60), start = first + at;
+  const top = edgeAbove(raw, start);
   const framed = /^\s*[│┃]/.test(raw[start]);
   const row = (l) => (framed ? l.replace(/^\s*[│┃]/, "") : l).replace(PREVIEW, "");
   const clean = (l) => l.replace(FRAME, "").replace(/^[❯›>]\s*/, "").replace(/^(\d\.\s+)\[[^\]]?\]\s*/, "$1");
@@ -73,9 +103,14 @@ function dialogWords(screen, first, last) {
 
 // Still the dialog the card came from, wherever the cursor is and whatever the boxes say.
 export const samePrompt = (seen, now) => Boolean(seen.dialog) && seen.dialog === now.dialog
+  && (seen.above ?? "") === (now.above ?? "")
   && Boolean(seen.submit) === Boolean(now.submit)
   && seen.options.length === now.options.length
   && seen.options.every((o, i) => o.label === now.options[i].label);
+
+// The same choices, apart from the one whose label an answer just replaced.
+export const sameChoicesBut = (n, seen, now) => seen.options.length === now.options.length
+  && seen.options.every((o, i) => o.n === n || o.label === now.options[i].label);
 
 // The keys that move the cursor onto Submit and press it.
 export function submitKeys(prompt) {

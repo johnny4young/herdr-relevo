@@ -6,6 +6,7 @@ import { fake, resetFake, calls, changeFolder, watched } from "./fake/herdr.mjs"
 import { fakeCx, find, text, click, flush, spinners } from "./fake/ui.mjs";
 
 const { Inbox } = await import("../inbox.js");
+const { LAUNCHED } = await import("../skills.js");
 
 const TOP = "/work/app", GIT_DIR = "/work/app/.git";
 const LABEL = "relevo.addressed";
@@ -507,4 +508,105 @@ test("PR data that arrived stays dated when a later step fails", async () => {
   assert.match(inbox.error, /^PRs: no git/);
   assert.match(text(ui()), /PRs now/);
   assert.equal(inbox.mine.length, 1);
+});
+
+test("a second click during a send sends nothing", async () => {
+  const { ui, cx } = await waiting(DB);
+  const row = find(ui(), "answer-t1-1");
+  click(row, cx);
+  click(row, cx);
+  await flush();
+  assert.deepEqual(calls(/^hc keys t1/), ["hc keys t1 enter"]);
+});
+
+test("a numbered list with no cursor offers no choices and no reply", async () => {
+  const { ui } = await waiting("Plan:\n1. Rebuild\n2. Test\nPress Enter to continue\n");
+  assert.equal(find(ui(), "answer-t1-1"), null);
+  assert.equal(find(ui(), "reply-t1"), null);
+});
+
+test("a digit held with a modifier answers nothing", async () => {
+  const { inbox, ui, cx } = await waiting(DB);
+  ui();
+  inbox.keyboard = true;
+  inbox.sel = "in-t1";
+  inbox.navKey({ key: "1", modifiers: { platform: true } }, cx);
+  await flush();
+  assert.deepEqual(sent(), []);
+});
+
+test("quick clicks on two boxes both land, in order", async () => {
+  const boxes = " Pick\n › 1. [ ] A\n   2. [ ] B\n";
+  const { ui, cx } = await waiting(boxes);
+  const one = find(ui(), "answer-t1-1"), two = find(ui(), "answer-t1-2");
+  click(one, cx);
+  click(two, cx);
+  await flush();
+  assert.deepEqual(calls(/^hc keys t1/), ["hc keys t1 1", "hc keys t1 2"]);
+});
+
+test("a blocked agent in a PR's tab gets a card, and a resting one doesn't", async () => {
+  fake.stored[LAUNCHED] = { "https://github.com/o/r/pull/1": { tab: "r#1 review", skill: "fix" } };
+  const screen = { now: DB };
+  fake.exec = (cmd, args) => (cmd === "hc" && args[0] === "read" ? { stdout: screen.now } : repoOutput(cmd, args));
+  setAgents(["t1", "blocked"]);
+  fake.agents[0].tab_name = "r#1 review";
+  const { ui, inbox, cx } = await open();
+  assert.ok(find(ui(), "answer-t1-1"));
+  fake.agents[0].status = "idle";
+  inbox.scanLocal(cx);
+  await flush();
+  assert.equal(find(ui(), "answer-t1-1"), null);
+});
+
+test("Submit clicked twice on a static screen presses once", async () => {
+  const boxes = " Pick\n › 1. [ ] A\n   2. [ ] B\n     Submit\n";
+  const { ui, cx } = await waiting(boxes);
+  const row = find(ui(), "submit-t1");
+  click(row, cx);
+  click(row, cx);
+  await flush();
+  assert.equal(calls(/^hc keys t1/).length, 1);
+});
+
+test("a click during a slow redraw can't reach the next dialog", async () => {
+  const { ui, cx, screen, inbox } = await waiting(DB);
+  const row = find(ui(), "answer-t1-1");
+  let sleeps = 0;
+  cx.sleep = async () => {
+    if (++sleeps === 2) click(row, cx);
+    if (sleeps === 3) screen.now = DELETE;
+  };
+  click(row, cx);
+  await flush();
+  assert.deepEqual(calls(/^hc keys t1/), ["hc keys t1 enter"]);
+  assert.equal(inbox.answering.size, 0);
+});
+
+test("a typed answer in a multiple choice is checked again after its label changes", async () => {
+  const before = " Pick\n   1. [ ] A\n › 2. [ ] Type something\n     Submit\n";
+  const { ui, cx, screen, inbox } = await waiting(before);
+  click(find(ui(), "answer-t1-2"), cx);
+  await flush();
+  inbox.reply.set_value("my words");
+  const realExec = fake.exec;
+  fake.exec = (cmd, args) => {
+    if (cmd === "hc" && args[0] === "send") screen.now = " Pick\n   1. [ ] A\n › 2. [ ] my words\n     Submit\n";
+    return realExec(cmd, args);
+  };
+  inbox.sendReply(cx);
+  await flush();
+  assert.deepEqual(calls(/^hc keys t1/).slice(-1), ["hc keys t1 up 2"]);
+});
+
+test("a reply while the agent is still being answered keeps its text", async () => {
+  const { inbox, cx } = await waiting("Should I go on?\n");
+  inbox.startReply({ address: "t1" }, null, cx);
+  inbox.reply.set_value("yes");
+  inbox.answering.set("t1", Promise.resolve());
+  inbox.sendReply(cx);
+  await flush();
+  assert.equal(inbox.replying, "t1");
+  assert.equal(fake.notices.at(-1).title, "Still answering this agent");
+  assert.deepEqual(sent(), []);
 });
