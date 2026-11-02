@@ -48,13 +48,17 @@ export class PrViews {
   }
 
   scanPRs(cx) {
+    this.prsLoading = (this.prsLoading ?? 0) + 1;
+    cx.notify();
     cx.spawn(async (cx) => {
       try {
         await this.loadPRs();
       } catch (e) {
         this.error = `PRs: ${e?.message ?? e}`;
+      } finally {
+        this.prsLoading--;
+        cx.notify();
       }
-      cx.notify();
     });
   }
 

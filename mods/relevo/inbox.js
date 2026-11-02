@@ -32,6 +32,7 @@ export class Inbox {
     this.expanded = {};
     this.quotas = {};
     this.prsAt = 0;
+    this.prsLoading = 0;
     this.addressed = {};
     this.worktrees = [];
     this.confirm = null;
@@ -450,9 +451,9 @@ export class Inbox {
       .on_key_down((e, cx) => this.navKey(e, cx))
       .child(h_flex().h(36).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().font_semibold().text_size(13).child("Inbox"))
-        .child(this.prsAt
-          ? div().text_size(11).text_color(t.dim).child(`PRs ${ago(this.prsAt)}`)
-          : h_flex().gap(5).items_center().text_size(11).text_color(t.dim).child(spinner(t.dim, 10)).child("loading"))
+        .child(h_flex().gap(5).items_center().text_size(11).text_color(t.dim)
+          .when(this.prsLoading > 0, (el) => el.child(spinner(t.dim, 10)))
+          .child(this.prsAt ? `PRs ${ago(this.prsAt)}` : this.prsLoading > 0 ? "loading" : this.error ? "PRs unavailable" : "PRs not synced"))
         .child(div().flex_1())
         .child(div().id("inbox-refresh").px(6).rounded(5).cursor_pointer().text_color(t.muted)
           .hover((s) => s.bg(t.hover)).tooltip("Refresh")
