@@ -53,6 +53,8 @@ async function mergedBranches(main, force) {
   return out;
 }
 
+const inside = (w, p) => p === w.path || Boolean(p?.startsWith(`${w.path}/`));
+
 export async function scanWorktrees(force = false) {
   const list = parse((await exec("sh", ["-c", LIST, "sh", `${home()}/${ROOT}`])).stdout).filter((w) => !w.missing);
   const open = new Set([...spaces().map((s) => s.folder), ...panes().map((p) => p.cwd)].filter(Boolean));
@@ -65,11 +67,12 @@ export async function scanWorktrees(force = false) {
     w.repo = w.main.split("/").pop();
     w.name = w.path.split("/").pop();
     w.space = spaces().find((s) => s.folder === w.path)?.id ?? null;
-    w.open = [...open].some((p) => p === w.path || p.startsWith(`${w.path}/`));
+    w.open = [...open].some((p) => inside(w, p));
     w.merged = Boolean(w.branch && merged[w.main].has(w.branch));
     if (w.merged) {
-      w.dirty = (await exec("git", [...GIT_READ, "status", "--porcelain"], { cwd: w.path })).stdout.trim() !== "";
-      w.ignored = worthKeeping((await ignoredFiles(w)).stdout);
+      const [status, ignored] = await Promise.all([gitStatus(w), ignoredFiles(w)]);
+      w.dirty = status.stdout.trim() !== "";
+      w.ignored = worthKeeping(ignored.stdout);
     }
   }
   return list.sort((a, b) => b.at - a.at);
@@ -80,22 +83,20 @@ const REBUILT = new Set([
   "node_modules", "dist", "build", "out", "target", "coverage", ".next", ".nuxt", ".turbo", ".cache", ".build", ".gradle",
   "__pycache__", ".pytest_cache", ".venv", "venv", "DerivedData", ".DS_Store",
 ]);
-const ignoredFiles = (w) => exec("git", [...GIT_READ, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory"], { cwd: w.path });
-const worthKeeping = (out) => out.split("\n").filter(Boolean).map((l) => l.replace(/\/$/, ""))
+const gitStatus = (w) => exec("git", [...GIT_READ, "status", "--porcelain"], { cwd: w.path });
+const ignoredFiles = (w) => exec("git", [...GIT_READ, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], { cwd: w.path });
+const worthKeeping = (out) => out.split("\0").filter(Boolean).map((l) => l.replace(/\/$/, ""))
   .filter((l) => !REBUILT.has(l.split("/").pop()));
 
 // Looks again right before removing, since the last scan can be minutes old and closing a space can't be undone.
 export async function removalCheck(w) {
-  const inside = (p) => p === w.path || p?.startsWith(`${w.path}/`);
   const space = spaces().find((s) => s.folder === w.path);
   // A space's own terminals close with it; any other terminal here would lose its folder.
   const own = new Set(space?.tabs?.map((t) => t.id));
-  if (panes().some((p) => inside(p.cwd) && !own.has(p.tab))) return { error: "open in a terminal" };
-  const status = await exec("git", [...GIT_READ, "status", "--porcelain"], { cwd: w.path });
-  if (status.code !== 0) return { error: "could not check its files" };
+  if (panes().some((p) => inside(w, p.cwd) && !own.has(p.tab))) return { error: "open in a terminal" };
+  const [status, ignored] = await Promise.all([gitStatus(w), ignoredFiles(w)]);
+  if (status.code !== 0 || ignored.code !== 0) return { error: "could not check its files" };
   if (status.stdout.trim()) return { error: "uncommitted changes" };
-  const ignored = await ignoredFiles(w);
-  if (ignored.code !== 0) return { error: "could not check its files" };
   return { space: space?.id ?? null, ignored: worthKeeping(ignored.stdout) };
 }
 

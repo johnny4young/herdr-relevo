@@ -102,8 +102,6 @@ export class TreeViews {
   }
 
   // One line per merged worktree: Remove asks once more before git runs.
-
-  // One line per merged worktree: Remove asks once more before git runs.
   treeRow(t, w) {
     if (this.hiddenIds?.has(`wt-${w.path}`)) return null;
     if (this.removing.has(w.path)) return this.removingRow(t, w);

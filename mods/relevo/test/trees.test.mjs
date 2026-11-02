@@ -43,7 +43,7 @@ test("Remove asks, then removes a clean worktree", async () => {
 });
 
 test("ignored work is named before it goes, while rebuilt folders aren't", async () => {
-  files({ ignored: ".env\nnode_modules/\npackages/a/dist/\n" });
+  files({ ignored: ".env\0node_modules/\0packages/a/dist/\0" });
   const v = view(), w = tree(), cx = fakeCx();
   await clickRemove(v, w, cx);
   assert.deepEqual(w.ignored, [".env"]);
@@ -52,10 +52,17 @@ test("ignored work is named before it goes, while rebuilt folders aren't", async
   assert.equal(calls(REMOVE).length, 1);
 });
 
+test("an ignored name with a newline is one file", async () => {
+  files({ ignored: "a\nb.env\0" });
+  const v = view(), w = tree(), cx = fakeCx();
+  await clickRemove(v, w, cx);
+  assert.deepEqual(w.ignored, ["a\nb.env"]);
+});
+
 test("files that appear after the question ask again", async () => {
   const v = view(), w = tree(), cx = fakeCx();
   await clickRemove(v, w, cx);
-  files({ ignored: ".env\n" });
+  files({ ignored: ".env\0" });
   await clickRemove(v, w, cx);
   assert.equal(calls(REMOVE).length, 0);
   assert.equal(v.confirm, PATH);
@@ -105,12 +112,26 @@ test("Remove all leaves out worktrees with ignored work, even found after the sc
   const a = tree(), b = tree({ path: "/work/wt2", ignored: [".env"] });
   const v = view(a, b), cx = fakeCx();
   assert.deepEqual(v.removable([a, b]), [a]);
-  files({ ignored: "notes.md\n" });
+  files({ ignored: "notes.md\0" });
   v.confirm = "all";
   v.removeAll([a], cx);
   await flush();
   assert.equal(calls(REMOVE).length, 0);
   assert.equal(v.wtError[PATH], "deletes notes.md");
+});
+
+test("Remove all leaves out a worktree that gained a space or a terminal after the scan", async () => {
+  const a = tree(), b = tree({ path: "/work/wt2" });
+  fake.spaces = [{ id: "sp1", folder: PATH, tabs: [] }];
+  fake.panes = [{ pane: "p1", cwd: "/work/wt2", tab: "tb9" }];
+  const v = view(a, b), cx = fakeCx();
+  v.confirm = "all";
+  v.removeAll([a, b], cx);
+  await flush();
+  assert.equal(calls(REMOVE).length, 0);
+  assert.deepEqual(fake.runs, []);
+  assert.equal(v.wtError[PATH], "has a space");
+  assert.equal(v.wtError["/work/wt2"], "open in a terminal");
 });
 
 test("a branch git keeps is reported", async () => {
