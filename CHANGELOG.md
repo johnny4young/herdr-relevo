@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.7 · 2026-11-02
+
+- **One answer at a time.** A second click on a card could land its Enter in the next dialog. A send now holds that agent's turn until its dialog has gone, and needs the agent to still be waiting. Clicks on a multiple choice's boxes wait their turn.
+- **Only menus it can read.** A numbered list with no cursor is no longer offered as choices. Menus it can't read show no choices and no Reply, so you answer them in the terminal.
+- **A rule can't hide a command.** What's above a dialog's edge now counts when comparing it, apart from timers and status lines.
+- **Blocked PR agents show up.** An agent waiting in a PR's tab now gets a card and counts in the Inbox.
+- **Remove checks again.** Removing a worktree looks again on each click, before any space closes. It stops for uncommitted or hidden files, skipped edits, a repo inside an ignored folder, submodules, a lock, a terminal elsewhere or a working agent.
+- **Ignored work is named.** Remove says which ignored files go with the worktree, such as `.env` or `build`, and Remove all leaves those worktrees out. Folders an install brings back, like `node_modules`, don't count.
+- **Unsaved edits stay.** Saves, reloads and outside changes that overlap no longer lose edits or drop a request. Another Files tree can't close an editor with unsaved edits, and a deleted file offers Keep mine without Reload.
+- **Spinner stops.** A failed first PR scan shows "PRs unavailable" instead of animating forever. Healthy refreshes stay still.
+- **Lighter review.** Diffs with no range comments skip that work on each render.
+- **Hook can't block an agent.** If the mod moves, the hook now exits cleanly. If you installed it, run `--install` again: `--check` shows `outdated`.
+
 ## 0.5.6 · 2026-11-02
 
 - **Long and framed dialogs are compared whole.** An indented frame could drop the choices from the comparison, and a rule inside a command or a very long command could hide the lines above it. The check now compares everything up to the dialog's real top edge, and the choices one by one.
