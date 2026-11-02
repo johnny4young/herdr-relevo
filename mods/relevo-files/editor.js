@@ -24,12 +24,25 @@ export class FileEditor {
     this.disk = undefined; // the newer text on disk while it differs from what was read
     this.note = null;
     this.open = true;
+    this.loadVersion = 0;
+    this.editVersion = 0;
   }
 
-  async load(cx, read = (p) => readTextFile(p)) {
+  async load(cx, read = (p) => readTextFile(p), discard = false) {
+    if (!this.open || this.saving) return;
+    const version = ++this.loadVersion, state = this.state;
+    const value = state?.value(), edits = this.editVersion;
+    const current = () => this.open && version === this.loadVersion && !this.saving;
+    const edited = () => this.state !== state || this.editVersion !== edits || this.state?.value() !== value;
     try {
       const [text, bytes] = await Promise.all([read(this.path), this.local ? sizeOf(this.path) : null]);
-      if (!this.open) return;
+      if (!current()) return;
+      // Reload may discard edits present when clicked, never edits made while reading.
+      if (edited() || (this.dirty && !discard)) {
+        this.disk = text === this.base ? undefined : text;
+        cx.notify();
+        return;
+      }
       const s = textState(text, bytes);
       this.error = s.error ?? null;
       this.editable = this.local && Boolean(s.editable);
@@ -39,7 +52,9 @@ export class FileEditor {
       if (!this.editable) this.editing = false;
       this.make(s.error ? null : s.value);
     } catch {
-      if (this.open) this.error = "Cannot preview this file (binary, too large, or unreadable)";
+      if (!current()) return;
+      if (edited() || this.dirty) this.note = "Cannot reload this file; your edits were kept";
+      else this.error = "Cannot preview this file (binary, too large, or unreadable)";
     }
     cx.notify();
     if (this.local) this.watch(cx);
@@ -57,6 +72,7 @@ export class FileEditor {
     });
     if (this.editing) {
       this.state.on("change", (_e, cx) => {
+        this.editVersion++;
         if (this.dirty) return;
         this.dirty = true;
         cx.notify();
@@ -95,25 +111,39 @@ export class FileEditor {
     cx.notify();
   }
 
-  async save(cx) {
-    if (!this.editing || !this.state) return;
-    const text = this.state.value();
-    try {
-      await writeTextFile(this.path, text, this.base);
-      this.base = text;
-      this.dirty = false;
-      this.disk = undefined;
-      this.flash("Saved", cx);
-    } catch (e) {
-      const disk = await readTextFile(this.path).catch(() => null);
-      if (disk !== this.base) this.disk = disk;
-      else this.note = `Not saved: ${String(e?.message ?? e)}`;
-    }
-    cx.notify();
+  save(cx) {
+    if (this.saving) return this.saving;
+    if (!this.open || !this.editing || !this.state) return;
+    ++this.loadVersion; // Any older read predates this write and must not replace it.
+    const state = this.state, path = this.path, text = state.value(), base = this.base;
+    const current = () => this.open && this.state === state && this.path === path;
+    // A second click/shortcut waits for this write instead of racing its old base.
+    this.saving = (async () => {
+      try {
+        await writeTextFile(path, text, base);
+        if (!current()) return;
+        this.base = text;
+        // Editing remains enabled while saving. Only the captured text is on disk.
+        this.dirty = state.value() !== text;
+        this.disk = undefined;
+        if (!this.dirty) this.flash("Saved", cx);
+      } catch (e) {
+        if (!current()) return;
+        const disk = await readTextFile(path).catch(() => null);
+        if (!current()) return;
+        if (disk !== this.base) this.disk = disk;
+        else this.note = `Not saved: ${String(e?.message ?? e)}`;
+      } finally {
+        this.saving = null;
+        if (current()) cx.notify();
+      }
+    })();
+    return this.saving;
   }
 
   // Writes over whatever is on disk now; null there means it was deleted and is created again.
   async keepMine(cx) {
+    if (this.saving) return this.saving;
     const expected = this.disk ?? null;
     this.disk = undefined;
     this.base = expected;
@@ -121,7 +151,7 @@ export class FileEditor {
   }
 
   async reload(cx) {
-    await this.load(cx);
+    await this.load(cx, undefined, true);
   }
 
   flash(text, cx) {
