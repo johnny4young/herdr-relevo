@@ -48,15 +48,16 @@ export class PrViews {
   }
 
   scanPRs(cx) {
-    this.prsLoading = (this.prsLoading ?? 0) + 1;
-    cx.notify();
+    if (this.scanningPRs) return;
+    this.scanningPRs = true;
+    if (!this.prsAt) cx.notify();
     cx.spawn(async (cx) => {
       try {
         await this.loadPRs();
       } catch (e) {
         this.error = `PRs: ${e?.message ?? e}`;
       } finally {
-        this.prsLoading--;
+        this.scanningPRs = false;
         cx.notify();
       }
     });
@@ -65,13 +66,14 @@ export class PrViews {
   async loadPRs() {
     const r = await exec("gh", ["api", "graphql", "-f", `query=${PR_QUERY}`]);
     if (r.code !== 0) {
-      this.error = (r.stderr || "gh failed").split("\n")[0];
+      this.error = (r.stderr?.trim() || "gh failed").split("\n")[0];
       return;
     }
     this.error = null;
     const data = JSON.parse(r.stdout).data;
     this.mine = mapMine(data);
     this.requested = mapRequested(data);
+    this.prsAt = Date.now() / 1000;
     const changes = prChanges(this.prState, data);
     this.prState = changes.state;
     prAlerts(changes.events, contextKey);
@@ -89,7 +91,6 @@ export class PrViews {
     if (Object.keys(listed).length !== Object.keys(this.addressed).length) this.saveAddressed(listed);
     const kept = Object.entries(launched()).filter(([url]) => live.has(url));
     if (kept.length !== Object.keys(launched()).length) setShared(LAUNCHED, Object.fromEntries(kept));
-    this.prsAt = Date.now() / 1000;
     reviewAlerts(this.requested, contextKey);
     this.publish();
   }

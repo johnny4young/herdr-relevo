@@ -49,7 +49,7 @@ export const writeTextFile = async (path, body, expected) => {
 };
 export const exec = async (cmd, args = [], options = {}) => {
   fake.execs.push([cmd, ...args].join(" "));
-  return { code: 0, stdout: "", stderr: "", ...fake.exec(cmd, args, options) };
+  return { code: 0, stdout: "", stderr: "", ...(await fake.exec(cmd, args, options)) };
 };
 export const watchFolder = (path) => {
   const ready = fake.folderChanges.get(path);
