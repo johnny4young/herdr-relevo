@@ -307,3 +307,22 @@ test("real git: a lock stops it", async (t) => {
   git("worktree", "lock", w.path);
   assert.equal((await removalCheck(w)).error, "locked");
 });
+
+test("real git: a tool's clones don't stop it, wherever its folder sits, and aren't named", async (t) => {
+  const { w, path } = realTree(t, ".build/\nvendor/\n");
+  for (const clone of [join(".build", "checkouts", "x"), join("vendor", "pkg", ".build", "checkouts", "y")]) {
+    mkdirSync(join(path, clone), { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: join(path, clone) });
+  }
+  const check = await removalCheck(w);
+  assert.equal(check.error, undefined);
+  assert.deepEqual(check.ignored, ["vendor"]);
+});
+
+test("real git: a repo beside a tool's folder still stops it", async (t) => {
+  const { w, path } = realTree(t, ".build/\nvendor/\n");
+  mkdirSync(join(path, ".build"));
+  mkdirSync(join(path, "vendor", "mylib"), { recursive: true });
+  execFileSync("git", ["init", "-q"], { cwd: join(path, "vendor", "mylib") });
+  assert.equal((await removalCheck(w)).error, "holds a repo: vendor/mylib");
+});

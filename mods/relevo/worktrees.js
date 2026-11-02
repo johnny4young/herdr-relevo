@@ -76,7 +76,7 @@ export async function scanWorktrees(force = false) {
 }
 
 // Only what an install or a tool always brings back. "build" or "out" can hold someone's work, so those get named.
-const REBUILT = new Set(["node_modules", "__pycache__", ".pytest_cache", ".next", ".nuxt", ".turbo", ".gradle", ".venv", "DerivedData", ".DS_Store"]);
+const REBUILT = new Set(["node_modules", ".build", "__pycache__", ".pytest_cache", ".next", ".nuxt", ".turbo", ".gradle", ".venv", "DerivedData", ".DS_Store"]);
 const ignoredFiles = async (w) => {
   const r = await exec("git", [...GIT_READ, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], { cwd: w.path });
   return { ...r, paths: r.stdout.split("\0").filter(Boolean).map((l) => l.replace(/\/$/, "")) };
@@ -114,8 +114,10 @@ export async function removalCheck(w) {
     if (status.stdout.trim()) return { error: "uncommitted changes" };
     const ignored = await ignoredFiles(w);
     if (ignored.code !== 0) return { error: "could not check its files" };
-    const dirs = ignored.paths.map((p) => `./${p}`);
-    const nested = dirs.length ? await exec("find", [...dirs, "-name", ".git"], { cwd: w.path }) : { stdout: "" };
+    // Clones under these belong to the tool that made them, like SwiftPM's .build/checkouts.
+    const dirs = ignored.paths.filter((p) => !REBUILT.has(p.split("/").pop())).map((p) => `./${p}`);
+    const skip = [...REBUILT].flatMap((name, i) => (i ? ["-o", "-name", name] : ["-name", name]));
+    const nested = dirs.length ? await exec("find", [...dirs, "(", ...skip, ")", "-prune", "-o", "-name", ".git", "-print"], { cwd: w.path }) : { stdout: "" };
     const repo = nested.stdout.split("\n").find(Boolean);
     if (repo) return { error: `holds a repo: ${repo.replace(/^\.\//, "").replace(/\/?\.git$/, "")}` };
     return { space: space?.id ?? null, ignored: worthKeeping(ignored.paths) };
