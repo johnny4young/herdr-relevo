@@ -28,17 +28,13 @@ export function fromClaude(json) {
   };
 }
 
-// An idle session rewrites the snapshot with what it saw last, so a fresh date proves nothing. A window's usage only
-// rises and the next window starts when it ends, so the highest unexpired value is the true one.
-export function currentWindow(seen, now) {
-  const known = seen.filter((w) => w?.used_percentage != null);
-  const live = known.filter((w) => !w.resets_at || w.resets_at > now);
-  return live.length ? live.reduce((a, b) => (b.used_percentage > a.used_percentage ? b : a)) : known[0];
+// The newest source that still has this window: one without it, or whose window ended, says nothing about the current one.
+export function currentWindow(sources, name, now) {
+  const known = sources.map((s) => s.rate_limits?.[name]).filter((w) => w?.used_percentage != null);
+  return known.find((w) => !w.resets_at || w.resets_at > now) ?? known[0];
 }
 
-const remembered = new Map();
-
-// The usage endpoint (shared state), the statusline snapshot (file) and what was seen before, window by window.
+// The usage endpoint (shared state) and the statusline snapshot (file), window by window.
 export async function loadClaudeQuotas() {
   const out = {}, api = shared(API_QUOTAS) ?? {};
   for (const p of [...ACCOUNTS, CODEX]) {
@@ -49,18 +45,16 @@ export async function loadClaudeQuotas() {
       file = null;
     }
     const fromApi = api[p.key]?.rate_limits ? api[p.key] : null;
-    const seen = [fromApi, file, remembered.get(p.key)].filter(Boolean);
-    if (!seen.length) {
+    const sources = [fromApi, file].filter(Boolean).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    if (!sources.length) {
       out[p.key] = null;
       continue;
     }
-    const now = Date.now() / 1000, windowFor = (name) => currentWindow(seen.map((s) => s.rate_limits?.[name]), now);
-    const merged = {
-      updated: Math.max(...seen.map((s) => s.updated ?? 0)),
-      rate_limits: { five_hour: windowFor("five_hour"), seven_day: windowFor("seven_day") },
-    };
-    remembered.set(p.key, merged);
-    out[p.key] = fromClaude(merged);
+    const now = Date.now() / 1000;
+    out[p.key] = fromClaude({
+      updated: sources[0].updated,
+      rate_limits: { five_hour: currentWindow(sources, "five_hour", now), seven_day: currentWindow(sources, "seven_day", now) },
+    });
   }
   return out;
 }

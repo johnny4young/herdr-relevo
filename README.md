@@ -92,7 +92,8 @@ Mods reload by themselves. `--exclude config.js` keeps your accounts; copying th
 - Sets a `relevo.addressed` terminal label on local work you mark addressed, and watches the git folders of repos
   with a resting agent. Its repeated git reads write nothing there.
 - Optional: sounds at `~/.config/herdr-app/sounds/{quota,review,bg-done}.mp3`; quota snapshots a Claude
-  statusline writes to `~/.cache/herdr-relevo/quota-<account>.json`; `agent.account`, `agent.jira` and
+  statusline writes to `~/.cache/herdr-relevo/quota-<account>.json` (only when the values change, or an idle session's
+  old values look new); `agent.account`, `agent.jira` and
   `agent.transcript` terminal labels from a Claude hook, for account chips, per-ticket time and resumed handoffs.
 - That hook is one optional Claude hook on three events (SessionStart, Stop, SessionEnd), and it only sets terminal
   labels: account, ticket, session file and background tasks. Without it Relevo still runs; you lose account chips,
