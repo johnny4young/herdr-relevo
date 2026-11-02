@@ -52,12 +52,12 @@ export const commentId = (c) => (c.scope === "file" ? "file" : c.start ? `${c.st
 
 // Rows covered by saved ranges of the open file, so they stay tinted after the editor closes.
 export function rangeRows(rows, comments) {
+  if (!comments.some((c) => c.start)) return new Set();
   const at = new Map();
   rows.forEach((r, i) => {
     if (numbered(r)) at.set(lineKey(r), i);
   });
-  // Count interval boundaries once instead of revisiting every row for every
-  // overlapping comment. This runs on each review render, including hover.
+  // Ranges can overlap, so a row is marked once however many cover it.
   const edges = new Int32Array(rows.length + 1);
   for (const c of comments) {
     const from = c.start ? at.get(c.start) : undefined, to = at.get(c.key);

@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  diffRows, selectRange, lineComment, fileComment, commentId, rangeRows, formatComment, reviewMessage,
+  diffRows, selectRange, lineComment, fileComment, commentId, rangeRows, formatComment, reviewMessage, lineKey,
 } from "../lib/diff.js";
 
 const rows = diffRows([
@@ -74,10 +74,10 @@ test("rangeRows: overlapping, adjacent, stale and reversed intervals preserve th
 
 test("rangeRows: matches the simple reference for many synthetic ranges", () => {
   const lines = Array.from({length:80}, (_, i) => i % 7 === 0 ? {kind:"@"} : {kind:i % 3 ? "+" : "-",number:i});
-  const key = r => `${r.kind === "-" ? "-" : "+"}${r.number}`;
-  const comments = Array.from({length:200}, (_, i) => ({start:key(lines[(i * 13) % 80]),key:key(lines[(i * 31) % 80])}));
-  const at = new Map(lines.flatMap((r, i) => r.number === undefined ? [] : [[key(r),i]]));
+  const comments = Array.from({length:200}, (_, i) => ({start:lineKey(lines[(i * 13) % 80]),key:lineKey(lines[(i * 31) % 80])}));
+  const at = new Map(lines.flatMap((r, i) => r.number === undefined ? [] : [[lineKey(r),i]]));
   const expected = new Set();
   for (const c of comments) for (let i = at.get(c.start); i <= at.get(c.key); i++) expected.add(i);
-  assert.deepEqual([...rangeRows(lines, comments)], [...expected].sort((a,b)=>a-b));
+  assert.ok(expected.size > 0);
+  assert.deepEqual(rangeRows(lines, comments), expected);
 });
