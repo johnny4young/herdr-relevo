@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.6 · 2026-11-02
+
+- **Long and framed dialogs are compared whole.** An indented frame could drop the choices from the comparison, and a rule inside a command or a very long command could hide the lines above it. The check now compares everything up to the dialog's real top edge, and the choices one by one.
+- **No screen, no answer.** If the agent's screen can't be read, or it shows a menu that can't be parsed, a reply sends nothing instead of treating it as no menu.
+
 ## 0.5.5 · 2026-11-02
 
 - **The check covers the whole dialog.** 0.5.4 compared only the question and choices, so two permissions with the same words and different commands looked alike. It now compares the dialog from its top edge to its last choice, including the command, diff and descriptions.

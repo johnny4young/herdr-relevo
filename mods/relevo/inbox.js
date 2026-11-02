@@ -325,9 +325,12 @@ export class Inbox {
   // Keys only go to the question the card showed; if it changed, the card redraws with the new one.
   // A card without choices (no seen) only needs none to have appeared: a paste's Enter would pick one.
   async stillAsking(address, seen, cx) {
-    await this.rereadPrompt(address);
+    if (!await this.rereadPrompt(address)) {
+      notify({ title: "Could not read the agent's screen", body: "Nothing was sent.", level: "warning" });
+      return false;
+    }
     const now = this.prompts.get(address).prompt;
-    if (seen ? samePrompt(seen, now) : !now.options.length) return true;
+    if (seen ? samePrompt(seen, now) : !now.options.length && !now.unparsed) return true;
     notify({ title: "The question changed", body: "Nothing was sent. Read the card and answer again.", level: "warning" });
     cx.notify();
     return false;
@@ -362,12 +365,15 @@ export class Inbox {
     if (r.code !== 0) notify({ title: "Could not send the note", body: r.stderr.trim().split("\n")[0], level: "warning" });
   }
 
+  // False when there's no screen to go by; what the card knows stays as it was.
   async rereadPrompt(address) {
-    const screen = (await exec("hc", ["read", address, "--lines", "0"])).stdout;
+    const r = await exec("hc", ["read", address, "--lines", "0"]);
+    if (r.code !== 0 || !r.stdout.trim()) return false;
     const was = this.prompts.get(address);
-    const prompt = readPrompt(screen);
+    const prompt = readPrompt(r.stdout);
     this.prompts.set(address, { since: was?.since, prompt, free: freeOption(prompt, was?.free) });
     for (const i of this.local) if (i.agent.address === address) i.prompt = this.prompts.get(address).prompt;
+    return true;
   }
 
   startReply(a, key, cx, mode = "reply", seen = null) {

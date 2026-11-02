@@ -88,10 +88,11 @@ task to another account.
   terminal label `relevo.addressed=<ms>:<turn>` with `hc label`; the card returns when the agent works, waits or
   starts a later turn. A label takes about 0.65 s to show, so the Inbox keeps the pending value until then.
 - **Answering from the Inbox**: before any key, it reads the screen again and compares the dialog with the card as
-  drawn: from the dialog's solid top edge (or 30 lines up without one; `╌` fences a diff inside it) to its last
-  choice, plus whether it has Submit. The cursor, boxes and a preview beside the choices don't count. If they differ
-  it sends nothing, toasts "The question changed" and redraws the card. Reply on a card without choices only checks
-  that no menu has appeared, since the paste's Enter would pick an option. Measured on Claude Code's menus: a single choice moves the agent's cursor
+  drawn: from the dialog's top edge, a whole solid line at the margin (the whole screen without one; a command's lines
+  are indented and `╌` fences a diff), to its last choice, plus each choice's label and whether it has Submit. The
+  cursor, boxes and a preview beside the choices don't count. If they differ it sends nothing, toasts "The question
+  changed" and redraws the card. Reply on a card without choices only checks that no menu, whole or unparsed, has
+  appeared, since the paste's Enter would pick an option. A failed or blank read of the screen sends nothing. Measured on Claude Code's menus: a single choice moves the agent's cursor
   with ↑/↓ and presses Enter; a multiple choice toggles a box with its number and **Submit** moves to Submit and presses
   Enter; the free-text choice takes the Reply field's words as a paste (in a multiple choice the cursor goes there
   by arrows and the box is checked again after the paste's Enter). The card rereads the screen after every key.

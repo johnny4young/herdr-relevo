@@ -103,6 +103,38 @@ test("samePrompt: a choice's description counts, a preview beside it doesn't", (
   assert.equal(samePrompt(menu("keeps it", "aaa", 1), menu("deletes it", "aaa", 1)), false);
 });
 
+test("samePrompt: an indented frame keeps its choices in the comparison", () => {
+  const box = (one) => readPrompt(["   ╭──────────╮", "   │ Proceed? │", `   │ ❯ 1. ${one}   │`, "   │   2. No    │", "   ╰──────────╯"].join("\n"));
+  assert.equal(box("Yes").dialog, "Proceed?\n1. Yes\n2. No");
+  assert.equal(samePrompt(box("Yes"), box("Yes")), true);
+  assert.equal(samePrompt(box("Yes"), box("Allow all")), false);
+});
+
+test("samePrompt: a rule inside a command isn't the dialog's edge, and a long command counts whole", () => {
+  const dialog = (...command) => readPrompt([
+    "────────────────", " Bash command", ...command.map((c) => `   ${c}`), " Do you want to proceed?", " ❯ 1. Yes", "   2. No",
+  ].join("\n"));
+  assert.equal(samePrompt(dialog("rm -rf /data", "echo ────────"), dialog("npm test", "echo ok", "────────")), false);
+  assert.equal(samePrompt(dialog("rm -rf /data", "────────", "echo ok"), dialog("npm test", "────────", "echo ok")), false);
+  const long = (first) => [first, ...Array(40).fill("echo ok")];
+  assert.equal(samePrompt(dialog(...long("rm -rf /data")), dialog(...long("npm test"))), false);
+  const below = (command) => readPrompt([...Array(80).fill("old output"), "────────", `   ${command}`, " Proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
+  assert.equal(below("npm test").dialog, "npm test\nProceed?\n1. Yes\n2. No");
+  assert.equal(samePrompt(below("rm -rf /data"), below("npm test")), false);
+});
+
+test("samePrompt: the same text with other choices, or nothing to compare, isn't the same", () => {
+  const seen = { dialog: "Pick\n1. A", submit: null, question: "Pick", options: [{ n: 1, label: "A" }] };
+  assert.equal(samePrompt(seen, { ...seen, options: [{ n: 1, label: "B" }] }), false);
+  assert.equal(samePrompt(seen, { ...seen, options: [] }), false);
+  assert.equal(samePrompt({ ...seen, dialog: "" }, { ...seen, dialog: "" }), false);
+});
+
+test("readPrompt: numbered lines that aren't a whole menu are flagged", () => {
+  assert.equal(readPrompt(" Which?\n   2. B\n › 3. C\n").unparsed, true);
+  assert.equal(readPrompt("I changed three files.\n").unparsed, undefined);
+});
+
 test("relevoKeys: the layout's section counts and wins over global", () => {
   const map = relevoKeys({
     global: { "cmd-t": "tab.new", "cmd-g": "relevo.review" },

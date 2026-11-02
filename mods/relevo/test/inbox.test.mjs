@@ -408,3 +408,24 @@ test("a new question redraws the card, even within the same minute", async () =>
   assert.ok(cx.notified > redraws);
   assert.match(text(ui()), /Delete the staging data/);
 });
+
+test("a failed read of the screen sends nothing, whatever the card", async () => {
+  const noMenu = await waiting("Should I also update the docs?\n");
+  click(find(noMenu.ui(), "reply-t1"), noMenu.cx);
+  noMenu.inbox.reply.set_value("yes");
+  fake.exec = (cmd, args) => (cmd === "hc" && args[0] === "read" ? { code: 1, stderr: "gone" } : repoOutput(cmd, args));
+  noMenu.inbox.sendReply(noMenu.cx);
+  await flush();
+  assert.deepEqual(sent(), []);
+  assert.match(fake.notices.at(-1).title, /Could not read/);
+});
+
+test("Reply stops on a screen that looks like a menu but can't be read as one", async () => {
+  const { ui, inbox, cx, screen } = await waiting("Should I also update the docs?\n");
+  click(find(ui(), "reply-t1"), cx);
+  inbox.reply.set_value("yes");
+  screen.now = " Which?\n   2. B\n › 3. C\n";
+  inbox.sendReply(cx);
+  await flush();
+  assert.deepEqual(sent(), []);
+});
