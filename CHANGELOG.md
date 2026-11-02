@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.2 · 2026-11-02
+
+- **Mark local work addressed.** ✓ on an uncommitted-work card hides it until its agent works again; addressed ones fold under one line with Undo. A waiting agent always stays in the list.
+- **The Inbox follows events.** Local cards update about 2 s after a commit, checkout or stash, and when a shell command ends. The slow fallback scans only run while the window is in front.
+- **Git reads leave `.git` alone.** Repeated status and diff reads no longer refresh the index or take a lock.
+- **Tests that draw the mods.** The Inbox and every Relevo role now render against a fake Herdr in CI.
+
 ## 0.5.1 · 2026-11-01
 
 - **The hook ships with Relevo.** `mods/relevo/hooks/relevo-labels.py` sets the account, ticket, session file and background labels, with `--check`, `--install` and `--uninstall`. Tell your agent to follow `hooks/HOOK.md`.

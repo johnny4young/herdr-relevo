@@ -33,7 +33,8 @@ task to another account.
     row is tinted. Below: **Submit** when the form has one, **Reply** when it asks in words, **Agent**. On a
     multi-question form's last step a gray block lists each question with its answer before "Submit answers".
   - `UNCOMMITTED WORK`: a card per resting agent whose checkout has changes: files, `+adds −dels`, buttons
-    **Review**, **View diff**, **Files**, **Agent**.
+    **Review**, **View diff**, **Files**, **Agent** and **✓** (addressed); addressed ones fold under "▸ N addressed",
+    each with **Undo**.
   - `YOUR PRS` and `REVIEW REQUESTS`: cards (9px radius) with a dot, `repo #n · title`, an unresolved-threads
     badge (speech bubble + count, `ansi3`), a CI badge (✓ `ansi2`, ✕ `ansi1`, spinning ring `ansi3` while
     running), the age, why it is here ("CI failing", "changes requested", "review from …"), a split skill button
@@ -63,8 +64,12 @@ task to another account.
   account's focused, waiting or working agent.
 - **Focus picker**: `All`, or one context: the Inbox shows only that context's repos, its space folder unfolds and
   the other's folds, and alerts from the other context are muted. `⌥⌘F` cycles it.
-- **Inbox scans**: an in-memory check every 1.5 s of agents and spaces; a change rescans local work or worktrees.
-  Fallbacks: local work 60 s, PRs 3 min, worktrees 10 min. GitHub's merged-PR lists are cached 15 min per repo;
+- **Inbox scans**: an in-memory check every 1.5 s of agents, their turns and spaces; a change rescans local work or
+  worktrees. So does a shell command ending in a repo, and a change to the git state of a repo with a resting agent
+  (`watchFolder` on its git folder, 2 s after the last write; new objects and locks don't count). Reads use
+  `--no-optional-locks` with `core.fsmonitor` and `diff.autoRefreshIndex` off, so they can't wake the watch.
+  Fallbacks: local work 60 s and worktrees 10 min while the window is active, PRs 3 min. GitHub's merged-PR lists
+  are cached 15 min per repo;
   ↻ skips the cache. The Inbox redraws only when a card changes.
 - **PR skills**: the left part runs the skill (`/review`, `/fix-ci`, `/address-comments` by default) in a new tab
   in the repo's space with the repo's account, or the next account in `FALLBACK` when it is at 100%. The card then
@@ -79,7 +84,9 @@ task to another account.
 - **Review on a PR**: uses the PR's checkout when it has one (uncommitted changes included); otherwise fetches
   `+refs/pull/<n>/head:refs/relevo/pr/<n>` and reviews that exact head, with no branch made or moved.
 - **Addressed**: ✓ stores the moment in `~/.local/state/relevo/addressed.json`; the card stays out of its group and
-  the count until the PR's `updatedAt` is later (a comment, review or push).
+  the count until the PR's `updatedAt` is later (a comment, review or push). On an uncommitted-work card ✓ sets the
+  terminal label `relevo.addressed=<ms>:<turn>` with `hc label`; the card returns when the agent works, waits or
+  starts a later turn. A label takes about 0.65 s to show, so the Inbox keeps the pending value until then.
 - **Answering from the Inbox** (measured on Claude Code's menus): a single choice moves the agent's cursor with
   ↑/↓ and presses Enter; a multiple choice toggles a box with its number and **Submit** moves to Submit and presses
   Enter; the free-text choice takes the Reply field's words as a paste (in a multiple choice the cursor goes there
@@ -141,9 +148,9 @@ task to another account.
   `relevo-files.event`.
 - **Community mods**: space-folders (jankeesvw, tested at `cb83ff4`) and issues (jankeesvw).
 - **herdr**: `agents`, `panes`, `spaces`, `terminals`, `focused`, `layout`, `shared`/`setShared`, `exec`, `run`,
-  `notify`, `openOverlay`, `playSound`, `readTextFile`, `writeTextFile`, `watchFolder`, `nextCommand`; commands `tab.new`, `space.new`,
+  `notify`, `openOverlay`, `playSound`, `readTextFile`, `writeTextFile`, `watchFolder`, `nextCommand`, `window`; commands `tab.new`, `space.new`,
   `space.close`, `pane.split`, `pane.focus`, `agent.focus`, `layout.select`, `layout.show`, `layout.toggle`.
-- **Programs**: `/usr/bin/trash`, `open -R`, `mv -n`, `mkdir`, `git`, `gh` (GraphQL for PRs, `pr list --state merged`, `pr view`), `hc read`/`hc send`, `security`
+- **Programs**: `/usr/bin/trash`, `open -R`, `mv -n`, `mkdir`, `git`, `gh` (GraphQL for PRs, `pr list --state merged`, `pr view`), `hc read`/`hc send`/`hc label`, `security`
   (Keychain), the account launchers.
 
 ## Watch out
@@ -178,4 +185,6 @@ task to another account.
 - A merged worktree's **Remove** → **Confirm** removes it with the spinner and the row folds away.
 - **Week** opens the table and **Copy** pastes as a table.
 - `⌥⌘3`, ↓, Enter on a waiting agent focuses that agent; Esc returns to the terminal.
+- ✓ on an uncommitted-work card folds it under "▸ 1 addressed"; a new turn of its agent brings it back.
+- A commit in a repo with a resting agent updates its card in about 2 s.
 - `node --test 'test/*.test.mjs'` passes in `mods/relevo`.

@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { theme, exec, run, notify, settings, agents, panes, spaces, shared, setShared } from "herdr";
+import { theme, exec, run, notify, settings, agents, panes, shared, setShared } from "herdr";
 import { loadClaudeQuotas } from "./accounts.js";
 import { accountFor, contextOfPath, inFocus } from "./context.js";
 import { ago } from "./lib/time.js";
@@ -9,6 +9,8 @@ import { openReview } from "./review.js";
 import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
+import { GIT_READ } from "./lib/git.js";
+import { STATS_FOR } from "./lib/refresh.js";
 import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "./lib/prompt.js";
 import { COUNT, showPanel } from "./toolbar.js";
 import { launched } from "./skills.js";
@@ -16,6 +18,8 @@ import { openWeek } from "./week.js";
 import { PrViews } from "./inbox-prs.js";
 import { TreeViews } from "./inbox-trees.js";
 import { KeyNav, INBOX_FOCUS } from "./inbox-keys.js";
+import { LiveViews } from "./inbox-live.js";
+import { LocalAddressed } from "./inbox-addressed.js";
 
 // Local work, pull requests and merged worktrees in one list; the PR and worktree parts live in their own files.
 export class Inbox {
@@ -50,34 +54,17 @@ export class Inbox {
     this.today = [];
     const panels = (shared("workspace.panels") ?? ["files", "changes"]).filter((p) => p !== "review");
     if (!panels.includes("inbox")) setShared("workspace.panels", [...panels, "inbox"]);
-    this.live = this.liveSigns();
+    this.labelling = {};
+    this.terms = new Map();
+    this.startLive(cx);
     this.scanLocal(cx);
     this.loadAddressed(cx);
     this.scanPRs(cx);
     this.loadQuotas(cx);
     this.scanTrees(cx);
-    // Scans follow what changed; the slow timers only catch edits no agent or space reports.
-    cx.timer.every(1500, (cx) => this.watchLive(cx));
-    cx.timer.every(60000, (cx) => this.scanLocal(cx));
+    // These feed alerts, so they keep running behind other apps.
     cx.timer.every(180000, (cx) => this.scanPRs(cx));
     cx.timer.every(60000, (cx) => this.loadQuotas(cx));
-    cx.timer.every(600000, (cx) => this.scanTrees(cx));
-  }
-
-  // In-memory only: no git and no redraw unless a scan finds something new.
-  liveSigns() {
-    const cwd = new Map(panes().map((p) => [p.pane, p.cwd]));
-    return {
-      agents: agents().map((a) => `${a.address}:${a.status}:${cwd.get(a.pane) ?? ""}`).join("|"),
-      spaces: spaces().map((s) => s.folder).join("|"),
-    };
-  }
-
-  watchLive(cx) {
-    const now = this.liveSigns(), was = this.live;
-    this.live = now;
-    if (now.agents !== was.agents) this.scanLocal(cx);
-    if (now.spaces !== was.spaces) this.scanTrees(cx);
   }
 
   todayGroup(t, list) {
@@ -111,8 +98,10 @@ export class Inbox {
   shown() {
     const pr = (p) => inFocus(accountFor(p.repo)), open = (p) => pr(p) && !isAddressed(p, this.addressed);
     const done = (p) => pr(p) && isAddressed(p, this.addressed);
+    const local = this.local.filter((i) => inFocus(contextOfPath(i.top)));
+    const off = (i) => i.kind === "diff" && Boolean(this.addressedLabel(i.agent.address));
     return {
-      local: this.local.filter((i) => inFocus(contextOfPath(i.top))),
+      local: local.filter((i) => !off(i)), localDone: local.filter(off),
       mine: this.mine.filter(open), requested: this.requested.filter(open),
       mineDone: this.mine.filter(done), requestedDone: this.requested.filter(done),
       worktrees: this.worktrees.filter((w) => inFocus(contextOfPath(w.main))),
@@ -133,17 +122,21 @@ export class Inbox {
     }
     this.scanning = true;
     this.again = false;
+    this.localAt = Date.now();
     cx.spawn(async (cx) => {
       try {
         const byPane = new Map(panes().map((p) => [p.pane, p]));
         const byTab = new Map(Object.entries(launched()).map(([url, l]) => [l.tab, url]));
-        const seen = new Set(), items = [], prAgents = {}, since = {};
+        const seen = new Set(), items = [], prAgents = {}, since = {}, all = agents();
+        this.readLabels(all, cx);
         // Agents carry no timestamps, so a card's age is how long this status has been seen.
-        for (const a of agents()) {
+        for (const a of all) {
           since[`${a.address}:${a.status}`] = this.since[`${a.address}:${a.status}`] ?? Date.now() / 1000;
         }
         this.since = since;
-        for (const a of agents()) {
+        // A repo's one card goes to an agent not marked addressed, if it has one.
+        const marked = (a) => (this.addressedLabel(a.address) ? 1 : 0);
+        for (const a of [...all].sort((x, y) => marked(x) - marked(y))) {
           const url = byTab.get(a.tab_name);
           if (url) {
             prAgents[url] = a;
@@ -171,9 +164,9 @@ export class Inbox {
           seen.add(top);
           // The diff of a resting agent only changes when its status does; re-read it at most once a minute otherwise.
           let cached = this.stats.get(top);
-          if (!cached || cached.status !== a.status || Date.now() - cached.at > 60000) {
-            const stat = (await exec("git", ["--no-optional-locks", "diff", "HEAD", "--shortstat"], { cwd: top })).stdout;
-            const untracked = (await exec("git", ["--no-optional-locks", "ls-files", "--others", "--exclude-standard"], { cwd: top }))
+          if (!cached || this.dirty.delete(top) || cached.status !== a.status || Date.now() - cached.at > STATS_FOR) {
+            const stat = (await exec("git", [...GIT_READ, "diff", "HEAD", "--shortstat"], { cwd: top })).stdout;
+            const untracked = (await exec("git", [...GIT_READ, "ls-files", "--others", "--exclude-standard"], { cwd: top }))
               .stdout.split("\n").filter(Boolean).length;
             // What the agent said last, so the card tells whether to review or to answer it.
             const said = lastMessage((await exec("hc", ["read", a.address, "--lines", "20"])).stdout);
@@ -193,10 +186,11 @@ export class Inbox {
         const local = items.sort((x, y) => (x.kind === "blocked" ? 0 : 1) - (y.kind === "blocked" ? 0 : 1) || y.at - x.at);
         // Redraw only when a card or today's time changed, not on every scan.
         const sign = JSON.stringify([
-          local.map((i) => [i.agent.address, i.kind, i.files, i.add, i.del, i.said, Math.floor(i.at / 60)]),
+          local.map((i) => [i.agent.address, i.kind, i.files, i.add, i.del, i.said, Math.floor(i.at / 60), this.addressedLabel(i.agent.address)]),
           this.today,
         ]);
         this.local = local;
+        await this.watchRepos(seen, cx);
         if (sign !== this.sign) {
           this.sign = sign;
           this.publish();
@@ -234,6 +228,7 @@ export class Inbox {
 
   close() {
     this.reply.release();
+    this.wanted.clear();
   }
 
   // A waiting agent's question and its choices as a list: a click answers (or checks, in a multiple choice).
@@ -398,7 +393,7 @@ export class Inbox {
     });
   }
 
-  localCard(t, item) {
+  localCard(t, item, addressed = false) {
     const a = item.agent;
     const goAgent = () => run("agent.focus", { terminal: a.address });
     if (item.kind === "blocked") return this.waitingCard(t, item, goAgent);
@@ -425,11 +420,21 @@ export class Inbox {
           showPanel("files");
         }),
         button(t, `agent-${a.address}`, "Agent", goAgent),
+        addressed
+          ? button(t, `undo-${a.address}`, "Undo", (cx) => this.setLocalAddressed(a, false, cx), { tip: "Back to the list" })
+          : button(t, `addressed-${a.address}`, "✓", (cx) => this.setLocalAddressed(a, true, cx), {
+            tip: "Addressed: hide until its agent works again",
+          }),
       ]);
   }
 
-  localGroup(t, label, items) {
-    return items.length ? [sectionHeader(t, label, items.length), ...items.map((i) => this.localCard(t, i))] : [];
+  localGroup(t, key, label, items, done = []) {
+    if (!items.length && !done.length) return [];
+    return [
+      sectionHeader(t, label, items.length),
+      ...items.map((i) => this.localCard(t, i)),
+      ...this.addressedFold(t, key, done, (i) => this.localCard(t, i, true)),
+    ];
   }
 
   render(cx) {
@@ -467,8 +472,8 @@ export class Inbox {
         .when(!total && !this.error && Boolean(this.prsAt), (el) => el.child(
           div().p(12).text_size(12).text_color(t.dim).child("Nothing waiting")))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
-        .children(part("waiting", this.localGroup(t, "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
-        .children(part("local", this.localGroup(t, "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"))))
+        .children(part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
+        .children(part("local", this.localGroup(t, "local", "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"), v.localDone)))
         .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone)))
         .children(part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true, v.requestedDone)))
         .children(part("today", this.todayGroup(t, v.today)))
@@ -477,7 +482,7 @@ export class Inbox {
 }
 
 
-for (const views of [PrViews, TreeViews, KeyNav]) {
+for (const views of [PrViews, TreeViews, KeyNav, LiveViews, LocalAddressed]) {
   for (const name of Object.getOwnPropertyNames(views.prototype)) {
     if (name !== "constructor") Inbox.prototype[name] = views.prototype[name];
   }

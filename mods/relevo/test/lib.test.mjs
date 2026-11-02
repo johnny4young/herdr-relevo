@@ -9,7 +9,8 @@ import { keyMap, formatShortcut } from "../lib/keys.js";
 import { mapMine, mapRequested, unresolved, prChanges, mergedHeads } from "../lib/github.js";
 import { readPrompt, submitKeys, freeOption, moveKeys, lastMessage } from "../lib/prompt.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "../lib/handoff.js";
-import { isAddressed, keepListed } from "../lib/addressed.js";
+import { isAddressed, keepListed, addressedValue, staleAddressed } from "../lib/addressed.js";
+import { isDue, runningCommands, endedFolders, repoOf, gitStateChanged } from "../lib/refresh.js";
 import { parseUses, rankSkills, slug, worktreePath, localBranch, checkoutArgs, pullRef, pullRefspec, sessionPrompt } from "../lib/prmenu.js";
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -420,3 +421,56 @@ test("mergedHeads ignores a fork's branch, even one named like yours", () => {
   ]), ["feat/a"]);
 });
 
+test("addressedValue: when and which turn, a missing turn counts as zero", () => {
+  assert.equal(addressedValue(7, 100), "100:7");
+  assert.equal(addressedValue(undefined, 100), "100:0");
+});
+
+test("staleAddressed: new work ends the mark, looking at the agent doesn't", () => {
+  assert.equal(staleAddressed("", "done", 3), false);
+  assert.equal(staleAddressed("100:3", "done", 3), false);
+  assert.equal(staleAddressed("100:3", "idle", 3), false);
+  assert.equal(staleAddressed("100:3", "idle", 4), true);
+  assert.equal(staleAddressed("100:3", "working", 3), true);
+  assert.equal(staleAddressed("100:3", "blocked", 3), true);
+  assert.equal(staleAddressed("garbage", "idle", 3), true);
+});
+
+test("isDue: only with the window in front, and once the period has passed", () => {
+  assert.equal(isDue(0, 60, 59, true), false);
+  assert.equal(isDue(0, 60, 60, true), true);
+  assert.equal(isDue(0, 60, 600, false), false);
+});
+
+test("runningCommands: a program in front of a shell, not a shell, an agent or a mod pane", () => {
+  const panes = [
+    { pane: "a", terminal: "t1", cwd: "/r", status: null, program: { name: "npm" } },
+    { pane: "b", terminal: "t2", cwd: "/r", status: null, program: { shell: true } },
+    { pane: "c", terminal: "t3", cwd: "/r", status: "idle", program: { agent: true } },
+    { pane: "d", terminal: null, cwd: null, status: null, program: null },
+  ];
+  assert.deepEqual([...runningCommands(panes).keys()], ["a"]);
+});
+
+test("endedFolders: panes that were running and no longer are", () => {
+  assert.deepEqual(endedFolders(new Map([["a", "/r"], ["b", "/s"]]), new Map([["b", "/s"]])), ["/r"]);
+});
+
+test("repoOf: the deepest repo holding the folder, not a sibling sharing its prefix", () => {
+  const tops = ["/w/app", "/w/app/vendor/lib", "", "/w/app2"];
+  assert.equal(repoOf("/w/app", tops), "/w/app");
+  assert.equal(repoOf("/w/app/src", tops), "/w/app");
+  assert.equal(repoOf("/w/app/vendor/lib/x", tops), "/w/app/vendor/lib");
+  assert.equal(repoOf("/w/app3", tops), null);
+});
+
+test("gitStateChanged: refs, HEAD and the index count; objects and locks don't", () => {
+  const dir = "/w/refs/app/.git", changed = (...paths) => gitStateChanged(dir, paths);
+  assert.equal(changed(`${dir}/refs/heads/main`), true);
+  assert.equal(changed(`${dir}/HEAD`), true);
+  assert.equal(changed(`${dir}/index`), true);
+  assert.equal(changed(`${dir}/worktrees/x/index`), true);
+  assert.equal(changed(dir), true);
+  assert.equal(changed(`${dir}/objects/ab/cd`), false, "a folder named refs above the repo doesn't count");
+  assert.equal(changed(`${dir}/index.lock`, `${dir}/refs/heads/main.lock`), false);
+});
