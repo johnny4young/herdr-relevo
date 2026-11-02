@@ -28,7 +28,13 @@ export function fromClaude(json) {
   };
 }
 
-// The newest of the usage endpoint (shared state) and the statusline snapshot (file).
+// The newest source that still has this window: one without it, or whose window ended, says nothing about the current one.
+export function currentWindow(sources, name, now) {
+  const known = sources.map((s) => s.rate_limits?.[name]).filter((w) => w?.used_percentage != null);
+  return known.find((w) => !w.resets_at || w.resets_at > now) ?? known[0];
+}
+
+// The usage endpoint (shared state) and the statusline snapshot (file), window by window.
 export async function loadClaudeQuotas() {
   const out = {}, api = shared(API_QUOTAS) ?? {};
   for (const p of [...ACCOUNTS, CODEX]) {
@@ -39,8 +45,16 @@ export async function loadClaudeQuotas() {
       file = null;
     }
     const fromApi = api[p.key]?.rate_limits ? api[p.key] : null;
-    const best = [fromApi, file].filter(Boolean).sort((a, b) => b.updated - a.updated)[0];
-    out[p.key] = best ? fromClaude(best) : null;
+    const sources = [fromApi, file].filter(Boolean).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    if (!sources.length) {
+      out[p.key] = null;
+      continue;
+    }
+    const now = Date.now() / 1000;
+    out[p.key] = fromClaude({
+      updated: sources[0].updated,
+      rate_limits: { five_hour: currentWindow(sources, "five_hour", now), seven_day: currentWindow(sources, "seven_day", now) },
+    });
   }
   return out;
 }

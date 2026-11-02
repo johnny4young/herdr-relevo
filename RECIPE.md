@@ -59,7 +59,7 @@ task to another account.
   it rests; done and idle agents with changes show under `UNCOMMITTED WORK`. A card's age is how long that status
   has lasted, kept in `localStorage` across reloads.
 - **Accounts**: a click on a row starts that account's launcher in the focused folder. Hovering a meter shows when
-  the window resets. Every 30 s it rereads the statusline snapshots; every 5 min it asks the usage endpoints.
+  the window resets. Every 30 s it rereads the statusline snapshots; every 5 min it asks the usage endpoints. Each window shows the newest source that still has it. A statusline should write its snapshot only when the values change, so its date means something.
   At 80% and again at 100% a quota plays `sounds/quota.mp3` and posts a toast; at 100% the toast hands off that
   account's focused, waiting or working agent.
 - **Focus picker**: `All`, or one context: the Inbox shows only that context's repos, its space folder unfolds and
