@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.10 · 2026-11-02
+
+- **Hand off from where you look.** Click an agent's account chip, or **Continue with…** on a waiting card, to move it to another account.
+- **One agent at a time.** A working agent stops first, and nothing starts if it won't. The next agent gets its last turn, and two never edit the same tree.
+- **Close when it's safe.** After a handoff, a toast offers to close the previous agent, unless it's in use or its helpers still run.
+- **Full accounts can't be picked**, and the next agent only hears about quota if that's why it took over.
+
 ## 0.5.9 · 2026-11-02
 
 Needs Herdr 0.1.12 for pins to work.

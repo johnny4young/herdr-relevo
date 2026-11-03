@@ -19,9 +19,9 @@ export function handoffPlan({ from, to, transcript, accounts, home }) {
   return { mode: "resume", src: transcript, dir: `${home}/${dst.claudeDir}/projects/${m[1]}`, id: m[2] };
 }
 
-export const resumePrompt = (label) => `You are continuing this conversation on the ${label} account; the previous `
-  + "one ran out of quota. The working tree may have changed since your last message: check git status, then "
-  + "continue where you left off.";
+export const resumePrompt = (label, outOfQuota = false) => `You are continuing this conversation on the ${label} account`
+  + `${outOfQuota ? "; the previous one ran out of quota" : ""}. The working tree may have changed since your last message: `
+  + "check git status, then continue where you left off.";
 
 export const notePrompt = (fromApp, path) => `You are taking over a task a ${fromApp} session started in this `
   + `folder; it stopped mid-task. Read ${path}, check the working tree and continue where it left off. The screen `

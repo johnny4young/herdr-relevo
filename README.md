@@ -27,8 +27,8 @@ when the branch isn't checked out.
 
 ### Never stop at 100%
 
-Each quota bar says when it runs out at the current pace. At 95%, an alert offers to continue the agent with another
-account. Between Claude accounts the next one resumes the same conversation; to or from Codex it starts from a note
+Each quota bar says when it runs out at the current pace. Click an agent's account chip, or press `⌥⌘A`, to continue it
+with another account; an alert offers the same at 95%. Between Claude accounts the next one resumes the same conversation; to or from Codex it starts from a note
 with the last screen and the working tree.
 
 ![A quota at 95% and the handoff to another account](screenshots/handoff.png)

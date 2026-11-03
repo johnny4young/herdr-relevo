@@ -457,7 +457,9 @@ test("handoffPlan: only a UUID file in the source account's own projects folder 
 });
 
 test("handoff prompts name the account or the app and the note", () => {
-  assert.match(resumePrompt("Work"), /on the Work account/);
+  assert.match(resumePrompt("Work"), /on the Work account\./);
+  assert.doesNotMatch(resumePrompt("Work"), /quota/);
+  assert.match(resumePrompt("Work", true), /ran out of quota/);
   assert.match(notePrompt("Codex", "/n.md"), /a Codex session .* Read \/n\.md/);
 });
 
