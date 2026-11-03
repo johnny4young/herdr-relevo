@@ -102,8 +102,9 @@ task to another account.
   leaves the open list and shows among your merged ones says **Merged**; when its worktree is still here, the scan
   marks it at once and the toast's click opens the Inbox with that row selected, so **Remove** is right there.
 - **Quick replies**: `⌥⌘S`, ↩ beside an agent in the list, or **Reply** on an Inbox card opens a field with the
-  replies from `config.js` (`REPLIES`, editable in Settings). Enter sends what you typed, else the highlighted
-  reply; it goes with `hc send` without `--force`, so it never answers a question the agent is asking.
+  replies from `config.js` (`REPLIES`, editable in Settings). The list has the keyboard: ↑/↓ and Enter, or a
+  reply's number, sends it; typing moves to the field, whose Enter sends what you typed. It goes with `hc send`
+  without `--force`, so it never answers a question the agent is asking.
 - **Review pane**: a click on a line opens a comment field, a shift-click extends it to a range, **Comment on file**
   comments on the whole file (Enter saves, Esc cancels); comments survive refreshes
   (every 10 s while you are not typing), closing the pane and restarting Herdr. **Send to agent** pastes the

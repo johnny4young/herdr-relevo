@@ -29,15 +29,19 @@ export async function sendTo(address, name, text) {
   return true;
 }
 
-// Enter sends what is typed, or the highlighted reply when nothing is.
+// The list holds the keyboard: ↑/↓ and Enter, or a reply's number. Typing moves to the field, which keeps the
+// arrows for itself, so its Enter sends what was typed.
 export class QuickReplies {
   init(_props, cx) {
     this.at = 0;
-    this.input = InputState.new({ value: "", placeholder: "Message, or pick one below" });
+    this.h = cx.focus_handle();
+    this.input = InputState.new({ value: "", placeholder: "Type to write a message" });
     this.input.on("change", (_e, cx) => cx.notify());
     this.input.on("submit", (_e, cx) => this.send(this.input.value().trim() || replies()[this.at], cx));
-    this.input.focus();
-    cx.timer.after(300, () => this.input.focus());
+    this.h.focus();
+    cx.timer.after(300, () => {
+      if (!this.input.value()) this.h.focus();
+    });
   }
 
   close() {
@@ -55,10 +59,16 @@ export class QuickReplies {
   }
 
   key(e, cx) {
-    const n = replies().length;
+    const list = replies(), n = list.length, held = e.modifiers?.platform || e.modifiers?.control || e.modifiers?.alt;
     if (e.key === "escape") return closeOverlay(props().overlay);
     if ((e.key === "down" || e.key === "up") && n) this.at = (this.at + (e.key === "down" ? 1 : n - 1)) % n;
-    else return;
+    else if (e.key === "enter") this.send(list[this.at], cx);
+    else if (/^[1-9]$/.test(e.key) && !held && Number(e.key) <= n) this.send(list[Number(e.key) - 1], cx);
+    else if (e.key === "tab") this.input.focus();
+    else if (e.key_char && !held && e.key_char.trim()) {
+      this.input.set_value(e.key_char);
+      this.input.focus();
+    } else return;
     cx.stop_propagation();
     cx.notify();
   }
@@ -67,15 +77,16 @@ export class QuickReplies {
     const t = theme(), p = props(), typed = Boolean(this.input.value().trim());
     return v_flex().id("quick-replies").size_full().p(12).gap(8)
       .bg(t.popover ?? t.surface).text_color(t.foreground).text_size(12.5)
-      .on_key_down((e, cx) => this.key(e, cx))
       .child(div().text_size(11).text_color(t.dim).truncate().child(`To ${p?.name ?? ""}`))
       .child(Input.new(this.input).h(32).px(10).items_center().rounded(6).border(1).border_color(t.accent).bg(t.background))
-      .child(v_flex().id("quick-replies-list").flex_none()
-        .children(replies().map((text, i) => h_flex().id(`reply-${i}`).h(30).px(8).flex_none().items_center().rounded(6)
+      // Not around the field: its keys would reach this handler too.
+      .child(v_flex().id("quick-replies-list").flex_none().track_focus(this.h).on_key_down((e, cx) => this.key(e, cx))
+        .children(replies().map((text, i) => h_flex().id(`reply-${i}`).h(30).px(8).gap(8).flex_none().items_center().rounded(6)
           .cursor_pointer()
           .when(i === this.at && !typed, (el) => el.bg(t.selected))
           .hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => this.send(text, cx))
+          .child(div().w(10).flex_none().text_size(11).text_color(t.dim).child(i < 9 ? String(i + 1) : ""))
           .child(div().flex_1().min_w(0).truncate().child(text)))));
   }
 }
