@@ -71,9 +71,6 @@ export function pickAccount(repo, quotas) {
     : { key, note: null };
 }
 
-
-
-// Runs in the repo's own space (or a new one), not in whichever space is shown.
 // The session id goes as a positional parameter, never into the shell text.
 export const resumeArgv = (key, id) => ["zsh", "-ilc", `${accountOf(key).launcher} --resume "$1"`, "zsh", id];
 
@@ -85,6 +82,7 @@ export function openInFolder({ name, folder, tab, argv }) {
   else run("space.new", { name, folder, tab, argv });
 }
 
+// Runs in the repo's own space (or a new one), not in whichever space is shown.
 export function launchInRepo({ repo, folder, tab, account, prompt }) {
   openInFolder({ name: repo.split("/").pop(), folder, tab, argv: launchArgv(account, prompt) });
 }

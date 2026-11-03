@@ -1,9 +1,9 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { theme, run, focused, panes, setShared } from "herdr";
+import { theme, run, focused, panes, setShared, notify } from "herdr";
 import { BackgroundWatch, quotaAlerts } from "./alerts.js";
 import { ACCOUNTS, CODEX, API_QUOTAS, launchArgv, chip, loadClaudeQuotas } from "./accounts.js";
-import { FOCUS, focus, publishSetup } from "./context.js";
+import { FOCUS, focus, publishSetup, contextOfPath } from "./context.js";
 import { ago, resetText, resetClock, runsOut, clock, FIVE_HOURS, WEEK } from "./lib/time.js";
 
 const LENGTH = { "5h": FIVE_HOURS, "7d": WEEK };
@@ -14,7 +14,8 @@ const meterTip = (w, label) => {
 };
 import { collectQuotas } from "./quota.js";
 import { syncFolders, foldFor } from "./folders.js";
-import { CONTEXTS } from "./config.js";
+import { CONTEXTS, FALLBACK } from "./config.js";
+import { mostMargin } from "./lib/margin.js";
 import { ledgerTick } from "./ledger.js";
 import { spinner, withKey } from "./ui.js";
 import { openSettings } from "./settings.js";
@@ -67,8 +68,23 @@ export class Sidebar {
   launch(key) {
     const f = focused();
     const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
+    if (key === "best") key = this.best(pane?.cwd ?? f?.cwd);
     const argv = key === CODEX.key ? ["zsh", "-ilc", "codex"] : launchArgv(key);
     run("tab.new", { folder: pane?.cwd ?? f?.cwd ?? undefined, argv });
+  }
+
+  // The Claude account with the most room left; ties go to the folder's account, then the fallback order.
+  best(folder) {
+    const own = CONTEXTS.find((c) => c.key === contextOfPath(folder))?.account;
+    const keys = [...new Set([own, ...FALLBACK, ...ACCOUNTS.map((a) => a.key)])].filter((k) => ACCOUNTS.some((a) => a.key === k));
+    const pick = mostMargin(keys, this.quota), q = this.quota?.[pick.key];
+    const used = [q?.h5 && `5h ${q.h5.pct}%`, q?.d7 && `7d ${q.d7.pct}%`].filter(Boolean).join(" · ");
+    notify({
+      title: `Starting ${ACCOUNTS.find((a) => a.key === pick.key).label}`,
+      body: pick.margin === null ? "No quota data yet: the folder's account" : `Most room left · ${used}`,
+      level: "info", timeout: 2500,
+    });
+    return pick.key;
   }
 
   meter(t, id, label, w, barWidth, stale, hovered) {
