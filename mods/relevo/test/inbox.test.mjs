@@ -622,6 +622,7 @@ test("Reply on a finished agent's card opens the quick replies for that agent", 
   setAgents(["t1", "done"]);
   const { ui, cx } = await open();
   click(find(ui(), "reply-t1"), cx);
+  await flush();
   assert.equal(fake.overlays.at(-1).props.role, "quick-replies");
   assert.equal(fake.overlays.at(-1).props.address, "t1");
 });

@@ -1,11 +1,12 @@
 // The quick replies popup on a fake app: what it sends, and to whom.
 import "./fake/register.mjs";
-import { test, beforeEach } from "node:test";
+import { test, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { fake, resetFake, calls } from "./fake/herdr.mjs";
 import { fakeCx, find, click, flush } from "./fake/ui.mjs";
 
 const { QuickReplies, openReplies, replies } = await import("../replies.js");
+const { CONTEXTS } = await import("../config.js");
 const SEND = /^hc send/;
 
 beforeEach(() => {
@@ -14,11 +15,11 @@ beforeEach(() => {
   fake.props = { address: "t2", name: "web" };
 });
 
-test("the shortcut opens the menu for the focused agent, and says so when none is", () => {
-  openReplies();
+test("the shortcut opens the menu for the focused agent, and says so when none is", async () => {
+  await openReplies();
   assert.equal(fake.overlays.at(-1).props.address, "t1");
   fake.agents = [];
-  openReplies();
+  await openReplies();
   assert.equal(fake.notices.at(-1).title, "No agent in focus");
 });
 
@@ -65,4 +66,34 @@ test("a held modifier or a number past the list sends nothing, and typing moves 
   await flush();
   assert.deepEqual(calls(SEND), []);
   assert.equal(view.input.value(), "h");
+});
+
+const USAGE = "/home/test/.local/state/relevo/replies.json";
+
+test("the menu lists saved replies by use, then what this context keeps typing, and a send counts", async (t) => {
+  // Past the hour the history is kept for, whatever earlier tests read.
+  mock.timers.enable({ apis: ["Date"], now: Date.now() + 2 * 3600e3 });
+  t.after(() => mock.timers.reset());
+  const at = Date.now() - 3600e3, said = (display, project) => JSON.stringify({ display, timestamp: at, project });
+  const history = [...Array(3)].flatMap(() => [said("open the PR now", "/p/app"), said("work only thing", "/w/acme-api")]);
+  fake.exec = (cmd, args) => (cmd === "sh" && args.some((a) => a.endsWith("history.jsonl")) ? { stdout: history.join("\n") } : null);
+  fake.stored["space-folders"] = { "": { list: [{ id: CONTEXTS[1].key, match: "acme-api" }] } };
+  fake.panes = [{ pane: "p1", cwd: "/p/app" }];
+  fake.agents = [{ address: "t1", tab_name: "api", focused: true, pane: "p1" }];
+  const [first, second] = replies();
+  fake.files[USAGE] = JSON.stringify({ [second.toLowerCase().replace(/[.!?…]+$/, "")]: { score: 2, at: Date.now() } });
+  await openReplies();
+  const list = fake.overlays.at(-1).props.replies;
+  assert.deepEqual(list.slice(0, 2).map((r) => r.text), [second, first]);
+  assert.deepEqual(list.filter((r) => r.uses).map((r) => r.text), ["open the PR now"]);
+  fake.props = { address: "t1", name: "api", replies: list };
+  const view = new QuickReplies(), cx = fakeCx();
+  view.init({}, cx);
+  click(find(view.render(cx), `reply-${list.length - 1}`), cx);
+  await flush();
+  click(find(view.render(cx), "reply-1"), cx);
+  await flush();
+  const stored = JSON.parse(fake.files[USAGE]);
+  assert.deepEqual(Object.keys(stored).sort(), [first, second].map((r) => r.toLowerCase().replace(/[.!?…]+$/, "")).sort());
+  assert.ok(stored[first.toLowerCase().replace(/[.!?…]+$/, "")].score >= 1);
 });

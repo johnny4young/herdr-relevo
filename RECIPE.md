@@ -104,7 +104,10 @@ task to another account.
 - **Quick replies**: `⌥⌘S`, ↩ beside an agent in the list, or **Reply** on an Inbox card opens a field with the
   replies from `config.js` (`REPLIES`, editable in Settings). The list has the keyboard: ↑/↓ and Enter, or a
   reply's number, sends it; typing moves to the field, whose Enter sends what you typed. It goes with `hc send`
-  without `--force`, so it never answers a question the agent is asking.
+  without `--force`, so it never answers a question the agent is asking. Saved replies come first, ordered by how
+  often you send them (`~/.local/state/relevo/replies.json`, halving every 14 days); up to five in all, the rest are
+  one-line prompts you typed at least 3 times in 90 days in the agent's context, from every account's
+  `history.jsonl` (prefiltered with `grep`, read at most once an hour).
 - **Review pane**: a click on a line opens a comment field, a shift-click extends it to a range, **Comment on file**
   comments on the whole file (Enter saves, Esc cancels); comments survive refreshes
   (every 10 s while you are not typing), closing the pane and restarting Herdr. **Send to agent** pastes the

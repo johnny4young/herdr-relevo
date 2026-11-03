@@ -84,8 +84,10 @@ Mods reload by themselves. `--exclude config.js` keeps your accounts; copying th
 - Runs `git`, `gh`, `hc`, `find` (to look for repos in a worktree's ignored folders) and the launchers in `config.js`; Files runs `/usr/bin/trash`, `open -R`, `mv -n` and `mkdir`.
 - Reaches the network for quotas: each Claude account's login from the macOS Keychain goes to Anthropic's usage
   endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token.
-- Reads each Claude account's `history.jsonl` to rank the skills a PR's menu offers (counts only).
-- Writes `~/.local/state/relevo/ledger.jsonl` (agent time), `~/.local/state/relevo/addressed.json` (PRs marked
+- Reads each Claude account's `history.jsonl` to rank the skills a PR's menu offers (counts only), and its short
+  one-line prompts to suggest quick replies you keep typing (in memory, never written anywhere).
+- Writes `~/.local/state/relevo/ledger.jsonl` (agent time), `~/.local/state/relevo/replies.json` (how often you send
+  each saved quick reply), `~/.local/state/relevo/addressed.json` (PRs marked
   addressed) and `~/.local/state/relevo/handoff/` (handoff notes); a PR session adds a worktree under
   `~/.herdr/worktrees/`;
   a handoff between Claude accounts copies the session file into the next account's `projects/` folder;
