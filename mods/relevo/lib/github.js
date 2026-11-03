@@ -5,7 +5,9 @@ export const PR_QUERY = `query {
     number title url isDraft updatedAt reviewDecision headRefName baseRefName isCrossRepository repository { nameWithOwner }
     commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
     reviews(last: 10) { nodes { author { login } state submittedAt } }
-    reviewThreads(first: 50) { nodes { isResolved } } } } }
+    reviewThreads(first: 50) { nodes { isResolved } } } }
+    merged: pullRequests(states: MERGED, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
+      url number headRefName isCrossRepository repository { nameWithOwner } } } }
   search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 20) { nodes {
     ... on PullRequest { number title url updatedAt headRefName baseRefName isCrossRepository author { login } repository { nameWithOwner }
       commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
@@ -42,6 +44,17 @@ export function mapMine(data) {
   return list.sort(newest);
 }
 
+// Your open PRs with nothing left but the merge: CI green, no changes asked, no open threads.
+export function mapReady(data) {
+  return data.viewer.pullRequests.nodes.filter((p) => !p.isDraft && ciOf(p) === "SUCCESS"
+    && p.reviewDecision !== "CHANGES_REQUESTED" && !unresolved(p))
+    .map((p) => ({
+      ...p, repo: p.repository.nameWithOwner, skills: [], threads: 0, hot: false,
+      reasons: [p.reviewDecision === "APPROVED" ? "approved, CI passed" : "CI passed"],
+    }))
+    .sort(newest);
+}
+
 export function mapRequested(data) {
   const list = data.search.nodes.filter((p) => p.url).map((p) => ({
     ...p, repo: p.repository.nameWithOwner, skills: ["review"], threads: unresolved(p), untrusted: p.isCrossRepository,
@@ -55,15 +68,18 @@ export const mergedHeads = (prs) => prs.filter((p) => !p.isCrossRepository).map(
 const ciOf = (p) => p.commits?.nodes[0]?.commit?.statusCheckRollup?.state ?? null;
 const RED = new Set(["FAILURE", "ERROR"]);
 
+const nameOf = (p) => `${p.repository.nameWithOwner.split("/")[1]} #${p.number}`;
+
 // What changed on your open PRs since the last look; the first look sets the baseline and says nothing.
+// Drafts only count for merges: one that left the open list and shows among the merged ones.
 export function prChanges(before, data) {
   const now = new Map(), events = [];
-  for (const p of data.viewer.pullRequests.nodes.filter((x) => !x.isDraft)) {
-    const state = { ci: ciOf(p), threads: unresolved(p), decision: p.reviewDecision ?? null };
+  for (const p of data.viewer.pullRequests.nodes) {
+    const state = { ci: ciOf(p), threads: unresolved(p), decision: p.reviewDecision ?? null, draft: Boolean(p.isDraft) };
     now.set(p.url, state);
     const was = before?.get(p.url);
-    if (!was) continue;
-    const name = `${p.repository.nameWithOwner.split("/")[1]} #${p.number}`, base = { url: p.url, repo: p.repository.nameWithOwner };
+    if (!was || state.draft || was.draft) continue;
+    const name = nameOf(p), base = { url: p.url, repo: p.repository.nameWithOwner };
     if (RED.has(state.ci) && !RED.has(was.ci)) events.push({ ...base, kind: "ci-failed", title: `CI failed · ${name}` });
     if (state.ci === "SUCCESS" && was.ci !== "SUCCESS") events.push({ ...base, kind: "ci-passed", title: `CI passed · ${name}` });
     if (state.threads > was.threads) {
@@ -74,6 +90,13 @@ export function prChanges(before, data) {
     if (state.decision !== was.decision && state.decision === "CHANGES_REQUESTED") {
       events.push({ ...base, kind: "changes", title: `Changes requested · ${name}` });
     }
+  }
+  for (const p of data.viewer.merged?.nodes ?? []) {
+    if (!before?.has(p.url) || now.has(p.url)) continue;
+    events.push({
+      url: p.url, repo: p.repository.nameWithOwner, kind: "merged", title: `Merged · ${nameOf(p)}`,
+      head: p.isCrossRepository ? null : p.headRefName,
+    });
   }
   return { state: now, events: before ? events : [] };
 }

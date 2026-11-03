@@ -14,7 +14,8 @@ alerts when a PR's CI or reviews change, and a ledger of agent time per ticket.
 ### Answer agents without leaving your work
 
 A waiting agent's question shows in the Inbox with its choices, its preview and a note field. Click a choice and
-the agent continues; multiple choice gets a Submit.
+the agent continues; multiple choice gets a Submit. Any other time, `⌥⌘S` sends a message or one of your saved
+replies, like "commit and push".
 
 ![An agent's question answered from the Inbox](screenshots/answer.png)
 
@@ -43,7 +44,7 @@ disk while you edit asks **Reload** or **Keep mine**, so nothing is overwritten 
 ### Every checkout, one click away
 
 The panel bar's selector lists every checkout of the repo with uncommitted files, ahead/behind and last use. Merged
-worktrees that are safe to remove go in one Confirm.
+worktrees that are safe to remove go in one Confirm. When your PR merges, the toast takes you to its worktree.
 
 ![The checkout selector and merged worktrees](screenshots/worktrees.png)
 
@@ -83,8 +84,10 @@ Mods reload by themselves. `--exclude config.js` keeps your accounts; copying th
 - Runs `git`, `gh`, `hc`, `find` (to look for repos in a worktree's ignored folders) and the launchers in `config.js`; Files runs `/usr/bin/trash`, `open -R`, `mv -n` and `mkdir`.
 - Reaches the network for quotas: each Claude account's login from the macOS Keychain goes to Anthropic's usage
   endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token.
-- Reads each Claude account's `history.jsonl` to rank the skills a PR's menu offers (counts only).
-- Writes `~/.local/state/relevo/ledger.jsonl` (agent time), `~/.local/state/relevo/addressed.json` (PRs marked
+- Reads each Claude account's `history.jsonl` to rank the skills a PR's menu offers (counts only), and its short
+  one-line prompts to suggest quick replies you keep typing (in memory, never written anywhere).
+- Writes `~/.local/state/relevo/ledger.jsonl` (agent time), `~/.local/state/relevo/replies.json` (how often you send
+  each saved quick reply), `~/.local/state/relevo/addressed.json` (PRs marked
   addressed) and `~/.local/state/relevo/handoff/` (handoff notes); a PR session adds a worktree under
   `~/.herdr/worktrees/`;
   a handoff between Claude accounts copies the session file into the next account's `projects/` folder;

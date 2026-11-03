@@ -27,3 +27,6 @@ export const REPOS_ROOT = "code";
 
 // The slash commands the Inbox launches on a PR: a review, a CI fix and answering review comments.
 export const SKILLS = { review: "review", fix: "fix-ci", comments: "address-comments" };
+
+// What the quick replies menu offers to send an agent (⌥⌘S, or ↩ beside an agent).
+export const REPLIES = ["Continue", "Tested and it works: commit and push", "Fix all of it"];

@@ -85,6 +85,14 @@ export function reviewAlerts(requested, contextOf) {
 const LOUD = new Set(["ci-failed", "threads", "changes"]);
 const LEVEL = { "ci-failed": "warning", changes: "warning", threads: "info", "ci-passed": "success", approved: "success" };
 
+// A merged PR whose worktree is still here offers to clean it up from the Inbox.
+export function mergedAlert(e, tree, contextOf) {
+  if (!inFocus(contextOf(e.repo))) return;
+  const note = !tree ? undefined : tree.dirty ? `${tree.branch}: its worktree has uncommitted changes`
+    : `${tree.branch}: its worktree can go, Remove is in the Inbox`;
+  notify({ title: e.title, body: note, level: "success", action: { name: "relevo.panel-inbox" } });
+}
+
 export function prAlerts(events, contextOf) {
   const shown = events.filter((e) => inFocus(contextOf(e.repo)));
   if (shown.some((e) => LOUD.has(e.kind))) playSound("sounds/review.mp3");

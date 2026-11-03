@@ -7,6 +7,7 @@ import { ago, nextSince } from "./lib/time.js";
 import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { openHandoff } from "./handoff.js";
+import { openReplies } from "./replies.js";
 import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
@@ -42,6 +43,7 @@ export class Inbox {
     // An old request must not steal the keyboard when this copy starts.
     this.focusAt = shared(INBOX_FOCUS)?.at ?? null;
     this.mine = [];
+    this.ready = [];
     this.requested = [];
     this.prAgents = {};
     this.clones = {};
@@ -116,7 +118,8 @@ export class Inbox {
     return {
       local: local.filter((i) => !off(i)), localDone: local.filter(off),
       mine: this.mine.filter(open), requested: this.requested.filter(open),
-      mineDone: this.mine.filter(done), requestedDone: this.requested.filter(done),
+      ready: this.ready.filter(open),
+      mineDone: [...this.mine, ...this.ready].filter(done), requestedDone: this.requested.filter(done),
       worktrees: this.worktrees.filter((w) => inFocus(contextOfPath(w.main))),
       today: this.today.filter((d) => inFocus(contextOfPath(d.repo))),
     };
@@ -226,7 +229,7 @@ export class Inbox {
       .border_color(sel ? t.accent : hot ? t.blocked : t.border)
       .child(head)
       .child(meta)
-      .child(h_flex().gap(5).children(actions));
+      .child(h_flex().flex_wrap().gap(5).children(actions));
   }
 
   head(t, dot, title, when, ci = null, threads = 0) {
@@ -485,6 +488,9 @@ export class Inbox {
           showPanel("files");
         }),
         button(t, `agent-${a.address}`, "Agent", goAgent),
+        button(t, `reply-${a.address}`, "Reply", () => openReplies(a.address), {
+          tip: withKey("Send it a message or a quick reply", "relevo.quick-reply"),
+        }),
         addressed
           ? button(t, `undo-${a.address}`, "Undo", (cx) => this.setLocalAddressed(a, false, cx), { tip: "Back to the list" })
           : button(t, `addressed-${a.address}`, "✓", (cx) => this.setLocalAddressed(a, true, cx), {
@@ -539,7 +545,7 @@ export class Inbox {
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
         .children(part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
         .children(part("local", this.localGroup(t, "local", "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"), v.localDone)))
-        .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone)))
+        .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone, v.ready)))
         .children(part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true, v.requestedDone)))
         .children(part("today", this.todayGroup(t, v.today)))
         .children(part("trees", this.treeGroups(t, v.worktrees))));

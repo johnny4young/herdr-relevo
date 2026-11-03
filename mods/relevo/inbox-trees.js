@@ -31,8 +31,6 @@ export class TreeViews {
   }
 
   // Only clean, unlocked worktrees get here; one with a space closes it first, as Herdr's dialog does.
-
-  // Only clean, unlocked worktrees get here; one with a space closes it first, as Herdr's dialog does.
   removeTree(w, cx) {
     this.checking ??= new Set();
     if (this.checking.has(w.path)) return;
@@ -109,8 +107,6 @@ export class TreeViews {
   }
 
   // One line per merged worktree: Remove asks once more before git runs.
-
-  // One line per merged worktree: Remove asks once more before git runs.
   treeRow(t, w) {
     if (this.hiddenIds?.has(`wt-${w.path}`)) return null;
     if (this.removing.has(w.path)) return this.removingRow(t, w);
@@ -135,8 +131,6 @@ export class TreeViews {
   }
 
   // git can take a few seconds on a big checkout; the spinner runs natively, without redraws.
-
-  // git can take a few seconds on a big checkout; the spinner runs natively, without redraws.
   removingRow(t, w) {
     const gone = this.gone.has(w.path);
     return h_flex().id(`wt-${w.path}`).h(gone ? 0 : 30).px(8).gap(6).items_center().rounded(6).overflow_hidden()
@@ -152,8 +146,6 @@ export class TreeViews {
   age(t, w) {
     return div().flex_none().text_size(10.5).text_color(t.dim).child(ago(w.at).replace(" ago", ""));
   }
-
-  // Agent time per ticket today, for the weekly time tracker.
 
   treeGroups(t, worktrees) {
     const merged = worktrees.filter((w) => w.merged);

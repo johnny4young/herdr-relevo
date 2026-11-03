@@ -34,6 +34,7 @@ export class KeyNav {
     }
     for (const [key, list] of [["mine", v.mine], ["requested", v.requested]]) {
       const shownPRs = [...list.filter(recent), ...(this.expanded[key] ? list.filter((p) => !recent(p)) : [])];
+      if (key === "mine" && this.expanded["mine-ready"]) shownPRs.push(...v.ready);
       for (const pr of shownPRs) items.push({ id: `pr-${pr.url}`, section: key, go: () => this.runPR(pr) });
     }
     for (const w of v.worktrees.filter((x) => x.merged)) {
@@ -81,6 +82,9 @@ export class KeyNav {
     if (!req || req.at === this.focusAt) return;
     this.focusAt = req.at;
     this.returnPane = req.pane;
+    // Only while the merge alert is fresh; later the shortcut opens the Inbox as usual.
+    if (this.pendingSel && Date.now() - this.pendingSel.at < 10 * 60000) this.sel = this.pendingSel.id;
+    this.pendingSel = null;
     // Focus can't move during render, so it moves on the next tick.
     cx.timer.after(30, (cx) => {
       this.h.focus();

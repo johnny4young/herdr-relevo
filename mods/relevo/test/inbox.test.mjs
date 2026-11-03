@@ -617,3 +617,69 @@ test("a waiting card can continue with another account", async () => {
   assert.equal(fake.overlays.at(-1).props.role, "handoff");
   assert.equal(fake.overlays.at(-1).props.terminal, "t1");
 });
+
+test("Reply on a finished agent's card opens the quick replies for that agent", async () => {
+  setAgents(["t1", "done"]);
+  const { ui, cx } = await open();
+  click(find(ui(), "reply-t1"), cx);
+  await flush();
+  assert.equal(fake.overlays.at(-1).props.role, "quick-replies");
+  assert.equal(fake.overlays.at(-1).props.address, "t1");
+});
+
+test("a merged PR alerts once, and the Inbox shortcut lands on its worktree", async () => {
+  let merged = false;
+  const node = {
+    url: "https://github.com/me/app/pull/7", number: 7, title: "x", isDraft: false, updatedAt: "2026-11-01T10:00:00Z",
+    reviewDecision: null, headRefName: "feat/x", baseRefName: "main", isCrossRepository: false,
+    repository: { nameWithOwner: "me/app" }, commits: { nodes: [] }, reviews: { nodes: [] }, reviewThreads: { nodes: [] },
+  };
+  fake.exec = (cmd, args) => {
+    const line = args.join(" ");
+    if (cmd === "gh" && args[0] === "api") {
+      const viewer = { login: "me", pullRequests: { nodes: merged ? [] : [node] }, merged: { nodes: merged ? [node] : [] } };
+      return { stdout: JSON.stringify({ data: { viewer, search: { nodes: [] } } }) };
+    }
+    if (cmd === "gh") return { stdout: JSON.stringify(merged ? [{ headRefName: "feat/x", isCrossRepository: false }] : []) };
+    if (line.includes("worktree list --porcelain")) {
+      return { stdout: "/r/app\tworktree /r/app\n/r/app\tworktree /wt/x\n/r/app\tbranch refs/heads/feat/x\n" };
+    }
+    if (line.includes("get-url")) return { stdout: "git@github.com:me/app.git\n" };
+    return null;
+  };
+  const { inbox, cx } = await open();
+  assert.equal(fake.notices.length, 0);
+  merged = true;
+  inbox.scanPRs(cx);
+  await flush();
+  const said = fake.notices.filter((n) => n.title === "Merged · app #7");
+  assert.equal(said.length, 1);
+  assert.match(said[0].body, /feat\/x: its worktree can go/);
+  assert.deepEqual(said[0].action, { name: "relevo.panel-inbox" });
+  fake.stored["relevo.inbox.focus"] = { at: 1, pane: null };
+  inbox.render(cx);
+  assert.equal(inbox.sel, "wt-/wt/x");
+  inbox.scanPRs(cx);
+  await flush();
+  assert.equal(fake.notices.filter((n) => n.title === "Merged · app #7").length, 1);
+});
+
+test("your green PRs fold under ready to merge, outside the count, and open from there", async () => {
+  const node = (url, number) => ({
+    url, number, title: `t${number}`, isDraft: false, updatedAt: "2026-11-01T10:00:00Z", reviewDecision: null,
+    headRefName: `b${number}`, baseRefName: "main", isCrossRepository: false, repository: { nameWithOwner: "me/app" },
+    commits: { nodes: [{ commit: { committedDate: "2026-11-01T09:00:00Z", statusCheckRollup: { state: "SUCCESS" } } }] },
+    reviews: { nodes: [] }, reviewThreads: { nodes: [] },
+  });
+  fake.exec = (cmd, args) => (cmd === "gh" && args[0] === "api" ? { stdout: JSON.stringify({ data: {
+    viewer: { login: "me", pullRequests: { nodes: [node("https://github.com/me/app/pull/1", 1), node("https://github.com/me/app/pull/2", 2)] } },
+    search: { nodes: [] },
+  } }) } : null);
+  const { ui, cx } = await open();
+  assert.match(text(ui()), /▸ 2 ready to merge/);
+  assert.equal(find(ui(), "pr-https://github.com/me/app/pull/1"), null);
+  assert.equal(count(), 0);
+  click(find(ui(), "ready-mine"), cx);
+  assert.ok(find(ui(), "open-https://github.com/me/app/pull/1"));
+  assert.equal(count(), 0);
+});

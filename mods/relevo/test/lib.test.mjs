@@ -6,7 +6,7 @@ import { diffRows, lineKey } from "../lib/diff.js";
 import { ownerOf, contextFor } from "../lib/context.js";
 import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
 import { keyMap, relevoKeys, formatShortcut } from "../lib/keys.js";
-import { mapMine, mapRequested, unresolved, prChanges, mergedHeads } from "../lib/github.js";
+import { mapMine, mapReady, mapRequested, unresolved, prChanges, mergedHeads } from "../lib/github.js";
 import { readPrompt, samePrompt, submitKeys, freeOption, moveKeys, lastMessage } from "../lib/prompt.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "../lib/handoff.js";
 import { isAddressed, keepListed, addressedValue, staleAddressed } from "../lib/addressed.js";
@@ -280,6 +280,25 @@ test("prChanges: silent on the first look, then CI, threads and review decisions
   const green = prChanges(red.state, look("SUCCESS", 1, "APPROVED"));
   assert.deepEqual(green.events.map((e) => e.kind), ["ci-passed", "approved"]);
   assert.deepEqual(prChanges(green.state, look("SUCCESS", 1, "APPROVED")).events, []);
+});
+
+test("prChanges: a PR that leaves the open list says Merged only when GitHub lists it as merged", () => {
+  const open = (...urls) => urls.map((url, i) => pr({ url, number: i + 1, repository: { nameWithOwner: "me/api" }, isDraft: url === "d" }));
+  const merged = (...nodes) => nodes.map(([url, head, cross = false]) => ({
+    url, number: 9, headRefName: head, isCrossRepository: cross, repository: { nameWithOwner: "me/api" },
+  }));
+  const look = (urls, done = []) => ({ viewer: { pullRequests: { nodes: open(...urls) }, merged: { nodes: merged(...done) } } });
+  const first = prChanges(null, look(["a", "b", "c", "d"], [["old", "x"]]));
+  assert.deepEqual(first.events, []);
+  // b closed without merging; old merged before the first look; d was a draft.
+  const next = prChanges(first.state, look(["a"], [["c", "feat/c"], ["d", "feat/d"], ["old", "x"]]));
+  assert.deepEqual(next.events.map((e) => [e.kind, e.url, e.head, e.title]),
+    [["merged", "c", "feat/c", "Merged · api #9"], ["merged", "d", "feat/d", "Merged · api #9"]]);
+  // A fork's branch name says nothing about a local worktree.
+  const fork = prChanges(prChanges(null, look(["f"])).state, look([], [["f", "main", true]]));
+  assert.equal(fork.events[0].head, null);
+  // The old query had no merged list.
+  assert.deepEqual(prChanges(first.state, { viewer: { pullRequests: { nodes: [] } } }).events, []);
 });
 
 test("readPrompt: Claude's question menu with descriptions, a separator and a help line", () => {
@@ -604,4 +623,14 @@ test("samePrompt: status lines above the edge don't count", () => {
   for (const [a, b] of [["● Task (59s)", "● Task (1m 0s)"], ["✻ Thinking (950 tokens)", "✶ Thinking (1.2k tokens)"], ["⠋ Working", "⠙ Working"], ["  ⎿ Read a.js", "  ⎿ Read b.js"]]) {
     assert.equal(samePrompt(dialog(a), dialog(b)), true, a);
   }
+});
+
+test("mapReady: green, not a draft, no changes asked and no open threads", () => {
+  const ci = (state) => ({ nodes: [{ commit: { committedDate: "2026-10-30T09:00:00Z", statusCheckRollup: { state } } }] });
+  const data = { viewer: { login: "me", pullRequests: { nodes: [
+    pr({ url: "green" }), pr({ url: "approved", reviewDecision: "APPROVED", updatedAt: "2026-10-31T10:00:00Z" }),
+    pr({ url: "draft", isDraft: true }), pr({ url: "red", commits: ci("FAILURE") }), pr({ url: "running", commits: ci("PENDING") }),
+    pr({ url: "asked", reviewDecision: "CHANGES_REQUESTED" }), pr({ url: "thread", reviewThreads: { nodes: [{ isResolved: false }] } }),
+  ] } } };
+  assert.deepEqual(mapReady(data).map((p) => [p.url, p.reasons[0]]), [["approved", "approved, CI passed"], ["green", "CI passed"]]);
 });

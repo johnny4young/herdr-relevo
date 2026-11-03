@@ -34,7 +34,7 @@ test("renderConfig: odd strings survive and long entries wrap under 130 columns"
   assert.deepEqual(await roundTrip(c), c);
   const lines = renderConfig(plain(example)).split("\n");
   assert.ok(lines.every((l) => l.length <= 130));
-  assert.equal(lines.filter((l) => l.startsWith("export const ")).length, 6);
+  assert.equal(lines.filter((l) => l.startsWith("export const ")).length, 7);
 });
 
 test("validate: the example is valid", () => {
@@ -58,6 +58,7 @@ test("validate: catches each rule", () => {
   assert.ok(broken((c) => { c.ACCOUNTS[0].bg = "green"; }).includes("accounts.0.bg"));
   assert.ok(broken((c) => { c.ACCOUNTS[0].fg = "#12345"; }).includes("accounts.0.fg"));
   assert.ok(broken((c) => { c.ACCOUNTS[0].letter = "ABC"; }).includes("accounts.0.letter"));
+  assert.ok(broken((c) => { c.REPLIES = ["Continue", "Continue"]; }).includes("replies"));
   assert.ok(broken((c) => { c.CODEX.launcher = " "; }).includes("codex.launcher"));
   assert.ok(broken((c) => { c.CONTEXTS = []; }).includes("contexts"));
   assert.ok(broken((c) => { c.CONTEXTS[1].label = ""; }).includes("contexts.1.label"));

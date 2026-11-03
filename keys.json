@@ -14,6 +14,7 @@
     "cmd-alt-o": "relevo.launch-work",
     "cmd-alt-p": "relevo.launch-personal",
     "cmd-alt-r": "relevo.respond-pr",
+    "cmd-alt-s": "relevo.quick-reply",
     "cmd-alt-shift-w": "relevo.worktree-open",
     "cmd-alt-w": "relevo.worktree-new",
     "cmd-alt-x": "relevo.launch-codex",
