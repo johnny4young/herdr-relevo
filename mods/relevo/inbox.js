@@ -22,6 +22,7 @@ import { TreeViews } from "./inbox-trees.js";
 import { KeyNav, INBOX_FOCUS } from "./inbox-keys.js";
 import { LiveViews } from "./inbox-live.js";
 import { LocalAddressed } from "./inbox-addressed.js";
+import { AwayViews } from "./inbox-away.js";
 
 // How long a send waits for its dialog to go, in 250 ms reads.
 const SETTLE_TRIES = 8;
@@ -67,6 +68,7 @@ export class Inbox {
     this.reply = InputState.new({ value: "", placeholder: "Reply · Enter sends, Esc cancels" });
     this.reply.on("submit", (_e, cx) => this.sendReply(cx));
     this.today = [];
+    this.digest = null;
     const panels = (shared("workspace.panels") ?? ["files", "changes"]).filter((p) => p !== "review");
     if (!panels.includes("inbox")) setShared("workspace.panels", [...panels, "inbox"]);
     this.labelling = {};
@@ -543,6 +545,7 @@ export class Inbox {
         .when(!total && !this.error && Boolean(this.prsAt), (el) => el.child(
           div().p(12).text_size(12).text_color(t.dim).child("Nothing waiting")))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
+        .children(part("away", this.awayGroup(t)))
         .children(part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
         .children(part("local", this.localGroup(t, "local", "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"), v.localDone)))
         .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone, v.ready)))
@@ -553,7 +556,7 @@ export class Inbox {
 }
 
 
-for (const views of [PrViews, TreeViews, KeyNav, LiveViews, LocalAddressed]) {
+for (const views of [PrViews, TreeViews, KeyNav, LiveViews, LocalAddressed, AwayViews]) {
   for (const name of Object.getOwnPropertyNames(views.prototype)) {
     if (name !== "constructor") Inbox.prototype[name] = views.prototype[name];
   }

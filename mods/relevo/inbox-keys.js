@@ -7,7 +7,7 @@ import { recent } from "./lib/github.js";
 
 // A request to focus the Inbox, with the pane to give the keyboard back to on Esc.
 export const INBOX_FOCUS = "relevo.inbox.focus";
-const SECTIONS = ["waiting", "local", "mine", "requested", "today", "trees"];
+const SECTIONS = ["away", "waiting", "local", "mine", "requested", "today", "trees"];
 
 export function focusInbox() {
   showPanel("inbox");
@@ -18,7 +18,7 @@ export function focusInbox() {
 export class KeyNav {
   // The selectable items in screen order, each with what Enter does.
   navItems(v) {
-    const items = [];
+    const items = this.awayItems().map((r) => ({ id: r.id, section: "away", go: r.go }));
     for (const i of v.local.filter((x) => x.kind === "blocked")) {
       const drawn = i.prompt;
       items.push({

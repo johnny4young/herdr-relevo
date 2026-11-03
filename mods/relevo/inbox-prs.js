@@ -78,6 +78,7 @@ export class PrViews {
     this.prsAt = Date.now() / 1000;
     const changes = prChanges(this.prState, data);
     this.prState = changes.state;
+    this.away?.events.push(...changes.events);
     prAlerts(changes.events.filter((e) => e.kind !== "merged"), contextKey);
     for (const e of changes.events.filter((x) => x.kind === "merged")) await this.merged(e);
     for (const p of [...this.mine, ...this.ready, ...this.requested]) {

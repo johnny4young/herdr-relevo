@@ -74,13 +74,19 @@ export function pickAccount(repo, quotas) {
 
 
 // Runs in the repo's own space (or a new one), not in whichever space is shown.
-export function launchInRepo({ repo, folder, tab, account, prompt }) {
-  const name = repo.split("/").pop();
+// The session id goes as a positional parameter, never into the shell text.
+export const resumeArgv = (key, id) => ["zsh", "-ilc", `${accountOf(key).launcher} --resume "$1"`, "zsh", id];
+
+// A tab in the folder's space, else in the repo's, else a new space.
+export function openInFolder({ name, folder, tab, argv }) {
   const space = spaces().find((s) => !s.machine && s.folder === folder)
     ?? spaces().find((s) => !s.machine && s.name === name);
-  const argv = launchArgv(account, prompt);
   if (space) run("tab.new", { space: space.id, name: tab, folder, argv });
   else run("space.new", { name, folder, tab, argv });
+}
+
+export function launchInRepo({ repo, folder, tab, account, prompt }) {
+  openInFolder({ name: repo.split("/").pop(), folder, tab, argv: launchArgv(account, prompt) });
 }
 
 export function chip(div, p, size = 17) {

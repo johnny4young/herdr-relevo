@@ -1,5 +1,6 @@
 import { agents, panes, terminals, exec, home, shared, setShared, readTextFile } from "herdr";
 import { totals, week, weekStart } from "./lib/ledger.js";
+import { timeWithin } from "./lib/away.js";
 export { duration } from "./lib/time.js";
 
 // One JSON line per stretch an agent worked: {start, end, jira, repo, branch, account}.
@@ -57,6 +58,11 @@ async function rowsSince(since) {
     rows.push(r);
   }
   return rows;
+}
+
+// Agent seconds between two moments, in seconds.
+export async function agentTimeBetween(since, until) {
+  return timeWithin(await rowsSince(since), since, until);
 }
 
 // Today's worked time per ticket (or repo without one).
