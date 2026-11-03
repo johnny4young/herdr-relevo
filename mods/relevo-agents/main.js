@@ -98,7 +98,13 @@ function accountTag(t, a, labels) {
   const pane = panes().find((p) => p.pane === a.pane);
   const borrowed = acc && labels["agent.account"] !== repoAccount(pane?.cwd ?? a.cwd);
   const tip = [acc && `${acc.label} account${borrowed ? `, borrowed: this repo uses ${accounts[repoAccount(pane?.cwd ?? a.cwd)]?.label ?? "another"}` : ""}`, jira].filter(Boolean).join(" · ");
-  return h_flex().id(`acct-${a.address}`).flex_none().gap(4).items_center().tooltip(tip)
+  // Local agents only: a handoff reads and starts things on this computer.
+  const canMove = Boolean(acc) && !a.address.includes("/");
+  return h_flex().id(`acct-${a.address}`).flex_none().gap(4).items_center().tooltip(canMove ? `${tip} · Click to continue with another account` : tip)
+    .when(canMove, (el) => el.cursor_pointer().on_click((_e, cx) => {
+      cx.stop_propagation();
+      run(`relevo.handoff-agent-${a.address}`);
+    }))
     .when(Boolean(jira), (el) => el.child(div().text_size(10.5).text_color(t.dim).child(jira)))
     .when(Boolean(acc), (el) => el.child(div().size(14).rounded(4).bg(acc.bg).text_color(acc.fg).text_size(9).font_bold()
       .flex().items_center().justify_center().when(borrowed, (c) => c.border(1.5).border_color(t.ansi3)).child(acc.letter)));

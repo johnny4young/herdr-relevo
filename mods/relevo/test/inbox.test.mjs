@@ -610,3 +610,10 @@ test("a reply while the agent is still being answered keeps its text", async () 
   assert.equal(fake.notices.at(-1).title, "Still answering this agent");
   assert.deepEqual(sent(), []);
 });
+
+test("a waiting card can continue with another account", async () => {
+  const { ui, cx } = await waiting(DB);
+  click(find(ui(), "handoff-t1"), cx);
+  assert.equal(fake.overlays.at(-1).props.role, "handoff");
+  assert.equal(fake.overlays.at(-1).props.terminal, "t1");
+});

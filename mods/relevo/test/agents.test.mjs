@@ -62,3 +62,28 @@ test("nothing is drawn for collapsing unless the sidebar is collapsed", async ()
   const { ui } = await open([agent("t1")]);
   assert.equal(find(ui(), "collapse"), null);
 });
+
+test("a local agent's account chip opens the handoff, without focusing it", async () => {
+  fake.stored["relevo.setup"] = { accounts: { personal: { label: "Personal", letter: "P", bg: "#000", fg: "#fff" } }, contexts: [] };
+  const { ui, cx } = await open([agent("t1")], [{ address: "t1", state: "live", labels: { "agent.account": "personal" } }]);
+  const chip = find(ui(), "acct-t1");
+  assert.match(chip.tip, /continue with another account/);
+  let stopped = false;
+  chip.handlers.on_click({}, { ...cx, stop_propagation() { stopped = true; } });
+  assert.deepEqual(fake.runs.at(-1), ["relevo.handoff-agent-t1", undefined]);
+  assert.equal(stopped, true);
+});
+
+test("an agent on another machine has no handoff click", async () => {
+  fake.stored["relevo.setup"] = { accounts: { personal: { label: "Personal", letter: "P", bg: "#000", fg: "#fff" } }, contexts: [] };
+  const { ui } = await open([agent("box/t1")], [{ address: "box/t1", state: "live", labels: { "agent.account": "personal", "agent.jira": "AB-1" } }]);
+  const chip = find(ui(), "acct-box/t1");
+  assert.equal(chip.handlers.on_click, undefined);
+  assert.doesNotMatch(chip.tip, /continue with/);
+});
+
+test("a ticket with no account has no handoff click", async () => {
+  fake.stored["relevo.setup"] = { accounts: {}, contexts: [] };
+  const { ui } = await open([agent("t1")], [{ address: "t1", state: "live", labels: { "agent.jira": "AB-1" } }]);
+  assert.equal(find(ui(), "acct-t1").handlers.on_click, undefined);
+});

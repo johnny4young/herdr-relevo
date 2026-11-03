@@ -6,7 +6,7 @@ import { InboxButton, PanelToggle, showPanel } from "./toolbar.js";
 import { AccountMenu } from "./account-menu.js";
 import { PanelBar, FileFinder, CheckoutMenu, openFinder, openCheckoutsHere } from "./panelbar.js";
 import { nextWaiting, openPR, respondPR, worktrees } from "./commands.js";
-import { Handoff, openHandoff, handoffFrom } from "./handoff.js";
+import { Handoff, openHandoff, handoffFrom, closeHandedOff } from "./handoff.js";
 import { ReviewDiff, openReview } from "./review.js";
 import { loadKeys } from "./ui.js";
 import { LedgerWeek, openWeek } from "./week.js";
@@ -47,6 +47,8 @@ export default class Relevo extends View {
     });
     else if (name === "settings") openSettings();
     else if (name.startsWith("handoff-from-")) handoffFrom(name.slice(13));
+    else if (name.startsWith("handoff-agent-")) openHandoff(name.slice(14));
+    else if (name.startsWith("handoff-close-")) closeHandedOff(...name.slice(14).split(":"));
     else if (name === "review") cx.spawn(async () => { await openReview(); });
     else if (name === "open-pr") cx.spawn(async () => { await openPR(); });
     else if (name === "respond-pr") cx.spawn(async () => { await respondPR(); });

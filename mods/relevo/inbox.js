@@ -6,6 +6,7 @@ import { accountFor, contextOfPath, inFocus } from "./context.js";
 import { ago, nextSince } from "./lib/time.js";
 import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
+import { openHandoff } from "./handoff.js";
 import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
@@ -275,6 +276,7 @@ export class Inbox {
         })]
         : []),
       button(t, `go-${a.address}`, p.options.length ? "Agent" : "Go to agent", goAgent),
+      button(t, `handoff-${a.address}`, "Continue with…", () => openHandoff(a.address)),
     ];
     return this.card(t, `in-${a.address}`, true,
       this.head(t, t.blocked, `${item.repo} · ${a.tab_name || item.branch || ""}`, ago(item.at)),

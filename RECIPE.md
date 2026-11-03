@@ -51,7 +51,8 @@ task to another account.
   dir, colors), Codex's launcher, contexts (label, account, orgs), fallback order, repos root and skills; Save.
 - **Week dialog** (720×460): `Agent time · week of <date>` with ‹ › and **Copy**, a table of tickets × Mon–Sun
   plus total, today's column in the accent color.
-- **Handoff popup** (300px): "Continue <tab> with…" and every other account, Codex included, with its quota.
+- **Handoff popup** (300px): "Continue <tab> with…" and every other account, Codex included, with its quota. A full
+  account can't be picked.
 
 ## How it behaves
 
@@ -119,11 +120,14 @@ task to another account.
   the panel; `⌥⌘D` review; `⌥⌘A` handoff;
   `⌥⌘G` the branch's PR; `⌥⌘R` respond to it; `⌥⌘W`/`⌥⇧⌘W` new or open worktree; `⌥⌘P/O/X` start an account.
   Keys live in the `layout:relevo` section of `keys.json`, and tooltips show them from there.
-- **Handoff**: between two Claude accounts, when the agent's `agent.transcript` label names its session file, it
+- **Handoff**: opened by `⌥⌘A`, the agent's account chip, **Continue with…** on a waiting card, or the alert at 95%. A
+  working agent gets the stop key first, and nothing starts unless it stopped, so only one edits the tree and the next
+  gets its last turn; a resting or waiting agent gets none. Between two Claude accounts, when the agent's `agent.transcript` label names its session file, it
   copies that file into the next account's `projects/` folder and opens a tab with `--resume <id> --fork-session`:
   the same conversation, told to check `git status` first. Otherwise (Codex on either side, or no label) it writes a
   note with the agent's last 160 screen lines, `git status` and the last 5 commits, and the new tab reads it (the
-  screen is marked as a record, not instructions). Then it interrupts the old agent, so only one edits the tree.
+  screen is marked as a record, not instructions). Once the new agent is listed, a toast offers to close the old one,
+  which happens only if it's resting, the new one is still there and no helpers run.
 - **Ledger**: every 3 s working agents open a stretch and stopped ones close it into
   `~/.local/state/relevo/ledger.jsonl` (`{start, end, jira, repo, branch, account}`). Parallel agents on one ticket
   count once; a stretch across midnight splits.
