@@ -13,7 +13,7 @@ export function openReplies(address = agents().find((a) => a.focused)?.address) 
   const a = agents().find((x) => x.address === address);
   if (!a) return notify({ title: "No agent in focus", level: "info", timeout: 2000 });
   openOverlay({
-    mod: "relevo", kind: "popup", at: "top", offset: 40, width: 480, height: 96 + 30 * replies().length,
+    mod: "relevo", kind: "dialog", width: 480, height: 92 + 30 * replies().length,
     props: { role: "quick-replies", address: a.address, name: nameOf(a) },
   });
 }
@@ -70,7 +70,7 @@ export class QuickReplies {
       .on_key_down((e, cx) => this.key(e, cx))
       .child(div().text_size(11).text_color(t.dim).truncate().child(`To ${p?.name ?? ""}`))
       .child(Input.new(this.input).h(32).px(10).items_center().rounded(6).border(1).border_color(t.accent).bg(t.background))
-      .child(v_flex().id("quick-replies-list").flex_1().min_h(0).overflow_y_scrollbar()
+      .child(v_flex().id("quick-replies-list").flex_none()
         .children(replies().map((text, i) => h_flex().id(`reply-${i}`).h(30).px(8).flex_none().items_center().rounded(6)
           .cursor_pointer()
           .when(i === this.at && !typed, (el) => el.bg(t.selected))
