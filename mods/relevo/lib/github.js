@@ -44,6 +44,17 @@ export function mapMine(data) {
   return list.sort(newest);
 }
 
+// Your open PRs with nothing left but the merge: CI green, no changes asked, no open threads.
+export function mapReady(data) {
+  return data.viewer.pullRequests.nodes.filter((p) => !p.isDraft && ciOf(p) === "SUCCESS"
+    && p.reviewDecision !== "CHANGES_REQUESTED" && !unresolved(p))
+    .map((p) => ({
+      ...p, repo: p.repository.nameWithOwner, skills: [], threads: 0, hot: false,
+      reasons: [p.reviewDecision === "APPROVED" ? "approved, CI passed" : "CI passed"],
+    }))
+    .sort(newest);
+}
+
 export function mapRequested(data) {
   const list = data.search.nodes.filter((p) => p.url).map((p) => ({
     ...p, repo: p.repository.nameWithOwner, skills: ["review"], threads: unresolved(p), untrusted: p.isCrossRepository,

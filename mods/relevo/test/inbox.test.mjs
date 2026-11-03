@@ -663,3 +663,23 @@ test("a merged PR alerts once, and the Inbox shortcut lands on its worktree", as
   await flush();
   assert.equal(fake.notices.filter((n) => n.title === "Merged · app #7").length, 1);
 });
+
+test("your green PRs fold under ready to merge, outside the count, and open from there", async () => {
+  const node = (url, number) => ({
+    url, number, title: `t${number}`, isDraft: false, updatedAt: "2026-11-01T10:00:00Z", reviewDecision: null,
+    headRefName: `b${number}`, baseRefName: "main", isCrossRepository: false, repository: { nameWithOwner: "me/app" },
+    commits: { nodes: [{ commit: { committedDate: "2026-11-01T09:00:00Z", statusCheckRollup: { state: "SUCCESS" } } }] },
+    reviews: { nodes: [] }, reviewThreads: { nodes: [] },
+  });
+  fake.exec = (cmd, args) => (cmd === "gh" && args[0] === "api" ? { stdout: JSON.stringify({ data: {
+    viewer: { login: "me", pullRequests: { nodes: [node("https://github.com/me/app/pull/1", 1), node("https://github.com/me/app/pull/2", 2)] } },
+    search: { nodes: [] },
+  } }) } : null);
+  const { ui, cx } = await open();
+  assert.match(text(ui()), /▸ 2 ready to merge/);
+  assert.equal(find(ui(), "pr-https://github.com/me/app/pull/1"), null);
+  assert.equal(count(), 0);
+  click(find(ui(), "ready-mine"), cx);
+  assert.ok(find(ui(), "open-https://github.com/me/app/pull/1"));
+  assert.equal(count(), 0);
+});

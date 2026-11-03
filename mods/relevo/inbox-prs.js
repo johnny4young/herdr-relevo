@@ -11,7 +11,7 @@ import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
-import { PR_QUERY, seconds, recent, mapMine, mapRequested, prChanges } from "./lib/github.js";
+import { PR_QUERY, seconds, recent, mapMine, mapReady, mapRequested, prChanges } from "./lib/github.js";
 import { keepListed } from "./lib/addressed.js";
 import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
 
@@ -73,12 +73,14 @@ export class PrViews {
     const data = JSON.parse(r.stdout).data;
     this.mine = mapMine(data);
     this.requested = mapRequested(data);
+    const listed = new Set(this.mine.map((p) => p.url));
+    this.ready = mapReady(data).filter((p) => !listed.has(p.url));
     this.prsAt = Date.now() / 1000;
     const changes = prChanges(this.prState, data);
     this.prState = changes.state;
     prAlerts(changes.events.filter((e) => e.kind !== "merged"), contextKey);
     for (const e of changes.events.filter((x) => x.kind === "merged")) await this.merged(e);
-    for (const p of [...this.mine, ...this.requested]) {
+    for (const p of [...this.mine, ...this.ready, ...this.requested]) {
       if (p.repo in this.clones) continue;
       const path = `${home()}/${REPOS_ROOT}/${p.repo.split("/")[1]}`;
       // Same folder name can belong to another owner's repo.
@@ -87,9 +89,9 @@ export class PrViews {
         .endsWith(`github.com${origin.stdout.includes("@github.com:") ? ":" : "/"}${p.repo.toLowerCase()}`);
       this.clones[p.repo] = same ? path : null;
     }
-    const live = new Set([...this.mine, ...this.requested].map((p) => p.url));
-    const listed = keepListed(this.addressed, live);
-    if (Object.keys(listed).length !== Object.keys(this.addressed).length) this.saveAddressed(listed);
+    const live = new Set([...this.mine, ...this.ready, ...this.requested].map((p) => p.url));
+    const marks = keepListed(this.addressed, live);
+    if (Object.keys(marks).length !== Object.keys(this.addressed).length) this.saveAddressed(marks);
     const kept = Object.entries(launched()).filter(([url]) => live.has(url));
     if (kept.length !== Object.keys(launched()).length) setShared(LAUNCHED, Object.fromEntries(kept));
     reviewAlerts(this.requested, contextKey);
@@ -221,9 +223,10 @@ export class PrViews {
     openReview(folder ?? clone, this.prAgents[pr.url]?.address ?? null, info);
   }
 
-  // Old PRs fold under one line so each group shows what needs you this month, addressed ones under another.
-  prGroup(t, key, label, list, requested, done = []) {
-    if (!list.length && !done.length) return [];
+  // Old PRs fold under one line so each group shows what needs you this month, addressed ones under another,
+  // and yours that only wait for the merge under a third, out of the count.
+  prGroup(t, key, label, list, requested, done = [], ready = []) {
+    if (!list.length && !done.length && !ready.length) return [];
     const fresh = list.filter(recent), old = list.filter((p) => !recent(p)), open = this.expanded[key];
     const rows = [sectionHeader(t, label, fresh.length), ...fresh.map((p) => this.prCard(t, p, requested))];
     if (old.length) {
@@ -235,6 +238,17 @@ export class PrViews {
         })
         .child(`${open ? "▾" : "▸"} ${old.length} older than 45 days`));
       if (open) rows.push(...old.map((p) => this.prCard(t, p, requested)));
+    }
+    if (ready.length) {
+      const shown = this.expanded[`${key}-ready`];
+      rows.push(div().id(`ready-${key}`).px(4).py(2).text_size(11).text_color(t.dim).cursor_pointer()
+        .hover((s) => s.text_color(t.muted))
+        .on_click((_e, cx) => {
+          this.expanded[`${key}-ready`] = !shown;
+          cx.notify();
+        })
+        .child(`${shown ? "▾" : "▸"} ${ready.length} ready to merge`));
+      if (shown) rows.push(...ready.map((p) => this.prCard(t, p, requested)));
     }
     rows.push(...this.addressedFold(t, key, done, (p) => this.prCard(t, p, requested, true)));
     return rows;

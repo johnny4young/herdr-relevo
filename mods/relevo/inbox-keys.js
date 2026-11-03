@@ -34,6 +34,7 @@ export class KeyNav {
     }
     for (const [key, list] of [["mine", v.mine], ["requested", v.requested]]) {
       const shownPRs = [...list.filter(recent), ...(this.expanded[key] ? list.filter((p) => !recent(p)) : [])];
+      if (key === "mine" && this.expanded["mine-ready"]) shownPRs.push(...v.ready);
       for (const pr of shownPRs) items.push({ id: `pr-${pr.url}`, section: key, go: () => this.runPR(pr) });
     }
     for (const w of v.worktrees.filter((x) => x.merged)) {

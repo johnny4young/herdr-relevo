@@ -39,7 +39,9 @@ task to another account.
     badge (speech bubble + count, `ansi3`), a CI badge (✓ `ansi2`, ✕ `ansi1`, spinning ring `ansi3` while
     running), the age, why it is here ("CI failing", "changes requested", "review from …"), a split skill button
     (`skill` + account chip | ▾), **Review** on your own PRs, **Open PR** and **✓** (addressed). PRs older than 45
-    days fold under "▸ N older than 45 days"; addressed ones under "▸ N addressed", each with **Undo**.
+    days fold under "▸ N older than 45 days"; addressed ones under "▸ N addressed", each with **Undo**. Your PRs
+    with nothing left but the merge (CI green, not a draft, no changes requested, no open threads) fold under
+    "▸ N ready to merge", outside the count.
   - `AGENT TIME TODAY` with a **Week** button: one row per ticket (or repo) with today's time.
   - `MERGED WORKTREES`: one 30px row per worktree whose branch merged: repo, branch, age, **Open**/**Go**,
     **Remove**. "▸ N worktrees without a space" folds the rest.

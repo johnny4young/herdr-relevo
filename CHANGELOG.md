@@ -4,6 +4,7 @@
 
 - **Quick replies.** `⌥⌘S`, the ↩ beside an agent, or **Reply** on an Inbox card sends a message or one of your saved replies, like "commit and push". Pick one with ↑/↓ and Enter or its number. Edit them in Settings. Older `config.js` files get three defaults.
 - **Your replies, in your order.** The ones you send most come first, and phrases you keep typing to agents in the same context fill the list up to five.
+- **Ready to merge.** Your green PRs with nothing to fix fold under one line in the Inbox, so they don't vanish while they wait for you.
 - **Merged PRs say so.** A toast tells you when your PR merges. When its worktree is still here, a click opens the Inbox on that row, ready to **Remove**.
 
 ## 0.5.10 · 2026-11-02

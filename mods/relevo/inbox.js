@@ -43,6 +43,7 @@ export class Inbox {
     // An old request must not steal the keyboard when this copy starts.
     this.focusAt = shared(INBOX_FOCUS)?.at ?? null;
     this.mine = [];
+    this.ready = [];
     this.requested = [];
     this.prAgents = {};
     this.clones = {};
@@ -117,7 +118,8 @@ export class Inbox {
     return {
       local: local.filter((i) => !off(i)), localDone: local.filter(off),
       mine: this.mine.filter(open), requested: this.requested.filter(open),
-      mineDone: this.mine.filter(done), requestedDone: this.requested.filter(done),
+      ready: this.ready.filter(open),
+      mineDone: [...this.mine, ...this.ready].filter(done), requestedDone: this.requested.filter(done),
       worktrees: this.worktrees.filter((w) => inFocus(contextOfPath(w.main))),
       today: this.today.filter((d) => inFocus(contextOfPath(d.repo))),
     };
@@ -543,7 +545,7 @@ export class Inbox {
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
         .children(part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
         .children(part("local", this.localGroup(t, "local", "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"), v.localDone)))
-        .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone)))
+        .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone, v.ready)))
         .children(part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true, v.requestedDone)))
         .children(part("today", this.todayGroup(t, v.today)))
         .children(part("trees", this.treeGroups(t, v.worktrees))));
