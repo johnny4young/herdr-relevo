@@ -14,7 +14,8 @@ alerts when a PR's CI or reviews change, and a ledger of agent time per ticket.
 ### Answer agents without leaving your work
 
 A waiting agent's question shows in the Inbox with its choices, its preview and a note field. Click a choice and
-the agent continues; multiple choice gets a Submit.
+the agent continues; multiple choice gets a Submit. Any other time, `⌥⌘S` sends a message or one of your saved
+replies, like "commit and push".
 
 ![An agent's question answered from the Inbox](screenshots/answer.png)
 
@@ -43,7 +44,7 @@ disk while you edit asks **Reload** or **Keep mine**, so nothing is overwritten 
 ### Every checkout, one click away
 
 The panel bar's selector lists every checkout of the repo with uncommitted files, ahead/behind and last use. Merged
-worktrees that are safe to remove go in one Confirm.
+worktrees that are safe to remove go in one Confirm. When your PR merges, the toast takes you to its worktree.
 
 ![The checkout selector and merged worktrees](screenshots/worktrees.png)
 

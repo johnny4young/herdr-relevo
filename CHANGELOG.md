@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.11 · 2026-11-03
+
+- **Quick replies.** `⌥⌘S`, the ↩ beside an agent, or **Reply** on an Inbox card sends a message or one of your saved replies, like "commit and push". Edit them in Settings. Older `config.js` files get three defaults.
+- **Merged PRs say so.** A toast tells you when your PR merges. When its worktree is still here, a click opens the Inbox on that row, ready to **Remove**.
+
 ## 0.5.10 · 2026-11-02
 
 - **Hand off from where you look.** Click an agent's account chip, or **Continue with…** on a waiting card, to move it to another account.

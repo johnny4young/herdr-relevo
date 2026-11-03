@@ -7,6 +7,7 @@ import { ago, nextSince } from "./lib/time.js";
 import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { openHandoff } from "./handoff.js";
+import { openReplies } from "./replies.js";
 import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
@@ -226,7 +227,7 @@ export class Inbox {
       .border_color(sel ? t.accent : hot ? t.blocked : t.border)
       .child(head)
       .child(meta)
-      .child(h_flex().gap(5).children(actions));
+      .child(h_flex().flex_wrap().gap(5).children(actions));
   }
 
   head(t, dot, title, when, ci = null, threads = 0) {
@@ -485,6 +486,9 @@ export class Inbox {
           showPanel("files");
         }),
         button(t, `agent-${a.address}`, "Agent", goAgent),
+        button(t, `reply-${a.address}`, "Reply", () => openReplies(a.address), {
+          tip: withKey("Send it a message or a quick reply", "relevo.quick-reply"),
+        }),
         addressed
           ? button(t, `undo-${a.address}`, "Undo", (cx) => this.setLocalAddressed(a, false, cx), { tip: "Back to the list" })
           : button(t, `addressed-${a.address}`, "✓", (cx) => this.setLocalAddressed(a, true, cx), {

@@ -367,6 +367,21 @@ export default class Agents extends View {
           cx.notify();
         })
         .child(svg(`mods/workspace-chrome/${isPinned ? "pin-off" : "pin"}.svg`).size(13));
+      const reply = div()
+        .id(`reply-${a.address}`)
+        .flex_none()
+        .px(3)
+        .rounded(4)
+        .text_size(12)
+        .text_color(t.dim)
+        .cursor_pointer()
+        .hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .tooltip("Send a message or a quick reply")
+        .on_click((_e, cx) => {
+          cx.stop_propagation();
+          run(`relevo.quick-reply-${a.address}`);
+        })
+        .child("↩");
       // Under a space header the space goes without saying; an automatic tab number says nothing.
       // Without a space header above (priority, pinned) the row names its space.
       const full = byPriority || isPinned;
@@ -401,7 +416,7 @@ export default class Agents extends View {
         .when(Boolean(bg), el => el.child(bg))
         .when(Boolean(tag), el => el.child(tag))
         .when(subs.length > 0, el => el.child(fold(a, subs)))
-        .when(this.hovered === a.address, el => el.child(pin))
+        .when(this.hovered === a.address, el => el.child(reply).child(pin))
         .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
         .child(this.status(t, a, byPriority && !isPinned));
     };

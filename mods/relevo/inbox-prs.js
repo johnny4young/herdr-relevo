@@ -4,12 +4,12 @@ import { h_flex, v_flex } from "gpui-base";
 import { home, exec, run, notify, setShared, openOverlay, readTextFile } from "herdr";
 import { accountOf, pickAccount, chip } from "./accounts.js";
 import { contextFor } from "./context.js";
-import { reviewAlerts, prAlerts } from "./alerts.js";
+import { reviewAlerts, prAlerts, mergedAlert } from "./alerts.js";
 import { REPOS_ROOT } from "./config.js";
 import { LAUNCHED, SKILLS, launched, launchSkill } from "./skills.js";
 import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { openReview } from "./review.js";
-import { checkoutOf } from "./worktrees.js";
+import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
 import { PR_QUERY, seconds, recent, mapMine, mapRequested, prChanges } from "./lib/github.js";
 import { keepListed } from "./lib/addressed.js";
@@ -76,7 +76,8 @@ export class PrViews {
     this.prsAt = Date.now() / 1000;
     const changes = prChanges(this.prState, data);
     this.prState = changes.state;
-    prAlerts(changes.events, contextKey);
+    prAlerts(changes.events.filter((e) => e.kind !== "merged"), contextKey);
+    for (const e of changes.events.filter((x) => x.kind === "merged")) await this.merged(e);
     for (const p of [...this.mine, ...this.requested]) {
       if (p.repo in this.clones) continue;
       const path = `${home()}/${REPOS_ROOT}/${p.repo.split("/")[1]}`;
@@ -93,6 +94,19 @@ export class PrViews {
     if (kept.length !== Object.keys(launched()).length) setShared(LAUNCHED, Object.fromEntries(kept));
     reviewAlerts(this.requested, contextKey);
     this.publish();
+  }
+
+  // A merged PR's worktree shows at once, selected for the shortcut that opens the Inbox, so Remove is one look away.
+  async merged(e) {
+    const clone = this.clones[e.repo], name = e.repo.split("/")[1];
+    let tree = null;
+    if (e.head) {
+      this.treesAt = Date.now();
+      this.worktrees = await scanWorktrees(true).catch(() => this.worktrees);
+      tree = this.worktrees.find((w) => w.merged && w.branch === e.head && (clone ? w.main === clone : w.repo === name)) ?? null;
+    }
+    if (tree) this.pendingSel = { id: `wt-${tree.path}`, at: Date.now() };
+    mergedAlert(e, tree, contextKey);
   }
 
   // The left part runs the skill with the picked account; ▾ picks the account, other skills or a new session.

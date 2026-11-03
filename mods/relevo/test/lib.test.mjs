@@ -282,6 +282,25 @@ test("prChanges: silent on the first look, then CI, threads and review decisions
   assert.deepEqual(prChanges(green.state, look("SUCCESS", 1, "APPROVED")).events, []);
 });
 
+test("prChanges: a PR that leaves the open list says Merged only when GitHub lists it as merged", () => {
+  const open = (...urls) => urls.map((url, i) => pr({ url, number: i + 1, repository: { nameWithOwner: "me/api" }, isDraft: url === "d" }));
+  const merged = (...nodes) => nodes.map(([url, head, cross = false]) => ({
+    url, number: 9, headRefName: head, isCrossRepository: cross, repository: { nameWithOwner: "me/api" },
+  }));
+  const look = (urls, done = []) => ({ viewer: { pullRequests: { nodes: open(...urls) }, merged: { nodes: merged(...done) } } });
+  const first = prChanges(null, look(["a", "b", "c", "d"], [["old", "x"]]));
+  assert.deepEqual(first.events, []);
+  // b closed without merging; old merged before the first look; d was a draft.
+  const next = prChanges(first.state, look(["a"], [["c", "feat/c"], ["d", "feat/d"], ["old", "x"]]));
+  assert.deepEqual(next.events.map((e) => [e.kind, e.url, e.head, e.title]),
+    [["merged", "c", "feat/c", "Merged · api #9"], ["merged", "d", "feat/d", "Merged · api #9"]]);
+  // A fork's branch name says nothing about a local worktree.
+  const fork = prChanges(prChanges(null, look(["f"])).state, look([], [["f", "main", true]]));
+  assert.equal(fork.events[0].head, null);
+  // The old query had no merged list.
+  assert.deepEqual(prChanges(first.state, { viewer: { pullRequests: { nodes: [] } } }).events, []);
+});
+
 test("readPrompt: Claude's question menu with descriptions, a separator and a help line", () => {
   const screen = [
     "❯ hazme una pregunta sencillo esperando respuesta si o no",

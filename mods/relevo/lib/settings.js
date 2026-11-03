@@ -75,6 +75,9 @@ export function renderConfig(c) {
     "// The slash commands the Inbox launches on a PR: a review, a CI fix and answering review comments.",
     block(c.SKILLS, 0, "export const SKILLS = ", ";"),
     "",
+    "// What the quick replies menu offers to send an agent (⌥⌘S, or ↩ beside an agent).",
+    flat("REPLIES", c.REPLIES ?? []),
+    "",
   ].join("\n");
 }
 
@@ -119,5 +122,6 @@ export function validate(c) {
   const skills = c.SKILLS ?? {};
   if (Object.keys(skills).sort().join() !== [...SKILL_KEYS].sort().join()) fail("skills", "Skills: review, fix and comments");
   for (const k of SKILL_KEYS) if (k in skills && !skills[k]?.trim()) fail(`skills.${k}`, `Skills: ${k} is required`);
+  if (new Set(c.REPLIES ?? []).size !== (c.REPLIES ?? []).length) fail("replies", "Replies: each one once");
   return errors;
 }

@@ -4,6 +4,7 @@ import { theme, exec, appHome, props, openOverlay, closeOverlay } from "herdr";
 import { ACCOUNTS, CODEX, CONTEXTS, FALLBACK, REPOS_ROOT, SKILLS } from "./config.js";
 import { WRITE_SCRIPT, renderConfig, validate, slug, parseList, isHex } from "./lib/settings.js";
 import { chip } from "./accounts.js";
+import { replies } from "./replies.js";
 import { button, spinner } from "./ui.js";
 
 const COLORS = ["ansi2", "ansi4", "ansi5", "ansi6", "ansi3", "ansi1"];
@@ -27,6 +28,25 @@ export class Settings {
     this.fallback = this.input(FALLBACK.join(", "), "personal, work");
     this.reposRoot = this.input(REPOS_ROOT, "code");
     this.skills = Object.fromEntries(["review", "fix", "comments"].map((k) => [k, this.input(SKILLS[k], k)]));
+    this.replies = replies().map((r) => this.replyRow(r));
+  }
+
+  replyRow(value = "") {
+    return { id: ++this.seq, inputs: { text: this.input(value, "What to send the agent") } };
+  }
+
+  addReply(cx) {
+    const row = this.replyRow();
+    this.replies.push(row);
+    row.inputs.text.focus();
+    cx.notify();
+  }
+
+  removeReply(row, cx) {
+    this.replies = this.replies.filter((r) => r !== row);
+    this.drop(row);
+    if (this.tried) this.errors = validate(this.collect());
+    cx.notify();
   }
 
   input(value, placeholder) {
@@ -96,6 +116,7 @@ export class Settings {
       FALLBACK: parseList(this.fallback.value()),
       REPOS_ROOT: text(this.reposRoot),
       SKILLS: Object.fromEntries(Object.entries(this.skills).map(([k, s]) => [k, text(s)])),
+      REPLIES: this.replies.map((r) => text(r.inputs.text)).filter(Boolean),
     };
   }
 
@@ -255,6 +276,12 @@ export class Settings {
       .child(this.section(t, "settings-skills", "SKILLS", ["skills"], [
         h_flex().gap(12).children([["review", "Review"], ["fix", "CI fix"], ["comments", "Review comments"]].map(([k, label]) =>
           this.labeled(t, label, this.field(t, `settings-skill-${k}`, this.skills[k], `skills.${k}`)))),
+      ]))
+      .child(this.section(t, "settings-replies", "QUICK REPLIES", ["replies"], [
+        ...this.replies.map((r) => h_flex().id(`settings-reply-${r.id}`).gap(6).items_center()
+          .child(this.field(t, `sr-text-${r.id}`, r.inputs.text, "replies"))
+          .child(button(t, `sr-remove-${r.id}`, "×", (cx) => this.removeReply(r, cx), { size: "sm", tip: "Remove reply" }))),
+        h_flex().child(button(t, "settings-add-reply", "+ Reply", (cx) => this.addReply(cx), { size: "sm" })),
       ]));
     const failed = this.errors.find((e) => e.at === "write");
     const footer = h_flex().h(48).flex_none().px(16).gap(8).items_center().border_t(1).border_color(t.border)

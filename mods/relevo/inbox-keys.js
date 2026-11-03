@@ -81,6 +81,9 @@ export class KeyNav {
     if (!req || req.at === this.focusAt) return;
     this.focusAt = req.at;
     this.returnPane = req.pane;
+    // Only while the merge alert is fresh; later the shortcut opens the Inbox as usual.
+    if (this.pendingSel && Date.now() - this.pendingSel.at < 10 * 60000) this.sel = this.pendingSel.id;
+    this.pendingSel = null;
     // Focus can't move during render, so it moves on the next tick.
     cx.timer.after(30, (cx) => {
       this.h.focus();
