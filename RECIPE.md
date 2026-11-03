@@ -135,7 +135,9 @@ task to another account.
   worktree), Esc returns to the previous pane. `⌘J` jumps to the next agent waiting on you and says how many are
   left. `⌘]`/`⌘[` walk the agents in the Agents list's order. `⌥⌘1–4` show Files, Changes, Inbox, Issues; `⌥⌘B`
   the panel; `⌥⌘D` review; `⌥⌘A` handoff;
-  `⌥⌘G` the branch's PR; `⌥⌘R` respond to it; `⌥⌘S` quick replies; `⌥⌘E` sessions; `⌥⌘W`/`⌥⇧⌘W` new or open worktree; `⌥⌘P/O/X` start an account.
+  `⌥⌘G` the branch's PR; `⌥⌘R` respond to it; `⌥⌘S` quick replies; `⌥⌘E` sessions; `⌥⌘W`/`⌥⇧⌘W` new or open worktree; `⌥⌘P/O/X` start an account; `⌥⌘N` the
+  Claude account with the most room left (100 minus its fuller window; ties go to the folder's account, then
+  `FALLBACK`; accounts without quota data last), with a toast naming it.
   Keys live in the `layout:relevo` section of `keys.json`, and tooltips show them from there.
 - **Handoff**: opened by `⌥⌘A`, the agent's account chip, **Continue with…** on a waiting card, or the alert at 95%. A
   working agent gets the stop key first, and nothing starts unless it stopped, so only one edits the tree and the next

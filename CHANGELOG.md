@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.13 · 2026-11-03
+
+- **Start where there's room.** `⌥⌘N` starts a new agent on the Claude account with the most quota left, whichever of its 5h and 7d windows is fuller, and a toast says which one it picked.
+
 ## 0.5.12 · 2026-11-03
 
 - **While you were away.** Back after ten minutes or more, a card at the top of the Inbox says which agents finished and what they said last, which ones wait for you, what changed on your PRs and how much quota went.

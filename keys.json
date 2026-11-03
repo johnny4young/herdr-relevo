@@ -12,6 +12,7 @@
     "cmd-alt-e": "relevo.sessions",
     "cmd-alt-f": "relevo.focus-next",
     "cmd-alt-g": "relevo.open-pr",
+    "cmd-alt-n": "relevo.launch-best",
     "cmd-alt-o": "relevo.launch-work",
     "cmd-alt-p": "relevo.launch-personal",
     "cmd-alt-r": "relevo.respond-pr",
