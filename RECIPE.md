@@ -103,6 +103,12 @@ task to another account.
   new review threads appear, or a PR is approved or gets changes requested (a sound on the bad ones). A PR that
   leaves the open list and shows among your merged ones says **Merged**; when its worktree is still here, the scan
   marks it at once and the toast's click opens the Inbox with that row selected, so **Remove** is right there.
+- **While you were away**: back after 10 minutes or more behind other apps (or with the Mac asleep), a card tops
+  the Inbox with the agents that finished (and their last line), the ones waiting, what changed on your PRs, the
+  quota each account spent and the agent time. Each row goes to its agent or PR; **✓** dismisses it.
+- **Sessions**: `⌥⌘E` lists past Claude sessions of the focused repo (its worktrees included), newest first, with
+  title, folder, branch, PR and account; Tab switches to every repo. Typing filters, Enter resumes the session in its
+  folder with its account (`--resume`). Running sessions and ones whose transcript Claude deleted aren't offered.
 - **Quick replies**: `⌥⌘S`, ↩ beside an agent in the list, or **Reply** on an Inbox card opens a field with the
   replies from `config.js` (`REPLIES`, editable in Settings). The list has the keyboard: ↑/↓ and Enter, or a
   reply's number, sends it; typing moves to the field, whose Enter sends what you typed. It goes with `hc send`
@@ -129,7 +135,7 @@ task to another account.
   worktree), Esc returns to the previous pane. `⌘J` jumps to the next agent waiting on you and says how many are
   left. `⌘]`/`⌘[` walk the agents in the Agents list's order. `⌥⌘1–4` show Files, Changes, Inbox, Issues; `⌥⌘B`
   the panel; `⌥⌘D` review; `⌥⌘A` handoff;
-  `⌥⌘G` the branch's PR; `⌥⌘R` respond to it; `⌥⌘S` quick replies; `⌥⌘W`/`⌥⇧⌘W` new or open worktree; `⌥⌘P/O/X` start an account.
+  `⌥⌘G` the branch's PR; `⌥⌘R` respond to it; `⌥⌘S` quick replies; `⌥⌘E` sessions; `⌥⌘W`/`⌥⇧⌘W` new or open worktree; `⌥⌘P/O/X` start an account.
   Keys live in the `layout:relevo` section of `keys.json`, and tooltips show them from there.
 - **Handoff**: opened by `⌥⌘A`, the agent's account chip, **Continue with…** on a waiting card, or the alert at 95%. A
   working agent gets the stop key first, and nothing starts unless it stopped, so only one edits the tree and the next
@@ -153,7 +159,7 @@ task to another account.
   `issues`; `status` workspace-status).
 - **mods/relevo**: one View that picks a part by `props().role`: `accounts`, `inbox`, `inbox-button`,
   `panel-toggle`, `panel-bar`, `account-menu`, `find-file`, `handoff`, `review-diff`, `ledger-week`, `settings`,
-  `quick-replies`. `config.js` holds accounts, contexts, fallback, `REPOS_ROOT`, skills and quick replies; `lib/` holds pure helpers with
+  `quick-replies`, `sessions`. `config.js` holds accounts, contexts, fallback, `REPOS_ROOT`, skills and quick replies; `lib/` holds pure helpers with
   `node --test` coverage. Only the accounts copy reads `nextCommand()`, so each `relevo.<command>` runs once.
 - **hooks/relevo-labels.py** (in mods/relevo): the optional Claude hook behind the `agent.*` labels, reading the
   account from `config.js`. `--check`, `--install` and `--uninstall` change only the `hooks` key of each account's

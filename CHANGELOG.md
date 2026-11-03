@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.12 · 2026-11-03
+
+- **While you were away.** Back after ten minutes or more, a card at the top of the Inbox says which agents finished and what they said last, which ones wait for you, what changed on your PRs and how much quota went.
+- **Pick up an old session.** `⌥⌘E` lists this repo's past sessions with their title, branch and PR. Type to filter, Enter resumes it with its account, Tab shows every repo.
+
 ## 0.5.11 · 2026-11-03
 
 - **Quick replies.** `⌥⌘S`, the ↩ beside an agent, or **Reply** on an Inbox card sends a message or one of your saved replies, like "commit and push". Pick one with ↑/↓ and Enter or its number. Edit them in Settings. Older `config.js` files get three defaults.

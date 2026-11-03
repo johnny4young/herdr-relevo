@@ -683,3 +683,43 @@ test("your green PRs fold under ready to merge, outside the count, and open from
   assert.ok(find(ui(), "open-https://github.com/me/app/pull/1"));
   assert.equal(count(), 0);
 });
+
+test("back after ten minutes away, the Inbox says what finished and what waits, and ✓ clears it", async () => {
+  mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  setAgents(["t1", "working"], ["t2", "working"], ["t3", "idle"]);
+  const { ui, cx } = await open();
+  cx.fire(1500);
+  fake.window.active = false;
+  cx.fire(1500);
+  await flush();
+  setAgents(["t1", "done"], ["t2", "blocked"], ["t3", "idle"]);
+  mock.timers.tick(11 * 60_000);
+  cx.fire(1500);
+  await flush();
+  assert.equal(find(ui(), "away"), null, "nothing while still away");
+  fake.window.active = true;
+  cx.fire(1500);
+  await flush();
+  const view = ui();
+  assert.match(text(view), /WHILE YOU WERE AWAY/);
+  assert.ok(find(view, "away-done-t1"));
+  assert.ok(find(view, "away-wait-t2"));
+  assert.equal(find(view, "away-done-t3"), null, "an agent that never worked didn't finish anything");
+  click(find(view, "away-dismiss"), cx);
+  assert.equal(find(ui(), "away"), null);
+});
+
+test("a short absence shows nothing", async () => {
+  mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  setAgents(["t1", "working"]);
+  const { ui, cx } = await open();
+  fake.window.active = false;
+  cx.fire(1500);
+  setAgents(["t1", "done"]);
+  mock.timers.tick(2 * 60_000);
+  cx.fire(1500);
+  fake.window.active = true;
+  cx.fire(1500);
+  await flush();
+  assert.equal(find(ui(), "away"), null);
+});

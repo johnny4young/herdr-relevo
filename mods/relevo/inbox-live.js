@@ -37,6 +37,7 @@ export class LiveViews {
   // Events always count; the fallback waits for the window, since no one reads the cards behind other apps.
   watchLive(cx) {
     const ps = panes(), now = this.liveSigns(ps), was = this.live, running = runningCommands(ps);
+    this.trackAway(agents(), cx);
     const repos = endedFolders(this.commands, running).map((f) => repoOf(f, this.tops.values())).filter(Boolean);
     for (const top of repos) this.dirty.add(top);
     this.live = now;

@@ -13,12 +13,13 @@ import { LedgerWeek, openWeek } from "./week.js";
 import { Settings, openSettings } from "./settings.js";
 import { focusInbox } from "./inbox-keys.js";
 import { QuickReplies, openReplies } from "./replies.js";
+import { SessionFinder, openSessions } from "./sessions.js";
 
 const ROLES = {
   accounts: Sidebar, inbox: Inbox, "inbox-button": InboxButton, "account-menu": AccountMenu,
   "panel-bar": PanelBar, "panel-toggle": PanelToggle, "find-file": FileFinder, "checkout-menu": CheckoutMenu,
   handoff: Handoff, "review-diff": ReviewDiff, "ledger-week": LedgerWeek, settings: Settings,
-  "quick-replies": QuickReplies,
+  "quick-replies": QuickReplies, sessions: SessionFinder,
 };
 
 export default class Relevo extends View {
@@ -49,6 +50,7 @@ export default class Relevo extends View {
     });
     else if (name === "settings") openSettings();
     else if (name === "quick-reply") openReplies();
+    else if (name === "sessions") cx.spawn(async () => { await openSessions(); });
     else if (name.startsWith("quick-reply-")) openReplies(name.slice(12));
     else if (name.startsWith("handoff-from-")) handoffFrom(name.slice(13));
     else if (name.startsWith("handoff-agent-")) openHandoff(name.slice(14));

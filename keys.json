@@ -9,6 +9,7 @@
     "cmd-alt-a": "relevo.handoff",
     "cmd-alt-b": "layout.toggle:panel",
     "cmd-alt-d": "relevo.review",
+    "cmd-alt-e": "relevo.sessions",
     "cmd-alt-f": "relevo.focus-next",
     "cmd-alt-g": "relevo.open-pr",
     "cmd-alt-o": "relevo.launch-work",
