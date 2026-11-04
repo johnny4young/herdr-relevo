@@ -818,7 +818,7 @@ test("reasonOf: edits, fetches, plans and Codex", () => {
   assert.equal(reasonOf(edit), "Edit: notes.txt");
   const fetch = asked([RULE, " Fetch", " It wants this", FENCED, " url: https://example.org/", FENCED, " Allow?", " ❯ 1. Yes", "   2. No"]);
   assert.equal(reasonOf(fetch), "Fetch: https://example.org/");
-  const plan = asked(["  " + RULE, "   Here is Claude's plan:", "  " + FENCED, "   Do it", "  " + FENCED, "   Proceed?", "   ❯ 1. Yes", "     2. No"]);
+  const plan = asked(["  " + RULE, "   Here is Claude's plan:", "  " + FENCED, "   Do it", "  " + FENCED, "   Claude has written up a plan. Would you like to proceed?", "   ❯ 1. Yes", "     2. No"]);
   assert.equal(reasonOf(plan), "Plan to approve");
   const codex = asked(["  Would you like to run the following command?", "  Reason: tidy", "  $ ls", "› 1. Yes, proceed (y)", "  2. No"]);
   assert.equal(reasonOf(codex), "Run: ls");

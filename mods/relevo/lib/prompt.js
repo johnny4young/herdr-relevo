@@ -221,7 +221,7 @@ function runReason({ body }) {
 export function reasonOf(prompt, report = null) {
   const ask = prompt?.ask, title = ask?.title ?? "", msg = String(report?.msg ?? "");
   if (report?.kind === "auth") return fit(msg) || "Signed out";
-  if (/\bplan\b/i.test(title) || /^approve plan$/i.test(msg)) return "Plan to approve";
+  if (isPlan(prompt?.question) || /^approve plan$/i.test(msg)) return "Plan to approve";
   if (ask?.body.length && (title === "Bash command" || /^Would you like to run/.test(prompt.question))) return runReason(ask);
   if (/^(Edit|Create) file$/.test(title) && ask.about) return fit(`${title.split(" ")[0]}: ${ask.about}`);
   if (title === "Fetch") {
