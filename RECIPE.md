@@ -50,8 +50,14 @@ task to another account.
     **Remove**. "▸ N worktrees without a space" folds the rest. Opened, it reads each one and sorts it: `Nothing to lose`
     (clean, its commits in the main branch, unused for 7 days; **Remove**, and **Remove N** for those with no ignored
     files to keep), `Pushed, not merged` (**Remove**; GitHub must still have the commit), `With work` (uncommitted or
-    unpushed, locked or unreadable; only **Open**) and "▸ N recent". Rows show the reason and size. Remove reads the
-    state again and stops if the row changed.
+    unpushed, locked or unreadable; **Open** and **⋯**) and "▸ N recent". Rows show the reason and size. Remove reads
+    the state again and stops if the row changed. **⋯** opens a second line: **Save patch** (a patch verified to rebuild
+    the same tree, through a copy of the index), **Save commits** (a verified bundle), **Push backup** (to
+    `backup/<worktree>`, never forced; asks first with the real push URL, "Publishes N commits to public <repo>" unless
+    it's a private repo on github.com, then pushes the commit it showed, asking again if anything changed)
+    and **Delete** (idle 7 days, not open, locked or holding a repo; first says what would be lost, then **Delete
+    forever** reads again; `worktree remove --force`, the only forced removal, and `branch -D`). Backups go to
+    `~/<BACKUPS_ROOT>/<repo>/<worktree>/<time>/`, private, with `latest.json` telling whether what's here is saved.
 - **Review pane** (opened beside the terminal): header `Review · <folder>` (or `<repo> #n · against <base>` for a
   PR), the changed files (max 150px) with comment counts, a bar with the open file and **Comment on file**, the
   diff with old/new line numbers, green and red rows, and a footer "N comments for <agent>" with **Clear** and

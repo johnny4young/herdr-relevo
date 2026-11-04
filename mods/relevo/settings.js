@@ -2,6 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { theme, exec, appHome, props, openOverlay, closeOverlay } from "herdr";
 import { ACCOUNTS, CODEX, CONTEXTS, FALLBACK, REPOS_ROOT, SKILLS } from "./config.js";
+import * as config from "./config.js";
 import { WRITE_SCRIPT, renderConfig, validate, slug, parseList, isHex } from "./lib/settings.js";
 import { chip } from "./accounts.js";
 import { replies } from "./replies.js";
@@ -27,6 +28,7 @@ export class Settings {
     this.contexts = CONTEXTS.map((c) => this.contextRow(c));
     this.fallback = this.input(FALLBACK.join(", "), "personal, work");
     this.reposRoot = this.input(REPOS_ROOT, "code");
+    this.backupsRoot = this.input(config.BACKUPS_ROOT ?? "relevo-backups", "relevo-backups");
     this.skills = Object.fromEntries(["review", "fix", "comments"].map((k) => [k, this.input(SKILLS[k], k)]));
     this.replies = replies().map((r) => this.replyRow(r));
   }
@@ -115,6 +117,7 @@ export class Settings {
       CONTEXTS: contexts,
       FALLBACK: parseList(this.fallback.value()),
       REPOS_ROOT: text(this.reposRoot),
+      BACKUPS_ROOT: text(this.backupsRoot),
       SKILLS: Object.fromEntries(Object.entries(this.skills).map(([k, s]) => [k, text(s)])),
       REPLIES: this.replies.map((r) => text(r.inputs.text)).filter(Boolean),
     };
@@ -268,10 +271,11 @@ export class Settings {
         ...this.contexts.map((r, i) => this.contextRowView(t, r, i)),
         h_flex().child(button(t, "settings-add-context", "+ Context", (cx) => this.addContext(cx), { size: "sm" })),
       ]))
-      .child(this.section(t, "settings-folders", "FALLBACK AND FOLDERS", ["fallback", "reposRoot"], [
+      .child(this.section(t, "settings-folders", "FALLBACK AND FOLDERS", ["fallback", "reposRoot", "backupsRoot"], [
         h_flex().gap(12)
           .child(this.labeled(t, `Fallback order · ${keys}`, this.field(t, "settings-fallback", this.fallback, "fallback")))
-          .child(this.labeled(t, "Repos root under home", this.field(t, "settings-repos-root", this.reposRoot, "reposRoot"))),
+          .child(this.labeled(t, "Repos root under home", this.field(t, "settings-repos-root", this.reposRoot, "reposRoot")))
+          .child(this.labeled(t, "Backups under home", this.field(t, "settings-backups-root", this.backupsRoot, "backupsRoot"))),
       ]))
       .child(this.section(t, "settings-skills", "SKILLS", ["skills"], [
         h_flex().gap(12).children([["review", "Review"], ["fix", "CI fix"], ["comments", "Review comments"]].map(([k, label]) =>

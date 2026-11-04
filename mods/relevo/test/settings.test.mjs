@@ -34,7 +34,7 @@ test("renderConfig: odd strings survive and long entries wrap under 130 columns"
   assert.deepEqual(await roundTrip(c), c);
   const lines = renderConfig(plain(example)).split("\n");
   assert.ok(lines.every((l) => l.length <= 130));
-  assert.equal(lines.filter((l) => l.startsWith("export const ")).length, 7);
+  assert.equal(lines.filter((l) => l.startsWith("export const ")).length, 8);
 });
 
 test("validate: the example is valid", () => {
@@ -70,6 +70,8 @@ test("validate: catches each rule", () => {
   assert.ok(broken((c) => { c.REPOS_ROOT = ""; }).includes("reposRoot"));
   assert.ok(broken((c) => { c.REPOS_ROOT = "/home/me/code"; }).includes("reposRoot"));
   assert.ok(broken((c) => { c.REPOS_ROOT = "~/code"; }).includes("reposRoot"));
+  assert.ok(broken((c) => { c.BACKUPS_ROOT = "/tmp/x"; }).includes("backupsRoot"));
+  assert.ok(!broken((c) => { delete c.BACKUPS_ROOT; }).includes("backupsRoot"));
   assert.ok(broken((c) => { c.SKILLS.fix = ""; }).includes("skills.fix"));
   assert.ok(broken((c) => { delete c.SKILLS.comments; }).includes("skills"));
 });

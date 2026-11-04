@@ -1,9 +1,10 @@
 // The Inbox's merged worktrees: scan, open, remove. Mixed into Inbox, so `this` is the Inbox.
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { run } from "herdr";
+import { notify, run } from "herdr";
 import { scanWorktrees, removeWorktree, removalCheck, treeState, treeSize } from "./worktrees.js";
-import { groupOf, whyOf, sizeOf } from "./lib/trees.js";
+import { actionsOf, groupOf, whyOf, sizeOf } from "./lib/trees.js";
+import { deleteCheck, deleteWorktree, pushBackup, pushPlan, savedState, saveCommits, savePatch } from "./worktree-actions.js";
 import { button, spinner } from "./ui.js";
 import { ago } from "./lib/time.js";
 
@@ -24,7 +25,7 @@ export class TreeViews {
       } finally {
         this.scanningTrees = false;
       }
-      if (this.expanded.loose) this.loadTreeStates(cx, force);
+      if (this.expanded.loose || this.worktrees.some((w) => w.merged && w.dirty)) this.loadTreeStates(cx, force);
       cx.notify();
     });
   }
@@ -34,12 +35,14 @@ export class TreeViews {
     this.treeStates ??= new Map();
     if (this.loadingStates) return;
     this.loadingStates = true;
-    const list = this.worktrees.filter((w) => !w.merged && !w.open);
+    const list = this.worktrees.filter((w) => (w.merged ? w.dirty : this.expanded.loose && !w.open));
     cx.spawn(async (cx) => {
       try {
         const stale = list.filter((w) => force || this.treeStates.get(w.path)?.at !== w.at);
         for (const w of stale) {
-          this.treeStates.set(w.path, { at: w.at, state: await treeState(w) });
+          const state = await treeState(w);
+          if (!state.unreadable) Object.assign(state, await savedState(w, state));
+          this.treeStates.set(w.path, { at: w.at, state });
           cx.notify();
         }
         for (const w of stale) {
@@ -53,16 +56,22 @@ export class TreeViews {
     });
   }
 
+  applyState(w, now) {
+    const known = this.treeStates?.get(w.path);
+    if (w.merged && !known) return;
+    w.group = known ? groupOf(known.state, w.at, now) : undefined;
+    w.why = whyOf(known?.state);
+    w.kb = known?.kb;
+    w.actions = actionsOf(known?.state, w.at, now);
+    w.ignored = known?.state?.ignored ?? w.ignored;
+    w.dirty = (known?.state?.files ?? 0) > 0;
+  }
+
   // The rows without a space by group, in screen order; a row can't offer more than its state allows.
   looseGroups(worktrees) {
     const now = Date.now() / 1000, groups = new Map(GROUPS.map(([key]) => [key, []]));
     for (const w of worktrees.filter((x) => !x.merged && !x.open)) {
-      const known = this.treeStates?.get(w.path);
-      w.group = known ? groupOf(known.state, w.at, now) : undefined;
-      w.why = whyOf(known?.state);
-      w.kb = known?.kb;
-      w.ignored = known?.state?.ignored;
-      w.dirty = (known?.state?.files ?? 0) > 0;
+      this.applyState(w, now);
       groups.get(w.group ?? "checking").push(w);
     }
     return groups;
@@ -141,12 +150,132 @@ export class TreeViews {
     });
   }
 
-  async removeOne(w, cx) {
+  // Saves and pushes, one at a time per row; a row's state is read again after.
+  treeAction(w, cx, act, done) {
+    this.treeBusy ??= new Set();
+    if (this.treeBusy.has(w.path)) return;
+    this.treeBusy.add(w.path);
+    delete this.wtError[w.path];
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const r = await act();
+        if (r.error) this.wtError[w.path] = r.error;
+        else if (done) notify({ ...done(r), level: "success" });
+      } catch (e) {
+        this.wtError[w.path] = String(e?.message ?? e);
+      } finally {
+        this.treeBusy.delete(w.path);
+        this.treeStates?.delete(w.path);
+        this.loadTreeStates(cx);
+        cx.notify();
+      }
+    });
+  }
+
+  // First click says where it goes, since a push can't be taken back; the second goes only if that still holds.
+  askPush(w, cx) {
+    this.treeBusy ??= new Set();
+    if (this.treeBusy.has(w.path)) return;
+    this.treeBusy.add(w.path);
+    delete this.wtError[w.path];
+    const asked = this.pushAsk?.path === w.path ? this.pushAsk.sign : null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      let plan = null;
+      try {
+        const state = await treeState(w);
+        if (state.unreadable || !state.unpushed) {
+          this.pushAsk = null;
+          this.wtError[w.path] = state.unreadable ? "could not check its files" : "nothing left to push";
+          return;
+        }
+        const now = await pushPlan(w, state);
+        if (now.error) {
+          this.pushAsk = null;
+          this.wtError[w.path] = now.error;
+        } else if (asked === now.sign) plan = now;
+        else this.pushAsk = { path: w.path, ...now };
+      } catch (e) {
+        this.wtError[w.path] = String(e?.message ?? e);
+      } finally {
+        this.treeBusy.delete(w.path);
+        if (plan) {
+          this.pushAsk = null;
+          this.treeAction(w, cx, () => pushBackup(w, plan.head), (r) => ({ title: `Pushed ${r.ref}`, body: w.repo }));
+        }
+        cx.notify();
+      }
+    });
+  }
+
+  // The first click reads what would go and says it; the second goes only if that still holds.
+  askDelete(w, cx) {
+    this.treeBusy ??= new Set();
+    if (this.treeBusy.has(w.path)) return;
+    this.treeBusy.add(w.path);
+    delete this.wtError[w.path];
+    const asked = this.deleteAsk?.path === w.path ? this.deleteAsk.sign : null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      let go = false;
+      try {
+        const check = await deleteCheck(w);
+        if (check.error) {
+          this.deleteAsk = null;
+          this.wtError[w.path] = check.error;
+        } else if (asked !== check.sign) this.deleteAsk = { path: w.path, ...check };
+        else go = true;
+      } finally {
+        this.treeBusy.delete(w.path);
+      }
+      if (go) {
+        this.deleteAsk = null;
+        this.treeMenu = null;
+        await this.removeOne(w, cx, deleteWorktree);
+      }
+      cx.notify();
+    });
+  }
+
+  // A second line under a row: what it can do, or the question before a push or a delete.
+  actionsLine(t, w) {
+    const id = (name) => `wt-${name}-${w.path}`, busy = this.treeBusy?.has(w.path);
+    const line = (children) => h_flex().pl(8).pb(5).gap(5).flex_wrap().items_center().children(children);
+    const cancel = (key) => button(t, id("cancel"), "Cancel", (cx) => {
+      this[key] = null;
+      cx.notify();
+    }, { size: "sm" });
+    const say = (text) => div().text_size(10.5).text_color(t.blocked).child(text);
+    if (this.deleteAsk?.path === w.path) {
+      return line([say(this.deleteAsk.text), button(t, id("delete-go"), "Delete forever", (cx) => this.askDelete(w, cx), {
+        size: "sm", kind: "danger", disabled: busy,
+        tip: this.deleteAsk.ignored?.length ? `Ignored: ${this.deleteAsk.ignored.slice(0, 8).join(", ")}` : null,
+      }), cancel("deleteAsk")]);
+    }
+    if (this.pushAsk?.path === w.path) {
+      return line([say(this.pushAsk.text), button(t, id("push-go"), this.pushAsk.label, (cx) => this.askPush(w, cx), {
+        size: "sm", kind: "danger", disabled: busy,
+      }), cancel("pushAsk")]);
+    }
+    const saved = (r) => ({ title: "Saved", body: r.file });
+    const labels = {
+      patch: ["Save patch", (cx) => this.treeAction(w, cx, () => savePatch(w), saved), "Saves uncommitted changes outside the repo"],
+      commits: ["Save commits", (cx) => this.treeAction(w, cx, () => saveCommits(w), saved), "Saves commits not on GitHub outside the repo"],
+      push: ["Push backup", (cx) => this.askPush(w, cx), "Pushes its commits to a backup branch"],
+      delete: ["Delete", (cx) => this.askDelete(w, cx), "Deletes the worktree and everything in it"],
+    };
+    return line((w.actions ?? []).map((name) => button(t, id(name), labels[name][0], labels[name][1], {
+      size: "sm", tip: labels[name][2], disabled: busy,
+    })));
+  }
+
+  async removeOne(w, cx, remove = removeWorktree) {
     this.removing.add(w.path);
     delete this.wtError[w.path];
     cx.notify();
     if (w.space) run("space.close", { id: w.space, confirmed: true });
-    const err = await removeWorktree(w);
+    const err = await remove(w);
     if (!err) {
       // The row folds away natively before it leaves the list.
       this.gone.add(w.path);
@@ -197,8 +326,8 @@ export class TreeViews {
     const offersRemove = !w.dirty && !w.locked && (w.merged || w.group === "safe" || w.group === "pushed");
     const action = (id, label, tip, onClick, danger = false) =>
       button(t, id, label, onClick, { size: "sm", tip, kind: danger ? "danger" : "outline" });
-    return h_flex().id(`wt-${w.path}`).h(30).px(8).gap(6).items_center().rounded(6)
-      .when(this.selected(`wt-${w.path}`), (el) => el.bg(t.selected))
+    const open = this.treeMenu === w.path || this.deleteAsk?.path === w.path || this.pushAsk?.path === w.path;
+    const row = h_flex().h(30).px(8).gap(6).items_center().rounded(6)
       .hover((s) => s.bg(t.hover)).tooltip(note ? `${note}\n${w.path}` : w.path)
       .child(div().flex_none().text_size(11.5).text_color(t.muted).child(w.repo))
       .child(div().flex_1().min_w(0).truncate().text_size(11.5).child(w.branch ?? `${w.name} (detached)`))
@@ -210,7 +339,17 @@ export class TreeViews {
         () => this.openTree(w)))
       .when(offersRemove, (el) => el.child(action(`wt-rm-${w.path}`, sure ? "Confirm" : "Remove",
         w.group === "pushed" ? "Removes the worktree and its local branch. The branch stays on GitHub" : "Removes the worktree and its local branch. Files git ignores go with it",
-        (cx) => this.removeTree(w, cx), sure)));
+        (cx) => this.removeTree(w, cx), sure)))
+      .when(Boolean(w.actions?.length) && w.group === "work", (el) => el.child(action(`wt-more-${w.path}`, "⋯", "Save, back up or delete", (cx) => {
+        this.treeMenu = open ? null : w.path;
+        this.deleteAsk = null;
+        this.pushAsk = null;
+        cx.notify();
+      })));
+    return v_flex().id(`wt-${w.path}`).rounded(6)
+      .when(this.selected(`wt-${w.path}`), (el) => el.bg(t.selected))
+      .child(row)
+      .when(open, (el) => el.child(this.actionsLine(t, w)));
   }
 
   // git can take a few seconds on a big checkout; the spinner runs natively, without redraws.
@@ -232,6 +371,7 @@ export class TreeViews {
 
   treeGroups(t, worktrees) {
     const merged = worktrees.filter((w) => w.merged);
+    for (const w of merged) if (this.treeStates?.has(w.path)) this.applyState(w, Date.now() / 1000);
     const loose = worktrees.filter((w) => !w.merged && !w.open);
     const clean = this.removable(merged), sure = this.confirm === "all";
     const header = h_flex().pt(6).px(2).gap(6).items_center().text_size(10.5).text_color(t.dim)
