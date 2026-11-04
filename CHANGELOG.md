@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.22 · 2026-11-04
+
+- **Agent time goes to the project.** Time in a worktree or a subfolder now counts for its repo, not for the folder's name, and overlapping agents in one project count once. Time with a ticket keeps its ticket row, with the repo beside it. Stretches already in the ledger keep the name they were saved with.
+- **A record of removed worktrees.** **Remove**, **Remove N** and **Delete** add a line to `deletions.log` in the backups folder: when, what the row said, the repo, path, branch and commit. The commit can bring a deleted branch back until git cleans it up.
+
 ## 0.5.21 · 2026-11-04
 
 - **A lighter agents list.** It reads Herdr's panes once each time it draws, instead of several times per agent. Those repeated reads are what Herdr 0.1.13 fixed in its own list, where a busy setup could end in "This view could not be re-rendered".

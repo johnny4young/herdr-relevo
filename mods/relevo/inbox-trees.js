@@ -4,7 +4,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { exec, notify, run } from "herdr";
 import { scanWorktrees, removeWorktree, removalCheck, treeState, treeSize } from "./worktrees.js";
 import { actionsOf, groupOf, justUsed, whyOf, sizeOf } from "./lib/trees.js";
-import { backupsRoot, backupsSize, deleteCheck, deleteWorktree, pushBackup, pushPlan, savedState, saveCommits, savePatch } from "./worktree-actions.js";
+import { backupsRoot, backupsSize, deleteCheck, deleteWorktree, headOf, logRemoval, pushBackup, pushPlan, savedState, saveCommits, savePatch } from "./worktree-actions.js";
 import { button, spinner } from "./ui.js";
 import { ago } from "./lib/time.js";
 
@@ -227,21 +227,21 @@ export class TreeViews {
     const asked = this.deleteAsk?.path === w.path ? this.deleteAsk.sign : null;
     cx.notify();
     cx.spawn(async (cx) => {
-      let go = false;
+      let said = null;
       try {
         const check = await deleteCheck(w);
         if (check.error) {
           this.deleteAsk = null;
           this.wtError[w.path] = check.error;
         } else if (asked !== check.sign) this.deleteAsk = { path: w.path, ...check };
-        else go = true;
+        else said = check.text;
       } finally {
         this.treeBusy.delete(w.path);
       }
-      if (go) {
+      if (said) {
         this.deleteAsk = null;
         this.treeMenu = null;
-        await this.removeOne(w, cx, deleteWorktree);
+        await this.removeOne(w, cx, deleteWorktree, said);
       }
       cx.notify();
     });
@@ -279,13 +279,16 @@ export class TreeViews {
     })));
   }
 
-  async removeOne(w, cx, remove = removeWorktree) {
+  async removeOne(w, cx, remove = removeWorktree, said = w.ignored?.length ? `Remove, ${deletes(w.ignored)}` : "Remove") {
     this.removing.add(w.path);
     delete this.wtError[w.path];
     cx.notify();
     if (w.space) run("space.close", { id: w.space, confirmed: true });
+    const head = await headOf(w);
     const err = await remove(w);
     if (!err) {
+      if (!await logRemoval(w, head, said)) notify({ title: "Removed, but not written to deletions.log", body: w.path, level: "warning" });
+      this.backupsKb = await backupsSize();
       // The row folds away natively before it leaves the list.
       this.gone.add(w.path);
       cx.notify();

@@ -1,5 +1,12 @@
 const DAY = 86400;
 
+// The repo a git folder belongs to: /code/app/.git and /code/app.git are both "app".
+export function repoOfGitDir(dir) {
+  const parts = dir.replace(/\/+$/, "").split("/");
+  const last = parts.at(-1);
+  return (last === ".git" ? parts.at(-2) : last.replace(/\.git$/, "")) || null;
+}
+
 // Worked time per ticket (or repo without one) between since and until; parallel stretches on one ticket count once.
 export function totals(rows, since, until = Infinity, min = 60) {
   const spans = {};

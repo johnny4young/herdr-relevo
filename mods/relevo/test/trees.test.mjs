@@ -171,6 +171,56 @@ test("Remove all leaves out a worktree that gained a space or a terminal after t
   assert.equal(v.wtError["/work/wt2"], "open in a terminal");
 });
 
+const logged = () => fake.execs.filter((l) => l.includes("deletions.log")).map((l) => JSON.parse(l.slice(l.indexOf('{"at"'))));
+
+function removable({ remove = null, log = null } = {}) {
+  fake.exec = (cmd, args) => {
+    if (cmd === "sh" && args[1].includes("deletions.log")) return log;
+    if (cmd === "sh") return { stdout: `${args.at(-1)}\t1\n` };
+    if (args.includes("rev-parse")) return { stdout: "abc123\n" };
+    if (args.includes("remove")) return remove;
+    return null;
+  };
+}
+
+test("Remove logs what went, with its commit, and the ignored files it took", async () => {
+  removable();
+  const v = view(), w = tree(), cx = fakeCx();
+  await v.removeOne(w, cx);
+  await v.removeOne(tree({ ignored: [".env"] }), cx);
+  const [plain, ignored] = logged();
+  assert.deepEqual({ ...plain, at: null }, { at: null, said: "Remove", repo: "app", path: PATH, branch: "feat", head: "abc123" });
+  assert.ok(!Number.isNaN(Date.parse(plain.at)));
+  assert.equal(ignored.said, "Remove, deletes .env");
+  assert.deepEqual(fake.notices, []);
+});
+
+test("Remove all logs each one", async () => {
+  removable();
+  const v = view(), a = tree(), b = tree({ path: "/work/wt2" }), cx = fakeCx();
+  v.confirm = "all";
+  v.removeAll([a, b], cx);
+  for (let i = 0; i < 12; i++) await flush();
+  assert.deepEqual(logged().map((e) => e.path), [PATH, "/work/wt2"]);
+});
+
+test("a removal git refuses isn't logged", async () => {
+  removable({ remove: { code: 1, stderr: "fatal: contains modified files\n" } });
+  const v = view(), cx = fakeCx();
+  await v.removeOne(tree(), cx);
+  assert.deepEqual(logged(), []);
+  assert.equal(v.wtError[PATH], "fatal: contains modified files");
+});
+
+test("a log that can't be written is said, and the row still leaves", async () => {
+  removable({ log: { code: 1, stderr: "read-only\n" } });
+  const w = tree(), v = view(w), cx = fakeCx();
+  await v.removeOne(w, cx);
+  assert.match(fake.notices[0].title, /not written to deletions\.log/);
+  assert.equal(fake.notices[0].body, PATH);
+  assert.deepEqual(v.worktrees, []);
+});
+
 test("a branch git keeps is reported", async () => {
   fake.exec = (cmd, args) => (cmd === "sh" ? { stdout: `${PATH}\t1\n` } : args.includes("branch") ? { code: 1, stderr: "error: not fully merged\n" } : null);
   const v = view(), w = tree(), cx = fakeCx();

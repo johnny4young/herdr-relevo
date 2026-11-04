@@ -14,7 +14,7 @@ import { githubRepo, withoutLogin } from "../lib/git.js";
 
 const { TreeViews } = await import("../inbox-trees.js");
 const { removalCheck, treeState } = await import("../worktrees.js");
-const { backupsSize, deleteCheck, deleteWorktree, pushBackup, pushPlan, savedState, saveCommits, savePatch } = await import("../worktree-actions.js");
+const { backupsSize, deleteCheck, deleteWorktree, logRemoval, pushBackup, pushPlan, savedState, saveCommits, savePatch } = await import("../worktree-actions.js");
 const settled = async () => { for (let i = 0; i < 12; i++) await flush(); };
 
 const NOW = 2_000_000_000, DAY = 86400, OLD = NOW - 30 * DAY;
@@ -419,6 +419,39 @@ test("real git: Delete says what goes, refuses what's in use, then takes everyth
   assert.equal(existsSync(path), false);
   assert.equal(spawnSync("git", ["rev-parse", "-q", "--verify", "refs/heads/feat"], { cwd: w.main }).status, 1);
   assert.equal(spawnSync("git", ["rev-parse", "-q", "--verify", "refs/heads/main"], { cwd: w.main }).status, 0);
+});
+
+test("real git: Delete through the row logs what it said, and the commit restores the branch", async (t) => {
+  const { w, path, commit, git } = realTree(t), root = rootOf(w), tree = { ...w, repo: "app" };
+  commit("b.txt");
+  const head = git("rev-parse", "HEAD").trim();
+  later();
+  const real = fake.exec;
+  fake.exec = (cmd, args, options) => real(cmd, args.map((a) => (a === "/home/test/relevo-backups" ? root : a)), options);
+  const { v } = view({});
+  v.worktrees = [tree];
+  const cx = fakeCx();
+  v.askDelete(tree, cx);
+  await settled();
+  const shown = v.deleteAsk.text;
+  v.askDelete(tree, cx);
+  await settled();
+  assert.equal(existsSync(path), false);
+  const log = join(root, "deletions.log"), [entry, ...rest] = readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual(rest, []);
+  assert.deepEqual({ ...entry, at: null }, { at: null, said: shown, repo: "app", path, branch: "feat", head });
+  assert.equal(statSync(log).mode & 0o777, 0o600);
+  execFileSync("git", ["branch", "feat", entry.head], { cwd: w.main });
+});
+
+test("real git: the log only grows, keeps odd paths on one line and has no commit when none could be read", async (t) => {
+  const { w } = realTree(t), root = join(rootOf(w), "new", "backups");
+  const odd = { repo: "app", path: "/w/a \"b\"\n$(touch x)", branch: null };
+  assert.equal(await logRemoval(odd, "", "Remove", root), true);
+  assert.equal(await logRemoval({ ...odd, path: "/w/second", branch: "feat" }, "abc", "Delete: nothing unsaved", root), true);
+  const lines = readFileSync(join(root, "deletions.log"), "utf8").trimEnd().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual(lines.map((e) => [e.path, e.branch, e.head]), [[odd.path, null, null], ["/w/second", "feat", "abc"]]);
+  assert.equal(statSync(root).mode & 0o777, 0o700);
 });
 
 test("real git: once saved, Delete says nothing is lost; a later edit says otherwise", async (t) => {
