@@ -1,10 +1,10 @@
 // The Inbox's merged worktrees: scan, open, remove. Mixed into Inbox, so `this` is the Inbox.
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { notify, run } from "herdr";
+import { exec, notify, run } from "herdr";
 import { scanWorktrees, removeWorktree, removalCheck, treeState, treeSize } from "./worktrees.js";
 import { actionsOf, groupOf, whyOf, sizeOf } from "./lib/trees.js";
-import { deleteCheck, deleteWorktree, pushBackup, pushPlan, savedState, saveCommits, savePatch } from "./worktree-actions.js";
+import { backupsRoot, backupsSize, deleteCheck, deleteWorktree, pushBackup, pushPlan, savedState, saveCommits, savePatch } from "./worktree-actions.js";
 import { button, spinner } from "./ui.js";
 import { ago } from "./lib/time.js";
 
@@ -26,6 +26,7 @@ export class TreeViews {
         this.scanningTrees = false;
       }
       if (this.expanded.loose || this.worktrees.some((w) => w.merged && w.dirty)) this.loadTreeStates(cx, force);
+      this.backupsKb = await backupsSize();
       cx.notify();
     });
   }
@@ -168,6 +169,7 @@ export class TreeViews {
         this.treeBusy.delete(w.path);
         this.treeStates?.delete(w.path);
         this.loadTreeStates(cx);
+        this.backupsKb = await backupsSize();
         cx.notify();
       }
     });
@@ -327,12 +329,9 @@ export class TreeViews {
     const action = (id, label, tip, onClick, danger = false) =>
       button(t, id, label, onClick, { size: "sm", tip, kind: danger ? "danger" : "outline" });
     const open = this.treeMenu === w.path || this.deleteAsk?.path === w.path || this.pushAsk?.path === w.path;
-    const row = h_flex().h(30).px(8).gap(6).items_center().rounded(6)
-      .hover((s) => s.bg(t.hover)).tooltip(note ? `${note}\n${w.path}` : w.path)
+    const row = h_flex().h(note ? 24 : 30).px(8).gap(6).items_center()
       .child(div().flex_none().text_size(11.5).text_color(t.muted).child(w.repo))
       .child(div().flex_1().min_w(0).truncate().text_size(11.5).child(w.branch ?? `${w.name} (detached)`))
-      .when(Boolean(note), (el) => el.child(
-        div().flex_none().max_w(140).truncate().text_size(10.5).text_color(err || sure ? t.blocked : t.dim).child(note)))
       .when(Boolean(w.kb), (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child(sizeOf(w.kb))))
       .when(Boolean(w.at), (el) => el.child(this.age(t, w)))
       .child(action(`wt-open-${w.path}`, w.space ? "Go" : "Open", w.space ? "Go to its space" : "Open a space here",
@@ -348,7 +347,10 @@ export class TreeViews {
       })));
     return v_flex().id(`wt-${w.path}`).rounded(6)
       .when(this.selected(`wt-${w.path}`), (el) => el.bg(t.selected))
-      .child(row)
+      .child(v_flex().rounded(6).hover((s) => s.bg(t.hover)).tooltip(w.path)
+        .child(row)
+        .when(Boolean(note), (el) => el.child(
+          div().px(8).pb(6).text_size(10.5).text_color(err || sure ? t.blocked : t.dim).child(note))))
       .when(open, (el) => el.child(this.actionsLine(t, w)));
   }
 
@@ -367,6 +369,13 @@ export class TreeViews {
 
   age(t, w) {
     return div().flex_none().text_size(10.5).text_color(t.dim).child(ago(w.at).replace(" ago", ""));
+  }
+
+  backupsRow(t) {
+    return h_flex().h(30).mt(6).px(8).gap(6).items_center().text_size(11.5).text_color(t.muted).tooltip(backupsRoot())
+      .child(div().flex_1().child("Backups"))
+      .child(div().flex_none().text_size(10.5).text_color(t.dim).child(sizeOf(this.backupsKb)))
+      .child(button(t, "wt-backups-open", "Open", () => exec("open", [backupsRoot()]), { size: "sm" }));
   }
 
   treeGroups(t, worktrees) {
@@ -397,6 +406,7 @@ export class TreeViews {
         .child(`${open ? "▾" : "▸"} ${loose.length} worktrees without a space`));
       if (open) rows.push(...this.looseViews(t, worktrees));
     }
+    if (this.backupsKb) rows.push(this.backupsRow(t));
     return rows;
   }
 }

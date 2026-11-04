@@ -1,7 +1,7 @@
 import { exec, home, notify, spaces, panes } from "herdr";
 import { REPOS_ROOT as ROOT } from "./config.js";
 import { mergedHeads } from "./lib/github.js";
-import { GIT_READ } from "./lib/git.js";
+import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
 import { groupOf } from "./lib/trees.js";
 
 // Every linked worktree of the clones in ROOT, as "<main>\t<porcelain line>".
@@ -25,8 +25,6 @@ function parse(out) {
 // "<path>\t<newest of last commit, index and HEAD>": the index moves with any git use there.
 const TOUCHED = 'for w; do g=$(git -C "$w" rev-parse --absolute-git-dir 2>/dev/null) || continue; c=$(git -C "$w" log -1 --format=%ct 2>/dev/null); m=$(stat -f %m "$g/index" "$g/HEAD" 2>/dev/null | sort -n | tail -1); printf "%s\t%s\n" "$w" "$(printf "%s\n%s\n" "${c:-0}" "${m:-0}" | sort -n | tail -1)"; done';
 
-const slug = (url) => /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/.exec(url.trim())?.[1] ?? null;
-
 // GitHub's merged PRs per repo, asked again after MERGED_TTL or on a forced refresh;
 // scans also run on every space change, and this is the network call in them.
 const MERGED_TTL = 15 * 60 * 1000;
@@ -36,7 +34,7 @@ async function githubMerged(main, force) {
   const hit = mergedOnGitHub.get(main);
   if (hit && !force && Date.now() - hit.at < MERGED_TTL) return hit.branches;
   const branches = new Set();
-  const repo = slug((await exec("git", ["-C", main, "remote", "get-url", "origin"])).stdout);
+  const repo = githubRepo(withoutLogin((await exec("git", ["-C", main, "remote", "get-url", "origin"])).stdout));
   if (repo) {
     const r = await exec("gh", ["pr", "list", "-R", repo, "--state", "merged", "--limit", "100", "--json", "headRefName,isCrossRepository"]);
     if (r.code !== 0) return hit?.branches ?? branches;

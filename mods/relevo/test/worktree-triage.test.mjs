@@ -10,10 +10,11 @@ import { join } from "node:path";
 import { fake, resetFake, calls, theme } from "./fake/herdr.mjs";
 import { fakeCx, find, flush, text } from "./fake/ui.mjs";
 import { actionsOf, groupOf, whyOf, sizeOf } from "../lib/trees.js";
+import { githubRepo, withoutLogin } from "../lib/git.js";
 
 const { TreeViews } = await import("../inbox-trees.js");
 const { removalCheck, treeState } = await import("../worktrees.js");
-const { deleteCheck, deleteWorktree, githubRepo, pushBackup, pushPlan, savedState, saveCommits, savePatch, withoutLogin } = await import("../worktree-actions.js");
+const { backupsSize, deleteCheck, deleteWorktree, pushBackup, pushPlan, savedState, saveCommits, savePatch } = await import("../worktree-actions.js");
 const settled = async () => { for (let i = 0; i < 12; i++) await flush(); };
 
 const NOW = 2_000_000_000, DAY = 86400, OLD = NOW - 30 * DAY;
@@ -455,4 +456,35 @@ test("real git: a pushed detached worktree can be removed only while GitHub has 
   assert.equal((await removalCheck({ ...tree, group: "pushed" })).error, undefined);
   originGit("update-ref", "-d", "refs/heads/backup/wt");
   assert.equal((await removalCheck({ ...tree, group: "pushed" })).error, "not on GitHub anymore");
+});
+
+test("the merged-PR lookup and a push read a remote URL the same way", () => {
+  const repoOf = (url) => githubRepo(withoutLogin(url));
+  assert.equal(repoOf("git@github.com:me/app.git\n"), "me/app");
+  assert.equal(repoOf("https://tok@github.com/me/app.git"), "me/app");
+  for (const url of ["https://notgithub.com/me/app", "https://github.com.evil.com/me/app", "https://evil.example?@github.com/me/app"]) {
+    assert.equal(repoOf(url), null, url);
+  }
+});
+
+test("a row's note has its own line, so the buttons can't cut it", () => {
+  const v = Object.assign(new TreeViews(), { expanded: {}, removing: new Set(), gone: new Set(), wtError: {}, selected: () => false });
+  const why = "12 files uncommitted, saved · 75 commits not pushed, saved";
+  const drawn = v.treeRow(theme(), { path: "/w/a", repo: "app", branch: "feat", why });
+  const holder = (node, id) => node.items?.find((c) => c?.key === id) ? node : node.items?.map((c) => holder(c, id)).find(Boolean);
+  assert.ok(text(drawn).includes(why));
+  assert.ok(!text(holder(drawn, "wt-open-/w/a")).includes(why));
+});
+
+test("backups: the folder's size, and no row before anything is saved", async () => {
+  fake.exec = () => ({ code: 0, stdout: "2048\t/h/relevo-backups\n" });
+  assert.equal(await backupsSize("/h/relevo-backups"), 2048);
+  fake.exec = () => ({ code: 1, stderr: "no such file" });
+  assert.equal(await backupsSize("/h/relevo-backups"), 0);
+  const v = Object.assign(new TreeViews(), { expanded: {}, removing: new Set(), gone: new Set(), wtError: {} });
+  assert.equal(v.treeGroups(theme(), []).length, 0);
+  v.backupsKb = 2048;
+  const rows = v.treeGroups(theme(), []);
+  assert.equal(rows.length, 1);
+  assert.match(text(rows[0]), /Backups.*2 MB.*Open/s);
 });

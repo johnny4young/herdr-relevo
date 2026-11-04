@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.18 · 2026-11-04
+
+- **Read why, whole.** A worktree's reason or error now has its own line under the row, instead of being cut off beside the buttons.
+- **See your backups.** The worktrees section shows how much `~/relevo-backups` takes, with **Open**. Nothing is ever deleted from it for you.
+- **Fewer wrong repos.** Looking up merged PRs now only trusts a remote whose host is exactly github.com, as pushing a backup already did.
+
 ## 0.5.17 · 2026-11-03
 
 - **Do something about a worktree with work.** Its row in "worktrees without a space" gets a `⋯` menu. **Save patch** and **Save commits** keep your changes and commits outside the repo, in `~/relevo-backups`, and only say saved once they're verified. **Push backup** sends commits to a `backup/` branch and warns you when that publishes them. **Delete** removes the worktree and everything in it, saying first what you'd lose. Anything used in the last 7 days, open or locked can't be deleted.
