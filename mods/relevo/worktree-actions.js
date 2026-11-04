@@ -133,8 +133,9 @@ export function githubRepo(url) {
   return m?.[1] ?? null;
 }
 
-// A URL can carry a token, so what's shown or reported never has its user or password.
-export const withoutLogin = (text) => String(text ?? "").replace(/(\w+:\/\/)[^@/\s]+@/g, "$1");
+// A URL can carry a token, so what's shown never has its login. Only inside the real authority:
+// in evil.example?@github.com the host is evil.example, and it must stay what's shown.
+export const withoutLogin = (text) => String(text ?? "").replace(/(\w+:\/\/)[^/?#\\\s]*@/g, "$1");
 
 // Where a push would really go. Anything but a GitHub repo known to be private counts as public.
 export async function pushPlan(w, state) {

@@ -372,6 +372,14 @@ test("a token in a remote URL is never shown", async () => {
   assert.equal((await pushPlan({ path: "/w/a", repo: "app" }, { unpushed: 1 })).text, "Publishes 1 commit to https://github.com/me/app.git");
 });
 
+test("withoutLogin never makes a URL look like another host", () => {
+  for (const url of ["https://evil.example?@github.com/x", "https://evil.example#@github.com/x", "https://evil.example\\@github.com/x", "https://evil.example/@github.com/x"]) {
+    assert.equal(withoutLogin(url), url);
+  }
+  assert.equal(withoutLogin("https://a@b:c@git.example.com/x"), "https://git.example.com/x");
+  assert.equal(githubRepo("https://evil.example?@github.com/me/app"), null);
+});
+
 test("real git: a second click pushes only what the question showed", async (t) => {
   const { w, path, commit, git, originGit } = realTree(t), tree = { ...w, repo: "app" };
   commit("b.txt");
