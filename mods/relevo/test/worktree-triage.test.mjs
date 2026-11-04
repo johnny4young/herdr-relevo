@@ -4,6 +4,7 @@ import { test, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import { Buffer } from "node:buffer";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fake, resetFake, calls, theme } from "./fake/herdr.mjs";
