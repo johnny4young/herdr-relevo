@@ -133,14 +133,19 @@ export function githubRepo(url) {
   return m?.[1] ?? null;
 }
 
+// A URL can carry a token, so what's shown or reported never has its user or password.
+export const withoutLogin = (text) => String(text ?? "").replace(/(\w+:\/\/)[^@/\s]+@/g, "$1");
+
 // Where a push would really go. Anything but a GitHub repo known to be private counts as public.
 export async function pushPlan(w, state) {
-  const url = line(await git(w, ["remote", "get-url", "--push", "origin"]));
+  const urls = line(await git(w, ["remote", "get-url", "--push", "--all", "origin"])).split("\n").filter(Boolean);
+  if (urls.length > 1) return { error: `origin pushes to ${urls.length} places` };
+  const url = urls[0] ?? "";
   const head = line(await git(w, ["rev-parse", "HEAD"]));
   const repo = githubRepo(url);
   const seen = repo ? await exec("gh", ["repo", "view", repo, "--json", "visibility", "-q", ".visibility"]) : null;
   const closed = line(seen ?? { code: 1 }) === "PRIVATE";
-  const commits = plural(state.unpushed, "commit"), where = repo ?? (url || "an unknown remote");
+  const commits = plural(state.unpushed, "commit"), where = repo ?? (withoutLogin(url) || "an unknown remote");
   return {
     head, sign: JSON.stringify({ head, url, closed, unpushed: state.unpushed }),
     text: closed ? `Pushes ${commits} to private ${where}` : repo ? `Publishes ${commits} to public ${where}` : `Publishes ${commits} to ${where}`,
@@ -153,7 +158,7 @@ export async function pushBackup(w, head) {
   if (!head) return { error: "could not read its commit" };
   const ref = `refs/heads/backup/${nameOf(w)}`;
   const pushed = await exec("git", ["push", "origin", `${head}:${ref}`], { cwd: w.path });
-  if (pushed.code !== 0) return { error: failure(pushed, "push failed") };
+  if (pushed.code !== 0) return { error: withoutLogin(failure(pushed, "push failed")) };
   const remote = await git(w, ["ls-remote", "origin", ref]);
   if (remote.stdout.split(/\s/)[0] !== head) return { error: "GitHub doesn't show the commit" };
   return { ref: `backup/${nameOf(w)}` };

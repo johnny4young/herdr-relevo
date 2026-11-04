@@ -191,7 +191,10 @@ export class TreeViews {
           return;
         }
         const now = await pushPlan(w, state);
-        if (asked === now.sign) plan = now;
+        if (now.error) {
+          this.pushAsk = null;
+          this.wtError[w.path] = now.error;
+        } else if (asked === now.sign) plan = now;
         else this.pushAsk = { path: w.path, ...now };
       } catch (e) {
         this.wtError[w.path] = String(e?.message ?? e);

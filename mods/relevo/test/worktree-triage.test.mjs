@@ -13,7 +13,7 @@ import { actionsOf, groupOf, whyOf, sizeOf } from "../lib/trees.js";
 
 const { TreeViews } = await import("../inbox-trees.js");
 const { removalCheck, treeState } = await import("../worktrees.js");
-const { deleteCheck, deleteWorktree, githubRepo, pushBackup, pushPlan, savedState, saveCommits, savePatch } = await import("../worktree-actions.js");
+const { deleteCheck, deleteWorktree, githubRepo, pushBackup, pushPlan, savedState, saveCommits, savePatch, withoutLogin } = await import("../worktree-actions.js");
 const settled = async () => { for (let i = 0; i < 12; i++) await flush(); };
 
 const NOW = 2_000_000_000, DAY = 86400, OLD = NOW - 30 * DAY;
@@ -354,6 +354,22 @@ test("real git: the question follows the push URL, not the fetch URL", async (t)
   commit("b.txt");
   git("remote", "set-url", "--push", "origin", "https://elsewhere.example/x.git");
   assert.equal((await pushPlan({ ...w, repo: "app" }, { unpushed: 1 })).text, "Publishes 1 commit to https://elsewhere.example/x.git");
+});
+
+test("real git: a remote that pushes to several places isn't pushed", async (t) => {
+  const { w, git, originPath } = realTree(t);
+  git("remote", "set-url", "--add", "--push", "origin", originPath);
+  git("remote", "set-url", "--add", "--push", "origin", "https://elsewhere.example/x.git");
+  assert.equal((await pushPlan({ ...w, repo: "app" }, { unpushed: 1 })).error, "origin pushes to 2 places");
+});
+
+test("a token in a remote URL is never shown", async () => {
+  fake.exec = remoteIs("https://me:s3cret@git.example.com/me/app.git");
+  const plan = await pushPlan({ path: "/w/a", repo: "app" }, { unpushed: 1 });
+  assert.equal(plan.text, "Publishes 1 commit to https://git.example.com/me/app.git");
+  assert.equal(withoutLogin("fatal: unable to access 'https://x-token:abc@github.com/me/app/': 403"), "fatal: unable to access 'https://github.com/me/app/': 403");
+  fake.exec = remoteIs("https://tok@github.com/me/app.git");
+  assert.equal((await pushPlan({ path: "/w/a", repo: "app" }, { unpushed: 1 })).text, "Publishes 1 commit to https://github.com/me/app.git");
 });
 
 test("real git: a second click pushes only what the question showed", async (t) => {
