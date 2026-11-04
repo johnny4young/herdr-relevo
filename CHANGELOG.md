@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.15 · 2026-11-03
+
+- **Why it's waiting, at a glance.** A blocked agent in the Agents list gets a second line with its reason, like `Run: rm -rf dist · +2 lines`, `Edit: notes.txt` or `Plan to approve`. "While you were away" says the same. You still approve on its card in the Inbox, where the whole command shows.
+
 ## 0.5.14 · 2026-11-03
 
 - **See what you're approving.** A permission's card in the Inbox now shows the command, diff or plan, with why the agent wants it. Before, a Claude card only asked "Do you want to proceed?", and a Codex card lost the command's first line. Long lines wrap, and past 8 lines a click shows the rest. If the card can't read all of what's being asked, it offers no answer and sends you to the agent.

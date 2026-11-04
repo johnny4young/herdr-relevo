@@ -386,23 +386,12 @@ export default class Agents extends View {
       // Without a space header above (priority, pinned) the row names its space.
       const full = byPriority || isPinned;
       const name = full ? a.space_name || label(a) : more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
-      return h_flex()
-        .id(`ag-${a.address}`)
-        .px(8)
+      const why = a.status === "blocked" ? shared("relevo.reasons")?.[a.address] : null;
+      const line = h_flex()
         .h(30)
         .flex_none()
-        .rounded(8)
         .items_center()
         .gap(9)
-        .when(a.focused, (el) => el.bg(t.selected))
-        .cursor_pointer()
-        .hover((s) => s.bg(t.hover))
-        .on_hover((on, cx) => {
-          if (on) this.hovered = a.address;
-          else if (this.hovered === a.address) this.hovered = null;
-          cx.notify();
-        })
-        .on_click(() => run("pane.focus", { pane: a.pane }))
         .when(Boolean(pic), el => el.child(div().id(`agent-fold-${a.address}`)
           .when(subs.length > 0, el => el.on_click((_e, cx) => {
             cx.stop_propagation();
@@ -419,6 +408,23 @@ export default class Agents extends View {
         .when(this.hovered === a.address, el => el.child(reply).child(pin))
         .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
         .child(this.status(t, a, byPriority && !isPinned));
+      return v_flex()
+        .id(`ag-${a.address}`)
+        .px(8)
+        .flex_none()
+        .rounded(8)
+        .when(a.focused, (el) => el.bg(t.selected))
+        .cursor_pointer()
+        .hover((s) => s.bg(t.hover))
+        .on_hover((on, cx) => {
+          if (on) this.hovered = a.address;
+          else if (this.hovered === a.address) this.hovered = null;
+          cx.notify();
+        })
+        .on_click(() => run("pane.focus", { pane: a.pane }))
+        .child(line)
+        .when(Boolean(why), (el) => el.child(div().id(`why-${a.address}`).h(14).mb(2).pl(pic ? 25 : 0).truncate()
+          .text_size(11).text_color(t.muted).child(why)));
     };
 
     // Groups in list order: spaces (grouped) or priority sections. Agents of a

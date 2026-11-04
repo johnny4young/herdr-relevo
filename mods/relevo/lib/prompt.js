@@ -201,6 +201,43 @@ export function submitKeys(prompt) {
   return [...moves, "enter"];
 }
 
+const REASON_MAX = 40;
+
+// One line, cut at a word.
+export function fit(text, n = REASON_MAX) {
+  const s = String(text ?? "").trim().replace(/\s+/g, " ");
+  if (s.length <= n) return s;
+  const cut = s.slice(0, n - 1), word = cut.lastIndexOf(" ");
+  return `${(word > 0 ? cut.slice(0, word) : cut).replace(/[ ,;:.-]+$/, "")}…`;
+}
+
+function runReason({ body }) {
+  const more = body.length - 1, tail = more > 0 ? ` · +${more} ${more === 1 ? "line" : "lines"}` : "";
+  return `${fit(`Run: ${body[0]}`, REASON_MAX - tail.length)}${tail}`;
+}
+
+// Why an agent waits, for places with no room for its card. It may be cut, so no answer ever sits beside it.
+// report: the agent's own status report (kind, msg), for what the screen doesn't say.
+export function reasonOf(prompt, report = null) {
+  const ask = prompt?.ask, title = ask?.title ?? "", msg = String(report?.msg ?? "");
+  if (report?.kind === "auth") return fit(msg) || "Signed out";
+  if (isPlan(prompt?.question) || /^approve plan$/i.test(msg)) return "Plan to approve";
+  if (ask?.body.length && (title === "Bash command" || /^Would you like to run/.test(prompt.question))) return runReason(ask);
+  if (/^(Edit|Create) file$/.test(title) && ask.about) return fit(`${title.split(" ")[0]}: ${ask.about}`);
+  if (title === "Fetch") {
+    const url = ask.body.find((l) => l.startsWith("url:"))?.slice(4).trim();
+    if (url) return fit(`Fetch: ${url}`);
+  }
+  if (title) return fit(title);
+  const approve = /^approve\s+(\S+?):\s*(.+)$/i.exec(msg);
+  if (approve) return fit(`${approve[1] === "Bash" ? "Run" : approve[1]}: ${approve[2]}`);
+  if (ask || report?.kind === "permission") return "Asks permission";
+  const asked = /^answer:\s*(.*?)(\s+\([^)]*\))?$/i.exec(msg)?.[1];
+  if (prompt?.unparsed) return asked ? fit(asked) : "Waits in its terminal";
+  const line = (prompt?.question ?? "").split("\n")[0];
+  return fit(line) || (prompt?.options.length ? "Question for you" : "Waits for your reply");
+}
+
 // What's above the input box: below it sit the mode and the status line.
 const aboveInput = (lines) => {
   const i = lines.findLastIndex((l) => INPUT.test(l.trim()));
