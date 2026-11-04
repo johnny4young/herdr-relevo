@@ -723,3 +723,32 @@ test("a short absence shows nothing", async () => {
   await flush();
   assert.equal(find(ui(), "away"), null);
 });
+
+const PERMISSION = (...command) => [
+  "─".repeat(20), " Bash command", " Clean up", "╌".repeat(20), ...command.map((c) => ` │ ${c}`), "╌".repeat(20),
+  " Do you want to proceed?", " ❯ 1. Yes", "   2. No",
+].join("\n");
+
+test("a permission's card shows the command it asks about", async () => {
+  const { ui } = await waiting(PERMISSION("git push --force origin main"));
+  const view = text(ui());
+  assert.match(view, /Bash command · Clean up/);
+  assert.match(view, /git push --force origin main/);
+  assert.doesNotMatch(view, /╌/);
+});
+
+test("a long command shows its first lines and says how many it left out", async () => {
+  const { ui } = await waiting(PERMISSION(...Array.from({ length: 10 }, (_, i) => `step ${i + 1}`)));
+  const view = text(ui());
+  assert.match(view, /step 8/);
+  assert.doesNotMatch(view, /step 9/);
+  assert.match(view, /\+2 more lines/);
+});
+
+test("the lines left out show with a click", async () => {
+  const { ui, cx } = await waiting(PERMISSION(...Array.from({ length: 10 }, (_, i) => `step ${i + 1}`)));
+  click(find(ui(), "ask-t1-more"), cx);
+  const view = text(ui());
+  assert.match(view, /step 10/);
+  assert.doesNotMatch(view, /more lines/);
+});

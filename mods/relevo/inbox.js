@@ -26,6 +26,8 @@ import { AwayViews } from "./inbox-away.js";
 
 // How long a send waits for its dialog to go, in 250 ms reads.
 const SETTLE_TRIES = 8;
+// Lines of a command, diff or plan a card shows.
+const ASK_LINES = 8;
 
 // Local work, pull requests and merged worktrees in one list; the PR and worktree parts live in their own files.
 function savedSince() {
@@ -251,6 +253,25 @@ export class Inbox {
     this.wanted.clear();
   }
 
+  // Long lines wrap: a cut command could hide the part that matters.
+  askBlock(t, ask, address) {
+    const head = [ask.title, ask.about].filter(Boolean).join(" · "), key = `ask-${address}`;
+    const more = this.expanded[key] ? 0 : ask.body.length - ASK_LINES;
+    const mono = (el) => el.font_family(settings().font_family ?? "JetBrains Mono").text_size(10.5);
+    return v_flex().gap(3)
+      .when(Boolean(head), (el) => el.child(div().text_size(11).text_color(t.muted).child(head)))
+      .when(ask.body.length > 0, (el) => el.child(mono(v_flex().min_w(0).px(8).py(5).rounded(6).bg(t.raised).text_color(t.foreground))
+        .when(Boolean(ask.cut), (b) => b.child(div().text_color(t.dim).child("… starts above the screen")))
+        .children((more > 0 ? ask.body.slice(0, ASK_LINES) : ask.body).map((l) => div().min_w(0).child(l)))
+        .when(more > 0, (b) => b.child(div().id(`${key}-more`).cursor_pointer().text_color(t.accent)
+          .on_click((_e, cx) => {
+            cx.stop_propagation();
+            this.expanded[key] = true;
+            cx.notify();
+          })
+          .child(`+${more} more ${more === 1 ? "line" : "lines"}`)))));
+  }
+
   // A waiting agent's question and its choices as a list: a click answers (or checks, in a multiple choice).
   waitingCard(t, item, goAgent) {
     const a = item.agent, p = item.prompt ?? { question: "", options: [] }, replying = this.replying === a.address;
@@ -286,6 +307,7 @@ export class Inbox {
     return this.card(t, `in-${a.address}`, true,
       this.head(t, t.blocked, `${item.repo} · ${a.tab_name || item.branch || ""}`, ago(item.at)),
       v_flex().gap(4)
+        .when(Boolean(p.ask), (el) => el.child(this.askBlock(t, p.ask, a.address)))
         .child(v_flex().children((p.question || "Waiting for you").split("\n")
           .map((l) => div().truncate().text_size(12).text_color(t.foreground).child(l))))
         .when(Boolean(p.summary?.length), (el) => el.child(v_flex().gap(3).py(4).px(8).rounded(6).bg(t.raised)
