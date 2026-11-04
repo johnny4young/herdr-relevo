@@ -97,12 +97,12 @@ test("a waiting agent's row says why; others stay one line", async () => {
 });
 
 test("a row says its folder only when the space's name doesn't", async () => {
-  const { ui } = await open([agent("t1", { space_name: "gos", cwd: "/home/test/Personal/github" }), agent("t2", { space_name: "app", cwd: "/home/test/Personal/github/app" })]);
+  const { ui } = await open([agent("t1", { space_name: "gos", cwd: "/home/test/code/repos" }), agent("t2", { space_name: "app", cwd: "/home/test/code/repos/app" })]);
   const drawn = ui();
-  assert.equal(text(find(drawn, "folder-t1")), "Personal/github");
-  assert.equal(find(drawn, "ag-t1").tip, "/home/test/Personal/github");
+  assert.equal(text(find(drawn, "folder-t1")), "code/repos");
+  assert.equal(find(drawn, "ag-t1").tip, "/home/test/code/repos");
   assert.equal(find(drawn, "folder-t2"), null);
-  assert.equal(find(drawn, "ag-t2").tip, "/home/test/Personal/github/app");
+  assert.equal(find(drawn, "ag-t2").tip, "/home/test/code/repos/app");
 });
 
 test("folderNote: home, a subfolder and another machine", () => {
