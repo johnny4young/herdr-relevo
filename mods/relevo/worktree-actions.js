@@ -1,11 +1,17 @@
 // What a worktree with work can do before it goes: save its changes or commits, push a backup, delete it all.
 import { exec, home, panes, readTextFile, spaces } from "herdr";
 import * as config from "./config.js";
-import { GIT_READ } from "./lib/git.js";
+import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
 import { RECENT_AFTER, plural, sizeOf } from "./lib/trees.js";
 import { baseBranch, ignoredPaths, isLocked, nestedRepo, touchedAt, treeSize, treeState } from "./worktrees.js";
 
 export const backupsRoot = () => `${home()}/${config.BACKUPS_ROOT ?? "relevo-backups"}`;
+
+// 0 when nothing was saved yet, so there's no folder to show.
+export async function backupsSize(root = backupsRoot()) {
+  const r = await exec("du", ["-sk", root]);
+  return r.code === 0 ? Number(r.stdout.split(/\s/)[0]) || 0 : 0;
+}
 
 // A Codex worktree is <task>/<repo>, so the task names it.
 function nameOf(w) {
@@ -125,17 +131,6 @@ export async function saveCommits(w, root = backupsRoot()) {
   await remember(w, root, { bundleHead: head, bundle: file });
   return { file };
 }
-
-// Only a URL whose host is exactly github.com names a GitHub repo.
-export function githubRepo(url) {
-  const u = (url ?? "").trim();
-  const m = /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/github\.com\/)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(u);
-  return m?.[1] ?? null;
-}
-
-// A URL can carry a token, so what's shown never has its login. Only inside the real authority:
-// in evil.example?@github.com the host is evil.example, and it must stay what's shown.
-export const withoutLogin = (text) => String(text ?? "").replace(/(\w+:\/\/)[^/?#\\\s]*@/g, "$1");
 
 // Where a push would really go. Anything but a GitHub repo known to be private counts as public.
 export async function pushPlan(w, state) {
