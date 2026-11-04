@@ -47,7 +47,7 @@ task to another account.
     "▸ N ready to merge", outside the count.
   - `AGENT TIME TODAY` with a **Week** button: one row per ticket (or repo) with today's time.
   - `MERGED WORKTREES`: one 30px row per worktree whose branch merged: repo, branch, age, **Open**/**Go**,
-    **Remove**. "▸ N worktrees without a space" folds the rest. Opened, it reads each one and sorts it: `Nothing to lose`
+    **Remove** (after a day unused; before that the row says `used 22m ago`). "▸ N worktrees without a space" folds the rest. Opened, it reads each one and sorts it: `Nothing to lose`
     (clean, its commits in the main branch, unused for 7 days; **Remove**, and **Remove N** for those with no ignored
     files to keep), `Pushed, not merged` (**Remove**; GitHub must still have the commit), `With work` (uncommitted or
     unpushed, locked or unreadable; **Open** and **⋯**) and "▸ N recent". Rows show their size, with the reason on a
@@ -185,7 +185,7 @@ task to another account.
   agent's report: `Run: <first line> · +N lines`, `Edit: <file>`, `Fetch: <url>`, `Plan to approve`, its question or
   last words. The Inbox publishes them in shared `relevo.reasons`. A blocked row in the Agents list gets one as an 11px
   second line (44px tall) and the away card uses it. It can be cut, so no answer button ever sits beside it.
-- **mods/relevo-agents**: Herdr's agents list with account and ticket chips (from the `agent.account` and
+- **mods/relevo-agents**: Herdr's agents list with a 12px folder icon in its sidebar folder's color (space-folders' rules, name on hover), a dim line with the path when the folder isn't the space's name, account and ticket chips (from the `agent.account` and
   `agent.jira` labels and the shared `relevo.setup`) and a background marker from `agent.bg` (`⧗2` in `working`
   color, the full "2 shells" in its tooltip).
 - **mods/relevo-files**: Herdr's files tree with a right-click menu (`role: "menu"`), a name dialog for New file,

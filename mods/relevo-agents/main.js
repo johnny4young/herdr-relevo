@@ -3,7 +3,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
+import { agents, terminals, panes, focused, home, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -39,6 +39,37 @@ function title(tab, l) {
   const telling = live && live !== prog && !/^[~/]|^[A-Za-z]:\\/.test(live) && !live.includes("@") && live.toLowerCase() !== l?.program?.key;
   return (tab.name === prog || !tab.named) && telling ? live : tab.name;
 }
+// Where an agent runs, when its space's name doesn't already say it.
+export function folderNote(cwd, space) {
+  const inHome = cwd === home() || cwd?.startsWith(`${home()}/`);
+  const parts = (inHome ? cwd.slice(home().length) : cwd ?? "").split("/").filter(Boolean);
+  if (!parts.length) return inHome ? "~" : null;
+  return parts.at(-1) === space ? null : parts.slice(-2).join("/");
+}
+
+// The sidebar's folders, by the space-folders mod's rules and colors: a dragged space stays
+// where it was put, else the first folder whose rules take where it works.
+const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b7cf6", ansi2: "#3fae6a", ansi1: "#d9649a" };
+
+function rule(pattern) {
+  const p = pattern.trim().replace(/\/+$/, "");
+  if (!p) return null;
+  const body = p.replace(/^~/, "\u0000").split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")
+    .replace("\u0000", "(?:/(?:home|Users)/[^/]+|/root)");
+  return new RegExp(`${/^[/~]/.test(p) ? "^" : "(?:^|/)"}${body}(?:/|$)`);
+}
+
+export function folderOfSpace(s, all, ps) {
+  const data = all?.[s?.machine ?? ""];
+  if (!s || !data) return null;
+  const id = data.of?.[s.machine ? s.id.slice(s.machine.length + 1) : s.id];
+  if (id !== undefined) return data.list.find((f) => f.id === id) ?? null;
+  const tabs = new Set((s.tabs ?? []).map((c) => c.id));
+  const path = ps.find((p) => tabs.has(p.tab) && p.cwd)?.cwd || s.folder;
+  if (!path) return null;
+  return data.list.find((f) => (f.match ?? "").split(",").some((p) => rule(p)?.test(path))) ?? null;
+}
+
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 // A sub-agent without a pane isn't in agents(): its raw word, error counting as
 // blocked. It's never done: it reports to its parent, and the parent's done is the news.
@@ -314,7 +345,8 @@ export default class Agents extends View {
     // A row reads "space \u00b7 detail": the detail is a tab someone named or the
     // agent's own title, never an automatic tab number unless two rows would
     // otherwise read the same.
-    const tabs = spaces().flatMap(s => s.tabs);
+    const spaceList = spaces(), ps = panes();
+    const tabs = spaceList.flatMap(s => s.tabs);
     const label = (a) => {
       const tab = tabs.find(tab => tab.id === a.tab);
       return tab ? title(tab, lead(tab)) : a.title || a.program?.name || "";
@@ -387,6 +419,9 @@ export default class Agents extends View {
       const full = byPriority || isPinned;
       const name = full ? a.space_name || label(a) : more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
       const why = a.status === "blocked" ? shared("relevo.reasons")?.[a.address] : null;
+      const cwd = ps.find((p) => p.pane === a.pane)?.cwd ?? a.cwd;
+      const place = folderOfSpace(spaceList.find((s) => s.id === a.space), shared("space-folders"), ps);
+      const folder = folderNote(cwd, a.space_name);
       const line = h_flex()
         .h(30)
         .flex_none()
@@ -399,6 +434,8 @@ export default class Agents extends View {
             cx.notify();
           })).child(pic)))
         .child(h_flex().flex_1().min_w(0).gap(5).items_center()
+          .when(Boolean(place), (el) => el.child(div().id(`in-folder-${a.address}`).flex_none().tooltip(place.name)
+            .child(svg("mods/workspace-chrome/folder.svg").size(12).text_color(MARK[place.color] ?? t.dim))))
           .child(div().min_w(0).max_w(full && more ? 120 : 200).truncate().text_color(idle ? t.muted : t.foreground).child(name))
           .when(full && Boolean(more), el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`\u00b7 ${more}`))))
         .when(Boolean(machine), el => el.child(div().text_size(10).text_color(t.dim).child(machine)))
@@ -422,7 +459,10 @@ export default class Agents extends View {
           cx.notify();
         })
         .on_click(() => run("pane.focus", { pane: a.pane }))
+        .when(Boolean(cwd), (el) => el.tooltip(cwd))
         .child(line)
+        .when(Boolean(folder), (el) => el.child(div().id(`folder-${a.address}`).h(14).mb(2).pl(pic ? 25 : 0).truncate()
+          .text_size(11).text_color(t.dim).child(folder)))
         .when(Boolean(why), (el) => el.child(div().id(`why-${a.address}`).h(14).mb(2).pl(pic ? 25 : 0).truncate()
           .text_size(11).text_color(t.muted).child(why)));
     };

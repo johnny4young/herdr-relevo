@@ -12,7 +12,7 @@ import { fakeCx, flush, text } from "./fake/ui.mjs";
 const { TreeViews } = await import("../inbox-trees.js");
 const { removalCheck } = await import("../worktrees.js");
 const PATH = "/work/wt", REMOVE = /worktree remove/;
-const tree = (over = {}) => ({ main: "/work/app", path: PATH, branch: "feat", repo: "app", name: "wt", merged: true, ...over });
+const tree = (over = {}) => ({ main: "/work/app", path: PATH, branch: "feat", repo: "app", name: "wt", merged: true, at: 1, ...over });
 
 function view(...worktrees) {
   const v = new TreeViews();
@@ -22,6 +22,7 @@ function view(...worktrees) {
 
 function files({ status = "", ignored = "", tracked = "", nested = "", locked = false } = {}) {
   fake.exec = (cmd, args) => {
+    if (cmd === "sh") return { stdout: `${PATH}\t1\n` };
     if (cmd === "find") return { stdout: nested };
     if (args.includes("worktree") && args.includes("list")) return { stdout: `worktree ${PATH}\nHEAD abc\n${locked ? "locked\n" : ""}\n` };
     if (args.includes("--porcelain")) return { stdout: status };
@@ -171,7 +172,7 @@ test("Remove all leaves out a worktree that gained a space or a terminal after t
 });
 
 test("a branch git keeps is reported", async () => {
-  fake.exec = (cmd, args) => (args.includes("branch") ? { code: 1, stderr: "error: not fully merged\n" } : null);
+  fake.exec = (cmd, args) => (cmd === "sh" ? { stdout: `${PATH}\t1\n` } : args.includes("branch") ? { code: 1, stderr: "error: not fully merged\n" } : null);
   const v = view(), w = tree(), cx = fakeCx();
   await clickRemove(v, w, cx);
   await clickRemove(v, w, cx);

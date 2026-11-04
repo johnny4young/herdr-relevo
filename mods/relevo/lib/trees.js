@@ -1,5 +1,8 @@
 // Sorting worktrees by what removing one would lose, whatever its age.
 export const RECENT_AFTER = 7 * 86400;
+// A merged PR doesn't mean the work there stopped, and an unknown time counts as in use.
+export const MERGED_MARGIN = 86400;
+export const justUsed = (at, now) => !at || now - at < MERGED_MARGIN;
 export const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 // A worktree in use or holding work never goes in a group that offers Remove.
