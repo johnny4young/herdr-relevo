@@ -17,6 +17,9 @@ const STATUS = /^\s*[●⏺•⎿✻✶✢✳✽∗·⠀-⣿]/;
 const FENCE = /^╌{3,}$/;
 const INPUT = /^[❯›>]$/;
 const NOISE = /^(Tip:|[▔▁]+$|[☐☒✔←])/;
+// A dialog that wants a yes to something it didn't show.
+const asksBlind = (question, options) => !options.some((o) => /^(type something|chat about this)/i.test(o.label))
+  && (/^(do you want|would you like)\b.*\?$/im.test(question) || options.some((o) => /^(yes, proceed|no, and tell)\b/i.test(o.label)));
 
 export function readPrompt(screen) {
   const lines = (screen ?? "").split("\n").map((l) => l.replace(FRAME, "")).slice(-60);
@@ -70,6 +73,9 @@ export function readPrompt(screen) {
   const multi = options.some((o) => "checked" in o);
   const preview = previewBeside(screen);
   const question = questionAbove(lines, found[0].i), ask = askAbove(screen, found[0].i, question);
+  if (ask?.ask.cut ? !/\bplan\b/i.test(question) : !ask && asksBlind(question, options)) {
+    return { ...cantRead, ask: ask?.ask ?? null, question: "Can't read all of what this asks. Open the agent." };
+  }
   return {
     question: ask?.question ?? question, ask: ask?.ask ?? null, options, multi, submit, cursor, preview,
     summary: summaryAbove(lines, found[0].i),
@@ -79,45 +85,51 @@ export function readPrompt(screen) {
 }
 
 // What a permission or a plan is about, as the card must show it before a yes: title, a line about it and
-// its command, diff or plan. Null for a plain question.
+// its command, diff or plan. A command can hold any text, so when in doubt this shows more, never less.
 function askAbove(screen, first, question) {
   const all = (screen ?? "").split("\n"), at = Math.max(0, all.length - 60), start = first + at;
   const text = all.map((l) => l.replace(FRAME, ""));
-  return codexAsk(text, start) ?? fencedAsk(text, start) ?? unfencedAsk(all, text, start, question);
+  return fencedAsk(all, text, start) ?? codexAsk(all, text, start) ?? unfencedAsk(all, text, start, question);
 }
 
-// Codex draws no edge or fence: "Would you like to run…", Reason: …, then the command.
-function codexAsk(text, start) {
-  let top = start - 1;
-  // An agent's own line above means any such dialog is an old one.
-  while (top >= 0 && start - top <= 40 && !STATUS.test(text[top]) && !/^Would you like to (run|make)\b/.test(text[top])) top--;
-  if (top < 0 || start - top > 40 || STATUS.test(text[top])) return null;
-  const rest = text.slice(top + 1, start).filter((l) => l.trim());
-  const about = rest.find((l) => l.startsWith("Reason:"))?.replace(/^Reason:\s*/, "") ?? "";
-  const body = rest.filter((l) => !/^(Environment|Reason):/.test(l)).map((l) => l.replace(/^\$\s*/, ""));
-  return { question: text[top], ask: { title: "", about, body } };
-}
+// A command's own line: only the dialog's gutter goes, so a trailing | stays.
+const bodyLine = (raw) => raw.trim().replace(/^[│┃]\s?/, "").replace(/\s*[│┃]$/, "");
 
-function fencedAsk(text, start) {
+// A fence inside the command looks like Claude's, so the block runs from the topmost one.
+function fencedAsk(all, text, start) {
   // At most the question's few lines between the fence and the choices; a tall window pads with blanks.
   let bottom = start - 1, words = 0;
   while (bottom >= 0 && !FENCE.test(text[bottom]) && (words += text[bottom].trim() ? 1 : 0) <= 3) bottom--;
   if (bottom < 0 || !FENCE.test(text[bottom])) return null;
-  let top = bottom - 1;
-  while (top >= 0 && !FENCE.test(text[top])) top--;
-  // The command's start can be off screen; better said than passed over.
-  const cut = top < 0, body = text.slice(top + 1, bottom).filter((l) => l.trim());
+  const top = text.slice(0, bottom).findIndex((l) => FENCE.test(l));
+  const body = all.slice(top + 1, bottom).map(bodyLine).filter(Boolean);
   const head = [];
   for (let i = top - 1; i >= 0 && text[i].trim(); i--) if (!NOISE.test(text[i]) && !STATUS.test(text[i])) head.unshift(text[i]);
-  return { ask: { title: head[0] ?? "", about: head.slice(1).join(" · "), body, cut } };
+  return { ask: { title: head[0] ?? "", about: head.slice(1).join(" · "), body, cut: top < 0 } };
+}
+
+// Codex draws no edge or fence: "Would you like to run…", Reason: …, then "$ " and the command.
+function codexAsk(all, text, start) {
+  let top = start - 1;
+  // An agent's own line above means any such dialog is an old one.
+  while (top >= 0 && start - top <= 40 && !STATUS.test(text[top]) && !/^Would you like to run\b/.test(text[top])) top--;
+  if (top < 0 || start - top > 40 || STATUS.test(text[top])) return null;
+  const from = text.slice(top + 1, start).findIndex((l) => l.startsWith("$ ")) + top + 1;
+  if (from === top) return null;
+  const about = text.slice(top + 1, from).find((l) => l.startsWith("Reason:"))?.replace(/^Reason:\s*/, "") ?? "";
+  const body = all.slice(from, start).map(bodyLine).filter(Boolean);
+  body[0] = body[0].replace(/^\$\s*/, "");
+  return { question: text[top], ask: { title: "", about, body } };
 }
 
 // Older dialogs: what sits between the edge and the question.
 function unfencedAsk(all, text, start, question) {
   const top = edgeAbove(all, start);
   if (top === 0) return null;
-  const words = new Set((question ?? "").split("\n"));
-  const rest = text.slice(top, start).filter((l) => l.trim() && !NOISE.test(l) && !STATUS.test(l) && !words.has(l));
+  let end = start, left = (question ?? "").split("\n").filter(Boolean).length;
+  while (end > top && (left > 0 || !text[end - 1].trim())) if (text[--end].trim()) left--;
+  const rest = all.slice(top, end).map(bodyLine).filter(Boolean);
+  while (rest.length && NOISE.test(rest[0])) rest.shift();
   return rest.length ? { ask: { title: rest[0], about: "", body: rest.slice(1) } } : null;
 }
 

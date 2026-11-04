@@ -742,7 +742,15 @@ test("a long command shows its first lines and says how many it left out", async
   const view = text(ui());
   assert.match(view, /step 8/);
   assert.doesNotMatch(view, /step 9/);
-  assert.match(view, /\+2 more lines, open the agent/);
+  assert.match(view, /\+2 more lines/);
+});
+
+test("the lines left out show with a click", async () => {
+  const { ui, cx } = await waiting(PERMISSION(...Array.from({ length: 10 }, (_, i) => `step ${i + 1}`)));
+  click(find(ui(), "ask-t1-more"), cx);
+  const view = text(ui());
+  assert.match(view, /step 10/);
+  assert.doesNotMatch(view, /more lines/);
 });
 
 test("the reason for each waiting agent reaches the other mods, and goes once it stops waiting", async () => {
