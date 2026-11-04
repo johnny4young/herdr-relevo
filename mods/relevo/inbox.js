@@ -98,9 +98,7 @@ export class Inbox {
         .when(total > 0, (el) => el.child(duration(total)))
         .child(button(t, "week-open", "Week", () => openWeek(), { size: "sm", tip: "Agent time per ticket and day" })),
       v_flex().children(list.map((d) => h_flex().id(`day-${d.key}`).h(24).px(8).gap(8).items_center().rounded(6)
-        .child(div().flex_none().text_size(13).text_color(d.jira ? t.foreground : t.muted).child(d.key))
-        .when(Boolean(d.jira), (el) => el.child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(d.repo)))
-        .when(!d.jira, (el) => el.child(div().flex_1()))
+        .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.muted).child(d.key))
         .child(div().flex_none().text_size(11).text_color(t.muted).child(duration(d.seconds))))),
     ];
   }

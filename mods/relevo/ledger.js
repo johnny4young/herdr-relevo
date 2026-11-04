@@ -79,10 +79,10 @@ export async function agentTimeBetween(since, until) {
   return timeWithin(await rowsSince(since), since, until);
 }
 
-// Today's worked time per ticket (or repo without one).
+// Today's worked time per project, tickets included; only the week's table splits by ticket.
 export async function today() {
   const since = new Date().setHours(0, 0, 0, 0) / 1000;
-  return totals(await rowsSince(since), since);
+  return totals((await rowsSince(since)).map((r) => ({ ...r, jira: null })), since);
 }
 
 // Seven days from Monday, `offset` weeks back or ahead of this one.

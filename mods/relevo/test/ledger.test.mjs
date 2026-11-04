@@ -1,12 +1,13 @@
 // Which project an agent's time goes to, with real git folders.
 import "./fake/register.mjs";
-import { test, beforeEach } from "node:test";
+import { test, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fake, resetFake, calls } from "./fake/herdr.mjs";
+import { fake, resetFake, calls, theme } from "./fake/herdr.mjs";
+import { find, text } from "./fake/ui.mjs";
 import { repoOfGitDir, totals } from "../lib/ledger.js";
 
 const { ledgerTick, today } = await import("../ledger.js");
@@ -82,6 +83,16 @@ test("work in a worktree and in the main checkout add up as one project, overlap
   assert.ok(rows[0].seconds > 590 && rows[0].seconds < 610, String(rows[0].seconds));
 });
 
+test("today shows projects only: a ticket's time joins its repo, overlaps once", async () => {
+  const noon = new Date().setHours(12, 0, 0, 0);
+  mock.timers.enable({ apis: ["Date"], now: noon });
+  const line = (repo, jira, from, to) => JSON.stringify({ start: noon / 1000 - from, end: noon / 1000 - to, repo, jira });
+  fake.files["/home/test/.local/state/relevo/ledger.jsonl"] = [line("app", "ABC-1", 1200, 600), line("app", null, 900, 300), line("other", "XYZ-9", 200, 80)].join("\n");
+  const rows = await today();
+  mock.timers.reset();
+  assert.deepEqual(rows.map((r) => [r.key, r.jira, r.seconds]), [["app", null, 900], ["other", null, 120]]);
+});
+
 test("git is asked once per folder, and only when a stretch opens", async (t) => {
   const { tree } = repos(t);
   const folder = join(tree, "src");
@@ -117,4 +128,10 @@ test("repoOfGitDir: a checkout, a bare repo and a trailing slash", () => {
 test("totals still counts a ticket apart from its repo", () => {
   const rows = [{ start: 0, end: 120, jira: "ABC-1", repo: "app" }, { start: 0, end: 300, jira: null, repo: "app" }];
   assert.deepEqual(totals(rows, 0).map((r) => [r.key, r.repo, r.seconds]), [["app", "app", 300], ["ABC-1", "app", 120]]);
+});
+
+test("a row of today's time draws the project and its time, nothing else", async () => {
+  const { Inbox } = await import("../inbox.js");
+  const [, list] = new Inbox().todayGroup(theme(), [{ key: "app", repo: "app", jira: null, seconds: 7200 }]);
+  assert.equal(text(find(list, "day-app")), "app 2h 00m");
 });
