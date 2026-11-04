@@ -5,6 +5,7 @@ import { focusedCwd } from "./panelbar.js";
 import { button } from "./ui.js";
 import { launchInRepo } from "./accounts.js";
 import { accountFor } from "./context.js";
+import { baseBranch } from "./worktrees.js";
 import { GIT_READ as READ } from "./lib/git.js";
 import { diffRows, lineKey, selectRange, lineComment, fileComment, commentId, rangeRows, reviewMessage } from "./lib/diff.js";
 
@@ -49,6 +50,8 @@ export class ReviewDiff {
     this.pr = p.pr ?? null;
     // Open panes and unsent comments are kept per checkout, and per PR when reviewing one.
     this.key = reviewKey(this.root, this.pr);
+    // Without a PR: "uncommitted", or "all" for the branch's commits too.
+    this.scope = "uncommitted";
     this.files = [];
     this.rows = [];
     this.comments = shared(NOTES)?.[this.key] ?? [];
@@ -90,20 +93,30 @@ export class ReviewDiff {
     });
   }
 
-  // The ref the diff starts from: HEAD for uncommitted work, the merge base with the PR's base branch for a PR.
+  // The ref the diff starts from: HEAD for uncommitted work, the merge base with the branch's base otherwise.
   async since(git) {
-    if (!this.pr) return "HEAD";
+    if (!this.pr && this.scope !== "all") return "HEAD";
     if (!this.mergeBase) {
-      const remote = await git(["rev-parse", "--verify", "--quiet", `origin/${this.pr.base}`]);
-      const base = remote.code === 0 ? `origin/${this.pr.base}` : this.pr.base;
-      this.mergeBase = (await git(["merge-base", base, this.pr.ref ?? "HEAD"])).stdout.trim() || "HEAD";
+      const remote = this.pr ? await git(["rev-parse", "--verify", "--quiet", `origin/${this.pr.base}`]) : null;
+      const base = this.pr ? (remote.code === 0 ? `origin/${this.pr.base}` : this.pr.base) : await baseBranch(this.root);
+      this.baseName = base;
+      this.mergeBase = base ? (await git(["merge-base", base, this.pr?.ref ?? "HEAD"])).stdout.trim() : "";
     }
-    return this.mergeBase;
+    return this.mergeBase || "HEAD";
+  }
+
+  setScope(scope, cx) {
+    if (scope === this.scope) return;
+    Object.assign(this, { scope, mergeBase: null, filesSign: null, diffSign: null, editing: null, anchor: null });
+    this.load(cx);
+    cx.notify();
   }
 
   async read(cx) {
-    const git = (args) => exec("git", [...READ, ...args], { cwd: this.root });
-    this.from = await this.since(git);
+    const git = (args) => exec("git", [...READ, ...args], { cwd: this.root }), scope = this.scope;
+    const from = await this.since(git);
+    if (scope !== this.scope) return;
+    this.from = from;
     const range = this.pr?.ref ? [this.from, this.pr.ref] : [this.from];
     const tracked = (await git(["diff", ...range, "--numstat", "--no-renames"])).stdout.split("\n").filter(Boolean)
       .map((l) => {
@@ -113,6 +126,8 @@ export class ReviewDiff {
     // A branch that isn't checked out has no untracked files.
     const others = this.pr?.ref ? "" : (await git(["ls-files", "--others", "--exclude-standard"])).stdout;
     const untracked = others.split("\n").filter(Boolean).map((path) => ({ path, add: 0, del: 0, untracked: true }));
+    // Switched while reading: the newer read draws.
+    if (scope !== this.scope) return;
     const files = [...tracked, ...untracked], sign = JSON.stringify(files);
     if (sign !== this.filesSign) {
       this.filesSign = sign;
@@ -121,7 +136,7 @@ export class ReviewDiff {
     }
     const open = files.find((f) => f.path === this.open?.path) ?? files[0];
     if (open) await this.pick(open, cx);
-    else this.rows = [];
+    else Object.assign(this, { rows: [], open: null, diffSign: null });
   }
 
   async pick(file, cx) {
@@ -187,7 +202,7 @@ export class ReviewDiff {
   }
 
   subject() {
-    if (!this.pr) return undefined;
+    if (!this.pr) return this.scope === "all" && this.mergeBase ? `the branch against ${this.baseName}, committed and uncommitted` : undefined;
     const where = this.pr.ref ? `; it is not checked out here, so work on it in a worktree (gh pr checkout ${this.pr.number})` : "";
     return `PR #${this.pr.number} (${this.pr.url}), the branch against ${this.pr.base}${where}`;
   }
@@ -256,25 +271,42 @@ export class ReviewDiff {
 
   noteBox(t, note, font) {
     return div().mx(10).my(3).px(8).py(4).rounded(6).bg(t.raised)
-      .font_family(font).text_size(11.5).text_color(t.foreground)
+      .font_family(font).text_size(13).text_color(t.foreground)
       .child(note.text);
   }
 
   field(t, font) {
     return div().mx(10).my(4).h(30).px(8).flex().items_center()
       .rounded(6).border_1().border_color(t.accent).bg(t.background)
-      .font_family(font).text_size(12)
+      .font_family(font).text_size(13)
       .child(Input.new(this.input).h_full());
   }
 
   header(t) {
     return h_flex().h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().font_semibold().child("Review"))
-      .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim)
+      .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim)
         .child(this.pr
           ? `${this.pr.repo.split("/")[1]} #${this.pr.number} · against ${this.pr.base}`
-          : this.root?.split("/").pop() ?? "No folder"))
+          : `${this.root?.split("/").pop() ?? "No folder"}${this.scope === "all" && this.mergeBase ? ` · against ${this.baseName}` : ""}`))
+      .when(!this.pr, (el) => el.child(this.scopePicker(t)))
       .child(div().text_size(11).text_color(t.muted).child("Click a line · shift-click a range"));
+  }
+
+  scopePicker(t) {
+    const pick = (scope, label) => div().id(`rv-scope-${scope}`).px(7).h(18).flex().items_center().rounded(4).cursor_pointer()
+      .text_size(11).text_color(this.scope === scope ? t.foreground : t.muted)
+      .when(this.scope === scope, (el) => el.bg(t.selected))
+      .on_click((_e, cx) => this.setScope(scope, cx))
+      .child(label);
+    return h_flex().id("rv-scope").flex_none().p(1).gap(1).rounded(5).bg(t.raised)
+      .child(pick("uncommitted", "Uncommitted"))
+      .child(pick("all", "All changes"));
+  }
+
+  empty() {
+    if (this.scope !== "all") return "No uncommitted changes";
+    return this.mergeBase ? `No changes against ${this.baseName}` : "No base branch to compare with";
   }
 
   // Outside the virtual list, so ordinary handlers work here.
@@ -282,7 +314,7 @@ export class ReviewDiff {
     const note = this.comments.find((c) => c.file === this.open?.path && commentId(c) === "file");
     return v_flex().flex_none().border_b(1).border_color(t.border)
       .child(h_flex().h(30).px(12).gap(8).items_center()
-        .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(this.open.path))
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.open.path))
         .child(button(t, "rv-file-comment", "Comment on file", (cx) => this.edit("file", cx), { size: "sm" })))
       .when(this.editing === "file", (el) => el.child(this.field(t, font)))
       .when(Boolean(note) && this.editing !== "file", (el) => el.child(this.noteBox(t, note, font)
@@ -292,7 +324,7 @@ export class ReviewDiff {
 
   fileList(t) {
     return v_flex().id("rv-files").flex_none().max_h(150).overflow_y_scrollbar().p(4).border_b(1).border_color(t.border)
-      .when(!this.files.length, (el) => el.child(div().p(8).text_color(t.dim).child("No uncommitted changes")))
+      .when(!this.files.length, (el) => el.child(div().p(8).text_color(t.dim).child(this.pr ? "No changes" : this.empty())))
       .children(this.files.map((f) => {
         const count = this.comments.filter((c) => c.file === f.path).length;
         return h_flex().id(`rv-file-${f.path}`).h(24).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer()
@@ -301,12 +333,12 @@ export class ReviewDiff {
           .on_click((_e, cx) => cx.spawn(async (cx) => {
             await this.pick(f, cx);
           }))
-          .child(div().flex_1().min_w(0).truncate().text_size(11.5).child(f.path))
-          .when(count > 0, (el) => el.child(div().text_size(10.5).text_color(t.accent).child(`● ${count}`)))
-          .when(f.untracked, (el) => el.child(div().text_size(10.5).text_color(t.ansi2).child("new")))
+          .child(div().flex_1().min_w(0).truncate().text_size(13).child(f.path))
+          .when(count > 0, (el) => el.child(div().text_size(11).text_color(t.accent).child(`● ${count}`)))
+          .when(f.untracked, (el) => el.child(div().text_size(11).text_color(t.ansi2).child("new")))
           .when(!f.untracked, (el) => el
-            .child(div().text_size(10.5).text_color(t.ansi2).child(`+${f.add}`))
-            .child(div().text_size(10.5).text_color(t.ansi1).child(`−${f.del}`)));
+            .child(div().text_size(11).text_color(t.ansi2).child(`+${f.add}`))
+            .child(div().text_size(11).text_color(t.ansi1).child(`−${f.del}`)));
       }));
   }
 
@@ -332,7 +364,7 @@ export class ReviewDiff {
 
   footer(t, agent, n, ready) {
     return h_flex().h(44).flex_none().px(10).gap(8).items_center().border_t(1).border_color(t.border)
-      .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.muted)
+      .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted)
         .child(this.note ?? (agent
           ? `${n} ${n === 1 ? "comment" : "comments"} for ${agent.tab_name || agent.address}`
           : this.pr ? "A new agent will take them" : "No agent in this folder")))
@@ -347,7 +379,7 @@ export class ReviewDiff {
   render() {
     const t = theme(), agent = this.target(), n = this.comments.length, ready = Boolean((agent || this.pr) && n);
     const font = settings().ui_font_family ?? "Inter";
-    return v_flex().id("relevo-review").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(12.5)
+    return v_flex().id("relevo-review").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .on_key_down((e, cx) => this.key(e, cx))
       .child(this.header(t))
       .child(this.fileList(t))

@@ -5,8 +5,8 @@ import { relevoKeys, formatShortcut } from "./lib/keys.js";
 
 const SIZES = {
   sm: { h: 20, px: 7, text: 11, radius: 5 },
-  md: { h: 24, px: 9, text: 11.5, radius: 6 },
-  lg: { h: 28, px: 12, text: 11.5, radius: 6 },
+  md: { h: 24, px: 9, text: 11, radius: 6 },
+  lg: { h: 28, px: 12, text: 11, radius: 6 },
 };
 
 // kind: "outline" (default), "solid" or "danger". A disabled button keeps its place and ignores clicks.
@@ -30,7 +30,7 @@ export function button(t, id, label, onClick, { kind = "outline", size = "md", t
 
 // A list section's title with its count or total on the right.
 export const sectionHeader = (t, label, right) =>
-  h_flex().pt(6).px(2).justify_between().text_size(10.5).text_color(t.dim).child(label).child(String(right));
+  h_flex().pt(6).px(2).justify_between().text_size(11).text_color(t.dim).child(label).child(String(right));
 
 // Shortcuts come from keys.json, so a tooltip never shows a key that changed.
 let keys = {};

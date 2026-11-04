@@ -11,7 +11,7 @@ import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
-import { PR_QUERY, seconds, recent, mapMine, mapReady, mapRequested, prChanges } from "./lib/github.js";
+import { PR_QUERY, seconds, recent, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
 import { keepListed } from "./lib/addressed.js";
 import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
 
@@ -75,6 +75,7 @@ export class PrViews {
     this.requested = mapRequested(data);
     const listed = new Set(this.mine.map((p) => p.url));
     this.ready = mapReady(data).filter((p) => !listed.has(p.url));
+    this.openPRs = openPRs(data);
     this.prsAt = Date.now() / 1000;
     const changes = prChanges(this.prState, data);
     this.prState = changes.state;
@@ -122,7 +123,7 @@ export class PrViews {
       .when(solid, (el) => el.bg(t.solid))
       .when(!solid, (el) => el.border_1().border_color(t.border))
       .child(h_flex().id(`run-${skill}-${pr.url}`).h_full().pl(9).pr(7).gap(5).items_center().cursor_pointer()
-        .text_size(11.5).text_color(fg)
+        .text_size(11).text_color(fg)
         .tooltip(tip).hover((s) => s.bg(solid ? t.solid : t.hover))
         .on_click((_e, cx) => {
           cx.stop_propagation();
@@ -133,7 +134,7 @@ export class PrViews {
         .child(SKILLS[skill].name)
         .child(chip(div, acct, 15)))
       .child(div().id(`pick-${skill}-${pr.url}`).h_full().px(6).flex().items_center().cursor_pointer()
-        .text_size(10).text_color(fg)
+        .text_size(11).text_color(fg)
         .border_l(1).border_color(solid ? t.solid_foreground : t.border)
         .hover((s) => s.bg(solid ? t.solid : t.hover)).tooltip("Choose the account")
         .on_click((_e, cx) => {
@@ -155,7 +156,7 @@ export class PrViews {
   }
 
   threadBadge(t, n, key) {
-    return h_flex().id(`threads-${key}`).flex_none().gap(3).items_center().text_size(10.5).text_color(t.ansi3)
+    return h_flex().id(`threads-${key}`).flex_none().gap(3).items_center().text_size(11).text_color(t.ansi3)
       .tooltip(`${n} unresolved ${n === 1 ? "thread" : "threads"}`)
       .child(svg("mods/relevo/thread.svg").size(11).text_color(t.ansi3))
       .child(String(n));
@@ -164,7 +165,7 @@ export class PrViews {
   ciBadge(t, state, key) {
     const [glyph, color, tip] = state === "SUCCESS" ? ["✓", t.ansi2, "CI passed"]
       : state === "FAILURE" || state === "ERROR" ? ["✕", t.ansi1, "CI failed"] : ["◌", t.ansi3, "CI running"];
-    return div().id(`ci-${key}`).flex_none().text_size(11.5).font_semibold().text_color(color).tooltip(tip)
+    return div().id(`ci-${key}`).flex_none().text_size(11).font_semibold().text_color(color).tooltip(tip)
       .child(glyph === "◌" ? spinner(color, 11) : glyph);
   }
 
@@ -180,7 +181,10 @@ export class PrViews {
     const l = launched()[pr.url], agent = this.prAgents[pr.url], seen = this.seen(pr);
     const meta = requested ? `review requested · ${pr.author?.login ?? ""}` : pr.reasons.join(" · ");
     const done = Boolean(l && seen) && (!agent || agent.status === "idle" || agent.status === "done");
-    const actions = [];
+    const openPR = button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url]), {
+      kind: done && l.skill === "review" ? "solid" : "outline",
+    });
+    const actions = done && l.skill === "review" ? [openPR] : [];
     if (agent) actions.push(button(t, `agent-${pr.url}`, "Agent", () => run("agent.focus", { terminal: agent.address })));
     if (this.clones[pr.repo] && !(seen && agent)) {
       pr.skills.forEach((s) => actions.push(this.skillButton(t, pr, s, !seen && !requested && pr.hot && s === "fix")));
@@ -190,23 +194,21 @@ export class PrViews {
         tip: withKey("The whole PR against its base, line by line", "relevo.review"),
       }));
     }
-    actions.push(button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url]), {
-      kind: done && l.skill === "review" ? "solid" : "outline",
-    }));
-    actions.push(addressed
+    if (!actions.includes(openPR)) actions.push(openPR);
+    const mark = addressed
       ? button(t, `undo-${pr.url}`, "Undo", (cx) => this.setAddressed(pr, false, cx), { tip: "Back to the list" })
       : button(t, `addressed-${pr.url}`, "✓", (cx) => this.setAddressed(pr, true, cx), {
         tip: "Addressed: hide until there's new activity",
-      }));
+      });
     const dot = seen ? "ring" : !requested && pr.hot ? t.blocked : t.accent;
-    return this.card(t, `pr-${pr.url}`, !seen && !requested && pr.hot,
+    return this.card(t, `pr-${pr.url}`, false,
       this.head(t, dot, `${pr.repo.split("/")[1]} #${pr.number} · ${pr.title}`, ago(seconds(pr.updatedAt)),
         pr.commits?.nodes[0]?.commit?.statusCheckRollup?.state, pr.threads),
-      v_flex().gap(2).text_size(11.5).text_color(t.muted)
+      v_flex().gap(2).text_size(11).text_color(t.muted)
         .when(Boolean(meta), (el) => el.child(meta))
         .when(Boolean(l && seen), (el) => el.child(
           div().text_color(agent?.status === "working" ? t.working : t.dim).child(this.agentLine(pr, agent)))),
-      actions);
+      this.foldActions(t, `pr-${pr.url}`, actions, mark));
   }
 
   // The review pane on the PR's checkout, else on its exact head; comments go to its agent, or a new one when none runs.

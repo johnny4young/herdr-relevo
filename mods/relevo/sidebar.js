@@ -20,6 +20,9 @@ import { ledgerTick } from "./ledger.js";
 import { spinner, withKey } from "./ui.js";
 import { openSettings } from "./settings.js";
 
+// Chip and label; wide enough for an 8-letter account name.
+const NAME_W = 92;
+
 const STALE = 30 * 60;
 
 export class Sidebar {
@@ -91,7 +94,7 @@ export class Sidebar {
     const level = !w || stale ? t.dim : w.pct >= 80 ? t.blocked : w.pct >= 50 ? t.ansi3 : t.accent;
     const ahead = !stale && w?.pace != null && w.pct > w.pace * 100 + 5;
     return v_flex().id(id).w(barWidth).flex_none().gap(3).tooltip(meterTip(w, label))
-      .child(h_flex().justify_between().text_size(10.5).text_color(ahead ? t.ansi3 : t.muted)
+      .child(h_flex().justify_between().text_size(11).text_color(ahead ? t.ansi3 : t.muted)
         .child(hovered && resetClock(w) ? `↻ ${resetClock(w)}` : ahead ? `${label} ▲` : label)
         .when(!(hovered && resetClock(w)), (el) => el.child(w ? `${w.pct}%` : "—")))
       .child(div().relative().w(barWidth).h(4).rounded(2).bg(t.raised)
@@ -116,10 +119,10 @@ export class Sidebar {
         this.hovered = on ? p.key : this.hovered === p.key ? null : this.hovered;
         cx.notify();
       })
-      .child(div().id(`account-name-${p.key}`).w(80).flex_none().flex().items_center().gap(8)
+      .child(div().id(`account-name-${p.key}`).w(NAME_W).flex_none().flex().items_center().gap(8)
         .tooltip(withKey(`${note}. Click to start ${app} here.`, `relevo.launch-${p.key}`))
         .child(chip(div, p))
-        .child(div().flex_1().min_w(0).truncate().text_size(12).font_medium().text_color(stale ? t.muted : t.foreground)
+        .child(div().flex_1().min_w(0).truncate().text_size(13).font_medium().text_color(stale ? t.muted : t.foreground)
           .child(p.label)))
       .when(!this.loaded && !q, (el) => el.child(h_flex().flex_1().justify_center().child(spinner(t.dim, 10))))
       .when(this.loaded || Boolean(q), (el) => el
@@ -130,7 +133,7 @@ export class Sidebar {
   // Hides the other context in the Inbox, folds its space folder and mutes its alerts.
   focusPicker(t) {
     const now = focus();
-    return h_flex().id("focus").h(18).p(1).gap(1).rounded(5).bg(t.raised).text_size(10)
+    return h_flex().id("focus").h(18).p(1).gap(1).rounded(5).bg(t.raised).text_size(11)
       .tooltip(withKey("Which context the Inbox and alerts show", "relevo.focus-next"))
       .children([["all", "All"], ...CONTEXTS.map((c) => [c.key, c.label])].map(([key, label]) =>
         div().id(`focus-${key}`).h_full().px(5).flex().items_center().rounded(4).cursor_pointer()
@@ -182,7 +185,7 @@ export class Sidebar {
   render() {
     const t = theme();
     if (this.width < 160) return this.rail(t);
-    const barWidth = Math.max(40, Math.floor((this.width - 16 - 16 - 80 - 16) / 2));
+    const barWidth = Math.max(40, Math.floor((this.width - 16 - 16 - NAME_W - 16) / 2));
     return v_flex().id("relevo-accounts").size_full().px(8).pt(4).pb(8).gap(1).bg(t.chrome).text_color(t.foreground)
       .on_size_change((size, cx) => {
         if (Math.abs(size.width - this.width) > 1) {

@@ -2,14 +2,14 @@
 
 export const PR_QUERY = `query {
   viewer { login pullRequests(states: OPEN, first: 30, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
-    number title url isDraft updatedAt reviewDecision headRefName baseRefName isCrossRepository repository { nameWithOwner }
+    number title url isDraft updatedAt reviewDecision headRefName baseRefName isCrossRepository headRefOid additions deletions repository { nameWithOwner }
     commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
     reviews(last: 10) { nodes { author { login } state submittedAt } }
     reviewThreads(first: 50) { nodes { isResolved } } } }
     merged: pullRequests(states: MERGED, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
       url number headRefName isCrossRepository repository { nameWithOwner } } } }
   search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 20) { nodes {
-    ... on PullRequest { number title url updatedAt headRefName baseRefName isCrossRepository author { login } repository { nameWithOwner }
+    ... on PullRequest { number title url updatedAt headRefName baseRefName isCrossRepository headRefOid additions deletions author { login } repository { nameWithOwner }
       commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       reviewThreads(first: 50) { nodes { isResolved } } } } }
 }`;
@@ -60,6 +60,34 @@ export function mapRequested(data) {
     ...p, repo: p.repository.nameWithOwner, skills: ["review"], threads: unresolved(p), untrusted: p.isCrossRepository,
   }));
   return list.sort(newest);
+}
+
+// Every open PR of yours or asking your review, drafts and quiet ones too: an agent's row shows any of them.
+export function openPRs(data) {
+  const seen = new Map();
+  for (const p of [...data.viewer.pullRequests.nodes, ...data.search.nodes.filter((x) => x.url)]) {
+    if (!seen.has(p.url)) seen.set(p.url, { ...p, repo: p.repository.nameWithOwner, ci: ciOf(p) });
+  }
+  return [...seen.values()];
+}
+
+// Each agent's PR: the one it was started for, else the one at its commit (a review's branch has its own name),
+// else the one for its branch, in its repo.
+export function agentPRs(places, started, prs) {
+  const row = (p) => ({ number: p.number, url: p.url, ci: p.ci, add: p.additions ?? 0, del: p.deletions ?? 0 });
+  const byUrl = new Map(prs.map((p) => [p.url, p]));
+  const out = {};
+  for (const { address, repo, branch, head } of places) {
+    if (!repo) continue;
+    const mine = prs.filter((x) => x.repo.toLowerCase() === repo.toLowerCase());
+    const p = (head && mine.find((x) => x.headRefOid === head))
+      || (branch && mine.find((x) => (x.isCrossRepository ? `pr-${x.number}` : x.headRefName) === branch));
+    if (p) out[address] = row(p);
+  }
+  for (const [url, agent] of Object.entries(started ?? {})) {
+    if (byUrl.has(url)) out[agent.address] = row(byUrl.get(url));
+  }
+  return out;
 }
 
 // Branch names of merged PRs from this repo; a fork's branch named like one of yours says nothing about yours.

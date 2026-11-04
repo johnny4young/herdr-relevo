@@ -132,3 +132,16 @@ test("a row shows its sidebar folder's name in the icon's tooltip", async () => 
   const { ui } = await open([agent("t1")]);
   assert.equal(find(ui(), "in-folder-t1").tip, "Mine");
 });
+
+test("a row shows its PR, with CI and size, and a click opens the PR without focusing the agent", async () => {
+  fake.stored = { ...fake.stored, "relevo.agentPRs": { t1: { number: 24, url: "https://github.com/me/app/pull/24", ci: "FAILURE", add: 12, del: 3 } } };
+  const { ui } = await open([agent("t1"), agent("t2")]);
+  const drawn = ui(), tag = find(drawn, "pr-t1");
+  assert.equal(text(tag), "#24 ✕ +12 −3");
+  assert.match(tag.tip, /CI failed · Open PR #24/);
+  assert.equal(find(drawn, "pr-t2"), null);
+  tag.handlers.on_click({}, fakeCx());
+  await flush();
+  assert.ok(fake.execs.includes("open https://github.com/me/app/pull/24"));
+  assert.equal(fake.runs.filter(([name]) => name === "pane.focus").length, 0);
+});

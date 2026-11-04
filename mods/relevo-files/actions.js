@@ -51,7 +51,7 @@ export class FileMenu {
       mod: "relevo-files", kind: "dialog", width: 380, props: { role: "name", mode, root, path, dir },
     });
     const sep = () => div().h(1).my(4).mx(6).bg(t.border);
-    return v_flex().id("file-menu").w_full().p(4).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(12.5)
+    return v_flex().id("file-menu").w_full().p(4).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
       .when(local, (el) => el
         .child(item("new-file", "New file", ask("new-file")))
         .child(item("new-folder", "New folder", ask("new-folder")))
@@ -126,13 +126,13 @@ export class NameDialog {
   render() {
     const t = theme(), { mode, path = "", dir } = props() ?? {};
     const where = mode === "rename" ? parentOf(path) : targetFolder({ path, dir });
-    return v_flex().id("name-dialog").w_full().p(16).gap(10).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(12.5)
+    return v_flex().id("name-dialog").w_full().p(16).gap(10).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
       .on_key_down((e) => { if (e.key === "escape") closeOverlay(props().overlay); })
       .child(h_flex().gap(6).items_center()
         .child(div().font_semibold().child(TITLES[mode] ?? ""))
-        .when(Boolean(where), (el) => el.child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(`in ${where}`))))
+        .when(Boolean(where), (el) => el.child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(`in ${where}`))))
       .child(Input.new(this.input).h(32).px(10).items_center().rounded(6).border(1)
         .border_color(this.error ? t.ansi1 : t.accent).bg(t.background))
-      .when(Boolean(this.error), (el) => el.child(div().text_size(11.5).text_color(t.ansi1).child(this.error)));
+      .when(Boolean(this.error), (el) => el.child(div().text_size(11).text_color(t.ansi1).child(this.error)));
   }
 }

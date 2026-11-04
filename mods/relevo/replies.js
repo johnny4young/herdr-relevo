@@ -120,7 +120,7 @@ export class QuickReplies {
   render() {
     const t = theme(), p = props(), typed = Boolean(this.input.value().trim());
     return v_flex().id("quick-replies").size_full().p(12).gap(8)
-      .bg(t.popover ?? t.surface).text_color(t.foreground).text_size(12.5)
+      .bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
       .child(div().text_size(11).text_color(t.dim).truncate().child(`To ${p?.name ?? ""}`))
       .child(Input.new(this.input).h(32).px(10).items_center().rounded(6).border(1).border_color(t.accent).bg(t.background))
       // Not around the field: its keys would reach this handler too.
