@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { theme, exec, run, notify, settings, agents, panes, shared, setShared } from "herdr";
+import { theme, exec, run, notify, settings, agents, panes, terminals, shared, setShared } from "herdr";
 import { loadClaudeQuotas } from "./accounts.js";
 import { accountFor, contextOfPath, inFocus } from "./context.js";
 import { ago, nextSince } from "./lib/time.js";
@@ -13,7 +13,7 @@ import { seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
 import { GIT_READ } from "./lib/git.js";
 import { STATS_FOR } from "./lib/refresh.js";
-import { readPrompt, samePrompt, sameChoicesBut, submitKeys, freeOption, moveKeys, lastMessage } from "./lib/prompt.js";
+import { readPrompt, samePrompt, sameChoicesBut, submitKeys, freeOption, moveKeys, lastMessage, reasonOf } from "./lib/prompt.js";
 import { COUNT, showPanel } from "./toolbar.js";
 import { launched } from "./skills.js";
 import { openWeek } from "./week.js";
@@ -28,6 +28,8 @@ import { AwayViews } from "./inbox-away.js";
 const SETTLE_TRIES = 8;
 // Lines of a command, diff or plan a card shows.
 const ASK_LINES = 8;
+// Why each waiting agent waits: address -> a short line, for the agents list.
+const REASONS = "relevo.reasons";
 
 // Local work, pull requests and merged worktrees in one list; the PR and worktree parts live in their own files.
 function savedSince() {
@@ -133,6 +135,18 @@ export class Inbox {
     const open = (list) => list.filter((p) => recent(p) && !this.seen(p)).length;
     const n = v.local.length + open(v.mine) + open(v.requested);
     if (shared(COUNT) !== n) setShared(COUNT, n);
+    this.publishReasons();
+  }
+
+  waitingReasons() {
+    const report = new Map(terminals().map((k) => [k.address, k.report]));
+    return Object.fromEntries((this.local ?? []).filter((i) => i.kind === "blocked")
+      .map((i) => [i.agent.address, reasonOf(i.prompt, report.get(i.agent.address))]));
+  }
+
+  publishReasons() {
+    const now = this.waitingReasons();
+    if (JSON.stringify(shared(REASONS) ?? {}) !== JSON.stringify(now)) setShared(REASONS, now);
   }
 
   scanLocal(cx) {
@@ -212,6 +226,7 @@ export class Inbox {
           this.today,
         ]);
         this.local = local;
+        this.publishReasons();
         await this.watchRepos(seen, cx);
         if (sign !== this.sign) {
           this.sign = sign;

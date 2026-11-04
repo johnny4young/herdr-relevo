@@ -60,12 +60,13 @@ export class AwayViews {
       return `${repo}${p?.branch ? ` · ${p.branch}` : ""}`;
     };
     const focus = (a) => () => run("agent.focus", { terminal: a.address });
+    const why = this.waitingReasons();
     return [
       ...d.finished.filter((x) => live.has(x)).map((x) => ({
         id: `away-done-${x}`, kind: "done", label: name(live.get(x)), note: d.said[x], go: focus(live.get(x)),
       })),
       ...d.waiting.filter((x) => live.get(x)?.status === "blocked").map((x) => ({
-        id: `away-wait-${x}`, kind: "blocked", label: name(live.get(x)), note: "waiting for you", go: focus(live.get(x)),
+        id: `away-wait-${x}`, kind: "blocked", label: name(live.get(x)), note: why[x] ?? "waiting for you", go: focus(live.get(x)),
       })),
       ...d.prs.map((p, i) => ({
         id: `away-pr-${i}`, kind: "pr", label: p.title, go: () => /^https:\/\//.test(p.url) && exec("open", [p.url]),

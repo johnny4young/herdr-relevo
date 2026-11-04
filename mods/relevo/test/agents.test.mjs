@@ -87,3 +87,11 @@ test("a ticket with no account has no handoff click", async () => {
   const { ui } = await open([agent("t1")], [{ address: "t1", state: "live", labels: { "agent.jira": "AB-1" } }]);
   assert.equal(find(ui(), "acct-t1").handlers.on_click, undefined);
 });
+
+test("a waiting agent's row says why; others stay one line", async () => {
+  fake.stored["relevo.reasons"] = { t1: "Run: rm -rf dist", t2: "stale" };
+  const { ui } = await open([agent("t1", { status: "blocked" }), agent("t2", { status: "working" })]);
+  const view = ui();
+  assert.equal(text(find(view, "why-t1")), "Run: rm -rf dist");
+  assert.equal(find(view, "why-t2"), null);
+});

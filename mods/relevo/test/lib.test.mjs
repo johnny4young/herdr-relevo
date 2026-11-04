@@ -7,7 +7,7 @@ import { ownerOf, contextFor } from "../lib/context.js";
 import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
 import { keyMap, relevoKeys, formatShortcut } from "../lib/keys.js";
 import { mapMine, mapReady, mapRequested, unresolved, prChanges, mergedHeads } from "../lib/github.js";
-import { readPrompt, samePrompt, submitKeys, freeOption, moveKeys, lastMessage } from "../lib/prompt.js";
+import { readPrompt, samePrompt, submitKeys, freeOption, moveKeys, lastMessage, reasonOf } from "../lib/prompt.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "../lib/handoff.js";
 import { isAddressed, keepListed, addressedValue, staleAddressed } from "../lib/addressed.js";
 import { isDue, runningCommands, endedFolders, repoOf, gitStateChanged } from "../lib/refresh.js";
@@ -716,4 +716,48 @@ test("readPrompt: with no choices the card has the agent's words, never the foot
 test("readPrompt: no agent's words and no choices stops at the input box", () => {
   const p = readPrompt(["Should I also update the docs?", RULE, "› ", RULE, "  gpt · 42%"].join("\n"));
   assert.equal(p.question, "Should I also update the docs?");
+});
+
+const asked = (lines) => readPrompt(lines.join("\n"));
+const bash = (...command) => asked([RULE, " Bash command", " Clean up", FENCED, ...command.map((c) => ` │ ${c}`), FENCED, " Do you want to proceed?", " ❯ 1. Yes", "   2. No"]);
+
+test("reasonOf: a command says what runs, and how much more there is", () => {
+  assert.equal(reasonOf(bash("rm -rf dist")), "Run: rm -rf dist");
+  assert.equal(reasonOf(bash("mkdir -p scratch", "rm -rf scratch", "ls")), "Run: mkdir -p scratch · +2 lines");
+});
+
+test("reasonOf: never more than 40 characters, cut at a word", () => {
+  const one = reasonOf(bash("git push --force origin main and a lot more words")), two = reasonOf(bash("git push --force origin main and more", "ls"));
+  assert.ok(one.length <= 40, one);
+  assert.ok(one.endsWith("…"), one);
+  assert.ok(two.length <= 40, two);
+  assert.ok(two.endsWith("… · +1 line"), two);
+});
+
+test("reasonOf: a command that started off screen doesn't pretend to know it", () => {
+  assert.equal(reasonOf(asked([" rm -rf a", FENCED, " Do you want to proceed?", " ❯ 1. Yes", "   2. No"])), "Asks permission");
+});
+
+test("reasonOf: edits, fetches, plans and Codex", () => {
+  const edit = asked([RULE, " Edit file", " notes.txt", FENCED, " 1 -a", FENCED, " Make this edit?", " ❯ 1. Yes", "   2. No"]);
+  assert.equal(reasonOf(edit), "Edit: notes.txt");
+  const fetch = asked([RULE, " Fetch", " It wants this", FENCED, " url: https://example.org/", FENCED, " Allow?", " ❯ 1. Yes", "   2. No"]);
+  assert.equal(reasonOf(fetch), "Fetch: https://example.org/");
+  const plan = asked(["  " + RULE, "   Here is Claude's plan:", "  " + FENCED, "   Do it", "  " + FENCED, "   Proceed?", "   ❯ 1. Yes", "     2. No"]);
+  assert.equal(reasonOf(plan), "Plan to approve");
+  const codex = asked(["  Would you like to run the following command?", "  Reason: tidy", "  $ ls", "› 1. Yes, proceed (y)", "  2. No"]);
+  assert.equal(reasonOf(codex), "Run: ls");
+  assert.equal(reasonOf(asked([RULE, " MCP tool", FENCED, " x", FENCED, " Allow?", " ❯ 1. Yes", "   2. No"])), "MCP tool");
+});
+
+test("reasonOf: a question, the agent's words, and the agent's report when the screen doesn't say", () => {
+  assert.equal(reasonOf(asked(["Which database?", "❯ 1. Postgres", "  2. SQLite"])), "Which database?");
+  assert.equal(reasonOf(asked(["⏺ Should I go on?", "❯ "])), "Should I go on?");
+  assert.equal(reasonOf(asked(["❯ "])), "Waits for your reply");
+  const menu = { options: [], question: "", unparsed: true };
+  assert.equal(reasonOf(menu), "Waits in its terminal");
+  assert.equal(reasonOf(menu, { kind: "question", msg: "answer: Which database? (A · B)" }), "Which database?");
+  assert.equal(reasonOf(menu, { kind: "permission", msg: "approve Bash: npm test" }), "Run: npm test");
+  assert.equal(reasonOf(menu, { kind: "permission" }), "Asks permission");
+  assert.equal(reasonOf(asked(["⏺ old words", "❯ "]), { kind: "auth", msg: "Login expired · Please run /login" }), "Login expired · Please run /login");
 });

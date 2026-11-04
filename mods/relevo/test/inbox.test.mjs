@@ -744,3 +744,18 @@ test("a long command shows its first lines and says how many it left out", async
   assert.doesNotMatch(view, /step 9/);
   assert.match(view, /\+2 more lines, open the agent/);
 });
+
+test("the reason for each waiting agent reaches the other mods, and goes once it stops waiting", async () => {
+  const { inbox, cx } = await waiting(PERMISSION("rm -rf dist"));
+  assert.deepEqual(fake.stored["relevo.reasons"], { t1: "Run: rm -rf dist" });
+  setAgents(["t1", "working"]);
+  inbox.scanLocal(cx);
+  await flush();
+  assert.deepEqual(fake.stored["relevo.reasons"], {});
+});
+
+test("back from away, a waiting agent says why", async () => {
+  const { ui, inbox } = await waiting(PERMISSION("rm -rf dist"));
+  inbox.digest = { finished: [], waiting: ["t1"], prs: [], quota: [], seconds: 0, said: {} };
+  assert.match(text(ui()), /Run: rm -rf dist/);
+});

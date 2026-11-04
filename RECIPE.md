@@ -168,6 +168,10 @@ task to another account.
 - **hooks/relevo-labels.py** (in mods/relevo): the optional Claude hook behind the `agent.*` labels, reading the
   account from `config.js`. `--check`, `--install` and `--uninstall` change only the `hooks` key of each account's
   settings, with a backup; `HOOK.md` is the runbook for an agent.
+- **Why an agent waits**: `reasonOf` gives at most 40 characters from the screen or, when that says nothing, the
+  agent's report: `Run: <first line> · +N lines`, `Edit: <file>`, `Fetch: <url>`, `Plan to approve`, its question or
+  last words. The Inbox publishes them in shared `relevo.reasons`. A blocked row in the Agents list gets one as an 11px
+  second line (44px tall) and the away card uses it. It can be cut, so no answer button ever sits beside it.
 - **mods/relevo-agents**: Herdr's agents list with account and ticket chips (from the `agent.account` and
   `agent.jira` labels and the shared `relevo.setup`) and a background marker from `agent.bg` (`⧗2` in `working`
   color, the full "2 shells" in its tooltip).
