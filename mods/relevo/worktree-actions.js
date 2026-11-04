@@ -214,3 +214,12 @@ export async function deleteWorktree(w) {
   if (w.branch && w.branch !== base) await exec("git", ["-C", w.main, "branch", "-D", w.branch]);
   return null;
 }
+
+export const headOf = async (w) => line(await git(w, ["rev-parse", "HEAD"]));
+
+// One JSON line per worktree Relevo removes: git keeps no record, and the commit can still restore its branch.
+export async function logRemoval(w, head, said, root = backupsRoot()) {
+  const entry = { at: new Date().toISOString(), said, repo: w.repo, path: w.path, branch: w.branch ?? null, head: head || null };
+  const r = await exec("sh", ["-c", 'umask 077; mkdir -p "$1" && printf "%s\\n" "$2" >> "$1/deletions.log"', "sh", root, JSON.stringify(entry)]);
+  return r.code === 0;
+}

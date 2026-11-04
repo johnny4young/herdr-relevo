@@ -1,6 +1,7 @@
 import { agents, panes, terminals, exec, home, shared, setShared, readTextFile } from "herdr";
-import { totals, week, weekStart } from "./lib/ledger.js";
+import { repoOfGitDir, totals, week, weekStart } from "./lib/ledger.js";
 import { timeWithin } from "./lib/away.js";
+import { GIT_READ } from "./lib/git.js";
 export { duration } from "./lib/time.js";
 
 // One JSON line per stretch an agent worked: {start, end, jira, repo, branch, account}.
@@ -14,12 +15,25 @@ function append(entries) {
   return exec("sh", ["-c", 'mkdir -p "$(dirname "$1")" && printf "%s\\n" "$2" >> "$1"', "sh", `${home()}/${LEDGER}`, text]);
 }
 
+// Time goes to the repo, whichever worktree or subfolder the agent is in. Asked once per folder.
+const projects = new Map();
+function projectOf(cwd) {
+  if (!projects.has(cwd)) {
+    projects.set(cwd, exec("git", [...GIT_READ, "rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd })
+      .then((r) => (r.code === 0 ? repoOfGitDir(r.stdout.trim()) : null), () => null));
+  }
+  return projects.get(cwd);
+}
+
 // Open stretches live in shared state, so a reload keeps counting.
-export function ledgerTick() {
-  const open = { ...(shared(OPEN) ?? {}) }, now = Math.round(Date.now() / 1000), closed = [];
+export async function ledgerTick() {
   const byPane = new Map(panes().map((p) => [p.pane, p]));
   const labels = new Map(terminals().map((k) => [k.address, k.labels ?? {}]));
   const working = new Map(agents().filter((a) => a.status === "working").map((a) => [a.address, a]));
+  const started = shared(OPEN) ?? {};
+  const cwds = [...working.values()].filter((a) => !started[a.address]).map((a) => byPane.get(a.pane)?.cwd).filter(Boolean);
+  const names = new Map(await Promise.all(cwds.map(async (cwd) => [cwd, await projectOf(cwd)])));
+  const open = { ...(shared(OPEN) ?? {}) }, now = Math.round(Date.now() / 1000), closed = [];
   for (const [address, entry] of Object.entries(open)) {
     if (working.has(address)) continue;
     closed.push({ ...entry, end: now });
@@ -31,7 +45,7 @@ export function ledgerTick() {
     open[address] = {
       start: now,
       jira: l["agent.jira"] || JIRA.exec(branch ?? "")?.[1] || null,
-      repo: (pane?.cwd ?? "").split("/").pop() || a.space_name,
+      repo: names.get(pane?.cwd) || (pane?.cwd ?? "").split("/").pop() || a.space_name,
       branch,
       account: l["agent.account"] || (a.app === "codex" ? "codex" : null),
     };

@@ -60,7 +60,8 @@ task to another account.
     and **Delete** (idle 7 days, not open, locked or holding a repo; first says what would be lost, then **Delete
     forever** reads again; `worktree remove --force`, the only forced removal, and `branch -D`). Backups go to
     `~/<BACKUPS_ROOT>/<repo>/<worktree>/<time>/`, private, with `latest.json` telling whether what's here is saved. A **Backups** row shows the folder's size and
-    **Open**, once it exists.
+    **Open**, once it exists. Each worktree Remove or Delete takes adds a JSON line to `~/<BACKUPS_ROOT>/deletions.log`:
+    time, what the row said, repo, path, branch and commit.
 - **Review pane** (opened beside the terminal): header `Review · <folder>` with an **Uncommitted | All changes**
   picker (or `<repo> #n · against <base>` for a PR), the changed files (max 150px) with comment counts, a bar with the open file and **Comment on file**, the
   diff with old/new line numbers, green and red rows, and a footer "N comments for <agent>" with **Clear** and
@@ -167,8 +168,9 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   screen is marked as a record, not instructions). Once the new agent is listed, a toast offers to close the old one,
   which happens only if it's resting, the new one is still there and no helpers run.
 - **Ledger**: every 3 s working agents open a stretch and stopped ones close it into
-  `~/.local/state/relevo/ledger.jsonl` (`{start, end, jira, repo, branch, account}`). Parallel agents on one ticket
-  count once; a stretch across midnight splits.
+  `~/.local/state/relevo/ledger.jsonl` (`{start, end, jira, repo, branch, account}`). `repo` is the repo's own name
+  from `git rev-parse --git-common-dir`, so a worktree or subfolder counts as its project; a folder outside git keeps
+  its name. Parallel agents on one ticket or project count once; a stretch across midnight splits.
 
 ## Built from
 

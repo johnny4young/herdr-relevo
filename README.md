@@ -87,7 +87,8 @@ Mods reload by themselves. `--exclude config.js` keeps your accounts; copying th
 - Reads each Claude account's `history.jsonl` to rank the skills a PR's menu offers (counts only), its short
   one-line prompts to suggest quick replies you keep typing, and its sessions for `⌥⌘E`, with the title, branch and
   PR from the end of each session file (in memory, never written anywhere).
-- Writes `~/.local/state/relevo/ledger.jsonl` (agent time), `~/.local/state/relevo/replies.json` (how often you send
+- Writes `~/relevo-backups/deletions.log` (each worktree it removes: time, repo, path, branch and commit),
+  `~/.local/state/relevo/ledger.jsonl` (agent time), `~/.local/state/relevo/replies.json` (how often you send
   each saved quick reply), `~/.local/state/relevo/addressed.json` (PRs marked
   addressed) and `~/.local/state/relevo/handoff/` (handoff notes); a PR session adds a worktree under
   `~/.herdr/worktrees/`;
