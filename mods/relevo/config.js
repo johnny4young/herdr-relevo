@@ -25,6 +25,9 @@ export const FALLBACK = ["personal", "work"];
 // Clones live directly under this folder in home.
 export const REPOS_ROOT = "code";
 
+// Where Save patch and Save commits write, under home.
+export const BACKUPS_ROOT = "relevo-backups";
+
 // The slash commands the Inbox launches on a PR: a review, a CI fix and answering review comments.
 export const SKILLS = { review: "review", fix: "fix-ci", comments: "address-comments" };
 

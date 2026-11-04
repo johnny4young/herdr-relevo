@@ -25,7 +25,7 @@ function parse(out) {
 // "<path>\t<newest of last commit, index and HEAD>": the index moves with any git use there.
 const TOUCHED = 'for w; do g=$(git -C "$w" rev-parse --absolute-git-dir 2>/dev/null) || continue; c=$(git -C "$w" log -1 --format=%ct 2>/dev/null); m=$(stat -f %m "$g/index" "$g/HEAD" 2>/dev/null | sort -n | tail -1); printf "%s\t%s\n" "$w" "$(printf "%s\n%s\n" "${c:-0}" "${m:-0}" | sort -n | tail -1)"; done';
 
-const slug = (url) => /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/.exec(url.trim())?.[1] ?? null;
+export const slug = (url) => /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/.exec(url.trim())?.[1] ?? null;
 
 // GitHub's merged PRs per repo, asked again after MERGED_TTL or on a forced refresh;
 // scans also run on every space change, and this is the network call in them.
@@ -88,7 +88,7 @@ const worthKeeping = (paths) => paths.filter((l) => !REBUILT.has(l.split("/").po
 const statusOf = (w) => exec("git", [...GIT_READ, "status", "--porcelain", "--untracked-files=normal"], { cwd: w.path });
 
 const baseOf = new Map();
-async function baseBranch(main) {
+export async function baseBranch(main) {
   if (baseOf.has(main)) return baseOf.get(main);
   const head = await exec("git", [...GIT_READ, "-C", main, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
   let base = head.code === 0 ? head.stdout.trim() : "";
@@ -125,14 +125,33 @@ export async function treeSize(w) {
   return r.code === 0 ? Number(r.stdout.split(/\s/)[0]) || 0 : 0;
 }
 
-// Local refs can be stale, so a branch counts as pushed only if GitHub has this very commit.
+// Local refs can be stale, so it counts as pushed only if a branch on GitHub sits on this very commit.
 async function onGitHub(w) {
   const head = await exec("git", [...GIT_READ, "rev-parse", "HEAD"], { cwd: w.path });
-  const remote = await exec("git", [...GIT_READ, "ls-remote", "--heads", "origin", `refs/heads/${w.branch}`], { cwd: w.path });
-  return head.code === 0 && remote.code === 0 && remote.stdout.split(/\s/)[0] === head.stdout.trim();
+  const remote = await exec("git", [...GIT_READ, "ls-remote", "--heads", "origin"], { cwd: w.path });
+  return head.code === 0 && remote.code === 0
+    && remote.stdout.split("\n").some((l) => l.split(/\s/)[0] === head.stdout.trim());
 }
 
-async function isLocked(w) {
+export async function ignoredPaths(w) {
+  const r = await ignoredFiles(w);
+  return r.code === 0 ? r.paths : null;
+}
+
+// A repo inside ignored or untracked folders, not a tool's clones: "" for none, null if the search can't finish.
+export async function nestedRepo(w, paths) {
+  const status = await statusOf(w);
+  if (status.code !== 0) return null;
+  const untracked = status.stdout.split("\n").filter((l) => l.startsWith("?? ") && l.endsWith("/")).map((l) => l.slice(3, -1).replace(/^"|"$/g, ""));
+  const dirs = [...paths.filter((p) => !REBUILT.has(p.split("/").pop())), ...untracked].map((p) => `./${p}`);
+  if (!dirs.length) return "";
+  const skip = [...REBUILT].flatMap((name, i) => (i ? ["-o", "-name", name] : ["-name", name]));
+  const found = await exec("find", [...dirs, "(", ...skip, ")", "-prune", "-o", "-name", ".git", "-print"], { cwd: w.path });
+  if (found.code !== 0) return null;
+  return found.stdout.split("\n").find(Boolean)?.replace(/^\.\//, "").replace(/\/?\.git$/, "") ?? "";
+}
+
+export async function isLocked(w) {
   const out = (await exec("git", ["-C", w.main, "worktree", "list", "--porcelain"])).stdout;
   return out.split("\n\n").some((b) => b.split("\n")[0] === `worktree ${w.path}` && /^locked\b/m.test(b));
 }

@@ -3,15 +3,16 @@ import "./fake/register.mjs";
 import { test, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fake, resetFake, calls, theme } from "./fake/herdr.mjs";
 import { fakeCx, find, flush, text } from "./fake/ui.mjs";
-import { groupOf, whyOf, sizeOf } from "../lib/trees.js";
+import { actionsOf, groupOf, whyOf, sizeOf } from "../lib/trees.js";
 
 const { TreeViews } = await import("../inbox-trees.js");
 const { removalCheck, treeState } = await import("../worktrees.js");
+const { deleteCheck, deleteWorktree, pushBackup, pushPlan, savedState, saveCommits, savePatch } = await import("../worktree-actions.js");
 
 const NOW = 2_000_000_000, DAY = 86400, OLD = NOW - 30 * DAY;
 const clean = { branch: "feat", locked: false, files: 0, unpushed: 0, unique: 0, ignored: [] };
@@ -34,16 +35,16 @@ test("groupOf: used within 7 days, or at an unknown time, is recent", () => {
   assert.equal(groupOf(clean, NOW - 7 * DAY, NOW), "safe");
 });
 
-test("groupOf: commits outside main are pushed on a branch, and work when detached", () => {
+test("groupOf: commits outside main that are pushed count as pushed, detached too", () => {
   assert.equal(groupOf({ ...clean, unique: 3 }, OLD, NOW), "pushed");
-  assert.equal(groupOf({ ...clean, unique: 3, branch: null }, OLD, NOW), "work");
+  assert.equal(groupOf({ ...clean, unique: 3, branch: null }, OLD, NOW), "pushed");
   assert.equal(groupOf(clean, OLD, NOW), "safe");
 });
 
 test("whyOf and sizeOf say it in few words", () => {
   assert.equal(whyOf({ ...clean, files: 1, unpushed: 75 }), "1 file uncommitted · 75 commits not pushed");
   assert.equal(whyOf({ ...clean, unique: 3 }), "3 commits on GitHub");
-  assert.equal(whyOf({ ...clean, unique: 1, branch: null }), "1 commit not in main");
+  assert.equal(whyOf({ ...clean, files: 2, patchSaved: true }), "2 files uncommitted, saved");
   assert.equal(whyOf(clean), null);
   assert.equal(whyOf({ unreadable: true }), "could not check");
   assert.equal(sizeOf(4 * 1048576), "4.0 GB");
@@ -149,6 +150,7 @@ function realTree(t) {
   git(root, "clone", "-q", origin, main);
   git(main, "checkout", "-q", "-b", "main");
   writeFileSync(join(main, "a.txt"), "a\n");
+  writeFileSync(join(main, "bin.dat"), Buffer.from([9, 9, 0, 9]));
   git(main, "add", ".");
   git(main, "commit", "-qm", "i");
   git(main, "push", "-q", "-u", "origin", "main");
@@ -157,13 +159,14 @@ function realTree(t) {
     const r = spawnSync(cmd, args, { cwd: options?.cwd, encoding: "utf8" });
     return { code: r.status, stdout: r.stdout, stderr: r.stderr };
   };
+  fake.read = (file) => { try { return readFileSync(file, "utf8"); } catch { return null; } };
   const w = { main, path, branch: "feat" };
   const commit = (name) => {
     writeFileSync(join(path, name), "x\n");
     git(path, "add", ".");
     git(path, "commit", "-qm", name);
   };
-  return { w, path, commit, git: (...args) => git(path, ...args), originGit: (...args) => git(origin, ...args) };
+  return { w, path, commit, git: (...args) => git(path, ...args), originGit: (...args) => git(origin, ...args), originPath: origin };
 }
 const later = () => {
   const at = Date.now() + 30 * DAY * 1000;
@@ -213,4 +216,168 @@ test("real git: pushed commits need GitHub to still have them", async (t) => {
   // The remote branch goes, while the local ref still says it's there.
   originGit("update-ref", "-d", "refs/heads/feat");
   assert.equal((await removalCheck({ ...w, group: "pushed" })).error, "not on GitHub anymore");
+});
+
+test("actionsOf: only what applies, and Delete only once idle", () => {
+  const dirty = { ...clean, files: 2 }, ahead = { ...clean, unpushed: 3 };
+  assert.deepEqual(actionsOf(dirty, OLD, NOW), ["patch", "delete"]);
+  assert.deepEqual(actionsOf(ahead, OLD, NOW), ["commits", "push", "delete"]);
+  assert.deepEqual(actionsOf({ ...dirty, patchSaved: true }, OLD, NOW), ["delete"]);
+  assert.deepEqual(actionsOf({ ...ahead, commitsSaved: true }, OLD, NOW), ["push", "delete"]);
+  assert.deepEqual(actionsOf(dirty, NOW - DAY, NOW), ["patch"]);
+  assert.deepEqual(actionsOf({ ...dirty, locked: true }, OLD, NOW), ["patch"]);
+  assert.deepEqual(actionsOf({ unreadable: true }, OLD, NOW), []);
+});
+
+test("a row with work opens its actions; nothing runs until a button is pressed", () => {
+  const { v, worktrees } = view({ dirty: { ...clean, files: 3 } });
+  const cx = fakeCx();
+  const more = find(draw(v, worktrees), "wt-more-/w/dirty");
+  assert.equal(find(draw(v, worktrees), "wt-delete-/w/dirty"), null);
+  more.handlers.on_click({}, cx);
+  const ui = draw(v, worktrees);
+  assert.ok(find(ui, "wt-patch-/w/dirty"));
+  assert.ok(find(ui, "wt-delete-/w/dirty"));
+  assert.equal(find(ui, "wt-push-/w/dirty"), null);
+  assert.equal(fake.execs.length, 0);
+});
+
+const rootOf = (w) => join(w.path, "..", "backups");
+const write = (path, name, body = "x\n") => writeFileSync(join(path, name), body);
+function dirtyTree(path, git) {
+  write(path, "a.txt", "changed\n");
+  write(path, "new.txt");
+  writeFileSync(join(path, "bin.dat"), Buffer.from([0, 1, 2, 255, 254, 0]));
+  git("add", "new.txt");
+  write(path, "new.txt", "changed after staging\n");
+  write(path, "untracked.txt");
+}
+const statusNow = (git) => git("--no-optional-locks", "-c", "diff.autoRefreshIndex=false", "status", "--porcelain");
+
+test("real git: Save patch rebuilds the same files in a clean checkout, and leaves the worktree alone", async (t) => {
+  const { w, path, git } = realTree(t);
+  dirtyTree(path, git);
+  const gitDir = git("rev-parse", "--absolute-git-dir").trim(), before = statSync(join(gitDir, "index")).mtimeMs, status = statusNow(git);
+  const root = rootOf(w), r = await savePatch({ ...w, repo: "app" }, root);
+  assert.equal(r.error, undefined);
+  assert.equal(statusNow(git), status);
+  assert.equal(statSync(join(gitDir, "index")).mtimeMs, before);
+  assert.equal(statSync(r.file).mode & 0o777, 0o600);
+  git("worktree", "add", "-q", "--detach", join(path, "..", "fresh"), "main");
+  const fresh = join(path, "..", "fresh");
+  execFileSync("git", ["apply", "--index", r.file], { cwd: fresh });
+  assert.equal(readFileSync(join(fresh, "a.txt"), "utf8"), "changed\n");
+  assert.equal(readFileSync(join(fresh, "new.txt"), "utf8"), "changed after staging\n");
+  assert.deepEqual([...readFileSync(join(fresh, "bin.dat"))], [0, 1, 2, 255, 254, 0]);
+  assert.ok(existsSync(join(fresh, "untracked.txt")));
+});
+
+test("real git: saved holds until something changes", async (t) => {
+  const { w, path, git } = realTree(t), root = rootOf(w), tree = { ...w, repo: "app" };
+  dirtyTree(path, git);
+  await savePatch(tree, root);
+  assert.equal((await savedState(tree, { files: 3, unpushed: 0 }, root)).patchSaved, true);
+  write(path, "a.txt", "edited again\n");
+  assert.equal((await savedState(tree, { files: 3, unpushed: 0 }, root)).patchSaved, false);
+});
+
+test("real git: Save patch refuses a repo it couldn't capture", async (t) => {
+  const { w, path } = realTree(t), inner = join(path, "vendor");
+  mkdirSync(inner);
+  execFileSync("git", ["init", "-q"], { cwd: inner });
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "i"], { cwd: inner });
+  const r = await savePatch({ ...w, repo: "app" }, rootOf(w));
+  assert.equal(r.error, "holds a repo");
+  assert.equal(existsSync(rootOf(w)), false);
+});
+
+test("real git: Save commits restores them in a fresh clone, detached too", async (t) => {
+  const { w, commit, git, originPath } = realTree(t), root = rootOf(w), tree = { ...w, repo: "app" };
+  commit("b.txt");
+  git("checkout", "-q", "--detach");
+  const head = git("rev-parse", "HEAD").trim(), r = await saveCommits(tree, root);
+  assert.equal(r.error, undefined);
+  assert.equal(statSync(r.file).mode & 0o777, 0o600);
+  const clone = join(w.path, "..", "clone");
+  execFileSync("git", ["clone", "-q", originPath, clone]);
+  execFileSync("git", ["fetch", "-q", r.file, "HEAD"], { cwd: clone });
+  assert.equal(execFileSync("git", ["rev-parse", "FETCH_HEAD"], { cwd: clone, encoding: "utf8" }).trim(), head);
+  assert.equal((await savedState(tree, { files: 0, unpushed: 1 }, root)).commitsSaved, true);
+});
+
+test("real git: Push backup lands on GitHub and never overwrites", async (t) => {
+  const { w, commit, git, originGit } = realTree(t), tree = { ...w, repo: "app" };
+  commit("b.txt");
+  const head = git("rev-parse", "HEAD").trim();
+  assert.deepEqual(await pushBackup(tree), { ref: "backup/wt" });
+  assert.equal(originGit("rev-parse", "refs/heads/backup/wt").trim(), head);
+  assert.equal(git("rev-list", "--count", "HEAD", "--not", "--remotes").trim(), "0");
+  git("reset", "-q", "--hard", "HEAD~1");
+  commit("other.txt");
+  assert.ok((await pushBackup(tree)).error);
+  assert.equal(originGit("rev-parse", "refs/heads/backup/wt").trim(), head);
+});
+
+test("pushPlan treats an unknown repo as public", async () => {
+  fake.exec = (cmd) => (cmd === "gh" ? { code: 1, stderr: "no" } : { code: 0, stdout: "https://github.com/me/app.git\n" });
+  const plan = await pushPlan({ path: "/w/a", repo: "app" }, { unpushed: 75 });
+  assert.equal(plan.text, "Publishes 75 commits to public app");
+  fake.exec = (cmd) => ({ code: 0, stdout: cmd === "gh" ? "PRIVATE\n" : "https://github.com/me/app.git\n" });
+  assert.equal((await pushPlan({ path: "/w/a", repo: "app" }, { unpushed: 1 })).text, "Pushes 1 commit to private app");
+});
+
+test("real git: Delete says what goes, refuses what's in use, then takes everything", async (t) => {
+  const { w, path, commit } = realTree(t), root = rootOf(w), tree = { ...w, repo: "app" };
+  commit("b.txt");
+  write(path, "a.txt", "changed\n");
+  assert.equal((await deleteCheck(tree, root)).error, "used in the last 7 days");
+  later();
+  fake.panes = [{ pane: "p", cwd: path, status: "working" }];
+  assert.equal((await deleteCheck(tree, root)).error, "an agent is working here");
+  fake.panes = [];
+  const check = await deleteCheck(tree, root);
+  assert.match(check.text, /^Delete forever: 1 file uncommitted, 1 commit/);
+  write(path, "a.txt", "changed more\n");
+  assert.notEqual((await deleteCheck(tree, root)).sign, check.sign);
+  assert.equal(await deleteWorktree(tree), null);
+  assert.equal(existsSync(path), false);
+  assert.equal(spawnSync("git", ["rev-parse", "-q", "--verify", "refs/heads/feat"], { cwd: w.main }).status, 1);
+  assert.equal(spawnSync("git", ["rev-parse", "-q", "--verify", "refs/heads/main"], { cwd: w.main }).status, 0);
+});
+
+test("real git: once saved, Delete says nothing is lost; a later edit says otherwise", async (t) => {
+  const { w, path, commit, git } = realTree(t), root = rootOf(w), tree = { ...w, repo: "app" };
+  commit("b.txt");
+  dirtyTree(path, git);
+  await savePatch(tree, root);
+  await saveCommits(tree, root);
+  later();
+  assert.match((await deleteCheck(tree, root)).text, /^Delete: nothing unsaved/);
+  write(path, "a.txt", "again\n");
+  assert.match((await deleteCheck(tree, root)).text, /^Delete forever: 4 files uncommitted/);
+});
+
+test("real git: Delete refuses a repo inside, a lock and an open space", async (t) => {
+  const { w, path } = realTree(t), root = rootOf(w), tree = { ...w, repo: "app" };
+  later();
+  fake.spaces = [{ id: "s", folder: path, tabs: [] }];
+  assert.equal((await deleteCheck(tree, root)).error, "close its space first");
+  fake.spaces = [];
+  execFileSync("git", ["worktree", "lock", path], { cwd: w.main });
+  assert.equal((await deleteCheck(tree, root)).error, "locked");
+  execFileSync("git", ["worktree", "unlock", path], { cwd: w.main });
+  mkdirSync(join(path, "vendor"));
+  execFileSync("git", ["init", "-q"], { cwd: join(path, "vendor") });
+  assert.match((await deleteCheck(tree, root)).error, /^holds a repo: vendor/);
+});
+
+test("real git: a pushed detached worktree can be removed only while GitHub has that commit", async (t) => {
+  const { w, commit, git, originGit } = realTree(t), tree = { ...w, branch: null, repo: "app" };
+  commit("b.txt");
+  git("checkout", "-q", "--detach");
+  await pushBackup(tree);
+  later();
+  assert.equal((await removalCheck({ ...tree, group: "pushed" })).error, undefined);
+  originGit("update-ref", "-d", "refs/heads/backup/wt");
+  assert.equal((await removalCheck({ ...tree, group: "pushed" })).error, "not on GitHub anymore");
 });

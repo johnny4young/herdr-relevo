@@ -72,6 +72,9 @@ export function renderConfig(c) {
     "// Clones live directly under this folder in home.",
     flat("REPOS_ROOT", c.REPOS_ROOT),
     "",
+    "// Where Save patch and Save commits write, under home.",
+    flat("BACKUPS_ROOT", c.BACKUPS_ROOT ?? "relevo-backups"),
+    "",
     "// The slash commands the Inbox launches on a PR: a review, a CI fix and answering review comments.",
     block(c.SKILLS, 0, "export const SKILLS = ", ";"),
     "",
@@ -119,6 +122,9 @@ export function validate(c) {
   const root = c.REPOS_ROOT ?? "";
   if (!root.trim()) fail("reposRoot", "Repos root is required");
   else if (root.startsWith("/") || root.startsWith("~")) fail("reposRoot", "Repos root is relative to home, like code");
+  const backups = c.BACKUPS_ROOT ?? "relevo-backups";
+  if (!backups.trim()) fail("backupsRoot", "Backups folder is required");
+  else if (backups.startsWith("/") || backups.startsWith("~")) fail("backupsRoot", "Backups folder is relative to home, like relevo-backups");
   const skills = c.SKILLS ?? {};
   if (Object.keys(skills).sort().join() !== [...SKILL_KEYS].sort().join()) fail("skills", "Skills: review, fix and comments");
   for (const k of SKILL_KEYS) if (k in skills && !skills[k]?.trim()) fail(`skills.${k}`, `Skills: ${k} is required`);

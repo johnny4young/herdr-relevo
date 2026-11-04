@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.17 · 2026-11-03
+
+- **Do something about a worktree with work.** Its row in "worktrees without a space" gets a `⋯` menu. **Save patch** and **Save commits** keep your changes and commits outside the repo, in `~/relevo-backups`, and only say saved once they're verified. **Push backup** sends commits to a `backup/` branch and warns you when that publishes them. **Delete** removes the worktree and everything in it, saying first what you'd lose. Anything used in the last 7 days, open or locked can't be deleted.
+- **Pick the backups folder** in Settings. Existing `config.js` files use `relevo-backups`.
+
 ## 0.5.16 · 2026-11-03
 
 - **Know which worktrees can go.** "Worktrees without a space" now sorts them by what removing one would lose: nothing, commits already on GitHub, or your work. Each row says why and how big it is, and only the first two groups offer **Remove**. Ones used in the last 7 days fold under **Recent**.
