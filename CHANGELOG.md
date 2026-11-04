@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.16 · 2026-11-03
+
+- **Know which worktrees can go.** "Worktrees without a space" now sorts them by what removing one would lose: nothing, commits already on GitHub, or your work. Each row says why and how big it is, and only the first two groups offer **Remove**. Ones used in the last 7 days fold under **Recent**.
+
 ## 0.5.15 · 2026-11-03
 
 - **Why it's waiting, at a glance.** A blocked agent in the Agents list gets a second line with its reason, like `Run: rm -rf dist · +2 lines`, `Edit: notes.txt` or `Plan to approve`. "While you were away" says the same. You still approve on its card in the Inbox, where the whole command shows.

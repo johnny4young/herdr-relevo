@@ -2,6 +2,7 @@ import { exec, home, notify, spaces, panes } from "herdr";
 import { REPOS_ROOT as ROOT } from "./config.js";
 import { mergedHeads } from "./lib/github.js";
 import { GIT_READ } from "./lib/git.js";
+import { groupOf } from "./lib/trees.js";
 
 // Every linked worktree of the clones in ROOT, as "<main>\t<porcelain line>".
 const LIST = 'for d in "$1"/*/; do [ -d "$d.git" ] || continue; git -C "$d" worktree list --porcelain 2>/dev/null | awk -v d="${d%/}" \'{ print d "\t" $0 }\'; done';
@@ -86,6 +87,51 @@ const worthKeeping = (paths) => paths.filter((l) => !REBUILT.has(l.split("/").po
 // showUntrackedFiles=no would hide new files from this check and from git's own refusal.
 const statusOf = (w) => exec("git", [...GIT_READ, "status", "--porcelain", "--untracked-files=normal"], { cwd: w.path });
 
+const baseOf = new Map();
+async function baseBranch(main) {
+  if (baseOf.has(main)) return baseOf.get(main);
+  const head = await exec("git", [...GIT_READ, "-C", main, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+  let base = head.code === 0 ? head.stdout.trim() : "";
+  for (const name of ["origin/main", "origin/master"]) {
+    if (base) break;
+    if ((await exec("git", [...GIT_READ, "-C", main, "rev-parse", "-q", "--verify", name])).code === 0) base = name;
+  }
+  if (base) baseOf.set(main, base);
+  return base;
+}
+
+// What removing this worktree would lose. Anything unreadable counts as work.
+export async function treeState(w) {
+  try {
+    const git = (args) => exec("git", [...GIT_READ, ...args], { cwd: w.path });
+    const base = await baseBranch(w.main);
+    const status = await statusOf(w), pushed = await git(["rev-list", "--count", "HEAD", "--not", "--remotes"]);
+    const cherry = base ? await git(["cherry", base, "HEAD"]) : { code: 1 }, ignored = await ignoredFiles(w);
+    if (!base || [status, pushed, cherry, ignored].some((r) => r.code !== 0)) return { unreadable: true };
+    return {
+      branch: w.branch ?? null, locked: Boolean(w.locked),
+      files: status.stdout.split("\n").filter(Boolean).length,
+      unpushed: Number(pushed.stdout.trim()) || 0,
+      unique: cherry.stdout.split("\n").filter((l) => l.startsWith("+")).length,
+      ignored: worthKeeping(ignored.paths),
+    };
+  } catch {
+    return { unreadable: true };
+  }
+}
+
+export async function treeSize(w) {
+  const r = await exec("du", ["-sk", w.path]);
+  return r.code === 0 ? Number(r.stdout.split(/\s/)[0]) || 0 : 0;
+}
+
+// Local refs can be stale, so a branch counts as pushed only if GitHub has this very commit.
+async function onGitHub(w) {
+  const head = await exec("git", [...GIT_READ, "rev-parse", "HEAD"], { cwd: w.path });
+  const remote = await exec("git", [...GIT_READ, "ls-remote", "--heads", "origin", `refs/heads/${w.branch}`], { cwd: w.path });
+  return head.code === 0 && remote.code === 0 && remote.stdout.split(/\s/)[0] === head.stdout.trim();
+}
+
 async function isLocked(w) {
   const out = (await exec("git", ["-C", w.main, "worktree", "list", "--porcelain"])).stdout;
   return out.split("\n\n").some((b) => b.split("\n")[0] === `worktree ${w.path}` && /^locked\b/m.test(b));
@@ -102,6 +148,11 @@ export async function removalCheck(w) {
     if (here.some((p) => !own.has(p.tab))) return { error: "open in a terminal" };
     if (here.some((p) => p.status === "working")) return { error: "an agent is working here" };
     if (await isLocked(w)) return { error: "locked" };
+    if (w.group) {
+      const at = (await touchedAt([w.path])).get(w.path) ?? 0;
+      if (groupOf(await treeState(w), at, Date.now() / 1000) !== w.group) return { error: "changed, look again" };
+      if (w.group === "pushed" && !await onGitHub(w)) return { error: "not on GitHub anymore" };
+    }
     const git = (args) => exec("git", [...GIT_READ, ...args], { cwd: w.path });
     const tracked = await git(["ls-files", "--stage", "-v"]);
     if (tracked.code !== 0) return { error: "could not check its files" };

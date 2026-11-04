@@ -41,8 +41,8 @@ export class KeyNav {
       items.push({ id: `wt-${w.path}`, section: "trees", go: () => this.openTree(w) });
     }
     if (this.expanded.loose) {
-      for (const w of v.worktrees.filter((x) => !x.merged && !x.open)) {
-        items.push({ id: `loose-${w.path}`, section: "trees", go: () => this.openTree(w) });
+      for (const w of this.looseRows(v.worktrees)) {
+        items.push({ id: `wt-${w.path}`, section: "trees", go: () => this.openTree(w) });
       }
     }
     return items;
