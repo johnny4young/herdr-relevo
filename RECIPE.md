@@ -29,7 +29,8 @@ task to another account.
 - **Inbox**: a rounded (10px) list with a 36px header `Inbox · PRs <age>` and ↻. Groups, each under a 10.5px
   dim header with its count:
   - `WAITING ON YOU`: a card per blocked agent, red border. A permission or plan first shows its title, why and,
-    in a mono block, the command, diff or plan: up to 8 lines, wrapped and never cut, then "+N more lines". Then the
+    in a mono block, the command, diff or plan: up to 8 lines, wrapped and never cut, then "+N more lines", which shows the rest. A yes it can't
+    read in full (the start is off screen, or it recognizes no command) has no choices, only **Agent**. Then the
     question it asks (read from its screen; with no choices, its last words) and
     its choices as a list: number, a ☑/☐ box in a multiple choice, label and dim description; the agent's cursor
     row is tinted. Below: **Submit** when the form has one, **Reply** when it asks in words, **Agent**. On a

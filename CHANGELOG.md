@@ -2,7 +2,7 @@
 
 ## 0.5.14 · 2026-11-03
 
-- **See what you're approving.** A permission's card in the Inbox now shows the command, diff or plan, with why the agent wants it. Before, a Claude card only asked "Do you want to proceed?", and a Codex card lost the command's first line. Long lines wrap; past 8 lines it says how many more there are.
+- **See what you're approving.** A permission's card in the Inbox now shows the command, diff or plan, with why the agent wants it. Before, a Claude card only asked "Do you want to proceed?", and a Codex card lost the command's first line. Long lines wrap, and past 8 lines a click shows the rest. If the card can't read all of what's being asked, it offers no answer and sends you to the agent.
 - **No more status line as the question.** When an agent waits without choices, its card shows what the agent said last, not the footer under its input box.
 
 ## 0.5.13 · 2026-11-03

