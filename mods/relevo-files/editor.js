@@ -211,7 +211,7 @@ export class FileEditor {
   // Edit or the save state, for the caller's header.
   controls(t) {
     const button = (id, label, onClick, strong) => div().id(id).h(22).px(8).flex_none().flex().items_center().rounded(5)
-      .cursor_pointer().text_size(11.5)
+      .cursor_pointer().text_size(11)
       .when(strong, (el) => el.bg(t.solid ?? t.accent).text_color(t.solid_foreground ?? t.accent_foreground))
       .when(!strong, (el) => el.border(1).border_color(t.border).text_color(t.muted).hover((s) => s.bg(t.hover)))
       .on_click((_e, cx) => onClick(cx))
@@ -228,7 +228,7 @@ export class FileEditor {
     const conflict = this.disk !== undefined;
     return v_flex().id("fe-body").flex_1().min_h(0).on_key_down((e, cx) => this.key(e, cx))
       .when(conflict, (el) => el.child(h_flex().h(32).flex_none().px(12).gap(8).items_center()
-        .bg(t.raised ?? t.surface).border_b(1).border_color(t.border).text_size(12)
+        .bg(t.raised ?? t.surface).border_b(1).border_color(t.border).text_size(13)
         .child(div().flex_1().min_w(0).truncate().text_color(t.foreground)
           .child(this.disk === null ? "Deleted on disk" : "Changed on disk"))
         // Nothing to reload from a deleted file, and it would discard the edits.

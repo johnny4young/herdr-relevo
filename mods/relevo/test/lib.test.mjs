@@ -6,7 +6,7 @@ import { diffRows, lineKey } from "../lib/diff.js";
 import { ownerOf, contextFor } from "../lib/context.js";
 import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
 import { keyMap, relevoKeys, formatShortcut } from "../lib/keys.js";
-import { mapMine, mapReady, mapRequested, unresolved, prChanges, mergedHeads } from "../lib/github.js";
+import { agentPRs, mapMine, mapReady, mapRequested, openPRs, unresolved, prChanges, mergedHeads } from "../lib/github.js";
 import { readPrompt, samePrompt, submitKeys, freeOption, moveKeys, lastMessage, reasonOf } from "../lib/prompt.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "../lib/handoff.js";
 import { isAddressed, keepListed, addressedValue, staleAddressed } from "../lib/addressed.js";
@@ -835,4 +835,26 @@ test("reasonOf: a question, the agent's words, and the agent's report when the s
   assert.equal(reasonOf(menu, { kind: "permission", msg: "approve Bash: npm test" }), "Run: npm test");
   assert.equal(reasonOf(menu, { kind: "permission" }), "Asks permission");
   assert.equal(reasonOf(asked(["⏺ old words", "❯ "]), { kind: "auth", msg: "Login expired · Please run /login" }), "Login expired · Please run /login");
+});
+
+test("agentPRs: the PR it was started for wins over its branch; a fork's goes by its local branch", () => {
+  const data = {
+    viewer: { pullRequests: { nodes: [
+      { number: 1, url: "u1", headRefName: "feat", isDraft: true, additions: 2, deletions: 1, repository: { nameWithOwner: "me/app" }, commits: { nodes: [{ commit: { statusCheckRollup: { state: "PENDING" } } }] } },
+      { number: 2, url: "u2", headRefName: "other", repository: { nameWithOwner: "me/app" }, commits: { nodes: [] } },
+    ] } },
+    search: { nodes: [{}, { number: 3, url: "u3", headRefName: "feat", isCrossRepository: true, repository: { nameWithOwner: "you/lib" }, commits: { nodes: [] } }] },
+  };
+  const prs = openPRs(data);
+  assert.deepEqual(agentPRs([{ address: "t1", repo: "Me/App", branch: "feat" }], {}, prs), { t1: { number: 1, url: "u1", ci: "PENDING", add: 2, del: 1 } });
+  assert.deepEqual(agentPRs([{ address: "t1", repo: "you/lib", branch: "feat" }], {}, prs), {});
+  assert.equal(agentPRs([{ address: "t1", repo: "you/lib", branch: "pr-3" }], {}, prs).t1.number, 3);
+  assert.deepEqual(agentPRs([{ address: "t1", repo: "me/web", branch: "feat" }], {}, prs), {});
+  assert.equal(agentPRs([{ address: "t1", repo: "Me/App", branch: "feat" }], { u2: { address: "t1" } }, prs).t1.number, 2);
+  assert.deepEqual(agentPRs([{ address: "t1", repo: "Me/App", branch: null }], {}, prs), {});
+  assert.deepEqual(agentPRs([{ address: "t1", repo: null, branch: "feat" }], {}, prs), {});
+  const atCommit = openPRs({ viewer: { pullRequests: { nodes: [{ number: 5, url: "u5", headRefName: "port/09", headRefOid: "abc", repository: { nameWithOwner: "me/app" }, commits: { nodes: [] } }] } }, search: { nodes: [] } });
+  assert.equal(agentPRs([{ address: "t1", repo: "me/app", branch: "review-pr-5", head: "abc" }], {}, atCommit).t1.number, 5);
+  assert.deepEqual(agentPRs([{ address: "t1", repo: "me/app", branch: "review-pr-5", head: "def" }], {}, atCommit), {});
+  assert.deepEqual(agentPRs([{ address: "t1", repo: "you/app", branch: "x", head: "abc" }], {}, atCommit), {});
 });

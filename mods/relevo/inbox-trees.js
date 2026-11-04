@@ -108,7 +108,7 @@ export class TreeViews {
         if (!open) continue;
       } else {
         const clean = key === "safe" ? this.removable(list) : [], sure = this.confirm === "all-safe";
-        rows.push(h_flex().pt(6).px(4).gap(6).items_center().text_size(10.5).text_color(t.dim)
+        rows.push(h_flex().pt(6).px(4).gap(6).items_center().text_size(11).text_color(t.dim)
           .when(key === "checking", (el) => el.child(spinner(t.dim, 10)))
           .child(div().flex_1().child(label))
           .child(String(list.length))
@@ -255,7 +255,7 @@ export class TreeViews {
       this[key] = null;
       cx.notify();
     }, { size: "sm" });
-    const say = (text) => div().text_size(10.5).text_color(t.blocked).child(text);
+    const say = (text) => div().text_size(11).text_color(t.blocked).child(text);
     if (this.deleteAsk?.path === w.path) {
       return line([say(this.deleteAsk.text), button(t, id("delete-go"), "Delete forever", (cx) => this.askDelete(w, cx), {
         size: "sm", kind: "danger", disabled: busy,
@@ -339,9 +339,9 @@ export class TreeViews {
       button(t, id, label, onClick, { size: "sm", tip, kind: danger ? "danger" : "outline" });
     const open = this.treeMenu === w.path || this.deleteAsk?.path === w.path || this.pushAsk?.path === w.path;
     const row = h_flex().h(note ? 24 : 30).px(8).gap(6).items_center()
-      .child(div().flex_none().text_size(11.5).text_color(t.muted).child(w.repo))
-      .child(div().flex_1().min_w(0).truncate().text_size(11.5).child(w.branch ?? `${w.name} (detached)`))
-      .when(Boolean(w.kb), (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child(sizeOf(w.kb))))
+      .child(div().flex_none().text_size(11).text_color(t.muted).child(w.repo))
+      .child(div().flex_1().min_w(0).truncate().text_size(13).child(w.branch ?? `${w.name} (detached)`))
+      .when(Boolean(w.kb), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(sizeOf(w.kb))))
       .when(Boolean(w.at), (el) => el.child(this.age(t, w)))
       .child(action(`wt-open-${w.path}`, w.space ? "Go" : "Open", w.space ? "Go to its space" : "Open a space here",
         () => this.openTree(w)))
@@ -359,7 +359,7 @@ export class TreeViews {
       .child(v_flex().rounded(6).hover((s) => s.bg(t.hover)).tooltip(w.path)
         .child(row)
         .when(Boolean(note), (el) => el.child(
-          div().px(8).pb(6).text_size(10.5).text_color(err || sure ? t.blocked : t.dim).child(note))))
+          div().px(8).pb(6).text_size(11).text_color(err || sure ? t.blocked : t.dim).child(note))))
       .when(open, (el) => el.child(this.actionsLine(t, w)));
   }
 
@@ -369,21 +369,21 @@ export class TreeViews {
     return h_flex().id(`wt-${w.path}`).h(gone ? 0 : 30).px(8).gap(6).items_center().rounded(6).overflow_hidden()
       .opacity(gone ? 0 : 0.6)
       .transition("opacity", { duration: 200 }).transition("height", { duration: 220, easing: "ease-out" })
-      .child(div().flex_none().text_size(11.5).text_color(t.muted).child(w.repo))
-      .child(div().flex_1().min_w(0).truncate().text_size(11.5).child(w.branch ?? w.name))
-      .child(h_flex().flex_none().gap(5).items_center().text_size(10.5).text_color(t.blocked)
+      .child(div().flex_none().text_size(11).text_color(t.muted).child(w.repo))
+      .child(div().flex_1().min_w(0).truncate().text_size(13).child(w.branch ?? w.name))
+      .child(h_flex().flex_none().gap(5).items_center().text_size(11).text_color(t.blocked)
         .child(spinner(t.blocked))
         .child("Removing…"));
   }
 
   age(t, w) {
-    return div().flex_none().text_size(10.5).text_color(t.dim).child(ago(w.at).replace(" ago", ""));
+    return div().flex_none().text_size(11).text_color(t.dim).child(ago(w.at).replace(" ago", ""));
   }
 
   backupsRow(t) {
-    return h_flex().h(30).mt(6).px(8).gap(6).items_center().text_size(11.5).text_color(t.muted).tooltip(backupsRoot())
+    return h_flex().h(30).mt(6).px(8).gap(6).items_center().text_size(11).text_color(t.muted).tooltip(backupsRoot())
       .child(div().flex_1().child("Backups"))
-      .child(div().flex_none().text_size(10.5).text_color(t.dim).child(sizeOf(this.backupsKb)))
+      .child(div().flex_none().text_size(11).text_color(t.dim).child(sizeOf(this.backupsKb)))
       .child(button(t, "wt-backups-open", "Open", () => exec("open", [backupsRoot()]), { size: "sm" }));
   }
 
@@ -392,7 +392,7 @@ export class TreeViews {
     for (const w of merged) if (this.treeStates?.has(w.path)) this.applyState(w, Date.now() / 1000);
     const loose = worktrees.filter((w) => !w.merged && !w.open);
     const clean = this.removable(merged), sure = this.confirm === "all";
-    const header = h_flex().pt(6).px(2).gap(6).items_center().text_size(10.5).text_color(t.dim)
+    const header = h_flex().pt(6).px(2).gap(6).items_center().text_size(11).text_color(t.dim)
       .child(div().flex_1().child("MERGED WORKTREES"))
       .child(String(merged.length))
       .when(clean.length > 1, (el) => el.child(button(t, "wt-rm-all", sure ? `Confirm ${clean.length}` : `Remove ${clean.length}`,

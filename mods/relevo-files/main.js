@@ -186,9 +186,9 @@ export class Files {
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .when(Boolean(this.file), el => el.child(div().id("files-back").w(20).cursor_pointer().text_color(t.muted).on_click((_e, cx) => this.back(cx)).child("←")))
         .child(div().font_semibold().child("Files"))
-        .child(div().flex_1().min_w(0).truncate().text_right().text_size(12).text_color(t.dim).child(this.file ?? this.root?.split(/[\\/]/).pop() ?? ""))
+        .child(div().flex_1().min_w(0).truncate().text_right().text_size(11).text_color(t.dim).child(this.file ?? this.root?.split(/[\\/]/).pop() ?? ""))
         .when(Boolean(ed), el => el.child(ed.controls(t))))
-      .when(this.leaving, el => el.child(h_flex().h(32).flex_none().px(12).gap(8).items_center().bg(t.raised ?? t.surface).border_b(1).border_color(t.border).text_size(12)
+      .when(this.leaving, el => el.child(h_flex().h(32).flex_none().px(12).gap(8).items_center().bg(t.raised ?? t.surface).border_b(1).border_color(t.border).text_size(13)
         .child(div().flex_1().child("Unsaved changes"))
         .child(div().id("files-discard").px(8).h(22).flex().items_center().rounded(5).cursor_pointer().border(1).border_color(t.border).hover(s => s.bg(t.hover))
           .on_click((_e, cx) => { this.show(null); cx.notify(); }).child("Discard"))
@@ -196,7 +196,7 @@ export class Files {
           .on_click((_e, cx) => cx.spawn(async cx => { await ed.save(cx); if (!ed.dirty) { this.show(null); cx.notify(); } })).child("Save"))))
       .when(!this.file, el => el.child(v_flex().id("files-tree").flex_1().min_h(0).overflow_y_scrollbar().p(6).children(this.rows("", 0, [], t))
         .on_mouse_down("right", () => { if (this.root) openMenu({ root: this.root, path: "", dir: true, local: !this.on }); })
-        .when(Boolean(this.error) || !this.entries.get("")?.length, el => el.child(div().p(8).text_size(12).text_color(t.dim).child(this.error || (this.loading ? "Loading files…" : this.root ? "No files" : "No folder"))))
+        .when(Boolean(this.error) || !this.entries.get("")?.length, el => el.child(div().p(8).text_size(13).text_color(t.dim).child(this.error || (this.loading ? "Loading files…" : this.root ? "No files" : "No folder"))))
         .when(this.limited, el => el.child(div().p(8).text_size(11).text_color(t.dim).child("File list limited to 500 entries per folder and 5,000 total")))))
       .when(Boolean(ed), el => el.child(ed.body(t)));
   }

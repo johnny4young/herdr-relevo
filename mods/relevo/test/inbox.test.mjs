@@ -621,6 +621,7 @@ test("a waiting card can continue with another account", async () => {
 test("Reply on a finished agent's card opens the quick replies for that agent", async () => {
   setAgents(["t1", "done"]);
   const { ui, cx } = await open();
+  click(find(ui(), "more-in-t1"), cx);
   click(find(ui(), "reply-t1"), cx);
   await flush();
   assert.equal(fake.overlays.at(-1).props.role, "quick-replies");
@@ -766,4 +767,68 @@ test("back from away, a waiting agent says why", async () => {
   const { ui, inbox } = await waiting(PERMISSION("rm -rf dist"));
   inbox.digest = { finished: [], waiting: ["t1"], prs: [], quota: [], seconds: 0, said: {} };
   assert.match(text(ui()), /Run: rm -rf dist/);
+});
+
+test("a card keeps its main actions in sight and folds the rest behind ⋯", async () => {
+  setAgents(["t1", "done"]);
+  const { ui, cx } = await open();
+  for (const id of ["review-t1", "agent-t1", "addressed-t1"]) assert.ok(find(ui(), id), id);
+  for (const id of ["diff-t1", "files-t1", "reply-t1"]) assert.equal(find(ui(), id), null, id);
+  click(find(ui(), "more-in-t1"), cx);
+  for (const id of ["diff-t1", "files-t1", "reply-t1"]) assert.ok(find(ui(), id), id);
+  click(find(ui(), "more-in-t1"), cx);
+  assert.equal(find(ui(), "reply-t1"), null);
+});
+
+test("one button more isn't worth a ⋯", () => {
+  const v = new Inbox();
+  v.expanded = {};
+  const three = v.foldActions({}, "c", ["a", "b", "x"], "mark");
+  assert.deepEqual(three, ["a", "b", "x", "mark"]);
+  assert.equal(v.foldActions({}, "c", ["a", "b", "x", "y"]).length, 3);
+});
+
+test("only an agent waiting on you gets the red border, not a PR with failing CI", async () => {
+  fake.exec = (cmd, args) => (cmd === "gh" && args[0] === "api" ? { stdout: JSON.stringify({ data: {
+    viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [{
+      url: "https://github.com/me/app/pull/1", number: 1, title: "x", isDraft: false, updatedAt: new Date().toISOString(),
+      reviewDecision: null, headRefName: "feat", baseRefName: "main", isCrossRepository: false, repository: { nameWithOwner: "me/app" },
+      commits: { nodes: [{ commit: { committedDate: new Date().toISOString(), statusCheckRollup: { state: "FAILURE" } } }] },
+      reviews: { nodes: [] }, reviewThreads: { nodes: [] },
+    }] } },
+    search: { nodes: [] },
+  } }) } : null);
+  const { inbox } = await open();
+  const hot = [];
+  const card = inbox.card.bind(inbox);
+  inbox.card = (t, id, red, ...rest) => {
+    hot.push(red);
+    return card(t, id, red, ...rest);
+  };
+  inbox.render(fakeCx());
+  assert.deepEqual(hot, [false]);
+});
+
+test("each agent's PR is published for the agents list, also from a worktree with another name", async () => {
+  setAgents(["t1", "working"]);
+  fake.panes[0].branch = "feat";
+  fake.panes[0].cwd = "/work/.claude/worktrees/some-name";
+  fake.exec = (cmd, args) => {
+    if (cmd === "git" && args.includes("--show-toplevel")) return { stdout: "/work/.claude/worktrees/some-name\n" };
+    if (cmd === "git" && args.includes("get-url")) return { stdout: "git@github.com:me/app.git\n" };
+    if (cmd !== "gh" || args[0] !== "api") return null;
+    return { stdout: JSON.stringify({ data: {
+      viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [{
+        url: "https://github.com/me/app/pull/9", number: 9, title: "x", isDraft: true, updatedAt: new Date().toISOString(), additions: 4, deletions: 2,
+        reviewDecision: null, headRefName: "feat", baseRefName: "main", isCrossRepository: false, repository: { nameWithOwner: "me/app" },
+        commits: { nodes: [{ commit: { committedDate: new Date().toISOString(), statusCheckRollup: { state: "SUCCESS" } } }] },
+        reviews: { nodes: [] }, reviewThreads: { nodes: [] },
+      }] } },
+      search: { nodes: [] },
+    } }) };
+  };
+  const { ui } = await open();
+  for (let i = 0; i < 12; i++) await flush();
+  ui();
+  assert.deepEqual(fake.stored["relevo.agentPRs"], { t1: { number: 9, url: "https://github.com/me/app/pull/9", ci: "SUCCESS", add: 4, del: 2 } });
 });

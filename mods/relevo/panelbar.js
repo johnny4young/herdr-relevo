@@ -73,8 +73,8 @@ export class PanelBar {
       .border_1().border_color(t.border).cursor_pointer().hover((s) => s.bg(t.hover))
       .tooltip(this.list.length > 1 ? `${this.list.length} checkouts of ${this.top?.split("/").pop()}` : this.top ?? "")
       .on_click(() => this.list.length && openCheckouts(this.top, this.list))
-      .child(div().flex_1().min_w(0).truncate().text_size(11.5).child(name))
-      .when(this.list.length > 1, (el) => el.child(div().text_size(10).text_color(t.dim).child("▾")));
+      .child(div().flex_1().min_w(0).truncate().text_size(11).child(name))
+      .when(this.list.length > 1, (el) => el.child(div().text_size(11).text_color(t.dim).child("▾")));
   }
 
   render() {
@@ -86,9 +86,9 @@ export class PanelBar {
         .cursor_pointer().hover((s) => s.bg(t.hover))
         .on_click(() => openFinder())
         .child(div().text_color(t.dim).child("⌕"))
-        .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.muted)
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted)
           .child(`Open file in ${this.top?.split("/").pop() ?? "…"}`))
-        .child(div().text_size(10.5).text_color(t.dim).child("⌘O")));
+        .child(div().text_size(11).text_color(t.dim).child("⌘O")));
   }
 }
 
@@ -169,7 +169,7 @@ export class FileFinder {
   render() {
     const t = theme(), rows = this.shown();
     return v_flex().id("find-file-popup").size_full().p(12).gap(8)
-      .bg(t.popover ?? t.surface).text_color(t.foreground).text_size(12.5)
+      .bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
       .on_key_down((e, cx) => this.key(e, cx))
       .child(Input.new(this.input).h(32).px(10).items_center().rounded(6).border(1).border_color(t.accent).bg(t.background))
       .child(v_flex().id("find-file-list").flex_1().min_h(0).overflow_y_scrollbar()
@@ -242,13 +242,13 @@ export class CheckoutMenu {
         })
         .child(div().size(6).flex_none().rounded_full().bg(on ? t.accent : t.border))
         .child(v_flex().flex_1().min_w(0)
-          .child(div().truncate().text_size(12).text_color(t.foreground).child(c.branch ?? c.path.split("/").pop()))
+          .child(div().truncate().text_size(13).text_color(t.foreground).child(c.branch ?? c.path.split("/").pop()))
           .when(Boolean(c.branch) && c.path.split("/").pop() !== c.branch, (el) => el.child(
-            div().truncate().text_size(10.5).text_color(t.dim).child(c.path.split("/").pop()))))
-        .when(c.dirty > 0, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.ansi3).child(`● ${c.dirty}`)))
-        .when(c.ahead > 0, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.ansi2).child(`↑${c.ahead}`)))
-        .when(c.behind > 0, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.ansi1).child(`↓${c.behind}`)))
-        .when(Boolean(c.at), (el) => el.child(div().flex_none().w(34).text_right().text_size(10.5).text_color(t.dim)
+            div().truncate().text_size(11).text_color(t.dim).child(c.path.split("/").pop()))))
+        .when(c.dirty > 0, (el) => el.child(div().flex_none().text_size(11).text_color(t.ansi3).child(`● ${c.dirty}`)))
+        .when(c.ahead > 0, (el) => el.child(div().flex_none().text_size(11).text_color(t.ansi2).child(`↑${c.ahead}`)))
+        .when(c.behind > 0, (el) => el.child(div().flex_none().text_size(11).text_color(t.ansi1).child(`↓${c.behind}`)))
+        .when(Boolean(c.at), (el) => el.child(div().flex_none().w(34).text_right().text_size(11).text_color(t.dim)
           .child(ago(c.at).replace(" ago", ""))));
     };
     return v_flex().id("checkout-menu").w_full().p(4).gap(1).bg(t.popover ?? t.surface).text_color(t.foreground)
@@ -258,7 +258,7 @@ export class CheckoutMenu {
       // A popup is as tall as its content, so the list has a ceiling rather than a flexible height.
       .child(v_flex().id("co-list").max_h(340).overflow_y_scrollbar().gap(1).children(this.rows.map(row)))
       .child(h_flex().id("co-new").h(30).mt(2).px(8).gap(6).items_center().rounded(6).cursor_pointer()
-        .border_t(1).border_color(t.border).hover((s) => s.bg(t.hover)).text_size(11.5).text_color(t.muted)
+        .border_t(1).border_color(t.border).hover((s) => s.bg(t.hover)).text_size(11).text_color(t.muted)
         .tooltip(withKey("A new worktree of this repo", "relevo.worktree-new"))
         .on_click(() => {
           closeOverlay(p.overlay);

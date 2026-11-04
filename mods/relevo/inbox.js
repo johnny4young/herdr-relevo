@@ -9,9 +9,9 @@ import { openReview } from "./review.js";
 import { openHandoff } from "./handoff.js";
 import { openReplies } from "./replies.js";
 import { button, sectionHeader, spinner, withKey } from "./ui.js";
-import { seconds, recent } from "./lib/github.js";
+import { agentPRs, seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
-import { GIT_READ } from "./lib/git.js";
+import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
 import { STATS_FOR } from "./lib/refresh.js";
 import { readPrompt, samePrompt, sameChoicesBut, submitKeys, freeOption, moveKeys, lastMessage, reasonOf } from "./lib/prompt.js";
 import { COUNT, showPanel } from "./toolbar.js";
@@ -30,6 +30,7 @@ const SETTLE_TRIES = 8;
 const ASK_LINES = 8;
 // Why each waiting agent waits: address -> a short line, for the agents list.
 const REASONS = "relevo.reasons";
+const AGENT_PRS = "relevo.agentPRs";
 
 // Local work, pull requests and merged worktrees in one list; the PR and worktree parts live in their own files.
 function savedSince() {
@@ -51,6 +52,7 @@ export class Inbox {
     this.ready = [];
     this.requested = [];
     this.prAgents = {};
+    this.origins = new Map();
     this.clones = {};
     this.expanded = {};
     this.quotas = {};
@@ -91,12 +93,12 @@ export class Inbox {
   todayGroup(t, list) {
     const total = list.reduce((n, d) => n + d.seconds, 0);
     return [
-      h_flex().pt(6).px(2).gap(6).items_center().text_size(10.5).text_color(t.dim)
+      h_flex().pt(6).px(2).gap(6).items_center().text_size(11).text_color(t.dim)
         .child(div().flex_1().child("AGENT TIME TODAY"))
         .when(total > 0, (el) => el.child(duration(total)))
         .child(button(t, "week-open", "Week", () => openWeek(), { size: "sm", tip: "Agent time per ticket and day" })),
       v_flex().children(list.map((d) => h_flex().id(`day-${d.key}`).h(24).px(8).gap(8).items_center().rounded(6)
-        .child(div().flex_none().text_size(11.5).text_color(d.jira ? t.foreground : t.muted).child(d.key))
+        .child(div().flex_none().text_size(13).text_color(d.jira ? t.foreground : t.muted).child(d.key))
         .when(Boolean(d.jira), (el) => el.child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(d.repo)))
         .when(!d.jira, (el) => el.child(div().flex_1()))
         .child(div().flex_none().text_size(11).text_color(t.muted).child(duration(d.seconds))))),
@@ -136,6 +138,12 @@ export class Inbox {
     const n = v.local.length + open(v.mine) + open(v.requested);
     if (shared(COUNT) !== n) setShared(COUNT, n);
     this.publishReasons();
+    this.publishAgentPRs();
+  }
+
+  publishAgentPRs() {
+    const now = agentPRs(this.places ?? [], this.prAgents, this.openPRs ?? []);
+    if (JSON.stringify(shared(AGENT_PRS) ?? {}) !== JSON.stringify(now)) setShared(AGENT_PRS, now);
   }
 
   waitingReasons() {
@@ -172,6 +180,22 @@ export class Inbox {
         for (const address of this.prompts.keys()) if (!listed.has(address)) this.prompts.delete(address);
         // A repo's one card goes to an agent not marked addressed, if it has one.
         const marked = (a) => (this.addressedLabel(a.address) ? 1 : 0);
+        const places = [];
+        for (const a of all) {
+          const pane = byPane.get(a.pane);
+          if (a.address.includes("/") || !pane?.cwd) continue;
+          if (!this.tops.has(pane.cwd)) {
+            this.tops.set(pane.cwd, (await exec("git", ["rev-parse", "--show-toplevel"], { cwd: pane.cwd })).stdout.trim());
+          }
+          const top = this.tops.get(pane.cwd);
+          // A worktree's folder isn't named after its repo, so origin says which it is.
+          if (top && !this.origins.has(top)) {
+            this.origins.set(top, githubRepo(withoutLogin((await exec("git", ["-C", top, "remote", "get-url", "origin"])).stdout)));
+          }
+          const head = top ? (await exec("git", [...GIT_READ, "-C", top, "rev-parse", "HEAD"])).stdout.trim() : "";
+          places.push({ address: a.address, repo: this.origins.get(top), branch: pane.branch, head });
+        }
+        this.places = places;
         for (const a of [...all].sort((x, y) => marked(x) - marked(y))) {
           const url = byTab.get(a.tab_name);
           if (url) {
@@ -181,9 +205,6 @@ export class Inbox {
           if (a.address.includes("/") || a.status === "working") continue;
           const pane = byPane.get(a.pane);
           if (!pane?.cwd) continue;
-          if (!this.tops.has(pane.cwd)) {
-            this.tops.set(pane.cwd, (await exec("git", ["rev-parse", "--show-toplevel"], { cwd: pane.cwd })).stdout.trim());
-          }
           const top = this.tops.get(pane.cwd);
           const repo = top.split("/").pop() || a.space_name;
           if (a.status === "blocked") {
@@ -227,6 +248,7 @@ export class Inbox {
         ]);
         this.local = local;
         this.publishReasons();
+        this.publishAgentPRs();
         await this.watchRepos(seen, cx);
         if (sign !== this.sign) {
           this.sign = sign;
@@ -251,16 +273,27 @@ export class Inbox {
       .child(h_flex().flex_wrap().gap(5).children(actions));
   }
 
+  // What a card does most stays in sight; the rest folds behind ⋯ once it's more than one button.
+  foldActions(t, id, actions, mark = null) {
+    const last = mark ? [mark] : [], extra = actions.slice(2);
+    if (extra.length < 2) return [...actions, ...last];
+    const key = `more-${id}`, open = this.expanded[key];
+    return [...actions.slice(0, 2), ...last, button(t, key, "⋯", (cx) => {
+      this.expanded[key] = !open;
+      cx.notify();
+    }, { tip: open ? "Fewer actions" : "More actions" }), ...(open ? extra : [])];
+  }
+
   head(t, dot, title, when, ci = null, threads = 0) {
     const ring = dot === "ring";
     return h_flex().gap(7).items_center().min_w(0)
       .child(div().size(7).flex_none().rounded_full()
         .when(ring, (el) => el.border_1().border_color(t.dim))
         .when(!ring, (el) => el.bg(dot)))
-      .child(div().flex_1().min_w(0).truncate().font_semibold().text_size(12.5).child(title))
+      .child(div().flex_1().min_w(0).truncate().font_semibold().text_size(13).child(title))
       .when(threads > 0, (el) => el.child(this.threadBadge(t, threads, title)))
       .when(Boolean(ci), (el) => el.child(this.ciBadge(t, ci, title)))
-      .child(div().flex_none().text_size(10.5).text_color(t.dim).child(when));
+      .child(div().flex_none().text_size(11).text_color(t.dim).child(when));
   }
 
   close() {
@@ -272,7 +305,7 @@ export class Inbox {
   askBlock(t, ask, address) {
     const head = [ask.title, ask.about].filter(Boolean).join(" · "), key = `ask-${address}`;
     const more = this.expanded[key] ? 0 : ask.body.length - ASK_LINES;
-    const mono = (el) => el.font_family(settings().font_family ?? "JetBrains Mono").text_size(10.5);
+    const mono = (el) => el.font_family(settings().font_family ?? "JetBrains Mono").text_size(11);
     return v_flex().gap(3)
       .when(Boolean(head), (el) => el.child(div().text_size(11).text_color(t.muted).child(head)))
       .when(ask.body.length > 0, (el) => el.child(mono(v_flex().min_w(0).px(8).py(5).rounded(6).bg(t.raised).text_color(t.foreground))
@@ -299,24 +332,24 @@ export class Inbox {
         cx.stop_propagation();
         this.answer(a, o, cx, p);
       })
-      .child(div().w(12).flex_none().text_size(10.5).text_color(t.dim).child(String(o.n)))
-      .when("checked" in o, (el) => el.child(div().flex_none().text_size(12)
+      .child(div().w(12).flex_none().text_size(11).text_color(t.dim).child(String(o.n)))
+      .when("checked" in o, (el) => el.child(div().flex_none().text_size(13)
         .text_color(o.checked ? t.accent : t.dim).child(o.checked ? "☑" : "☐")))
-      .child(div().flex_none().max_w(200).truncate().text_size(11.5).text_color(t.foreground)
+      .child(div().flex_none().max_w(200).truncate().text_size(13).text_color(t.foreground)
         .child(o.n === free && /^type something/i.test(o.label) ? "Type something…" : o.label))
       .when(Boolean(o.detail), (el) => el.child(
-        div().flex_1().min_w(0).truncate().text_size(10.5).text_color(t.dim).child(o.detail)));
+        div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(o.detail)));
     const actions = [
       ...(p.submit ? [button(t, `submit-${a.address}`, "Submit", (cx) => this.submit(a, p, cx), { kind: "solid" })] : []),
       ...(p.options.length || p.unparsed
         ? []
         : [button(t, `reply-${a.address}`, "Reply", (cx) => this.startReply(a, null, cx), { kind: "solid" })]),
+      button(t, `go-${a.address}`, p.options.length ? "Agent" : "Go to agent", goAgent),
       ...(p.options.length
         ? [button(t, `note-${a.address}`, "Note", (cx) => this.startReply(a, null, cx, "note"), {
           tip: "Sent to the agent right after your answer",
         })]
         : []),
-      button(t, `go-${a.address}`, p.options.length ? "Agent" : "Go to agent", goAgent),
       button(t, `handoff-${a.address}`, "Continue with…", () => openHandoff(a.address)),
     ];
     return this.card(t, `in-${a.address}`, true,
@@ -324,14 +357,14 @@ export class Inbox {
       v_flex().gap(4)
         .when(Boolean(p.ask), (el) => el.child(this.askBlock(t, p.ask, a.address)))
         .child(v_flex().children((p.question || "Waiting for you").split("\n")
-          .map((l) => div().truncate().text_size(12).text_color(t.foreground).child(l))))
+          .map((l) => div().truncate().text_size(13).text_color(t.foreground).child(l))))
         .when(Boolean(p.summary?.length), (el) => el.child(v_flex().gap(3).py(4).px(8).rounded(6).bg(t.raised)
           .children(p.summary.map((s) => v_flex()
             .child(div().truncate().text_size(11).text_color(t.muted).child(s.question))
-            .child(div().truncate().text_size(11.5).text_color(t.foreground).child(`→ ${s.answer || "(no answer)"}`))))))
+            .child(div().truncate().text_size(13).text_color(t.foreground).child(`→ ${s.answer || "(no answer)"}`))))))
         .when(p.options.length > 0, (el) => el.child(v_flex().gap(1).children(p.options.map(row))))
         .when(Boolean(p.preview), (el) => el.child(div().px(8).py(5).rounded(6).border_1().border_color(t.border)
-          .font_family(settings().font_family ?? "JetBrains Mono").text_size(10.5).text_color(t.muted)
+          .font_family(settings().font_family ?? "JetBrains Mono").text_size(11).text_color(t.muted)
           .children(p.preview.split("\n").slice(0, 8).map((l) => div().truncate().child(l || " ")))))
         .when(this.notes.has(a.address), (el) => el.child(h_flex().gap(6).items_center().text_size(11).text_color(t.muted)
           .child(div().flex_1().min_w(0).truncate().child(`Note: ${this.notes.get(a.address)}`))
@@ -341,7 +374,7 @@ export class Inbox {
           }, { size: "sm", tip: "Drop the note" }))))
         .when(replying, (el) => el.child(div().mt(2).h(28).px(8).flex().items_center().rounded(6).border_1()
           .border_color(t.accent).bg(t.background).child(Input.new(this.reply).h_full()))),
-      replying ? [] : [h_flex().gap(5).children(actions)]);
+      replying ? [] : this.foldActions(t, `in-${a.address}`, actions));
   }
 
   // Measured on Claude's menus: in a single choice ↑/↓ then Enter answers in every variant (a number answers
@@ -507,17 +540,18 @@ export class Inbox {
     return this.card(t, `in-${a.address}`, false,
       this.head(t, a.status === "done" ? t.done : t.idle, `${item.repo}${item.branch ? ` · ${item.branch}` : ""}`, ago(item.at)),
       v_flex().gap(3)
-        .child(h_flex().gap(8).items_center().text_size(11.5).text_color(t.muted)
+        .child(h_flex().gap(8).items_center().text_size(11).text_color(t.muted)
           .child(`${item.files} ${item.files === 1 ? "file" : "files"}`)
           .child(div().text_color(t.ansi2).child(`+${item.add}`))
           .child(div().text_color(t.ansi1).child(`−${item.del}`))
           .child(div().text_color(t.dim).child(a.status === "done" ? "agent finished" : "uncommitted")))
         .when(Boolean(item.said), (el) => el.child(div().id(`said-${a.address}`).truncate().text_size(11)
           .text_color(t.dim).italic().tooltip(item.said).child(`“${item.said}”`))),
-      [
+      this.foldActions(t, `in-${a.address}`, [
         button(t, `review-${a.address}`, "Review", () => openReview(item.top, a.address), {
           kind: "solid", tip: withKey("Comment on the diff line by line", "relevo.review"),
         }),
+        button(t, `agent-${a.address}`, "Agent", goAgent),
         button(t, `diff-${a.address}`, "View diff", () => {
           run("pane.focus", { pane: a.pane });
           showPanel("changes");
@@ -526,16 +560,14 @@ export class Inbox {
           run("pane.focus", { pane: a.pane });
           showPanel("files");
         }),
-        button(t, `agent-${a.address}`, "Agent", goAgent),
         button(t, `reply-${a.address}`, "Reply", () => openReplies(a.address), {
           tip: withKey("Send it a message or a quick reply", "relevo.quick-reply"),
         }),
-        addressed
-          ? button(t, `undo-${a.address}`, "Undo", (cx) => this.setLocalAddressed(a, false, cx), { tip: "Back to the list" })
-          : button(t, `addressed-${a.address}`, "✓", (cx) => this.setLocalAddressed(a, true, cx), {
-            tip: "Addressed: hide until its agent works again",
-          }),
-      ]);
+      ], addressed
+        ? button(t, `undo-${a.address}`, "Undo", (cx) => this.setLocalAddressed(a, false, cx), { tip: "Back to the list" })
+        : button(t, `addressed-${a.address}`, "✓", (cx) => this.setLocalAddressed(a, true, cx), {
+          tip: "Addressed: hide until its agent works again",
+        })));
   }
 
   localGroup(t, key, label, items, done = []) {
@@ -578,9 +610,9 @@ export class Inbox {
           })
           .child("↻")))
       .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().p(8).gap(6)
-        .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11.5).text_color(t.blocked).child(this.error)))
+        .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
         .when(!total && !this.error && Boolean(this.prsAt), (el) => el.child(
-          div().p(12).text_size(12).text_color(t.dim).child("Nothing waiting")))
+          div().p(12).text_size(13).text_color(t.dim).child("Nothing waiting")))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
         .children(part("away", this.awayGroup(t)))
         .children(part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))

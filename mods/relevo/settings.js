@@ -188,7 +188,7 @@ export class Settings {
 
   field(t, id, state, at, width = 0) {
     return div().id(id).h(26).px(7).flex().items_center().rounded(6).border_1()
-      .border_color(this.bad(at) ? t.blocked : t.input).bg(t.background).text_size(12)
+      .border_color(this.bad(at) ? t.blocked : t.input).bg(t.background).text_size(13)
       .when(width > 0, (el) => el.w(width).flex_none())
       .when(!width, (el) => el.flex_1().min_w(0))
       .child(Input.new(state).w_full());
@@ -196,14 +196,14 @@ export class Settings {
 
   labeled(t, label, el) {
     return v_flex().flex_1().min_w(0).gap(4)
-      .child(div().text_size(10.5).text_color(t.dim).child(label))
+      .child(div().text_size(11).text_color(t.dim).child(label))
       .child(h_flex().child(el));
   }
 
   section(t, id, title, prefixes, body) {
     const errors = this.errors.filter((e) => prefixes.some((p) => e.at === p || e.at.startsWith(`${p}.`)));
     return v_flex().id(id).flex_none().gap(6)
-      .child(div().text_size(10.5).font_semibold().text_color(t.muted).child(title))
+      .child(div().text_size(11).font_semibold().text_color(t.muted).child(title))
       .children(body)
       .children(errors.map((e, i) => div().id(`${id}-error-${i}`).text_size(11).text_color(t.blocked).child(e.message)));
   }
@@ -251,7 +251,7 @@ export class Settings {
 
   render() {
     const t = theme();
-    const head = (cells) => h_flex().gap(6).text_size(10).text_color(t.dim)
+    const head = (cells) => h_flex().gap(6).text_size(11).text_color(t.dim)
       .children(cells.map(([label, w]) => div()
         .when(w > 0, (el) => el.w(w).flex_none())
         .when(!w, (el) => el.flex_1())
@@ -289,7 +289,7 @@ export class Settings {
       ]));
     const failed = this.errors.find((e) => e.at === "write");
     const footer = h_flex().h(48).flex_none().px(16).gap(8).items_center().border_t(1).border_color(t.border)
-      .child(div().flex_1().min_w(0).truncate().text_size(11.5)
+      .child(div().flex_1().min_w(0).truncate().text_size(11)
         .when(Boolean(failed), (el) => el.text_color(t.blocked).child(failed?.message ?? ""))
         .when(!failed && this.errors.length > 0, (el) => el.text_color(t.blocked)
           .child(`${this.errors.length} to fix before saving`)))

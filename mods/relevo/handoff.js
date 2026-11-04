@@ -168,8 +168,8 @@ export class Handoff {
           .when(!full, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.go(acct.key, cx)))
           .child(chip(div, acct))
           .child(v_flex().flex_1().min_w(0)
-            .child(div().text_size(12.5).child(this.busy === acct.key ? "Starting…" : acct.label))
-            .child(div().text_size(10.5).text_color(full ? t.blocked : t.muted).child(this.quotas ? usage(q) : spinner(t.dim, 10))));
+            .child(div().text_size(13).child(this.busy === acct.key ? "Starting…" : acct.label))
+            .child(div().text_size(11).text_color(full ? t.blocked : t.muted).child(this.quotas ? usage(q) : spinner(t.dim, 10))));
       }));
   }
 }

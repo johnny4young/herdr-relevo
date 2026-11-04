@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.20 · 2026-11-04
+
+- **An agent's PR in its row.** The Agents list shows `#24 ✓ +12 −3` under an agent working on an open PR: its number, CI and size. A click opens the PR. It finds the PR by the agent's commit or branch, so a review worktree with another name counts too.
+- **Review a whole branch.** The review pane gets **All changes** beside **Uncommitted**: everything since the branch left its base, without needing a PR.
+- **Calmer cards.** An Inbox card keeps its main actions in sight and folds the rest behind `⋯`. The red border now only means an agent is waiting on you; a PR with failing CI keeps its badge and red dot.
+- **Easier to read.** Relevo uses two text sizes, 11 and 13, instead of nine, and hierarchy comes from weight and color.
+
 ## 0.5.19 · 2026-11-04
 
 - **See which folder an agent belongs to.** Each row in the Agents list gets a small folder icon in the color of its sidebar folder, with the name on hover. If an agent runs somewhere its space's name doesn't say, like a worktree, a second line shows the path, and hovering the row shows it whole.

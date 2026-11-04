@@ -15,7 +15,7 @@ task to another account.
 
 - **Sidebar** (`chrome`, 268px, collapses to a 44px rail): the Herdr brand row (46px); **Accounts** (158px): a
   header `ACCOUNTS` with an `All | Personal | Work` focus picker, then one 30px row per account and Codex: a
-  17px rounded chip in the account's colors with its letter, the label (80px), and two meters (5h, 7d) with the
+  17px rounded chip in the account's colors with its letter, the label (92px with its chip), and two meters (5h, 7d) with the
   percentage, a 4px bar (accent under 50%, `ansi3` from 50%, `blocked` from 80%) and a pace tick where the
   window's time is. Below 160px wide it becomes a rail of chips, each with one 3px bar for the fuller window.
   Then space-folders' spaces and the agents list (equal weight), and Herdr's footer (69px).
@@ -26,7 +26,7 @@ task to another account.
 - **Files**: Herdr's tree with a right-click menu (New file, New folder, Rename, Move to Trash, Reveal in Finder,
   Copy path, Copy relative path). A preview, and a file opened from the finder, show **Edit**; editing adds a
   7px unsaved dot and **Save** (`⌘S`), and a change on disk shows a bar with **Reload** and **Keep mine**.
-- **Inbox**: a rounded (10px) list with a 36px header `Inbox · PRs <age>` and ↻. Groups, each under a 10.5px
+- **Inbox**: a rounded (10px) list with a 36px header `Inbox · PRs <age>` and ↻. Groups, each under an 11px
   dim header with its count:
   - `WAITING ON YOU`: a card per blocked agent, red border. A permission or plan first shows its title, why and,
     in a mono block, the command, diff or plan: up to 8 lines, wrapped and never cut, then "+N more lines", which shows the rest. A yes it can't
@@ -36,12 +36,13 @@ task to another account.
     row is tinted. Below: **Submit** when the form has one, **Reply** when it asks in words, **Agent**. On a
     multi-question form's last step a gray block lists each question with its answer before "Submit answers".
   - `UNCOMMITTED WORK`: a card per resting agent whose checkout has changes: files, `+adds −dels`, buttons
-    **Review**, **View diff**, **Files**, **Agent** and **✓** (addressed); addressed ones fold under "▸ N addressed",
+    **Review**, **Agent**, **✓** (addressed) and **⋯** for **View diff**, **Files** and **Reply**; addressed ones fold under "▸ N addressed",
     each with **Undo**.
   - `YOUR PRS` and `REVIEW REQUESTS`: cards (9px radius) with a dot, `repo #n · title`, an unresolved-threads
     badge (speech bubble + count, `ansi3`), a CI badge (✓ `ansi2`, ✕ `ansi1`, spinning ring `ansi3` while
     running), the age, why it is here ("CI failing", "changes requested", "review from …"), a split skill button
-    (`skill` + account chip | ▾), **Review** on your own PRs, **Open PR** and **✓** (addressed). PRs older than 45
+    (`skill` + account chip | ▾), **Review** on your own PRs, **Open PR** and **✓** (addressed); past two actions,
+    a third goes behind **⋯** only when there's a fourth. PRs older than 45
     days fold under "▸ N older than 45 days"; addressed ones under "▸ N addressed", each with **Undo**. Your PRs
     with nothing left but the merge (CI green, not a draft, no changes requested, no open threads) fold under
     "▸ N ready to merge", outside the count.
@@ -60,8 +61,8 @@ task to another account.
     forever** reads again; `worktree remove --force`, the only forced removal, and `branch -D`). Backups go to
     `~/<BACKUPS_ROOT>/<repo>/<worktree>/<time>/`, private, with `latest.json` telling whether what's here is saved. A **Backups** row shows the folder's size and
     **Open**, once it exists.
-- **Review pane** (opened beside the terminal): header `Review · <folder>` (or `<repo> #n · against <base>` for a
-  PR), the changed files (max 150px) with comment counts, a bar with the open file and **Comment on file**, the
+- **Review pane** (opened beside the terminal): header `Review · <folder>` with an **Uncommitted | All changes**
+  picker (or `<repo> #n · against <base>` for a PR), the changed files (max 150px) with comment counts, a bar with the open file and **Comment on file**, the
   diff with old/new line numbers, green and red rows, and a footer "N comments for <agent>" with **Clear** and
   **Send to agent**.
 - **Settings dialog** (800×700, the gear beside ACCOUNTS): accounts (chip preview, label, letter, launcher, Claude
@@ -70,6 +71,8 @@ task to another account.
   plus total, today's column in the accent color.
 - **Handoff popup** (300px): "Continue <tab> with…" and every other account, Codex included, with its quota. A full
   account can't be picked.
+
+Text is 11px for what supports a row and 13px for what it names; a test keeps it to those two. Only an agent waiting on you gets a red border.
 
 ## How it behaves
 
@@ -135,7 +138,8 @@ task to another account.
   comments on the whole file (Enter saves, Esc cancels); comments survive refreshes
   (every 10 s while you are not typing), closing the pane and restarting Herdr. **Send to agent** pastes the
   numbered comments into the agent's terminal with `hc send`. **Clear** asks once more. Review on the same
-  checkout twice focuses the open pane. **Review** on a PR diffs from the merge base with its base branch: the
+  checkout twice focuses the open pane. **All changes** diffs the working tree from the merge base with origin's default branch, and the message sent says so.
+  **Review** on a PR diffs from the merge base with its base branch: the
   checkout's working tree, or the branch itself when it isn't checked out (fetched when not local); with no agent on
   the PR, **Send** starts one in its repo with the repo's account.
 - **Settings**: Save validates (required fields, unique keys, the default context claims no orgs, known accounts in
@@ -185,7 +189,7 @@ task to another account.
   agent's report: `Run: <first line> · +N lines`, `Edit: <file>`, `Fetch: <url>`, `Plan to approve`, its question or
   last words. The Inbox publishes them in shared `relevo.reasons`. A blocked row in the Agents list gets one as an 11px
   second line (44px tall) and the away card uses it. It can be cut, so no answer button ever sits beside it.
-- **mods/relevo-agents**: Herdr's agents list with a 12px folder icon in its sidebar folder's color (space-folders' rules, name on hover), a dim line with the path when the folder isn't the space's name, account and ticket chips (from the `agent.account` and
+- **mods/relevo-agents**: Herdr's agents list with a 12px folder icon in its sidebar folder's color (space-folders' rules, name on hover), a second 11px line with its PR (`#24 ✓ +12 −3`, from the Inbox's shared `relevo.agentPRs`; a click opens it) and a dim path when the folder isn't the space's name, account and ticket chips (from the `agent.account` and
   `agent.jira` labels and the shared `relevo.setup`) and a background marker from `agent.bg` (`⧗2` in `working`
   color, the full "2 shells" in its tooltip).
 - **mods/relevo-files**: Herdr's files tree with a right-click menu (`role: "menu"`), a name dialog for New file,

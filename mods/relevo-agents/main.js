@@ -3,7 +3,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, panes, focused, home, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
+import { agents, exec, terminals, panes, focused, home, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -118,10 +118,13 @@ function backgroundTag(t, a, labels) {
   const bg = labels["agent.bg"];
   if (!bg) return null;
   const glyph = [...bg][0], n = /\d+/.exec(bg)?.[0] ?? "";
-  return div().id(`bg-${a.address}`).flex_none().text_size(10.5).text_color(t.working)
+  return div().id(`bg-${a.address}`).flex_none().text_size(11).text_color(t.working)
     .tooltip(`Running in the background: ${bg.slice(glyph.length).trim()}. You'll be told when it finishes.`)
     .child(`${glyph}${n}`);
 }
+
+// A letter inside a 14px chip, not text to read.
+const CHIP_LETTER = 9;
 
 function accountTag(t, a, labels) {
   const accounts = setup().accounts, acc = accounts[labels["agent.account"]], jira = labels["agent.jira"];
@@ -136,9 +139,29 @@ function accountTag(t, a, labels) {
       cx.stop_propagation();
       run(`relevo.handoff-agent-${a.address}`);
     }))
-    .when(Boolean(jira), (el) => el.child(div().text_size(10.5).text_color(t.dim).child(jira)))
-    .when(Boolean(acc), (el) => el.child(div().size(14).rounded(4).bg(acc.bg).text_color(acc.fg).text_size(9).font_bold()
+    .when(Boolean(jira), (el) => el.child(div().text_size(11).text_color(t.dim).child(jira)))
+    .when(Boolean(acc), (el) => el.child(div().size(14).rounded(4).bg(acc.bg).text_color(acc.fg).text_size(CHIP_LETTER).font_bold()
       .flex().items_center().justify_center().when(borrowed, (c) => c.border(1.5).border_color(t.ansi3)).child(acc.letter)));
+}
+
+const CI = {
+  SUCCESS: ["✓", "ansi2", "CI passed"], FAILURE: ["✕", "ansi1", "CI failed"], ERROR: ["✕", "ansi1", "CI failed"],
+  PENDING: ["◌", "ansi3", "CI running"], EXPECTED: ["◌", "ansi3", "CI running"],
+};
+
+// The agent's PR: number, CI and size. A click opens it instead of focusing the agent.
+function prTag(t, a, pr) {
+  const [glyph, color, says] = CI[pr.ci] ?? [];
+  return h_flex().id(`pr-${a.address}`).flex_none().gap(4).items_center().cursor_pointer().text_color(t.muted)
+    .hover((s) => s.text_color(t.foreground)).tooltip(`${says ? `${says} · ` : ""}Open PR #${pr.number}`)
+    .on_click((_e, cx) => {
+      cx.stop_propagation();
+      if (/^https:\/\//.test(pr.url)) exec("open", [pr.url]);
+    })
+    .child(`#${pr.number}`)
+    .when(Boolean(glyph), (el) => el.child(div().font_semibold().text_color(t[color]).child(glyph)))
+    .child(div().text_color(t.ansi2).child(`+${pr.add}`))
+    .child(div().text_color(t.ansi1).child(`−${pr.del}`));
 }
 
 export default class Agents extends View {
@@ -214,7 +237,7 @@ export default class Agents extends View {
       .w_full()
       .p(5)
       .bg(t.popover)
-      .text_size(12.8)
+      .text_size(13)
       .child(div().px(8).pt(4).pb(6).text_size(11).text_color(t.dim).child("Sort agents"))
       .children(SORTS.map((s) => h_flex()
         .id(`sort-${s.id}`)
@@ -264,7 +287,7 @@ export default class Agents extends View {
       .flex_none()
       .gap(0)
       .items_center()
-      .text_size(12.5)
+      .text_size(13)
       .when(on, (el) => el.bg(t.raised))
       .hover((s) => s.bg(t.hover))
       .on_click(() => this.peek(k.address))
@@ -280,8 +303,8 @@ export default class Agents extends View {
   status(t, a, compact = false) {
     const color = t[a.status] ?? t.dim;
     if (a.status === "working") return svg("mods/workspace-chrome/spinner.svg").size(12).mx(1).flex_none().text_color(t.working).spin(900);
-    if (a.status === "blocked" && compact) return div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(10.5).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
-    if (a.status === "blocked") return div().flex_none().px(6).h(18).rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).flex().items_center().child("Needs you");
+    if (a.status === "blocked" && compact) return div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(11).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
+    if (a.status === "blocked") return div().flex_none().px(6).h(18).rounded(5).bg(t.blocked + "26").text_size(11).font_semibold().text_color(t.blocked).flex().items_center().child("Needs you");
     // Idle: a ring; done: a dot.
     if (a.status === "idle") return div().size(7).mx(3).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
     return div().size(7).mx(3).flex_none().rounded(4).bg(a.status === "done" ? color : t.dim + "00");
@@ -404,7 +427,7 @@ export default class Agents extends View {
         .flex_none()
         .px(3)
         .rounded(4)
-        .text_size(12)
+        .text_size(13)
         .text_color(t.dim)
         .cursor_pointer()
         .hover((s) => s.bg(t.hover).text_color(t.foreground))
@@ -422,6 +445,7 @@ export default class Agents extends View {
       const cwd = ps.find((p) => p.pane === a.pane)?.cwd ?? a.cwd;
       const place = folderOfSpace(spaceList.find((s) => s.id === a.space), shared("space-folders"), ps);
       const folder = folderNote(cwd, a.space_name);
+      const pr = shared("relevo.agentPRs")?.[a.address];
       const line = h_flex()
         .h(30)
         .flex_none()
@@ -438,7 +462,7 @@ export default class Agents extends View {
             .child(svg("mods/workspace-chrome/folder.svg").size(12).text_color(MARK[place.color] ?? t.dim))))
           .child(div().min_w(0).max_w(full && more ? 120 : 200).truncate().text_color(idle ? t.muted : t.foreground).child(name))
           .when(full && Boolean(more), el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`\u00b7 ${more}`))))
-        .when(Boolean(machine), el => el.child(div().text_size(10).text_color(t.dim).child(machine)))
+        .when(Boolean(machine), el => el.child(div().text_size(11).text_color(t.dim).child(machine)))
         .when(Boolean(bg), el => el.child(bg))
         .when(Boolean(tag), el => el.child(tag))
         .when(subs.length > 0, el => el.child(fold(a, subs)))
@@ -461,8 +485,9 @@ export default class Agents extends View {
         .on_click(() => run("pane.focus", { pane: a.pane }))
         .when(Boolean(cwd), (el) => el.tooltip(cwd))
         .child(line)
-        .when(Boolean(folder), (el) => el.child(div().id(`folder-${a.address}`).h(14).mb(2).pl(pic ? 25 : 0).truncate()
-          .text_size(11).text_color(t.dim).child(folder)))
+        .when(Boolean(folder || pr), (el) => el.child(h_flex().h(14).mb(2).pl(pic ? 25 : 0).gap(6).items_center().text_size(11)
+          .when(Boolean(pr), (el) => el.child(prTag(t, a, pr)))
+          .when(Boolean(folder), (el) => el.child(div().id(`folder-${a.address}`).flex_1().min_w(0).truncate().text_color(t.dim).child(folder)))))
         .when(Boolean(why), (el) => el.child(div().id(`why-${a.address}`).h(14).mb(2).pl(pic ? 25 : 0).truncate()
           .text_size(11).text_color(t.muted).child(why)));
     };
@@ -525,7 +550,7 @@ export default class Agents extends View {
             .flex_none()
             .items_center()
             .justify_between()
-            .child(div().text_size(11.5).font_medium().text_color(t.dim).child("Agents"))
+            .child(div().text_size(11).font_medium().text_color(t.dim).child("Agents"))
             .child(
               div()
                 .id("ag-sort")
@@ -539,7 +564,7 @@ export default class Agents extends View {
         ),
       )
       .when(list.length === 0 && !collapsed, (el) =>
-        el.child(div().px(12).text_size(12).text_color(t.dim).child("No agent status yet. Agents show up here when they report their status. Older versions and agents inside tmux may not.")),
+        el.child(div().px(12).text_size(13).text_color(t.dim).child("No agent status yet. Agents show up here when they report their status. Older versions and agents inside tmux may not.")),
       )
       .child(v_flex().id("ag-list").flex_1().min_h(0).px(collapsed ? 0 : 8).overflow_y_scrollbar().mode("always").children(rows))
       .when(collapsed, (el) =>

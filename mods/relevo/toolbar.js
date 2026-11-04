@@ -32,14 +32,14 @@ export class InboxButton {
     const fresh = !on && n > seen;
     return h_flex().id("inbox-button").size_full().items_center().justify_center()
       .bg(t.chrome).border_b(1).border_color(t.border)
-      .child(h_flex().id("inbox-toggle").h(26).px(8).gap(5).items_center().rounded(6).cursor_pointer().text_size(12)
+      .child(h_flex().id("inbox-toggle").h(26).px(8).gap(5).items_center().rounded(6).cursor_pointer().text_size(13)
         .text_color(on ? t.foreground : t.muted).when(on, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover))
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .tooltip(withKey(on ? "Hide the Inbox" : "Show the Inbox", "relevo.panel-inbox"))
         .on_click(() => (on ? run("layout.hide", { id: "panel" }) : showPanel("inbox")))
         .child("Inbox")
         .when(n > 0, (el) => el.child(
-          div().px(5).rounded(8).bg(t.blocked).text_color(t.background).text_size(10).font_semibold()
+          div().px(5).rounded(8).bg(t.blocked).text_color(t.background).text_size(11).font_semibold()
             .when(fresh, (b) => b.loop("opacity", { from: 0.45, to: 1, period: 1400 }))
             .child(String(n)))));
   }

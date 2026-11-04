@@ -81,7 +81,7 @@ export class AwayViews {
     const spent = d.quota.map((q) => `${q.label} ${[q.h5 && `5h +${q.h5}%`, q.d7 && `7d +${q.d7}%`].filter(Boolean).join(" ")}`);
     const facts = [...spent, d.seconds >= 60 && `${duration(d.seconds)} of agent time`].filter(Boolean).join(" · ");
     return [v_flex().id("away").p(10).gap(4).rounded(9).bg(t.background).border_1().border_color(t.border)
-      .child(h_flex().gap(6).items_center().text_size(10.5).text_color(t.dim)
+      .child(h_flex().gap(6).items_center().text_size(11).text_color(t.dim)
         .child(div().flex_1().child("WHILE YOU WERE AWAY"))
         .child(duration(Math.round((d.now - d.since) / 1000)))
         .child(button(t, "away-dismiss", "✓", (cx) => {
@@ -93,7 +93,7 @@ export class AwayViews {
         .hover((s) => s.bg(t.hover))
         .on_click(() => r.go())
         .child(div().size(7).flex_none().rounded(4).bg(dot[r.kind]))
-        .child(div().flex_none().max_w(220).truncate().text_size(11.5).child(r.label))
+        .child(div().flex_none().max_w(220).truncate().text_size(13).child(r.label))
         .when(Boolean(r.note), (el) => el.child(div().flex_1().min_w(0).truncate().text_size(11).italic().text_color(t.dim)
           .tooltip(r.note).child(r.note)))))
       .when(Boolean(facts), (el) => el.child(div().px(6).pt(2).text_size(11).text_color(t.muted).child(facts)))];

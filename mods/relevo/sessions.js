@@ -116,7 +116,7 @@ export class SessionFinder {
     const t = theme(), rows = this.all ? this.rows() : [], top = props()?.top;
     const tabs = [["repo", top?.split("/").pop() ?? "This repo"], ["all", "All"]];
     return v_flex().id("sessions").size_full().p(12).gap(8).bg(t.popover ?? t.surface).text_color(t.foreground)
-      .text_size(12.5).track_focus(this.h).on_key_down((e, cx) => this.key(e, cx))
+      .text_size(13).track_focus(this.h).on_key_down((e, cx) => this.key(e, cx))
       .child(h_flex().gap(8).items_center()
         .child(div().id("sessions-query").flex_1().h(32).px(10).flex().items_center().rounded(6).border(1)
           .border_color(t.accent).bg(t.background).text_color(this.query ? t.foreground : t.dim)
