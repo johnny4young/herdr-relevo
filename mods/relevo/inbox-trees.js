@@ -2,9 +2,12 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { run } from "herdr";
-import { scanWorktrees, removeWorktree, removalCheck } from "./worktrees.js";
+import { scanWorktrees, removeWorktree, removalCheck, treeState, treeSize } from "./worktrees.js";
+import { groupOf, whyOf, sizeOf } from "./lib/trees.js";
 import { button, spinner } from "./ui.js";
 import { ago } from "./lib/time.js";
+
+const GROUPS = [["safe", "Nothing to lose"], ["pushed", "Pushed, not merged"], ["work", "With work"], ["checking", "Checking"], ["recent", "Recent"]];
 
 const deletes = (files) => `deletes ${files.slice(0, 2).join(", ")}${files.length > 2 ? ` +${files.length - 2}` : ""}`;
 
@@ -21,8 +24,86 @@ export class TreeViews {
       } finally {
         this.scanningTrees = false;
       }
+      if (this.expanded.loose) this.loadTreeStates(cx, force);
       cx.notify();
     });
+  }
+
+  // Slow on many worktrees, so only while the section is open, and again only for one used since.
+  loadTreeStates(cx, force = false) {
+    this.treeStates ??= new Map();
+    if (this.loadingStates) return;
+    this.loadingStates = true;
+    const list = this.worktrees.filter((w) => !w.merged && !w.open);
+    cx.spawn(async (cx) => {
+      try {
+        const stale = list.filter((w) => force || this.treeStates.get(w.path)?.at !== w.at);
+        for (const w of stale) {
+          this.treeStates.set(w.path, { at: w.at, state: await treeState(w) });
+          cx.notify();
+        }
+        for (const w of stale) {
+          const known = this.treeStates.get(w.path);
+          if (known) known.kb = await treeSize(w);
+          cx.notify();
+        }
+      } finally {
+        this.loadingStates = false;
+      }
+    });
+  }
+
+  // The rows without a space by group, in screen order; a row can't offer more than its state allows.
+  looseGroups(worktrees) {
+    const now = Date.now() / 1000, groups = new Map(GROUPS.map(([key]) => [key, []]));
+    for (const w of worktrees.filter((x) => !x.merged && !x.open)) {
+      const known = this.treeStates?.get(w.path);
+      w.group = known ? groupOf(known.state, w.at, now) : undefined;
+      w.why = whyOf(known?.state);
+      w.kb = known?.kb;
+      w.ignored = known?.state?.ignored;
+      w.dirty = (known?.state?.files ?? 0) > 0;
+      groups.get(w.group ?? "checking").push(w);
+    }
+    return groups;
+  }
+
+  // Keyboard order: what's drawn, so nothing in a folded group.
+  looseRows(worktrees) {
+    const groups = this.looseGroups(worktrees);
+    return GROUPS.flatMap(([key]) => (key === "recent" && !this.expanded["loose-recent"] ? [] : groups.get(key)));
+  }
+
+  looseViews(t, worktrees) {
+    const groups = this.looseGroups(worktrees), rows = [];
+    for (const [key, label] of GROUPS) {
+      const list = groups.get(key);
+      if (!list.length) continue;
+      if (key === "recent") {
+        const open = this.expanded["loose-recent"];
+        rows.push(div().id("loose-recent").px(4).pt(6).text_size(11).text_color(t.dim).cursor_pointer()
+          .hover((s) => s.text_color(t.muted))
+          .on_click((_e, cx) => {
+            this.expanded["loose-recent"] = !open;
+            cx.notify();
+          })
+          .child(`${open ? "▾" : "▸"} ${list.length} recent`));
+        if (!open) continue;
+      } else {
+        const clean = key === "safe" ? this.removable(list) : [], sure = this.confirm === "all-safe";
+        rows.push(h_flex().pt(6).px(4).gap(6).items_center().text_size(10.5).text_color(t.dim)
+          .when(key === "checking", (el) => el.child(spinner(t.dim, 10)))
+          .child(div().flex_1().child(label))
+          .child(String(list.length))
+          .when(clean.length > 1, (el) => el.child(button(t, "wt-rm-all-safe", sure ? `Confirm ${clean.length}` : `Remove ${clean.length}`,
+            (cx) => this.removeAll(clean, cx, "all-safe"), {
+              size: "sm", kind: sure ? "danger" : "outline",
+              tip: "Removes the ones with no ignored files to keep",
+            }))));
+      }
+      rows.push(...list.map((w) => this.treeRow(t, w)).filter(Boolean));
+    }
+    return rows;
   }
 
   openTree(w) {
@@ -85,9 +166,9 @@ export class TreeViews {
     return merged.filter((w) => !w.dirty && !w.locked && !w.space && !w.open && !w.ignored?.length && !this.removing.has(w.path));
   }
 
-  removeAll(list, cx) {
-    if (this.confirm !== "all") {
-      this.confirm = "all";
+  removeAll(list, cx, key = "all") {
+    if (this.confirm !== key) {
+      this.confirm = key;
       cx.notify();
       return;
     }
@@ -112,21 +193,23 @@ export class TreeViews {
     if (this.removing.has(w.path)) return this.removingRow(t, w);
     const err = this.wtError[w.path], sure = this.confirm === w.path;
     const warn = sure ? [w.space && "closes its space", w.ignored?.length && deletes(w.ignored)].filter(Boolean).join(", ") : "";
-    const note = err ?? (warn || (w.dirty ? "uncommitted changes" : w.locked ? "locked" : null));
+    const note = err ?? (warn || w.why || (w.dirty ? "uncommitted changes" : w.locked ? "locked" : null));
+    const offersRemove = !w.dirty && !w.locked && (w.merged || w.group === "safe" || w.group === "pushed");
     const action = (id, label, tip, onClick, danger = false) =>
       button(t, id, label, onClick, { size: "sm", tip, kind: danger ? "danger" : "outline" });
     return h_flex().id(`wt-${w.path}`).h(30).px(8).gap(6).items_center().rounded(6)
       .when(this.selected(`wt-${w.path}`), (el) => el.bg(t.selected))
       .hover((s) => s.bg(t.hover)).tooltip(note ? `${note}\n${w.path}` : w.path)
       .child(div().flex_none().text_size(11.5).text_color(t.muted).child(w.repo))
-      .child(div().flex_1().min_w(0).truncate().text_size(11.5).child(w.branch ?? w.name))
+      .child(div().flex_1().min_w(0).truncate().text_size(11.5).child(w.branch ?? `${w.name} (detached)`))
       .when(Boolean(note), (el) => el.child(
         div().flex_none().max_w(140).truncate().text_size(10.5).text_color(err || sure ? t.blocked : t.dim).child(note)))
+      .when(Boolean(w.kb), (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child(sizeOf(w.kb))))
       .when(Boolean(w.at), (el) => el.child(this.age(t, w)))
       .child(action(`wt-open-${w.path}`, w.space ? "Go" : "Open", w.space ? "Go to its space" : "Open a space here",
         () => this.openTree(w)))
-      .when(!w.dirty && !w.locked, (el) => el.child(action(`wt-rm-${w.path}`, sure ? "Confirm" : "Remove",
-        "Removes the worktree and its local branch. Files git ignores go with it",
+      .when(offersRemove, (el) => el.child(action(`wt-rm-${w.path}`, sure ? "Confirm" : "Remove",
+        w.group === "pushed" ? "Removes the worktree and its local branch. The branch stays on GitHub" : "Removes the worktree and its local branch. Files git ignores go with it",
         (cx) => this.removeTree(w, cx), sure)));
   }
 
@@ -168,18 +251,11 @@ export class TreeViews {
         .hover((s) => s.text_color(t.muted))
         .on_click((_e, cx) => {
           this.expanded.loose = !open;
+          if (!open) this.loadTreeStates(cx);
           cx.notify();
         })
         .child(`${open ? "▾" : "▸"} ${loose.length} worktrees without a space`));
-      const shown = loose.filter((w) => !this.hiddenIds?.has(`loose-${w.path}`));
-      if (open) rows.push(...shown.map((w) => h_flex().id(`loose-${w.path}`).h(26).px(8).gap(8).items_center().rounded(6)
-        .when(this.selected(`loose-${w.path}`), (el) => el.bg(t.selected))
-        .cursor_pointer().hover((s) => s.bg(t.hover)).tooltip(w.path)
-        .on_click(() => this.openTree(w))
-        .child(div().flex_none().text_size(11.5).text_color(t.muted).child(w.repo))
-        .child(div().flex_1().min_w(0).truncate().text_size(11.5).child(w.branch ?? `${w.name} (detached)`))
-        .when(Boolean(w.at), (el) => el.child(this.age(t, w)))
-        .child(div().flex_none().text_size(10.5).text_color(t.dim).child("Open"))));
+      if (open) rows.push(...this.looseViews(t, worktrees));
     }
     return rows;
   }

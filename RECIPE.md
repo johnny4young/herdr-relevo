@@ -47,7 +47,11 @@ task to another account.
     "▸ N ready to merge", outside the count.
   - `AGENT TIME TODAY` with a **Week** button: one row per ticket (or repo) with today's time.
   - `MERGED WORKTREES`: one 30px row per worktree whose branch merged: repo, branch, age, **Open**/**Go**,
-    **Remove**. "▸ N worktrees without a space" folds the rest.
+    **Remove**. "▸ N worktrees without a space" folds the rest. Opened, it reads each one and sorts it: `Nothing to lose`
+    (clean, its commits in the main branch, unused for 7 days; **Remove**, and **Remove N** for those with no ignored
+    files to keep), `Pushed, not merged` (**Remove**; GitHub must still have the commit), `With work` (uncommitted or
+    unpushed, locked or unreadable; only **Open**) and "▸ N recent". Rows show the reason and size. Remove reads the
+    state again and stops if the row changed.
 - **Review pane** (opened beside the terminal): header `Review · <folder>` (or `<repo> #n · against <base>` for a
   PR), the changed files (max 150px) with comment counts, a bar with the open file and **Comment on file**, the
   diff with old/new line numbers, green and red rows, and a footer "N comments for <agent>" with **Clear** and
