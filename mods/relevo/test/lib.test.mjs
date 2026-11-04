@@ -667,7 +667,7 @@ test("readPrompt: a command whose start is off screen shows what's left, with no
 });
 
 test("readPrompt: a long plan whose start is off screen can still be answered", () => {
-  const p = readPrompt([" step 9", FENCED, " Claude has written up a plan. Would you like to proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
+  const p = readPrompt([" step 9", FENCED, " Claude has written up a plan and is ready.", " Would you like to proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
   assert.equal(p.ask.cut, true);
   assert.equal(p.options.length, 2);
 });
@@ -684,6 +684,33 @@ test("readPrompt: Codex's words inside a Claude command don't hide what's above 
     " Do you want to proceed?", " ❯ 1. Yes", "   2. No"));
   assert.equal(p.question, "Do you want to proceed?");
   assert.deepEqual(p.ask.body, ["rm -rf /data", "Would you like to run", "$ echo ok"]);
+});
+
+test("readPrompt: with no rule above its title, what's on screen all shows and can't be answered", () => {
+  const p = readPrompt([" rm -rf /data", "", " keep going", FENCED, " echo ok", FENCED, " Do you want to proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
+  assert.equal(p.ask.cut, true);
+  assert.deepEqual(p.ask.body.filter((l) => l !== FENCED), ["rm -rf /data", "keep going", "echo ok"]);
+  assert.deepEqual(p.options, []);
+});
+
+test("readPrompt: a command with the word plan gets no exemption for being cut", () => {
+  const p = readPrompt([" ./plan.sh", FENCED, " Do you want to run the plan script?", " ❯ 1. Yes", "   2. No"].join("\n"));
+  assert.deepEqual(p.options, []);
+});
+
+test("readPrompt: Codex's words repeated in its own command don't hide what's above them", () => {
+  const p = readPrompt([
+    "• Running", "  Would you like to run the following command?", "  Reason: tidy", "  $ rm -rf /data", "• not an agent line", "Would you like to run", "  $ echo ok", FENCED,
+    "› 1. Yes, proceed (y)", "  2. No, and tell Codex what to do differently (esc)",
+  ].join("\n"));
+  assert.equal(p.ask.about, "tidy");
+  assert.deepEqual(p.ask.body.slice(0, 2), ["rm -rf /data", "• not an agent line"]);
+  assert.ok(p.ask.body.includes("$ echo ok"));
+});
+
+test("readPrompt: a Codex yes with no command it can read has nothing to click", () => {
+  const p = readPrompt(["  Would you like to run the following command?", "  something new", "› 1. Yes, proceed (y)", "  2. No"].join("\n"));
+  assert.deepEqual(p.options, []);
 });
 
 test("readPrompt: a command's lines are never taken for the dialog's", () => {
@@ -725,7 +752,8 @@ test("readPrompt: a plan shows under blanks a tall window adds", () => {
     "▔".repeat(20), "  " + RULE, "   Ready to code?", "", "   Here is Claude's plan:", "  " + FENCED, "   Plan: change one line.", "  " + FENCED,
     ...Array(40).fill(""), "  " + RULE, "   Claude has written up a plan. Would you like to proceed?", "", "   ❯ 1. Yes, and use auto mode", "     2. Tell Claude what to change",
   ].join("\n"));
-  assert.equal(p.ask.title, "Here is Claude's plan:");
+  assert.equal(p.ask.title, "Ready to code?");
+  assert.equal(p.ask.about, "Here is Claude's plan:");
   assert.deepEqual(p.ask.body, ["Plan: change one line."]);
 });
 

@@ -16,10 +16,16 @@ const STATUS = /^\s*[●⏺•⎿✻✶✢✳✽∗·⠀-⣿]/;
 // Claude fences a permission's command, a diff or a plan with this rule.
 const FENCE = /^╌{3,}$/;
 const INPUT = /^[❯›>]$/;
+const RULE = /^\s*[╭┌─━][─━]{2,}[╮┐]?\s*$/;
+const CODEX_YES = /^yes, proceed\b/i;
+// A permission's title, tip and line about it.
+const HEAD_MAX = 5;
 const NOISE = /^(Tip:|[▔▁]+$|[☐☒✔←])/;
 // A dialog that wants a yes to something it didn't show.
 const asksBlind = (question, options) => !options.some((o) => /^(type something|chat about this)/i.test(o.label))
-  && (/^(do you want|would you like)\b.*\?$/im.test(question) || options.some((o) => /^(yes, proceed|no, and tell)\b/i.test(o.label)));
+  && (/^(do you want|would you like)\b.*\?$/im.test(question) || options.some((o) => /^(yes, proceed|yes, and don.t ask|no, and tell)\b/i.test(o.label)));
+// Claude's own words for a plan: approving one isn't running what a cut screen hides.
+export const isPlan = (question) => /has written up a plan\b.*would you like to proceed\?$/i.test((question ?? "").replace(/\s+/g, " "));
 
 export function readPrompt(screen) {
   const lines = (screen ?? "").split("\n").map((l) => l.replace(FRAME, "")).slice(-60);
@@ -72,8 +78,8 @@ export function readPrompt(screen) {
   if (cursor === null) return cantRead;
   const multi = options.some((o) => "checked" in o);
   const preview = previewBeside(screen);
-  const question = questionAbove(lines, found[0].i), ask = askAbove(screen, found[0].i, question);
-  if (ask?.ask.cut ? !/\bplan\b/i.test(question) : !ask && asksBlind(question, options)) {
+  const question = questionAbove(lines, found[0].i), ask = askAbove(screen, found[0].i, question, options);
+  if (ask?.ask.cut ? !isPlan(question) : !ask && asksBlind(question, options)) {
     return { ...cantRead, ask: ask?.ask ?? null, question: "Can't read all of what this asks. Open the agent." };
   }
   return {
@@ -86,38 +92,49 @@ export function readPrompt(screen) {
 
 // What a permission or a plan is about, as the card must show it before a yes: title, a line about it and
 // its command, diff or plan. A command can hold any text, so when in doubt this shows more, never less.
-function askAbove(screen, first, question) {
+function askAbove(screen, first, question, options) {
   const all = (screen ?? "").split("\n"), at = Math.max(0, all.length - 60), start = first + at;
   const text = all.map((l) => l.replace(FRAME, ""));
-  return fencedAsk(all, text, start) ?? codexAsk(all, text, start) ?? unfencedAsk(all, text, start, question);
+  if (options.some((o) => CODEX_YES.test(o.label))) return codexAsk(all, text, start);
+  return fencedAsk(all, text, start) ?? unfencedAsk(all, text, start, question);
 }
 
 // A command's own line: only the dialog's gutter goes, so a trailing | stays.
 const bodyLine = (raw) => raw.trim().replace(/^[│┃]\s?/, "").replace(/\s*[│┃]$/, "");
 
-// A fence inside the command looks like Claude's, so the block runs from the topmost one.
+// Claude's fences and rules sit at the margin; a multi-line command's lines all carry a gutter, so its own don't count.
+// With no rule right above the title the dialog's start isn't known, so everything on screen shows, marked as cut.
 function fencedAsk(all, text, start) {
+  const fence = (i) => FENCE.test(all[i].trim());
   // At most the question's few lines between the fence and the choices; a tall window pads with blanks.
   let bottom = start - 1, words = 0;
-  while (bottom >= 0 && !FENCE.test(text[bottom]) && (words += text[bottom].trim() ? 1 : 0) <= 3) bottom--;
-  if (bottom < 0 || !FENCE.test(text[bottom])) return null;
-  const top = text.slice(0, bottom).findIndex((l) => FENCE.test(l));
-  const body = all.slice(top + 1, bottom).map(bodyLine).filter(Boolean);
+  while (bottom >= 0 && !fence(bottom) && (words += text[bottom].trim() ? 1 : 0) <= 3) bottom--;
+  if (bottom < 0 || !fence(bottom)) return null;
+  let top = -1;
+  for (let i = 0; i < bottom && top < 0; i++) if (fence(i)) top = i;
   const head = [];
-  for (let i = top - 1; i >= 0 && text[i].trim(); i--) if (!NOISE.test(text[i]) && !STATUS.test(text[i])) head.unshift(text[i]);
-  return { ask: { title: head[0] ?? "", about: head.slice(1).join(" · "), body, cut: top < 0 } };
+  let edge = top - 1, seen = 0;
+  while (edge >= 0 && !RULE.test(all[edge]) && seen <= HEAD_MAX) {
+    if (text[edge].trim()) seen++;
+    if (text[edge].trim() && !NOISE.test(text[edge]) && !STATUS.test(text[edge])) head.unshift(text[edge]);
+    edge--;
+  }
+  if (top < 0 || edge < 0 || !RULE.test(all[edge])) {
+    return { ask: { title: "", about: "", body: all.slice(0, bottom).map(bodyLine).filter(Boolean), cut: true } };
+  }
+  return { ask: { title: head[0] ?? "", about: head.slice(1).join(" · "), body: all.slice(top + 1, bottom).map(bodyLine).filter(Boolean), cut: false } };
 }
 
-// Codex draws no edge or fence: "Would you like to run…", Reason: …, then "$ " and the command.
+// Codex draws no edge or fence: "Would you like to run…", Environment, Reason, then "$ " and the command.
+// Its own command can repeat those words, so the block starts at the topmost one, and only its first lines are chrome.
 function codexAsk(all, text, start) {
-  let top = start - 1;
-  // An agent's own line above means any such dialog is an old one.
-  while (top >= 0 && start - top <= 40 && !STATUS.test(text[top]) && !/^Would you like to run\b/.test(text[top])) top--;
-  if (top < 0 || start - top > 40 || STATUS.test(text[top])) return null;
-  const from = text.slice(top + 1, start).findIndex((l) => l.startsWith("$ ")) + top + 1;
-  if (from === top) return null;
-  const about = text.slice(top + 1, from).find((l) => l.startsWith("Reason:"))?.replace(/^Reason:\s*/, "") ?? "";
-  const body = all.slice(from, start).map(bodyLine).filter(Boolean);
+  const top = text.slice(0, start).findIndex((l) => /^Would you like to run\b/.test(l));
+  if (top < 0) return null;
+  const rest = all.slice(top + 1, start).map(bodyLine).filter(Boolean);
+  let from = 0, about = "";
+  for (; /^(Environment|Reason):/.test(rest[from] ?? ""); from++) if (rest[from].startsWith("Reason:")) about = rest[from].replace(/^Reason:\s*/, "");
+  const body = rest.slice(from);
+  if (!/^\$\s/.test(body[0] ?? "")) return null;
   body[0] = body[0].replace(/^\$\s*/, "");
   return { question: text[top], ask: { title: "", about, body } };
 }
