@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.19 · 2026-11-04
+
+- **See which folder an agent belongs to.** Each row in the Agents list gets a small folder icon in the color of its sidebar folder, with the name on hover. If an agent runs somewhere its space's name doesn't say, like a worktree, a second line shows the path, and hovering the row shows it whole.
+- **A merged PR doesn't mean you're done there.** A merged worktree used in the last day says `used 22m ago` instead of offering **Remove**, also in **Remove N**. It's checked again when you click.
+- **No more long waits on Checking.** Opening "worktrees without a space" while another read was running could leave its rows on Checking for up to 10 minutes. It now reads them right after.
+
 ## 0.5.18 · 2026-11-04
 
 - **Read why, whole.** A worktree's reason or error now has its own line under the row, instead of being cut off beside the buttons.

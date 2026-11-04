@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { fake, resetFake } from "./fake/herdr.mjs";
 import { fakeCx, find, flush, text } from "./fake/ui.mjs";
 
-const { default: Agents } = await import("../../relevo-agents/main.js");
+const { default: Agents, folderNote, folderOfSpace } = await import("../../relevo-agents/main.js");
 const pins = () => fake.runs.filter(([name]) => name === "terminal.pin").map(([, args]) => args);
 
 function agent(address, over = {}) {
@@ -94,4 +94,41 @@ test("a waiting agent's row says why; others stay one line", async () => {
   const view = ui();
   assert.equal(text(find(view, "why-t1")), "Run: rm -rf dist");
   assert.equal(find(view, "why-t2"), null);
+});
+
+test("a row says its folder only when the space's name doesn't", async () => {
+  const { ui } = await open([agent("t1", { space_name: "gos", cwd: "/home/test/code/repos" }), agent("t2", { space_name: "app", cwd: "/home/test/code/repos/app" })]);
+  const drawn = ui();
+  assert.equal(text(find(drawn, "folder-t1")), "code/repos");
+  assert.equal(find(drawn, "ag-t1").tip, "/home/test/code/repos");
+  assert.equal(find(drawn, "folder-t2"), null);
+  assert.equal(find(drawn, "ag-t2").tip, "/home/test/code/repos/app");
+});
+
+test("folderNote: home, a subfolder and another machine", () => {
+  assert.equal(folderNote("/home/test", "app"), "~");
+  assert.equal(folderNote("/home/test/Personal", "app"), "Personal");
+  assert.equal(folderNote("/home/test/github/app/mods/relevo", "app"), "mods/relevo");
+  assert.equal(folderNote("/srv/app/web", "app"), "app/web");
+  assert.equal(folderNote(undefined, "app"), null);
+});
+
+test("folderOfSpace follows the sidebar: dragged first, then the first rule that takes it", () => {
+  const list = [{ id: "work", name: "Work", color: "ansi4", match: "api, web" }, { id: "mine", name: "Mine", color: "ansi2", match: "~" }];
+  const all = { "": { list, of: { dragged: "mine", out: "" } } };
+  const ps = [{ tab: "a", cwd: "/home/me/code/api" }];
+  const space = (id, over = {}) => ({ id, tabs: [{ id: "a" }], ...over });
+  assert.equal(folderOfSpace(space("s1"), all, ps).id, "work");
+  assert.equal(folderOfSpace(space("dragged"), all, ps).id, "mine");
+  assert.equal(folderOfSpace(space("out"), all, ps), null);
+  assert.equal(folderOfSpace({ id: "s2", tabs: [], folder: "/home/me/notes" }, all, []).id, "mine");
+  assert.equal(folderOfSpace({ id: "s3", tabs: [], folder: "/srv/notes" }, all, []), null);
+  assert.equal(folderOfSpace(space("s1"), undefined, ps), null);
+  assert.equal(folderOfSpace({ id: "s4", tabs: [], folder: ["", "Users", "me", "notes"].join("/") }, all, []).id, "mine");
+});
+
+test("a row shows its sidebar folder's name in the icon's tooltip", async () => {
+  fake.stored = { ...fake.stored, "space-folders": { "": { list: [{ id: "mine", name: "Mine", color: "ansi2", match: "~" }], of: { sp1: "mine" } } } };
+  const { ui } = await open([agent("t1")]);
+  assert.equal(find(ui(), "in-folder-t1").tip, "Mine");
 });

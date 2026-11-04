@@ -3,7 +3,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { exec, notify, run } from "herdr";
 import { scanWorktrees, removeWorktree, removalCheck, treeState, treeSize } from "./worktrees.js";
-import { actionsOf, groupOf, whyOf, sizeOf } from "./lib/trees.js";
+import { actionsOf, groupOf, justUsed, whyOf, sizeOf } from "./lib/trees.js";
 import { backupsRoot, backupsSize, deleteCheck, deleteWorktree, pushBackup, pushPlan, savedState, saveCommits, savePatch } from "./worktree-actions.js";
 import { button, spinner } from "./ui.js";
 import { ago } from "./lib/time.js";
@@ -34,7 +34,11 @@ export class TreeViews {
   // Slow on many worktrees, so only while the section is open, and again only for one used since.
   loadTreeStates(cx, force = false) {
     this.treeStates ??= new Map();
-    if (this.loadingStates) return;
+    // A load started earlier can't see a section opened since, so this one runs right after it.
+    if (this.loadingStates) {
+      this.loadAgain = { force: force || this.loadAgain?.force };
+      return;
+    }
     this.loadingStates = true;
     const list = this.worktrees.filter((w) => (w.merged ? w.dirty : this.expanded.loose && !w.open));
     cx.spawn(async (cx) => {
@@ -53,6 +57,9 @@ export class TreeViews {
         }
       } finally {
         this.loadingStates = false;
+        const again = this.loadAgain;
+        this.loadAgain = null;
+        if (again) this.loadTreeStates(cx, again.force);
       }
     });
   }
@@ -294,7 +301,8 @@ export class TreeViews {
   // Merged, clean, unlocked and not open anywhere: safe to remove together. One with a space stays for its own
   // Remove, because closing several spaces at once is easy to regret.
   removable(merged) {
-    return merged.filter((w) => !w.dirty && !w.locked && !w.space && !w.open && !w.ignored?.length && !this.removing.has(w.path));
+    return merged.filter((w) => !w.dirty && !w.locked && !w.space && !w.open && !w.ignored?.length && !this.removing.has(w.path)
+      && !(w.merged && justUsed(w.at, Date.now() / 1000)));
   }
 
   removeAll(list, cx, key = "all") {
@@ -324,8 +332,9 @@ export class TreeViews {
     if (this.removing.has(w.path)) return this.removingRow(t, w);
     const err = this.wtError[w.path], sure = this.confirm === w.path;
     const warn = sure ? [w.space && "closes its space", w.ignored?.length && deletes(w.ignored)].filter(Boolean).join(", ") : "";
-    const note = err ?? (warn || w.why || (w.dirty ? "uncommitted changes" : w.locked ? "locked" : null));
-    const offersRemove = !w.dirty && !w.locked && (w.merged || w.group === "safe" || w.group === "pushed");
+    const inUse = w.merged && justUsed(w.at, Date.now() / 1000);
+    const note = err ?? (warn || w.why || (w.dirty ? "uncommitted changes" : w.locked ? "locked" : inUse ? (w.at ? `used ${ago(w.at)}` : "last use unknown") : null));
+    const offersRemove = !w.dirty && !w.locked && !inUse && (w.merged || w.group === "safe" || w.group === "pushed");
     const action = (id, label, tip, onClick, danger = false) =>
       button(t, id, label, onClick, { size: "sm", tip, kind: danger ? "danger" : "outline" });
     const open = this.treeMenu === w.path || this.deleteAsk?.path === w.path || this.pushAsk?.path === w.path;

@@ -488,3 +488,38 @@ test("backups: the folder's size, and no row before anything is saved", async ()
   assert.equal(rows.length, 1);
   assert.match(text(rows[0]), /Backups.*2 MB.*Open/s);
 });
+
+test("a load asked for during another runs after it, for what's open now", async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  fake.exec = async (cmd, args) => {
+    if (args.includes("cherry")) await held;
+    return null;
+  };
+  const merged = { path: "/w/m", main: "/w", repo: "m", at: OLD, merged: true, dirty: true };
+  const loose = { path: "/w/l", main: "/w", repo: "l", at: OLD, merged: false, open: false };
+  const v = Object.assign(new TreeViews(), { worktrees: [merged, loose], expanded: {}, wtError: {} });
+  const cx = fakeCx();
+  v.loadTreeStates(cx);
+  await settled();
+  v.expanded.loose = true;
+  v.loadTreeStates(cx);
+  assert.ok(!v.treeStates?.has(loose.path));
+  release();
+  await settled();
+  await settled();
+  assert.ok(v.treeStates.has(loose.path));
+});
+
+test("a merged worktree used in the last day offers no Remove and says why", async () => {
+  const v = Object.assign(new TreeViews(), { expanded: {}, removing: new Set(), gone: new Set(), wtError: {}, selected: () => false });
+  const row = (at) => v.treeRow(theme(), { path: "/w/a", repo: "app", branch: "feat", merged: true, at });
+  assert.equal(find(row(NOW - 3600), "wt-rm-/w/a"), null);
+  assert.match(text(row(NOW - 3600)), /used 1h ago/);
+  assert.equal(find(row(0), "wt-rm-/w/a"), null);
+  assert.ok(find(row(NOW - DAY), "wt-rm-/w/a"));
+  const clean = (at) => ({ path: `/w/${at}`, merged: true, at });
+  assert.deepEqual(v.removable([clean(NOW - 3600), clean(NOW - DAY)]).map((w) => w.at), [NOW - DAY]);
+  fake.exec = (cmd) => (cmd === "sh" ? { stdout: `/w/a\t${NOW - 3600}\n` } : null);
+  assert.equal((await removalCheck({ path: "/w/a", main: "/w", merged: true })).error, "used in the last day");
+});

@@ -2,7 +2,7 @@ import { exec, home, notify, spaces, panes } from "herdr";
 import { REPOS_ROOT as ROOT } from "./config.js";
 import { mergedHeads } from "./lib/github.js";
 import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
-import { groupOf } from "./lib/trees.js";
+import { groupOf, justUsed } from "./lib/trees.js";
 
 // Every linked worktree of the clones in ROOT, as "<main>\t<porcelain line>".
 const LIST = 'for d in "$1"/*/; do [ -d "$d.git" ] || continue; git -C "$d" worktree list --porcelain 2>/dev/null | awk -v d="${d%/}" \'{ print d "\t" $0 }\'; done';
@@ -165,8 +165,9 @@ export async function removalCheck(w) {
     if (here.some((p) => !own.has(p.tab))) return { error: "open in a terminal" };
     if (here.some((p) => p.status === "working")) return { error: "an agent is working here" };
     if (await isLocked(w)) return { error: "locked" };
+    const at = (await touchedAt([w.path])).get(w.path) ?? 0;
+    if (w.merged && justUsed(at, Date.now() / 1000)) return { error: "used in the last day" };
     if (w.group) {
-      const at = (await touchedAt([w.path])).get(w.path) ?? 0;
       if (groupOf(await treeState(w), at, Date.now() / 1000) !== w.group) return { error: "changed, look again" };
       if (w.group === "pushed" && !await onGitHub(w)) return { error: "not on GitHub anymore" };
     }
