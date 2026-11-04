@@ -13,13 +13,20 @@ const PREVIEW = /\s{3,}[┌│└╭╰].*$/;
 const TAIL = 10;
 // Output that moves on its own above a dialog: spinners, timers and tool results.
 const STATUS = /^\s*[●⏺•⎿✻✶✢✳✽∗·⠀-⣿]/;
+// Claude fences a permission's command, a diff or a plan with this rule.
+const FENCE = /^╌{3,}$/;
+const INPUT = /^[❯›>]$/;
+const NOISE = /^(Tip:|[▔▁]+$|[☐☒✔←])/;
 
 export function readPrompt(screen) {
   const lines = (screen ?? "").split("\n").map((l) => l.replace(FRAME, "")).slice(-60);
-  const none = { question: lastLines(lines, 2), options: [], multi: false, submit: null, cursor: null, dialog: "" };
+  const none = { question: "", options: [], multi: false, submit: null, cursor: null, dialog: "" };
   let last = -1;
   for (let i = lines.length - 1; i >= 0 && last < 0; i--) if (OPTION.test(lines[i])) last = i;
-  const noList = () => (unnumberedMenu(screen) ? { ...none, unparsed: true } : none);
+  const footerless = () => lastLines(aboveInput(lines), 2);
+  const noList = () => (unnumberedMenu(screen)
+    ? { ...none, question: footerless(), unparsed: true }
+    : { ...none, question: lastMessage(screen) || footerless() });
   if (last < 0) return noList();
   // Walk up from the last choice to choice 1.
   const found = [{ i: last, n: Number(OPTION.exec(lines[last])[2]) }];
@@ -36,7 +43,8 @@ export function readPrompt(screen) {
   }
   const marked = found.some(({ i }) => OPTION.exec(lines[i])[1]);
   if (!marked && lines.slice(last + 1).filter((l) => l.trim()).length > TAIL) return noList();
-  if (found[0].n !== 1 || found.at(-1).n > 9) return { ...none, unparsed: true };
+  const cantRead = { ...none, question: footerless(), unparsed: true };
+  if (found[0].n !== 1 || found.at(-1).n > 9) return cantRead;
   let submit = null, cursor = null;
   const options = found.map(({ i, n }, k) => {
     // A preview drawn beside the choices shares their lines; it starts after a wide gap with a box edge.
@@ -58,15 +66,59 @@ export function readPrompt(screen) {
     return option;
   });
   // Without a cursor these are a numbered list, or a menu whose cursor is on a row that isn't read.
-  if (cursor === null) return { ...none, unparsed: true };
+  if (cursor === null) return cantRead;
   const multi = options.some((o) => "checked" in o);
   const preview = previewBeside(screen);
+  const question = questionAbove(lines, found[0].i), ask = askAbove(screen, found[0].i, question);
   return {
-    question: questionAbove(lines, found[0].i), options, multi, submit, cursor, preview,
+    question: ask?.question ?? question, ask: ask?.ask ?? null, options, multi, submit, cursor, preview,
     summary: summaryAbove(lines, found[0].i),
     dialog: dialogWords(screen, found[0].i, last),
     above: aboveEdge(screen, found[0].i),
   };
+}
+
+// What a permission or a plan is about, as the card must show it before a yes: title, a line about it and
+// its command, diff or plan. Null for a plain question.
+function askAbove(screen, first, question) {
+  const all = (screen ?? "").split("\n"), at = Math.max(0, all.length - 60), start = first + at;
+  const text = all.map((l) => l.replace(FRAME, ""));
+  return codexAsk(text, start) ?? fencedAsk(text, start) ?? unfencedAsk(all, text, start, question);
+}
+
+// Codex draws no edge or fence: "Would you like to run…", Reason: …, then the command.
+function codexAsk(text, start) {
+  let top = start - 1;
+  // An agent's own line above means any such dialog is an old one.
+  while (top >= 0 && start - top <= 40 && !STATUS.test(text[top]) && !/^Would you like to (run|make)\b/.test(text[top])) top--;
+  if (top < 0 || start - top > 40 || STATUS.test(text[top])) return null;
+  const rest = text.slice(top + 1, start).filter((l) => l.trim());
+  const about = rest.find((l) => l.startsWith("Reason:"))?.replace(/^Reason:\s*/, "") ?? "";
+  const body = rest.filter((l) => !/^(Environment|Reason):/.test(l)).map((l) => l.replace(/^\$\s*/, ""));
+  return { question: text[top], ask: { title: "", about, body } };
+}
+
+function fencedAsk(text, start) {
+  // At most the question's few lines between the fence and the choices; a tall window pads with blanks.
+  let bottom = start - 1, words = 0;
+  while (bottom >= 0 && !FENCE.test(text[bottom]) && (words += text[bottom].trim() ? 1 : 0) <= 3) bottom--;
+  if (bottom < 0 || !FENCE.test(text[bottom])) return null;
+  let top = bottom - 1;
+  while (top >= 0 && !FENCE.test(text[top])) top--;
+  // The command's start can be off screen; better said than passed over.
+  const cut = top < 0, body = text.slice(top + 1, bottom).filter((l) => l.trim());
+  const head = [];
+  for (let i = top - 1; i >= 0 && text[i].trim(); i--) if (!NOISE.test(text[i]) && !STATUS.test(text[i])) head.unshift(text[i]);
+  return { ask: { title: head[0] ?? "", about: head.slice(1).join(" · "), body, cut } };
+}
+
+// Older dialogs: what sits between the edge and the question.
+function unfencedAsk(all, text, start, question) {
+  const top = edgeAbove(all, start);
+  if (top === 0) return null;
+  const words = new Set((question ?? "").split("\n"));
+  const rest = text.slice(top, start).filter((l) => l.trim() && !NOISE.test(l) && !STATUS.test(l) && !words.has(l));
+  return rest.length ? { ask: { title: rest[0], about: "", body: rest.slice(1) } } : null;
 }
 
 // The dialog from its top edge to its last choice, without what the cursor changes: a permission's command can
@@ -120,6 +172,12 @@ export function submitKeys(prompt) {
   return [...moves, "enter"];
 }
 
+// What's above the input box: below it sit the mode and the status line.
+const aboveInput = (lines) => {
+  const i = lines.findLastIndex((l) => INPUT.test(l.trim()));
+  return (i < 0 ? lines : lines.slice(0, i)).filter((l) => !STATUS.test(l));
+};
+
 // The question's own lines: not the tab strip of a multi-question form ("← ☒ CI gates ✔ Submit →").
 const lastLines = (lines, n) => lines.filter((l) => l.trim() && !/^←.*→$/.test(l.trim())).slice(-n).join("\n");
 
@@ -130,7 +188,7 @@ function questionAbove(lines, first) {
   while (i >= 0 && !lines[i].trim()) i--;
   for (; i >= 0 && out.length < 2; i--) {
     const l = lines[i].trim();
-    if (!l || /^[❯›>]\s/.test(l) || /^←.*→$/.test(l) || /^[☐☒]\s/.test(l)) break;
+    if (!l || FENCE.test(l) || /^[❯›>]\s/.test(l) || /^←.*→$/.test(l) || /^[☐☒]\s/.test(l)) break;
     out.unshift(l);
   }
   return out.join("\n");

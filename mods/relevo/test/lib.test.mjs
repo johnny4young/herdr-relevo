@@ -634,3 +634,86 @@ test("mapReady: green, not a draft, no changes asked and no open threads", () =>
   ] } } };
   assert.deepEqual(mapReady(data).map((p) => [p.url, p.reasons[0]]), [["approved", "approved, CI passed"], ["green", "CI passed"]]);
 });
+
+// Claude Code 2.1 and Codex 0.166 dialogs, as hc read gives them.
+const FENCED = "╌".repeat(20), RULE = "─".repeat(20);
+const claudeDialog = (...body) => ["⏺ Doing it", RULE, ...body, ""].join("\n");
+
+test("readPrompt: a Claude permission keeps its command, and the fence isn't the question", () => {
+  const p = readPrompt(claudeDialog(
+    " Bash command", " Tip: auto mode handles these prompts for you", " Force-push local main to origin",
+    FENCED, " git push --force origin main", FENCED,
+    " This command requires approval", " Do you want to proceed?", " ❯ 1. Yes", "   2. No", " Esc to cancel · Tab to amend",
+  ));
+  assert.equal(p.question, "This command requires approval\nDo you want to proceed?");
+  assert.deepEqual(p.ask, { title: "Bash command", about: "Force-push local main to origin", body: ["git push --force origin main"], cut: false });
+});
+
+test("readPrompt: every line of a multi-line command stays, without its gutter", () => {
+  const p = readPrompt(claudeDialog(
+    " Bash command", " Create it, then remove it", FENCED, " │ mkdir -p scratch", " │ rm -rf scratch", FENCED,
+    " Do you want to proceed?", " ❯ 1. Yes", "   2. No",
+  ));
+  assert.equal(p.question, "Do you want to proceed?");
+  assert.deepEqual(p.ask.body, ["mkdir -p scratch", "rm -rf scratch"]);
+});
+
+test("readPrompt: a command whose start is off screen says so", () => {
+  const p = readPrompt([" touch b", " rm -rf a", FENCED, " Do you want to proceed?", " ❯ 1. Yes", "   2. No"].join("\n"));
+  assert.equal(p.ask.cut, true);
+  assert.deepEqual(p.ask.body, ["touch b", "rm -rf a"]);
+});
+
+test("readPrompt: an edit and a fetch show what they touch", () => {
+  const edit = readPrompt(claudeDialog(" Edit file", " notes.txt", FENCED, " 1 -hello", " 1 +goodbye", FENCED,
+    " Do you want to make this edit to notes.txt?", " ❯ 1. Yes", "   2. No"));
+  assert.deepEqual(edit.ask, { title: "Edit file", about: "notes.txt", body: ["1 -hello", "1 +goodbye"], cut: false });
+  const fetch = readPrompt(claudeDialog(" Fetch", " Claude wants to fetch content from example.org", FENCED, " url: https://example.org/", FENCED,
+    " Do you want to allow Claude to fetch this content?", " ❯ 1. Yes", "   2. No"));
+  assert.deepEqual(fetch.ask.body, ["url: https://example.org/"]);
+});
+
+test("readPrompt: a plan shows under blanks a tall window adds", () => {
+  const p = readPrompt([
+    "▔".repeat(20), "  " + RULE, "   Ready to code?", "", "   Here is Claude's plan:", "  " + FENCED, "   Plan: change one line.", "  " + FENCED,
+    ...Array(40).fill(""), "  " + RULE, "   Claude has written up a plan. Would you like to proceed?", "", "   ❯ 1. Yes, and use auto mode", "     2. Tell Claude what to change",
+  ].join("\n"));
+  assert.equal(p.ask.title, "Here is Claude's plan:");
+  assert.deepEqual(p.ask.body, ["Plan: change one line."]);
+});
+
+test("readPrompt: a Codex approval keeps the whole command and why", () => {
+  const p = readPrompt([
+    "• Running mkdir -p scratch …", "", "  Would you like to run the following command?", "", "  Environment: local", "",
+    "  Reason: Make and remove scratch", "", "  $ mkdir -p scratch", "  rm -rf scratch", "",
+    "› 1. Yes, proceed (y)", "  2. No, and tell Codex what to do differently (esc)", "", "  Press enter to confirm or esc to cancel",
+  ].join("\n"));
+  assert.equal(p.question, "Would you like to run the following command?");
+  assert.deepEqual(p.ask, { title: "", about: "Make and remove scratch", body: ["mkdir -p scratch", "rm -rf scratch"] });
+});
+
+test("readPrompt: a Codex question isn't taken for the approval answered above it", () => {
+  const p = readPrompt([
+    "  Would you like to run the following command?", "  $ ls", "• Done, one more thing", "", "  Which database?", "› 1. Postgres", "  2. SQLite",
+  ].join("\n"));
+  assert.equal(p.question, "Which database?");
+  assert.equal(p.ask, null);
+});
+
+test("readPrompt: a plain question has nothing to approve", () => {
+  const p = readPrompt(claudeDialog(" ☐ Database", "Which database?", "❯ 1. Postgres", "  2. SQLite"));
+  assert.equal(p.question, "Which database?");
+  assert.equal(p.ask, null);
+});
+
+test("readPrompt: with no choices the card has the agent's words, never the footer", () => {
+  const p = readPrompt([
+    "⏺ Login expired · Please run /login", "", "✻ Cooked for 0s · done 8:31 PM", RULE, "❯ ", RULE, "   PERSONAL  Haiku · medium", "  $0.00", "  ⏸ manual mode on",
+  ].join("\n"));
+  assert.equal(p.question, "Login expired · Please run /login");
+});
+
+test("readPrompt: no agent's words and no choices stops at the input box", () => {
+  const p = readPrompt(["Should I also update the docs?", RULE, "› ", RULE, "  gpt · 42%"].join("\n"));
+  assert.equal(p.question, "Should I also update the docs?");
+});

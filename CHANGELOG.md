@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.14 · 2026-11-03
+
+- **See what you're approving.** A permission's card in the Inbox now shows the command, diff or plan, with why the agent wants it. Before, a Claude card only asked "Do you want to proceed?", and a Codex card lost the command's first line. Long lines wrap; past 8 lines it says how many more there are.
+- **No more status line as the question.** When an agent waits without choices, its card shows what the agent said last, not the footer under its input box.
+
 ## 0.5.13 · 2026-11-03
 
 - **Start where there's room.** `⌥⌘N` starts a new agent on the Claude account with the most quota left, whichever of its 5h and 7d windows is fuller, and a toast says which one it picked.
