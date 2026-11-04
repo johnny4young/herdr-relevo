@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { fake, resetFake } from "./fake/herdr.mjs";
 import { fakeCx, find, flush, text } from "./fake/ui.mjs";
 
-const { default: Agents, folderNote, folderOfSpace } = await import("../../relevo-agents/main.js");
+const { default: Agents, folderNote, folderOfSpace, leadPanes } = await import("../../relevo-agents/main.js");
 const pins = () => fake.runs.filter(([name]) => name === "terminal.pin").map(([, args]) => args);
 
 function agent(address, over = {}) {
@@ -57,6 +57,30 @@ test("a named tab keeps its name", async () => {
   fake.spaces[0].tabs = [{ id: a.tab, name: "Auth", named: true }];
   assert.match(text(ui()), /Auth/);
 });
+
+test("a tab's label comes from its first agent, then focused terminal, then first terminal", () => {
+  const pane = (tab, terminal, agent = false, focused = false) => ({ tab, terminal, program: { agent }, focused });
+  const leads = leadPanes([
+    { tab: "agent", focused: true },
+    pane("agent", "shell", false, true), pane("agent", "first-agent", true), pane("agent", "second-agent", true, true),
+    pane("focused", "first-shell"), pane("focused", "focused-shell", false, true),
+    pane("first", "first"), pane("first", "second"),
+  ]);
+  assert.deepEqual([...leads].map(([tab, p]) => [tab, p.terminal]), [["agent", "first-agent"], ["focused", "focused-shell"], ["first", "first"]]);
+});
+
+for (const sort of ["priority", "grouped"]) {
+  test(`a ${sort} render reads panes and terminals once, and the next one sees new titles`, async () => {
+    const list = Array.from({ length: 12 }, (_, i) => agent(`t${i}`, { title: `Task ${i}` }));
+    const { ui } = await open(list, list.map((a) => ({ address: a.address, state: "live", labels: { "agent.jira": "ABC-1" } })));
+    fake.stored["agents.sort"] = sort;
+    fake.reads = { panes: 0, terminals: 0 };
+    assert.match(text(ui()), /Task 11/);
+    assert.deepEqual(fake.reads, { panes: 1, terminals: 1 });
+    fake.panes[11].title = "Updated task";
+    assert.match(text(ui()), /Updated task/);
+  });
+}
 
 test("nothing is drawn for collapsing unless the sidebar is collapsed", async () => {
   const { ui } = await open([agent("t1")]);

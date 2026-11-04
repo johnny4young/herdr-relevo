@@ -28,9 +28,15 @@ function toggleSidebar() {
 
 const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
 
-function lead(tab, all = panes()) {
-  const mine = all.filter(p => p.tab === tab.id && p.terminal);
-  return mine.find(p => p.program?.agent) ?? mine.find(p => p.focused) ?? mine[0];
+export function leadPanes(all) {
+  const leads = new Map();
+  for (const p of all) {
+    if (!p.terminal) continue;
+    const current = leads.get(p.tab);
+    // First agent, else first focused terminal, else first terminal in the tab.
+    if (!current || (!current.program?.agent && (p.program?.agent || (!current.focused && p.focused)))) leads.set(p.tab, p);
+  }
+  return leads;
 }
 
 function title(tab, l) {
@@ -126,10 +132,9 @@ function backgroundTag(t, a, labels) {
 // A letter inside a 14px chip, not text to read.
 const CHIP_LETTER = 9;
 
-function accountTag(t, a, labels) {
+function accountTag(t, a, labels, pane) {
   const accounts = setup().accounts, acc = accounts[labels["agent.account"]], jira = labels["agent.jira"];
   if (!acc && !jira) return null;
-  const pane = panes().find((p) => p.pane === a.pane);
   const borrowed = acc && labels["agent.account"] !== repoAccount(pane?.cwd ?? a.cwd);
   const tip = [acc && `${acc.label} account${borrowed ? `, borrowed: this repo uses ${accounts[repoAccount(pane?.cwd ?? a.cwd)]?.label ?? "another"}` : ""}`, jira].filter(Boolean).join(" · ");
   // Local agents only: a handoff reads and starts things on this computer.
@@ -368,12 +373,12 @@ export default class Agents extends View {
     // A row reads "space \u00b7 detail": the detail is a tab someone named or the
     // agent's own title, never an automatic tab number unless two rows would
     // otherwise read the same.
+    // Read panes once: every host read copies the whole list into JS.
     const spaceList = spaces(), ps = panes();
-    const tabs = spaceList.flatMap(s => s.tabs);
-    const label = (a) => {
-      const tab = tabs.find(tab => tab.id === a.tab);
-      return tab ? title(tab, lead(tab)) : a.title || a.program?.name || "";
-    };
+    const leads = leadPanes(ps), paneOf = new Map(ps.map((p) => [p.pane, p]));
+    const tabLabels = new Map(spaceList.flatMap(s => s.tabs).map(tab => [tab.id, title(tab, leads.get(tab.id))]));
+    const rowLabels = new Map(list.map(a => [a.address, tabLabels.get(a.tab) ?? (a.title || a.program?.name || "")]));
+    const label = (a) => rowLabels.get(a.address);
     const detail = new Map(list.map(a => [a.address, /^\d+$/.test(label(a)) ? null : label(a)]));
     const seen = {};
     for (const a of list) { const k = `${a.space_name}\u0000${detail.get(a.address) ?? ""}`; seen[k] = (seen[k] ?? 0) + 1; }
@@ -381,10 +386,10 @@ export default class Agents extends View {
       if (detail.get(a.address) == null && seen[`${a.space_name}\u0000`] > 1) detail.set(a.address, label(a));
     }
 
-    const labels = new Map(terminals().map((k) => [k.address, k.labels ?? {}]));
+    const labels = new Map(all.map((k) => [k.address, k.labels ?? {}]));
     const row = (a, i, subs = []) => {
       const pic = icon(a.program, 16, t.foreground);
-      const tag = accountTag(t, a, labels.get(a.address) ?? {});
+      const tag = accountTag(t, a, labels.get(a.address) ?? {}, paneOf.get(a.pane));
       const bg = backgroundTag(t, a, labels.get(a.address) ?? {});
       const more = detail.get(a.address);
       // An agent on another machine (`vps/t7`) says which.
@@ -442,7 +447,7 @@ export default class Agents extends View {
       const full = byPriority || isPinned;
       const name = full ? a.space_name || label(a) : more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
       const why = a.status === "blocked" ? shared("relevo.reasons")?.[a.address] : null;
-      const cwd = ps.find((p) => p.pane === a.pane)?.cwd ?? a.cwd;
+      const cwd = paneOf.get(a.pane)?.cwd ?? a.cwd;
       const place = folderOfSpace(spaceList.find((s) => s.id === a.space), shared("space-folders"), ps);
       const folder = folderNote(cwd, a.space_name);
       const pr = shared("relevo.agentPRs")?.[a.address];

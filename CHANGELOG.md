@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.21 · 2026-11-04
+
+- **A lighter agents list.** It reads Herdr's panes once each time it draws, instead of several times per agent. Those repeated reads are what Herdr 0.1.13 fixed in its own list, where a busy setup could end in "This view could not be re-rendered".
+- **Find in a terminal.** Herdr 0.1.13 adds it, but if you merged Relevo's keys into your `keys.json`, it won't turn on by itself: add `"cmd-f": "terminal.search"` to the `terminal` section.
+
 ## 0.5.20 · 2026-11-04
 
 - **An agent's PR in its row.** The Agents list shows `#24 ✓ +12 −3` under an agent working on an open PR: its number, CI and size. A click opens the PR. It finds the PR by the agent's commit or branch, so a review worktree with another name counts too.

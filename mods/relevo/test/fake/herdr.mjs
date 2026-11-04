@@ -4,6 +4,7 @@ const blank = () => ({
   agents: [], terminals: [], panes: [], spaces: [], layout: { id: "root", children: [] }, focused: null, props: {},
   window: { platform: "macos", titlebar: "none", active: true }, stored: {}, files: {},
   read: null, write: null, exec: () => null, execs: [], runs: [], notices: [], overlays: [], folderChanges: new Map(), folderWaits: new Map(),
+  reads: { panes: 0, terminals: 0 },
 });
 
 export const fake = blank();
@@ -22,8 +23,8 @@ export const watched = () => [...fake.folderWaits.keys()];
 const palette = new Proxy({}, { get: (_t, name) => (typeof name === "string" ? `#${name}` : undefined) });
 
 export const agents = () => fake.agents;
-export const terminals = () => fake.terminals;
-export const panes = () => fake.panes;
+export const terminals = () => { fake.reads.terminals++; return fake.terminals; };
+export const panes = () => { fake.reads.panes++; return fake.panes; };
 export const spaces = () => fake.spaces;
 export const layout = () => fake.layout;
 export const focused = () => fake.focused;
