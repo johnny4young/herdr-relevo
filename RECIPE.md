@@ -53,7 +53,8 @@ task to another account.
     unpushed, locked or unreadable; **Open** and **⋯**) and "▸ N recent". Rows show the reason and size. Remove reads
     the state again and stops if the row changed. **⋯** opens a second line: **Save patch** (a patch verified to rebuild
     the same tree, through a copy of the index), **Save commits** (a verified bundle), **Push backup** (to
-    `backup/<worktree>`, never forced; asks first, "Publishes N commits to public <repo>" unless the repo is private)
+    `backup/<worktree>`, never forced; asks first with the real push URL, "Publishes N commits to public <repo>" unless
+    it's a private repo on github.com, then pushes the commit it showed, asking again if anything changed)
     and **Delete** (idle 7 days, not open, locked or holding a repo; first says what would be lost, then **Delete
     forever** reads again; `worktree remove --force`, the only forced removal, and `branch -D`). Backups go to
     `~/<BACKUPS_ROOT>/<repo>/<worktree>/<time>/`, private, with `latest.json` telling whether what's here is saved.

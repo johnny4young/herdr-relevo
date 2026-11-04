@@ -173,16 +173,36 @@ export class TreeViews {
     });
   }
 
-  // First click says where it goes, since a push can't be taken back.
+  // First click says where it goes, since a push can't be taken back; the second goes only if that still holds.
   askPush(w, cx) {
-    if (this.pushAsk?.path === w.path) {
-      this.pushAsk = null;
-      return this.treeAction(w, cx, () => pushBackup(w), (r) => ({ title: `Pushed ${r.ref}`, body: w.repo }));
-    }
-    const state = this.treeStates?.get(w.path)?.state;
+    this.treeBusy ??= new Set();
+    if (this.treeBusy.has(w.path)) return;
+    this.treeBusy.add(w.path);
+    delete this.wtError[w.path];
+    const asked = this.pushAsk?.path === w.path ? this.pushAsk.sign : null;
+    cx.notify();
     cx.spawn(async (cx) => {
-      this.pushAsk = { path: w.path, ...await pushPlan(w, state) };
-      cx.notify();
+      let plan = null;
+      try {
+        const state = await treeState(w);
+        if (state.unreadable || !state.unpushed) {
+          this.pushAsk = null;
+          this.wtError[w.path] = state.unreadable ? "could not check its files" : "nothing left to push";
+          return;
+        }
+        const now = await pushPlan(w, state);
+        if (asked === now.sign) plan = now;
+        else this.pushAsk = { path: w.path, ...now };
+      } catch (e) {
+        this.wtError[w.path] = String(e?.message ?? e);
+      } finally {
+        this.treeBusy.delete(w.path);
+        if (plan) {
+          this.pushAsk = null;
+          this.treeAction(w, cx, () => pushBackup(w, plan.head), (r) => ({ title: `Pushed ${r.ref}`, body: w.repo }));
+        }
+        cx.notify();
+      }
     });
   }
 

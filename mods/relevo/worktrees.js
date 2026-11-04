@@ -25,7 +25,7 @@ function parse(out) {
 // "<path>\t<newest of last commit, index and HEAD>": the index moves with any git use there.
 const TOUCHED = 'for w; do g=$(git -C "$w" rev-parse --absolute-git-dir 2>/dev/null) || continue; c=$(git -C "$w" log -1 --format=%ct 2>/dev/null); m=$(stat -f %m "$g/index" "$g/HEAD" 2>/dev/null | sort -n | tail -1); printf "%s\t%s\n" "$w" "$(printf "%s\n%s\n" "${c:-0}" "${m:-0}" | sort -n | tail -1)"; done';
 
-export const slug = (url) => /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/.exec(url.trim())?.[1] ?? null;
+const slug = (url) => /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/.exec(url.trim())?.[1] ?? null;
 
 // GitHub's merged PRs per repo, asked again after MERGED_TTL or on a forced refresh;
 // scans also run on every space change, and this is the network call in them.

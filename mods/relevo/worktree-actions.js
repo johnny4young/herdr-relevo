@@ -3,7 +3,7 @@ import { exec, home, panes, readTextFile, spaces } from "herdr";
 import * as config from "./config.js";
 import { GIT_READ } from "./lib/git.js";
 import { RECENT_AFTER, plural, sizeOf } from "./lib/trees.js";
-import { baseBranch, ignoredPaths, isLocked, nestedRepo, slug, touchedAt, treeSize, treeState } from "./worktrees.js";
+import { baseBranch, ignoredPaths, isLocked, nestedRepo, touchedAt, treeSize, treeState } from "./worktrees.js";
 
 export const backupsRoot = () => `${home()}/${config.BACKUPS_ROOT ?? "relevo-backups"}`;
 
@@ -126,19 +126,30 @@ export async function saveCommits(w, root = backupsRoot()) {
   return { file };
 }
 
-// Unknown counts as public: a push can't be taken back.
-export async function pushPlan(w, state) {
-  const remote = line(await git(w, ["remote", "get-url", "origin"]));
-  const repo = slug(remote);
-  const seen = repo ? await exec("gh", ["repo", "view", repo, "--json", "visibility", "-q", ".visibility"]) : null;
-  const open = line(seen ?? { code: 1 }) !== "PRIVATE";
-  const commits = plural(state.unpushed, "commit");
-  return { text: open ? `Publishes ${commits} to public ${w.repo}` : `Pushes ${commits} to private ${w.repo}`, label: open ? "Publish" : "Push" };
+// Only a URL whose host is exactly github.com names a GitHub repo.
+export function githubRepo(url) {
+  const u = (url ?? "").trim();
+  const m = /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/github\.com\/)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(u);
+  return m?.[1] ?? null;
 }
 
-// Never forced, with the repo's hooks: a name already taken stops it rather than overwriting.
-export async function pushBackup(w) {
+// Where a push would really go. Anything but a GitHub repo known to be private counts as public.
+export async function pushPlan(w, state) {
+  const url = line(await git(w, ["remote", "get-url", "--push", "origin"]));
   const head = line(await git(w, ["rev-parse", "HEAD"]));
+  const repo = githubRepo(url);
+  const seen = repo ? await exec("gh", ["repo", "view", repo, "--json", "visibility", "-q", ".visibility"]) : null;
+  const closed = line(seen ?? { code: 1 }) === "PRIVATE";
+  const commits = plural(state.unpushed, "commit"), where = repo ?? (url || "an unknown remote");
+  return {
+    head, sign: JSON.stringify({ head, url, closed, unpushed: state.unpushed }),
+    text: closed ? `Pushes ${commits} to private ${where}` : repo ? `Publishes ${commits} to public ${where}` : `Publishes ${commits} to ${where}`,
+    label: closed ? "Push" : "Publish",
+  };
+}
+
+// The commit shown in the question, never forced, with the repo's hooks: a name already taken stops it.
+export async function pushBackup(w, head) {
   if (!head) return { error: "could not read its commit" };
   const ref = `refs/heads/backup/${nameOf(w)}`;
   const pushed = await exec("git", ["push", "origin", `${head}:${ref}`], { cwd: w.path });

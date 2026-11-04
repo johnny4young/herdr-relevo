@@ -13,7 +13,8 @@ import { actionsOf, groupOf, whyOf, sizeOf } from "../lib/trees.js";
 
 const { TreeViews } = await import("../inbox-trees.js");
 const { removalCheck, treeState } = await import("../worktrees.js");
-const { deleteCheck, deleteWorktree, pushBackup, pushPlan, savedState, saveCommits, savePatch } = await import("../worktree-actions.js");
+const { deleteCheck, deleteWorktree, githubRepo, pushBackup, pushPlan, savedState, saveCommits, savePatch } = await import("../worktree-actions.js");
+const settled = async () => { for (let i = 0; i < 12; i++) await flush(); };
 
 const NOW = 2_000_000_000, DAY = 86400, OLD = NOW - 30 * DAY;
 const clean = { branch: "feat", locked: false, files: 0, unpushed: 0, unique: 0, ignored: [] };
@@ -310,21 +311,70 @@ test("real git: Push backup lands on GitHub and never overwrites", async (t) => 
   const { w, commit, git, originGit } = realTree(t), tree = { ...w, repo: "app" };
   commit("b.txt");
   const head = git("rev-parse", "HEAD").trim();
-  assert.deepEqual(await pushBackup(tree), { ref: "backup/wt" });
+  assert.deepEqual(await pushBackup(tree, head), { ref: "backup/wt" });
   assert.equal(originGit("rev-parse", "refs/heads/backup/wt").trim(), head);
   assert.equal(git("rev-list", "--count", "HEAD", "--not", "--remotes").trim(), "0");
   git("reset", "-q", "--hard", "HEAD~1");
   commit("other.txt");
-  assert.ok((await pushBackup(tree)).error);
+  assert.ok((await pushBackup(tree, git("rev-parse", "HEAD").trim())).error);
   assert.equal(originGit("rev-parse", "refs/heads/backup/wt").trim(), head);
 });
 
-test("pushPlan treats an unknown repo as public", async () => {
-  fake.exec = (cmd) => (cmd === "gh" ? { code: 1, stderr: "no" } : { code: 0, stdout: "https://github.com/me/app.git\n" });
-  const plan = await pushPlan({ path: "/w/a", repo: "app" }, { unpushed: 75 });
-  assert.equal(plan.text, "Publishes 75 commits to public app");
-  fake.exec = (cmd) => ({ code: 0, stdout: cmd === "gh" ? "PRIVATE\n" : "https://github.com/me/app.git\n" });
-  assert.equal((await pushPlan({ path: "/w/a", repo: "app" }, { unpushed: 1 })).text, "Pushes 1 commit to private app");
+test("githubRepo: only github.com itself", () => {
+  assert.equal(githubRepo("git@github.com:me/app.git"), "me/app");
+  assert.equal(githubRepo("https://github.com/me/app"), "me/app");
+  assert.equal(githubRepo("ssh://git@github.com/me/app.git"), "me/app");
+  for (const url of ["https://evil.com/github.com/me/app", "git@github.com.evil.com:me/app", "https://github.com.evil.com/me/app", "https://github.com/me/app/x", "/srv/app.git", ""]) {
+    assert.equal(githubRepo(url), null, url);
+  }
+});
+
+const remoteIs = (url, seen = "PRIVATE") => (cmd, args) => {
+  if (cmd === "gh") return seen === null ? { code: 1, stderr: "no" } : { code: 0, stdout: `${seen}\n` };
+  return { code: 0, stdout: args.includes("rev-parse") ? "abc\n" : `${url}\n` };
+};
+
+test("pushPlan names where a push really goes, and only a known private repo isn't public", async () => {
+  const w = { path: "/w/a", repo: "app" };
+  fake.exec = remoteIs("https://github.com/me/app.git", null);
+  assert.equal((await pushPlan(w, { unpushed: 75 })).text, "Publishes 75 commits to public me/app");
+  fake.exec = remoteIs("https://github.com/me/app.git");
+  const closed = await pushPlan(w, { unpushed: 1 });
+  assert.equal(closed.text, "Pushes 1 commit to private me/app");
+  assert.equal(closed.label, "Push");
+  fake.exec = remoteIs("https://evil.com/github.com/me/app");
+  const odd = await pushPlan(w, { unpushed: 1 });
+  assert.equal(odd.text, "Publishes 1 commit to https://evil.com/github.com/me/app");
+  assert.equal(calls(/^gh /).length, 2);
+  assert.notEqual(odd.sign, closed.sign);
+});
+
+test("real git: the question follows the push URL, not the fetch URL", async (t) => {
+  const { w, commit, git } = realTree(t);
+  commit("b.txt");
+  git("remote", "set-url", "--push", "origin", "https://elsewhere.example/x.git");
+  assert.equal((await pushPlan({ ...w, repo: "app" }, { unpushed: 1 })).text, "Publishes 1 commit to https://elsewhere.example/x.git");
+});
+
+test("real git: a second click pushes only what the question showed", async (t) => {
+  const { w, path, commit, git, originGit } = realTree(t), tree = { ...w, repo: "app" };
+  commit("b.txt");
+  const v = new TreeViews(), cx = fakeCx();
+  Object.assign(v, { worktrees: [tree], removing: new Set(), gone: new Set(), wtError: {}, expanded: { loose: true }, confirm: null, selected: () => false, treeStates: new Map() });
+  v.askPush(tree, cx);
+  await settled();
+  const shown = git("rev-parse", "HEAD").trim();
+  assert.equal(v.pushAsk.head, shown);
+  assert.equal(spawnSync("git", ["rev-parse", "-q", "--verify", "refs/heads/backup/wt"], { cwd: join(path, "..", "origin.git") }).status, 1);
+  commit("later.txt");
+  v.askPush(tree, cx);
+  await settled();
+  assert.notEqual(v.pushAsk.head, shown);
+  assert.equal(spawnSync("git", ["rev-parse", "-q", "--verify", "refs/heads/backup/wt"], { cwd: join(path, "..", "origin.git") }).status, 1);
+  v.askPush(tree, cx);
+  await settled();
+  assert.equal(originGit("rev-parse", "refs/heads/backup/wt").trim(), git("rev-parse", "HEAD").trim());
+  assert.equal(v.pushAsk, null);
 });
 
 test("real git: Delete says what goes, refuses what's in use, then takes everything", async (t) => {
@@ -376,7 +426,7 @@ test("real git: a pushed detached worktree can be removed only while GitHub has 
   const { w, commit, git, originGit } = realTree(t), tree = { ...w, branch: null, repo: "app" };
   commit("b.txt");
   git("checkout", "-q", "--detach");
-  await pushBackup(tree);
+  await pushBackup(tree, git("rev-parse", "HEAD").trim());
   later();
   assert.equal((await removalCheck({ ...tree, group: "pushed" })).error, undefined);
   originGit("update-ref", "-d", "refs/heads/backup/wt");
