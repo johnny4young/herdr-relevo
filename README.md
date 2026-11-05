@@ -39,6 +39,8 @@ with the last screen and the working tree. `⌥⌘N` starts a new agent on the C
 `⌥⌘U` opens **Tokens**: output and new context by surface (Claude Desktop, terminal, automatic sessions, Codex),
 project, subagent type and day. It reads the transcripts on your Mac and sends nothing anywhere.
 
+![Tokens by surface, project, subagent and day](screenshots/tokens.png)
+
 ### Claude Desktop sessions too
 
 Desktop sessions that ask you something or wait for a review show in the Inbox and the Agents list, one click from
@@ -49,6 +51,10 @@ Desktop. With Herdr behind another app, alerts reach macOS; with `terminal-notif
 **Land** merges a ready PR at the commit you saw, follows the workflows the merge starts and removes its worktree
 when nothing would be lost. In the review pane, **Since I looked** shows only what the agent changed after your
 last look, and **Viewed** marks files until they change.
+
+![A PR landing, one landed, and one ready for its second click](screenshots/land.png)
+
+![Since I looked, with one file marked viewed](screenshots/since.png)
 
 ### Edit files in the panel
 
