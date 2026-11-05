@@ -92,7 +92,7 @@ const kTokens = (n) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 function contextTag(t, a, c, now) {
   const left = a.status === "working" ? null : Math.max(0, c.at + c.ttl - now / 1000);
   const cache = left === null ? "" : left > 0 ? ` · cache ${Math.ceil(left / 60)}m` : " · cache gone";
-  return div().id(`ctx-${a.address}`).flex_none().text_color(left !== null && left < 600 ? t.ansi3 : t.dim)
+  return div().id(`ctx-${a.address}`).flex_none().text_color(left > 0 && left < 600 ? t.ansi3 : t.dim)
     .tooltip(`${modelName(c.model)} · ${c.context.toLocaleString("en-US")} tokens of context. Its prompt cache lasts ${c.ttl / 60} min after the last message; past that, the next message writes it all again.`)
     .child(`${modelName(c.model)} · ${kTokens(c.context)}${cache}`);
 }

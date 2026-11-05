@@ -21,6 +21,7 @@ import { desktopKey } from "./lib/desktop.js";
 const ADDRESSED = ".local/state/relevo/addressed.json";
 
 const contextKey = (repo) => contextFor(repo).key;
+const STUCK_MS = 120000;
 
 export class PrViews {
   loadAddressed(cx) {
@@ -50,9 +51,11 @@ export class PrViews {
     exec("sh", ["-c", 'mkdir -p "$(dirname "$1")" && printf "%s" "$2" > "$1"', "sh", `${home()}/${ADDRESSED}`, JSON.stringify(marks)]);
   }
 
+  // A scan stuck past STUCK_MS (an exec that never answered) no longer blocks the next one.
   scanPRs(cx) {
-    if (this.scanningPRs) return;
+    if (this.scanningPRs && Date.now() - this.scanStarted < STUCK_MS) return;
     this.scanningPRs = true;
+    this.scanStarted = Date.now();
     if (!this.prsAt) cx.notify();
     cx.spawn(async (cx) => {
       try {

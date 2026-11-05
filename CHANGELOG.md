@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1 · 2026-11-05
+
+- **Land never merges commits you didn't see.** A card can be minutes old. Land now reads the PR again first: when it has commits newer than the card, nothing is merged, a toast says so and the PRs are read again, instead of showing GitHub's "Head branch was modified".
+- **A stuck PR read no longer freezes the list.** A read that never answers stops blocking the next one after 2 minutes, and the Inbox header turns red with "last read failed", the error in its tooltip.
+- **A gone prompt cache reads dim.** Only a cache about to expire, under 10 minutes, stands out in `ansi3`.
+
 ## 0.6.0 · 2026-11-05
 
 - **Where your tokens go.** `⌥⌘U` opens **Tokens**: output and new context by surface (Claude Desktop, terminal, automatic sessions, Codex), by project, by subagent type and by day, for today, 7, 14 or 30 days and any account. It also shows how much came from conversations cached again after an hour's pause. It reads the transcripts on your Mac with `grep`, `awk` and `dd`, a little at a time, and sends nothing anywhere. The first read of a month of transcripts can take several minutes; later ones only read what was added.
