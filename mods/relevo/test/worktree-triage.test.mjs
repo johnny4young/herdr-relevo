@@ -556,3 +556,10 @@ test("a merged worktree used in the last day offers no Remove and says why", asy
   fake.exec = (cmd) => (cmd === "sh" ? { stdout: `/w/a\t${NOW - 3600}\n` } : null);
   assert.equal((await removalCheck({ path: "/w/a", main: "/w", merged: true })).error, "used in the last day");
 });
+
+test("a worktree in use says its age once, on the note", () => {
+  const { v } = view({});
+  const shown = text(v.treeRow(theme(), { ...row("a", NOW - 3600), merged: true }));
+  assert.match(shown, /used 1h ago/);
+  assert.equal(shown.match(/1h/g).length, 1, shown);
+});

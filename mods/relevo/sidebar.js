@@ -28,7 +28,7 @@ const STALE = 30 * 60;
 export class Sidebar {
   init(_props, cx) {
     this.quota = {};
-    publishSetup(ACCOUNTS);
+    publishSetup([...ACCOUNTS, CODEX]);
     this.width = 268;
     // The snapshots on disk answer at once; the usage endpoints follow.
     this.load(cx);

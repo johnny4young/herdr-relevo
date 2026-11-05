@@ -135,7 +135,8 @@ const CHIP_LETTER = 9;
 function accountTag(t, a, labels, pane) {
   const accounts = setup().accounts, acc = accounts[labels["agent.account"]], jira = labels["agent.jira"];
   if (!acc && !jira) return null;
-  const borrowed = acc && labels["agent.account"] !== repoAccount(pane?.cwd ?? a.cwd);
+  // A repo's account is a Claude one, so Codex can't be borrowing it.
+  const borrowed = acc && labels["agent.account"] !== "codex" && labels["agent.account"] !== repoAccount(pane?.cwd ?? a.cwd);
   const tip = [acc && `${acc.label} account${borrowed ? `, borrowed: this repo uses ${accounts[repoAccount(pane?.cwd ?? a.cwd)]?.label ?? "another"}` : ""}`, jira].filter(Boolean).join(" · ");
   // Local agents only: a handoff reads and starts things on this computer.
   const canMove = Boolean(acc) && !a.address.includes("/");
@@ -151,7 +152,7 @@ function accountTag(t, a, labels, pane) {
 
 const CI = {
   SUCCESS: ["✓", "ansi2", "CI passed"], FAILURE: ["✕", "ansi1", "CI failed"], ERROR: ["✕", "ansi1", "CI failed"],
-  PENDING: ["◌", "ansi3", "CI running"], EXPECTED: ["◌", "ansi3", "CI running"],
+  PENDING: ["◌", "ansi3", "CI running"], EXPECTED: ["◌", "ansi3", "CI running"], CANCELLED: ["⊘", "ansi3", "CI cancelled"],
 };
 
 // The agent's PR: number, CI and size. A click opens it instead of focusing the agent.
