@@ -1,7 +1,7 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, run, focused, panes, setShared, notify } from "herdr";
-import { BackgroundWatch, quotaAlerts } from "./alerts.js";
+import { AgentWatch, BackgroundWatch, quotaAlerts } from "./alerts.js";
 import { ACCOUNTS, CODEX, API_QUOTAS, launchArgv, chip, loadClaudeQuotas } from "./accounts.js";
 import { FOCUS, focus, publishSetup, contextOfPath } from "./context.js";
 import { ago, resetText, resetClock, runsOut, clock, FIVE_HOURS, WEEK } from "./lib/time.js";
@@ -19,6 +19,8 @@ import { mostMargin } from "./lib/margin.js";
 import { ledgerTick } from "./ledger.js";
 import { spinner, withKey } from "./ui.js";
 import { openSettings } from "./settings.js";
+import { UsageScanner, publishContext } from "./usage-scan.js";
+import { DesktopWatch } from "./desktop.js";
 
 // Chip and label; wide enough for an 8-letter account name.
 const NAME_W = 92;
@@ -39,8 +41,10 @@ export class Sidebar {
       await syncFolders();
     });
     this.watch = new BackgroundWatch();
+    this.agentWatch = new AgentWatch();
     cx.timer.every(3000, (cx) => {
       this.watch.tick();
+      this.agentWatch.tick();
       cx.spawn(async () => {
         await ledgerTick();
       });
@@ -48,6 +52,24 @@ export class Sidebar {
     cx.timer.every(600000, (cx) => cx.spawn(async () => {
       await syncFolders();
     }));
+    this.desktop = new DesktopWatch();
+    const readDesktop = (cx) => cx.spawn(async () => {
+      await this.desktop.tick();
+    });
+    readDesktop(cx);
+    cx.timer.every(30000, readDesktop);
+    this.readTokens(cx);
+    cx.timer.every(300000, (cx) => this.readTokens(cx));
+    cx.timer.every(20000, (cx) => cx.spawn(async () => {
+      await publishContext();
+    }));
+  }
+
+  readTokens(cx) {
+    this.tokens ??= new UsageScanner();
+    cx.spawn(async () => {
+      await this.tokens.scan();
+    });
   }
 
   // The usage endpoints; the statusline also writes a snapshot while a session runs.

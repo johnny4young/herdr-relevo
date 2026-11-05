@@ -16,7 +16,7 @@ const ROLES = {
   accounts: {}, inbox: {}, "inbox-button": {}, "panel-bar": {}, "panel-toggle": {}, settings: {},
   "account-menu": { pr: PR, skill: "review", folder: "/work/app", current: "personal" },
   "find-file": { root: "/work/app" }, "checkout-menu": { top: "/work/app", list: [] },
-  handoff: { terminal: "t1", cwd: "/work/app" }, "review-diff": { folder: "/work/app" }, "ledger-week": {},
+  handoff: { terminal: "t1", cwd: "/work/app" }, "review-diff": { folder: "/work/app" }, "ledger-week": {}, usage: {},
 };
 
 beforeEach(() => {

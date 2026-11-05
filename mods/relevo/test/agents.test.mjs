@@ -185,3 +185,49 @@ test("a row shows its PR, with CI and size, and a click opens the PR without foc
   assert.ok(fake.execs.includes("open https://github.com/me/app/pull/24"));
   assert.equal(fake.runs.filter(([name]) => name === "pane.focus").length, 0);
 });
+
+test("a settled agent folds away under Settled, and its ✓ settles it", async () => {
+  const { ui, mod, cx } = await open([agent("t1"), agent("t2")], [
+    { address: "t1", state: "live", turn: 3, labels: { "relevo.addressed": "1:3" } },
+    { address: "t2", state: "live", turn: 5, labels: {} },
+  ]);
+  assert.ok(find(ui(), "settled"));
+  assert.equal(find(ui(), "ag-t1"), null);
+  assert.ok(find(ui(), "ag-t2"));
+  mod.hovered = "t2";
+  find(ui(), "settle-t2").handlers.on_click({}, cx);
+  await flush();
+  assert.match(fake.execs.at(-1), /^hc label t2 relevo\.addressed=\d+:5$/);
+});
+
+test("an agent that works again is back in the list even with an old mark", async () => {
+  const { ui } = await open([agent("t1", { status: "working" })], [{ address: "t1", state: "live", labels: { "relevo.addressed": "1:3" } }]);
+  assert.ok(find(ui(), "ag-t1"));
+  assert.equal(find(ui(), "settled"), null);
+});
+
+test("Desktop sessions that work, ask or wait for review show under Desktop; settled ones don't", async () => {
+  const now = Date.now() / 1000;
+  fake.stored["relevo.desktop"] = [
+    { id: "local_1", project: "app", title: "Fix login", state: "blocked", at: now },
+    { id: "local_2", project: "web", title: "Done one", state: "review", at: now },
+    { id: "local_3", project: "web", title: "Idle", state: "idle", at: now },
+  ];
+  fake.stored["relevo.desktop.settled"] = ["local_2"];
+  const { ui, cx } = await open([]);
+  assert.match(text(find(ui(), "dk-local_1")), /app · Fix login/);
+  assert.equal(find(ui(), "dk-local_2"), null);
+  assert.equal(find(ui(), "dk-local_3"), null);
+  find(ui(), "dk-local_1").handlers.on_click({}, cx);
+  await flush();
+  assert.equal(fake.execs.at(-1), "open claude://code/continue?session=local_1");
+});
+
+test("an agent's row says its model, context and how long its cache lasts while it rests", async () => {
+  const now = Date.now() / 1000;
+  fake.stored["relevo.agentContext"] = { t1: { model: "claude-opus-5-5", context: 273265, ttl: 3600, at: now - 600 } };
+  const { ui } = await open([agent("t1")]);
+  assert.match(text(find(ui(), "ctx-t1")), /^Opus 5\.5 · 273k · cache 50m$/);
+  fake.stored["relevo.agentContext"].t1.at = now - 4000;
+  assert.match(text(find(ui(), "ctx-t1")), /cache gone/);
+});

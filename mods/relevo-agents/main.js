@@ -77,6 +77,26 @@ export function folderOfSpace(s, all, ps) {
 }
 
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
+// The Inbox's "addressed" mark: `<ms>:<turn>`, cleared when the agent works or asks again.
+const SETTLED = "relevo.addressed";
+const DESKTOP_STATUS = { working: "working", blocked: "blocked", review: "done" };
+// claude-opus-5-5 -> Opus 5.5, as the Relevo mod's Tokens shows it.
+function modelName(id) {
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{6,})?$/.exec(id ?? "");
+  return m ? `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}${m[3] ? `.${m[3]}` : ""}` : id ?? "";
+}
+const kTokens = (n) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+
+// Model and context from the agent's transcript (the Relevo mod reads it); while it rests, how long its
+// prompt cache lasts, since the next message after that writes the whole context again.
+function contextTag(t, a, c, now) {
+  const left = a.status === "working" ? null : Math.max(0, c.at + c.ttl - now / 1000);
+  const cache = left === null ? "" : left > 0 ? ` · cache ${Math.ceil(left / 60)}m` : " · cache gone";
+  return div().id(`ctx-${a.address}`).flex_none().text_color(left !== null && left < 600 ? t.ansi3 : t.dim)
+    .tooltip(`${modelName(c.model)} · ${c.context.toLocaleString("en-US")} tokens of context. Its prompt cache lasts ${c.ttl / 60} min after the last message; past that, the next message writes it all again.`)
+    .child(`${modelName(c.model)} · ${kTokens(c.context)}${cache}`);
+}
+const desktopLink = (id) => `claude://code/continue?session=${encodeURIComponent(id)}`;
 // A sub-agent without a pane isn't in agents(): its raw word, error counting as
 // blocked. It's never done: it reports to its parent, and the parent's done is the news.
 const kidStatus = (k, listed) => {
@@ -173,7 +193,8 @@ function prTag(t, a, pr) {
 export default class Agents extends View {
   init(_props, cx) {
     if (props()?.sortMenu) return;
-    this.folded = new Set();
+    // Settled agents start folded away.
+    this.folded = new Set(["settled"]);
     // Each agent's last state and when it changed (ms), kept across restarts.
     this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}");
     this.pendingPins = JSON.parse(localStorage.getItem("pins") ?? "[]");
@@ -263,6 +284,53 @@ export default class Agents extends View {
         .when(s.id === on, (el) => el.child(svg("mods/workspace-chrome/check.svg").size(14).flex_none().text_color(t.foreground)))));
   }
 
+  // Settled: out of the way under its own folded group until the agent works or asks again.
+  settleButton(t, a, all, on) {
+    return div()
+      .id(`settle-${a.address}`)
+      .flex_none()
+      .px(3)
+      .rounded(4)
+      .text_size(13)
+      .text_color(on ? t.accent : t.dim)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .tooltip(on ? "Back to the list" : "Settle: out of the way until it works or asks again")
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        const turn = all.find((k) => k.address === a.address)?.turn ?? 0;
+        exec("hc", ["label", a.address, `${SETTLED}=${on ? "" : `${Date.now()}:${turn}`}`]);
+        this.hovered = null;
+        cx.notify();
+      })
+      .child("✓");
+  }
+
+  // Claude Desktop's sessions that work, ask or wait for a review, from the Relevo mod; settled ones stay out.
+  desktopSessions() {
+    const settled = new Set(shared("relevo.desktop.settled") ?? []);
+    return (shared("relevo.desktop") ?? []).filter((s) => DESKTOP_STATUS[s.state] && !settled.has(s.id));
+  }
+
+  desktopRow(t, s, now) {
+    return h_flex()
+      .id(`dk-${s.id}`)
+      .h(30)
+      .px(8)
+      .flex_none()
+      .gap(9)
+      .items_center()
+      .rounded(8)
+      .cursor_pointer()
+      .hover((el) => el.bg(t.hover))
+      .tooltip(s.needs || s.detail || s.title || "Open in Desktop")
+      .on_click(() => exec("open", [desktopLink(s.id)]))
+      .child(div().flex_1().min_w(0).truncate().text_color(s.state === "working" ? t.foreground : t.muted)
+        .child(s.title && s.title !== s.project ? `${s.project} · ${s.title}` : s.project))
+      .child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - s.at * 1000)))
+      .child(this.status(t, { status: DESKTOP_STATUS[s.state] }, true));
+  }
+
   peek(addr) {
     run("terminal.peek", { terminal: addr });
   }
@@ -333,9 +401,12 @@ export default class Agents extends View {
     const rankOf = (a) => urgency.get(a.address);
     if (byPriority) list = [...list].sort((x, y) => rankOf(y) - rankOf(x) || this.since(y) - this.since(x) || y.seq - x.seq);
     this.migratePins(all);
+    const marks = new Map(all.map((k) => [k.address, k.labels?.[SETTLED] ?? ""]));
+    const isSettled = (a) => Boolean(marks.get(a.address)) && a.status !== "working" && a.status !== "blocked";
     const pinned = list.filter((a) => a.pinned);
-    const rest = list.filter((a) => !a.pinned);
-    list = [...pinned, ...rest];
+    const rest = list.filter((a) => !a.pinned && !isSettled(a));
+    const settled = list.filter((a) => !a.pinned && isSettled(a));
+    list = [...pinned, ...rest, ...settled];
     setAgentOrder(list.map((a) => a.address));
 
     const withKids = (a, i) => {
@@ -452,6 +523,7 @@ export default class Agents extends View {
       const place = folderOfSpace(spaceList.find((s) => s.id === a.space), shared("space-folders"), ps);
       const folder = folderNote(cwd, a.space_name);
       const pr = shared("relevo.agentPRs")?.[a.address];
+      const ctx = shared("relevo.agentContext")?.[a.address];
       const line = h_flex()
         .h(30)
         .flex_none()
@@ -472,7 +544,9 @@ export default class Agents extends View {
         .when(Boolean(bg), el => el.child(bg))
         .when(Boolean(tag), el => el.child(tag))
         .when(subs.length > 0, el => el.child(fold(a, subs)))
-        .when(this.hovered === a.address, el => el.child(reply).child(pin))
+        .when(this.hovered === a.address, el => el.child(reply)
+          .when(a.status === "idle" || a.status === "done", (el) => el.child(this.settleButton(t, a, all, isSettled(a))))
+          .child(pin))
         .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
         .child(this.status(t, a, byPriority && !isPinned));
       return v_flex()
@@ -491,8 +565,9 @@ export default class Agents extends View {
         .on_click(() => run("pane.focus", { pane: a.pane }))
         .when(Boolean(cwd), (el) => el.tooltip(cwd))
         .child(line)
-        .when(Boolean(folder || pr), (el) => el.child(h_flex().h(14).mb(2).pl(pic ? 25 : 0).gap(6).items_center().text_size(11)
+        .when(Boolean(folder || pr || ctx), (el) => el.child(h_flex().h(14).mb(2).pl(pic ? 25 : 0).gap(6).items_center().text_size(11)
           .when(Boolean(pr), (el) => el.child(prTag(t, a, pr)))
+          .when(Boolean(ctx), (el) => el.child(contextTag(t, a, ctx, now)))
           .when(Boolean(folder), (el) => el.child(div().id(`folder-${a.address}`).flex_1().min_w(0).truncate().text_color(t.dim).child(folder)))))
         .when(Boolean(why), (el) => el.child(div().id(`why-${a.address}`).h(14).mb(2).pl(pic ? 25 : 0).truncate()
           .text_size(11).text_color(t.muted).child(why)));
@@ -535,9 +610,15 @@ export default class Agents extends View {
           .when(!byPriority && top && top !== "idle", (el) => el.child(this.status(t, { status: top }, true)))
           .child(svg("mods/workspace-chrome/chevron-right.svg").size(11).flex_none().text_color(t.dim)));
     };
+    if (settled.length) groups.push({ id: "settled", label: "Settled", status: null, members: settled });
+    const desktop = collapsed ? [] : this.desktopSessions();
     const rows = collapsed
       ? list.flatMap(withKids)
-      : groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : g.members.flatMap(withKids))]);
+      : [
+        ...groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : g.members.flatMap(withKids))]),
+        ...(desktop.length ? [header({ id: "desktop", label: "Desktop", status: null, members: desktop }),
+          ...(this.folded.has("desktop") ? [] : desktop.map((s) => this.desktopRow(t, s, now)))] : []),
+      ];
 
     return v_flex()
       .size_full()
@@ -569,7 +650,7 @@ export default class Agents extends View {
             ),
         ),
       )
-      .when(list.length === 0 && !collapsed, (el) =>
+      .when(list.length === 0 && !desktop.length && !collapsed, (el) =>
         el.child(div().px(12).text_size(13).text_color(t.dim).child("No agent status yet. Agents show up here when they report their status. Older versions and agents inside tmux may not.")),
       )
       .child(v_flex().id("ag-list").flex_1().min_h(0).px(collapsed ? 0 : 8).overflow_y_scrollbar().mode("always").children(rows))

@@ -46,6 +46,18 @@ task to another account.
     days fold under "▸ N older than 45 days"; addressed ones under "▸ N addressed", each with **Undo**. Your PRs
     with nothing left but the merge (CI green, not a draft, no changes requested, no open threads) fold under
     "▸ N ready to merge", outside the count.
+    Your drafts fold under "▸ N drafts", each with **Ready for review** (`gh pr ready`). A PR whose merge state is
+    `CLEAN` or `HAS_HOOKS` gets **Land** first (solid); one `BLOCKED` in a repo that allows auto-merge gets
+    **Land when ready**. The first click turns it into a red **Confirm land** for 4 s. `BEHIND` adds **Update branch**,
+    and failed, errored or cancelled CI **Retry CI**.
+  - `LANDING`, above your PRs: one card per landing PR, "Merges as soon as GitHub allows it", "Merging…", "Merged · N
+    of M workflows running", "<workflow> failed after the merge" (red border, **Open run**) or "Landed · worktree
+    removed", with **Open PR**, **Cancel** (auto-merge off) and ✓. Done cards go after a day.
+  - `IN DESKTOP`: a card per Claude Desktop session that asks something (red border) or is ready for review: `project
+    · title`, its question or summary, **Open in Desktop** and ✓, which folds it under "▸ N addressed" until it does
+    something new.
+  - A summary row heads the list: five tiles (need you, reviews, your PRs, ready, tokens today), the first with a red
+    border while something waits; it runs `⌘J`, ready unfolds the ready PRs, today opens Tokens.
   - `AGENT TIME TODAY` with a **Week** button: one row per project with today's time, tickets included. The name and the time, nothing else.
   - `MERGED WORKTREES`: one 30px row per worktree whose branch merged: repo, branch, age, **Open**/**Go**,
     **Remove** (after a day unused; before that the row says `used 22m ago`). "▸ N worktrees without a space" folds the rest. Opened, it reads each one and sorts it: `Nothing to lose`
@@ -66,6 +78,14 @@ task to another account.
   picker (or `<repo> #n · against <base>` for a PR), the changed files (max 150px) with comment counts, a bar with the open file and **Comment on file**, the
   diff with old/new line numbers, green and red rows, and a footer "N comments for <agent>" with **Clear** and
   **Send to agent**.
+- **Tokens dialog** (880×620, `⌥⌘U`): a header with Today / 7 / 14 / 30 days and the accounts, the age of the last
+  read and ↻; four 76px tiles per surface (share of the output, output, new context); new context per day as bars in
+  one hue, with the peak; **By project** with a bar, new context and output; **What filled it** (main conversations,
+  automatic sessions, each subagent type, the rest together, and "After a pause · N times"); **Biggest sessions**
+  with title, project and surface. While a read runs it shows "Reading N%".
+- **Agents list additions**: a ✓ on hover settles an idle or done agent under a folded **Settled** group; a
+  **Desktop** group lists Desktop sessions working, asking or ready for review; the second line adds `Opus 5.5 · 273k
+  · cache 48m` (`ansi3` under 10 minutes, "cache gone" after).
 - **Settings dialog** (800×700, the gear beside ACCOUNTS): accounts (chip preview, label, letter, launcher, Claude
   dir, colors), Codex's launcher, contexts (label, account, orgs), fallback order, repos root and skills; Save.
 - **Week dialog** (720×460): `Agent time · week of <date>` with ‹ › and **Copy**, a table of tickets × Mon–Sun
@@ -143,6 +163,31 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   **Review** on a PR diffs from the merge base with its base branch: the
   checkout's working tree, or the branch itself when it isn't checked out (fetched when not local); with no agent on
   the PR, **Send** starts one in its repo with the repo's account.
+- **Tokens**: every 5 min the accounts copy lists each account's transcripts modified in 31 days with their sizes
+  and reads what each added since its last size: `dd` from the 64 KiB block holding that offset, `grep` for
+  assistant lines with usage and for titles, and one `awk` per batch that pulls each message's id, time, model,
+  entrypoint, four token counts, cache lifetime, session and folder with `index()` lookups (regexes over lines of
+  several MB took minutes). Batches stay under 100 MB and 400 files; a file over that goes in ranges overlapping by
+  8 MB. A message id counts once across files, so resumed and forked sessions don't double. `entrypoint` gives the
+  surface (`claude-desktop` Desktop, `cli` terminal, the rest automatic); a write over 20k tokens more than an hour
+  after the previous message counts as a pause. State, ids by day and a report live in `~/.local/state/relevo/usage/`,
+  read with `cat` (past `readTextFile`'s 1 MiB) and written with `writeTextFile`. Codex adds what each
+  `token_count` event's total grew by.
+- **Claude Desktop**: every 30 s it reads Desktop's `claude-code-sessions/*/*/local_*.json` changed in 7 days, again
+  only when one changes. A session is working when its last message is newer than its last turn and something
+  happened in 15 minutes, blocked when its post-turn summary says so or needs an action, review when it's
+  `review_ready`. **Open in Desktop** opens `claude://code/continue?session=<id>`.
+- **Alerts outside Herdr**: with the window inactive, each toast also goes to macOS: `terminal-notifier` with
+  `-activate dev.herdr.app` and `-execute` running the toast's own action through `herdr-app do`, or `osascript`.
+  An agent turning blocked or done gets one too, grouped by terminal and removed when it stops asking.
+- **Land**: `gh pr merge <n> --<method> --match-head-commit <oid>` (the repo's `viewerDefaultMergeMethod`, else the
+  first it allows; `--auto` for Land when ready); every 20 s `gh pr view` until merged, then `gh run list --commit
+  <merge>`; no runs after 3 minutes counts as landed. Cleanup finds the PR branch's worktree, keeps it unless its
+  HEAD is the PR's head and it passes Remove's checks (the day-of-use rule aside), closes resting agents' panes from
+  other spaces, closes its space, removes it and deletes the branch with `-D` only when its tip is that head.
+- **Since I looked**: **Mark seen** builds the working tree as a git tree through a scratch index (`git add -A`, so
+  ignored files stay out) and keeps it under `refs/relevo/seen/<hash>`; for a PR not checked out, its head. The
+  scope diffs that tree against a fresh one. **Viewed** stores each file's blob hash, so a change clears it.
 - **Settings**: Save validates (required fields, unique keys, the default context claims no orgs, known accounts in
   contexts and fallback) and writes `config.js` atomically; Herdr reloads the mod.
 - **Worktrees**: **Remove** turns into a red **Confirm** ("closes its space" when it has one); confirming closes the
@@ -204,7 +249,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
 - **herdr**: `agents`, `panes`, `spaces`, `terminals`, `focused`, `layout`, `shared`/`setShared`, `exec`, `run`,
   `notify`, `openOverlay`, `playSound`, `readTextFile`, `writeTextFile`, `watchFolder`, `nextCommand`, `window`; commands `tab.new`, `space.new`,
   `space.close`, `pane.split`, `pane.focus`, `agent.focus`, `layout.select`, `layout.show`, `layout.toggle`.
-- **Programs**: `/usr/bin/trash`, `open -R`, `mv -n`, `mkdir`, `find`, `git`, `gh` (GraphQL for PRs, `pr list --state merged`, `pr view`), `hc read`/`hc send`/`hc label`, `security`
+- **Programs**: `terminal-notifier` or `osascript`, `dd`, `awk`, `grep`, `/usr/bin/trash`, `open -R`, `mv -n`, `mkdir`, `find`, `git`, `gh` (GraphQL for PRs, `pr list --state merged`, `pr view`), `hc read`/`hc send`/`hc label`, `security`
   (Keychain), the account launchers.
 
 ## Watch out
@@ -243,4 +288,8 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
 - `⌥⌘3`, ↓, Enter on a waiting agent focuses that agent; Esc returns to the terminal.
 - ✓ on an uncommitted-work card folds it under "▸ 1 addressed"; a new turn of its agent brings it back.
 - A commit in a repo with a resting agent updates its card in about 2 s.
+- **Tokens** shows the surfaces and projects within minutes of the first read finishing, and ↻ returns at once after.
+- A Desktop session that asks something shows under `IN DESKTOP` within 30 s, and **Open in Desktop** opens it.
+- **Land** on a clean PR merges it, the card follows its workflows, and the worktree goes only when its HEAD is the PR's head.
+- **Mark seen**, an edit and **Since I looked** show only that edit.
 - `node --test 'test/*.test.mjs'` passes in `mods/relevo`.

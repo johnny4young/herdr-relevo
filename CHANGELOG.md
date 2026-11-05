@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0 · 2026-11-05
+
+- **Where your tokens go.** `⌥⌘U` opens **Tokens**: output and new context by surface (Claude Desktop, terminal, automatic sessions, Codex), by project, by subagent type and by day, for today, 7, 14 or 30 days and any account. It also shows how much came from conversations cached again after an hour's pause. It reads the transcripts on your Mac with `grep`, `awk` and `dd`, a little at a time, and sends nothing anywhere. The first read of a month of transcripts can take several minutes; later ones only read what was added.
+- **Claude Desktop beside Herdr.** Desktop sessions that ask you something or are ready for review get an **In Desktop** section in the Inbox, and the Agents list gets a **Desktop** group with the ones working too. **Open in Desktop** takes you to the session; ✓ marks it addressed like a PR.
+- **Alerts outside Herdr.** With Herdr behind another app, its alerts also reach macOS's Notification Center, including an agent that starts asking or finishes. With `terminal-notifier` installed, a click brings Herdr forward on that agent, and its banner goes away once it's answered.
+- **Land a PR.** A PR ready to merge gets **Land**: a second click merges it, with the repo's merge method and only at the commit the card showed, follows the workflows the merge starts, and then removes its worktree and closes its resting agents. It removes nothing unless the worktree's HEAD is the merged commit and nothing is uncommitted. A workflow that fails after the merge keeps everything and says which one. A PR still waiting on checks or reviews gets **Land when ready**, through auto-merge.
+- **More from a PR card.** **Update branch** for a PR behind its base, **Retry CI** for failed jobs too, your drafts under "▸ N drafts" with **Ready for review**, and "merge conflict" or "behind its base" as reasons.
+- **Review only what changed.** The review pane gets **Mark seen**, and sending comments marks it too. **Since I looked** then shows only what changed after that, new files included. Each file has a **Viewed** box that clears itself when the file changes.
+- **Settle an agent.** ✓ beside an agent in the list moves it under a folded **Settled** group until it works or asks again. It's the same mark as the Inbox's ✓.
+- **Each agent's context.** An agent's row shows its model and context, and while it rests how long its prompt cache lasts, in `ansi3` under 10 minutes: past that, the next message writes the whole context again.
+- **A summary on top of the Inbox.** What needs you, reviews, your PRs, PRs ready to merge and today's tokens, in one row.
+
 ## 0.5.24 · 2026-11-04
 
 - **A cancelled check isn't a failure.** GitHub reports a PR with a cancelled check as failed. Relevo now shows **CI cancelled** with `⊘`, with no red dot, failure alert or **fix** button, and offers **Retry CI**, which runs the cancelled jobs again. Any real failure on the same PR stays red.

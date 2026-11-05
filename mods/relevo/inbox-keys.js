@@ -4,10 +4,11 @@ import { openReview } from "./review.js";
 import { launchSkill } from "./skills.js";
 import { showPanel } from "./toolbar.js";
 import { recent } from "./lib/github.js";
+import { openDesktop } from "./desktop.js";
 
 // A request to focus the Inbox, with the pane to give the keyboard back to on Esc.
 export const INBOX_FOCUS = "relevo.inbox.focus";
-const SECTIONS = ["away", "waiting", "local", "mine", "requested", "today", "trees"];
+const SECTIONS = ["away", "waiting", "desktop", "local", "mine", "requested", "today", "trees"];
 
 export function focusInbox() {
   showPanel("inbox");
@@ -29,6 +30,7 @@ export class KeyNav {
         },
       });
     }
+    for (const s of v.desktop) items.push({ id: `dk-${s.id}`, section: "desktop", go: () => openDesktop(s.id) });
     for (const i of v.local.filter((x) => x.kind === "diff")) {
       items.push({ id: `in-${i.agent.address}`, section: "local", go: () => openReview(i.top, i.agent.address) });
     }
