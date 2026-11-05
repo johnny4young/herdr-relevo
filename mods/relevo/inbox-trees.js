@@ -345,7 +345,7 @@ export class TreeViews {
       .child(div().flex_none().text_size(11).text_color(t.muted).child(w.repo))
       .child(div().flex_1().min_w(0).truncate().text_size(13).child(w.branch ?? `${w.name} (detached)`))
       .when(Boolean(w.kb), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(sizeOf(w.kb))))
-      .when(Boolean(w.at), (el) => el.child(this.age(t, w)))
+      .when(Boolean(w.at) && !inUse, (el) => el.child(this.age(t, w)))
       .child(action(`wt-open-${w.path}`, w.space ? "Go" : "Open", w.space ? "Go to its space" : "Open a space here",
         () => this.openTree(w)))
       .when(offersRemove, (el) => el.child(action(`wt-rm-${w.path}`, sure ? "Confirm" : "Remove",

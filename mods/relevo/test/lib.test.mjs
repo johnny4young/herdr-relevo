@@ -6,7 +6,7 @@ import { diffRows, lineKey } from "../lib/diff.js";
 import { ownerOf, contextFor } from "../lib/context.js";
 import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
 import { keyMap, relevoKeys, formatShortcut } from "../lib/keys.js";
-import { agentPRs, mapMine, mapReady, mapRequested, openPRs, unresolved, prChanges, mergedHeads } from "../lib/github.js";
+import { agentPRs, cancelledRuns, ciOf, mapMine, mapReady, mapRequested, openPRs, unresolved, prChanges, mergedHeads } from "../lib/github.js";
 import { readPrompt, samePrompt, submitKeys, freeOption, moveKeys, lastMessage, reasonOf } from "../lib/prompt.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "../lib/handoff.js";
 import { isAddressed, keepListed, addressedValue, staleAddressed } from "../lib/addressed.js";
@@ -185,6 +185,51 @@ test("mapMine: only PRs that need something, with why and which skill", () => {
   assert.equal(byUrl.threads.threads, 1);
   assert.deepEqual(byUrl.threads.reasons, []);
   assert.deepEqual(byUrl.review.reasons, ["review from copilot"]);
+});
+
+const rolled = (state, ends, more = false) => ({ commits: { nodes: [{ commit: { committedDate: "2026-10-30T09:00:00Z", statusCheckRollup: {
+  state, contexts: { pageInfo: { hasNextPage: more }, nodes: ends.map((e) => (e === "red" ? { state: "FAILURE" } : e === null ? { conclusion: null } : { conclusion: e })) },
+} } }] } });
+
+test("ciOf: a cancelled check alone isn't a failure", () => {
+  assert.equal(ciOf(rolled("FAILURE", ["SUCCESS", "SKIPPED", "CANCELLED"])), "CANCELLED");
+  assert.equal(ciOf(rolled("FAILURE", ["CANCELLED", null])), "CANCELLED");
+  assert.equal(ciOf(rolled("SUCCESS", ["SUCCESS"])), "SUCCESS");
+  assert.equal(ciOf(rolled("PENDING", ["CANCELLED", null])), "PENDING");
+});
+
+test("ciOf: anything else that went wrong stays red", () => {
+  for (const end of ["FAILURE", "TIMED_OUT", "STARTUP_FAILURE", "ACTION_REQUIRED", "STALE", "red"]) {
+    assert.equal(ciOf(rolled("FAILURE", ["CANCELLED", end])), "FAILURE", end);
+  }
+  assert.equal(ciOf(rolled("FAILURE", ["SUCCESS"])), "FAILURE");
+  assert.equal(ciOf(rolled("FAILURE", ["CANCELLED"], true)), "FAILURE");
+  assert.equal(ciOf(pr({ commits: { nodes: [{ commit: { statusCheckRollup: { state: "FAILURE" } } }] } })), "FAILURE");
+  assert.equal(ciOf({}), null);
+});
+
+test("mapMine: cancelled CI says so, without red or a fix button", () => {
+  const data = { viewer: { login: "me", pullRequests: { nodes: [pr({ url: "c", ...rolled("FAILURE", ["SUCCESS", "CANCELLED"]) })] } } };
+  const [card] = mapMine(data);
+  assert.deepEqual(card.reasons, ["CI cancelled"]);
+  assert.deepEqual(card.skills, []);
+  assert.equal(card.hot, false);
+});
+
+test("prChanges: a cancelled run alerts nothing, and a pass after it does", () => {
+  const data = (over) => ({ viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [pr(over)] } } });
+  const first = prChanges(null, data(rolled("PENDING", [null])));
+  const cancelled = prChanges(first.state, data(rolled("FAILURE", ["CANCELLED"])));
+  assert.deepEqual(cancelled.events, []);
+  assert.deepEqual(prChanges(cancelled.state, data(rolled("SUCCESS", ["SUCCESS"]))).events.map((e) => e.kind), ["ci-passed"]);
+});
+
+test("cancelledRuns: each cancelled Actions run once, nothing from other CI", () => {
+  const link = (run) => `https://github.com/me/app/actions/runs/${run}/job/1`;
+  assert.deepEqual(cancelledRuns([
+    { state: "CANCELLED", link: link(5) }, { state: "CANCELLED", link: link(5) }, { state: "CANCELLED", link: link(6) },
+    { state: "SUCCESS", link: link(7) }, { state: "CANCELLED", link: "https://ci.example.com/build/1" }, { state: "CANCELLED" },
+  ]), ["5", "6"]);
 });
 
 test("mapRequested: newest first, with unresolved threads", () => {

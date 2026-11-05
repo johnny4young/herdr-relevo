@@ -11,7 +11,7 @@ import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
-import { PR_QUERY, seconds, recent, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
+import { PR_QUERY, cancelledRuns, ciOf, seconds, recent, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
 import { keepListed } from "./lib/addressed.js";
 import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
 
@@ -164,9 +164,41 @@ export class PrViews {
 
   ciBadge(t, state, key) {
     const [glyph, color, tip] = state === "SUCCESS" ? ["✓", t.ansi2, "CI passed"]
-      : state === "FAILURE" || state === "ERROR" ? ["✕", t.ansi1, "CI failed"] : ["◌", t.ansi3, "CI running"];
+      : state === "FAILURE" || state === "ERROR" ? ["✕", t.ansi1, "CI failed"]
+        : state === "CANCELLED" ? ["⊘", t.ansi3, "CI cancelled"] : ["◌", t.ansi3, "CI running"];
     return div().id(`ci-${key}`).flex_none().text_size(11).font_semibold().text_color(color).tooltip(tip)
       .child(glyph === "◌" ? spinner(color, 11) : glyph);
+  }
+
+  // Only the cancelled jobs of each run go again; a run with none left says so.
+  retryCI(pr, cx) {
+    this.retrying ??= new Set();
+    if (this.retrying.has(pr.url)) return;
+    this.retrying.add(pr.url);
+    cx.notify();
+    cx.spawn(async (cx) => {
+      const name = `${pr.repo.split("/")[1]} #${pr.number}`;
+      try {
+        // gh exits non-zero when checks failed, so only the answer tells.
+        const checks = await exec("gh", ["pr", "checks", String(pr.number), "--repo", pr.repo, "--json", "state,link"]);
+        let runs;
+        try {
+          runs = cancelledRuns(JSON.parse(checks.stdout));
+        } catch {
+          return notify({ title: `Could not read CI · ${name}`, body: checks.stderr?.trim().split("\n")[0], level: "warning" });
+        }
+        if (!runs.length) return notify({ title: `Nothing to retry · ${name}`, body: "No cancelled GitHub Actions run", level: "warning" });
+        for (const id of runs) {
+          const r = await exec("gh", ["run", "rerun", id, "--failed", "--repo", pr.repo]);
+          if (r.code !== 0) return notify({ title: `Could not retry CI · ${name}`, body: r.stderr?.trim().split("\n")[0], level: "warning" });
+        }
+        notify({ title: `CI restarted · ${name}`, level: "success" });
+        this.scanPRs(cx);
+      } finally {
+        this.retrying.delete(pr.url);
+        cx.notify();
+      }
+    });
   }
 
   agentLine(pr, agent) {
@@ -194,6 +226,11 @@ export class PrViews {
         tip: withKey("The whole PR against its base, line by line", "relevo.review"),
       }));
     }
+    if (!requested && ciOf(pr) === "CANCELLED") {
+      actions.push(button(t, `retry-ci-${pr.url}`, "Retry CI", (cx) => this.retryCI(pr, cx), {
+        tip: "Runs the cancelled jobs again", disabled: this.retrying?.has(pr.url),
+      }));
+    }
     if (!actions.includes(openPR)) actions.push(openPR);
     const mark = addressed
       ? button(t, `undo-${pr.url}`, "Undo", (cx) => this.setAddressed(pr, false, cx), { tip: "Back to the list" })
@@ -203,7 +240,7 @@ export class PrViews {
     const dot = seen ? "ring" : !requested && pr.hot ? t.blocked : t.accent;
     return this.card(t, `pr-${pr.url}`, false,
       this.head(t, dot, `${pr.repo.split("/")[1]} #${pr.number} · ${pr.title}`, ago(seconds(pr.updatedAt)),
-        pr.commits?.nodes[0]?.commit?.statusCheckRollup?.state, pr.threads),
+        ciOf(pr), pr.threads),
       v_flex().gap(2).text_size(11).text_color(t.muted)
         .when(Boolean(meta), (el) => el.child(meta))
         .when(Boolean(l && seen), (el) => el.child(

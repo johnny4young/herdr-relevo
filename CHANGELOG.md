@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.24 · 2026-11-04
+
+- **A cancelled check isn't a failure.** GitHub reports a PR with a cancelled check as failed. Relevo now shows **CI cancelled** with `⊘`, with no red dot, failure alert or **fix** button, and offers **Retry CI**, which runs the cancelled jobs again. Any real failure on the same PR stays red.
+- **Codex's account chip.** A Codex agent labelled `agent.account=codex` shows its chip in the Agents list, never as borrowed from the repo's account.
+- **One age per worktree.** A worktree in use shows `used 22m ago` under its name, without repeating the age beside it.
+
 ## 0.5.23 · 2026-11-04
 
 - **Agent time today is by project.** Each row is a project and its time. Time with a ticket adds to its project instead of having its own row, and overlaps count once. **Week** keeps its table per ticket, for filling a time tracker.

@@ -235,7 +235,9 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
 - `herdr-app check mods/relevo` passes for every role (set the default role in a scratch copy).
 - An agent that stops with changes shows under `UNCOMMITTED WORK` within 2 s; **Review** opens the pane, a
   comment and **Send to agent** reach the agent's terminal, and Review again focuses the same pane.
-- A PR with failing CI shows "CI failing", ✕ and a solid `fix-ci` button; ▾ lists every account.
+- A PR with failing CI shows "CI failing", ✕ and a solid `fix-ci` button; ▾ lists every account. GitHub rolls a cancelled
+  check up as failed, so the rollup's checks are read too: only cancelled ones show "CI cancelled", ⊘, no red dot or alert, and
+  **Retry CI** (`gh run rerun --failed` on each cancelled Actions run).
 - A merged worktree's **Remove** → **Confirm** removes it with the spinner and the row folds away.
 - **Week** opens the table and **Copy** pastes as a table.
 - `⌥⌘3`, ↓, Enter on a waiting agent focuses that agent; Esc returns to the terminal.

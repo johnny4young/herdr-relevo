@@ -809,6 +809,59 @@ test("only an agent waiting on you gets the red border, not a PR with failing CI
   assert.deepEqual(hot, [false]);
 });
 
+function cancelledPR() {
+  const runs = [];
+  fake.exec = (cmd, args) => {
+    if (cmd !== "gh") return null;
+    if (args[0] === "api" && args[1] === "graphql") return { stdout: JSON.stringify({ data: {
+      viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [{
+        url: "https://github.com/me/app/pull/1", number: 1, title: "x", isDraft: false, updatedAt: new Date().toISOString(),
+        reviewDecision: null, headRefName: "feat", baseRefName: "main", isCrossRepository: false, repository: { nameWithOwner: "me/app" },
+        commits: { nodes: [{ commit: { committedDate: new Date().toISOString(), statusCheckRollup: {
+          state: "FAILURE", contexts: { pageInfo: { hasNextPage: false }, nodes: [{ conclusion: "SUCCESS" }, { conclusion: "CANCELLED" }] },
+        } } }] },
+        reviews: { nodes: [] }, reviewThreads: { nodes: [] },
+      }] } },
+      search: { nodes: [] },
+    } }) };
+    if (args[0] === "pr" && args[1] === "checks") return { code: 1, stdout: JSON.stringify([{ state: "CANCELLED", link: "https://github.com/me/app/actions/runs/42/job/1" }]) };
+    if (args[0] === "run") {
+      runs.push(args);
+      return cancelledPR.rerun ?? null;
+    }
+    return null;
+  };
+  return runs;
+}
+
+test("a cancelled CI says so and Retry CI runs only its cancelled jobs, once", async () => {
+  cancelledPR.rerun = null;
+  const runs = cancelledPR();
+  const { inbox } = await open();
+  const cx = fakeCx(), ui = inbox.render(cx);
+  assert.match(text(ui), /CI cancelled/);
+  assert.doesNotMatch(text(ui), /CI failing/);
+  const url = "https://github.com/me/app/pull/1";
+  inbox.retryCI(inbox.mine[0], cx);
+  inbox.retryCI(inbox.mine[0], cx);
+  await flush();
+  assert.deepEqual(runs, [["run", "rerun", "42", "--failed", "--repo", "me/app"]]);
+  assert.equal(fake.notices.at(-1).title, "CI restarted · app #1");
+  assert.ok(find(inbox.render(cx), `retry-ci-${url}`));
+});
+
+test("a retry GitHub refuses says why", async () => {
+  cancelledPR.rerun = { code: 1, stderr: "run is too old\n" };
+  cancelledPR();
+  const { inbox } = await open();
+  const cx = fakeCx();
+  inbox.render(cx);
+  inbox.retryCI(inbox.mine[0], cx);
+  await flush();
+  assert.equal(fake.notices.at(-1).title, "Could not retry CI · app #1");
+  assert.equal(fake.notices.at(-1).body, "run is too old");
+});
+
 test("each agent's PR is published for the agents list, also from a worktree with another name", async () => {
   setAgents(["t1", "working"]);
   fake.panes[0].branch = "feat";

@@ -98,6 +98,22 @@ test("a local agent's account chip opens the handoff, without focusing it", asyn
   assert.equal(stopped, true);
 });
 
+test("Codex shows its chip and ticket, and never as borrowed", async () => {
+  fake.stored["relevo.setup"] = { accounts: { codex: { label: "Codex", letter: "X", bg: "#000", fg: "#fff" } }, contexts: [{ key: "mine", account: "personal" }] };
+  const { ui } = await open([agent("t1")], [{ address: "t1", state: "live", labels: { "agent.account": "codex", "agent.jira": "AB-1" } }]);
+  const chip = find(ui(), "acct-t1");
+  assert.match(text(chip), /AB-1/);
+  assert.doesNotMatch(chip.tip, /borrowed/);
+});
+
+test("a cancelled CI on a row says so", async () => {
+  fake.stored = { ...fake.stored, "relevo.agentPRs": { t1: { number: 24, url: "https://github.com/me/app/pull/24", ci: "CANCELLED", add: 1, del: 0 } } };
+  const { ui } = await open([agent("t1")]);
+  const tag = find(ui(), "pr-t1");
+  assert.equal(text(tag), "#24 ⊘ +1 −0");
+  assert.match(tag.tip, /CI cancelled · Open PR #24/);
+});
+
 test("an agent on another machine has no handoff click", async () => {
   fake.stored["relevo.setup"] = { accounts: { personal: { label: "Personal", letter: "P", bg: "#000", fg: "#fff" } }, contexts: [] };
   const { ui } = await open([agent("box/t1")], [{ address: "box/t1", state: "live", labels: { "agent.account": "personal", "agent.jira": "AB-1" } }]);

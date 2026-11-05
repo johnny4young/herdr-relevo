@@ -1,16 +1,18 @@
 // The Inbox's GitHub query and what it makes of the answer; pure, so the tests can feed it fixtures.
 
+const ROLLUP = "statusCheckRollup { state contexts(first: 50) { pageInfo { hasNextPage } nodes { ... on CheckRun { conclusion } ... on StatusContext { state } } } }";
+
 export const PR_QUERY = `query {
   viewer { login pullRequests(states: OPEN, first: 30, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
     number title url isDraft updatedAt reviewDecision headRefName baseRefName isCrossRepository headRefOid additions deletions repository { nameWithOwner }
-    commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
+    commits(last: 1) { nodes { commit { committedDate ${ROLLUP} } } }
     reviews(last: 10) { nodes { author { login } state submittedAt } }
     reviewThreads(first: 50) { nodes { isResolved } } } }
     merged: pullRequests(states: MERGED, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
       url number headRefName isCrossRepository repository { nameWithOwner } } } }
   search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 20) { nodes {
     ... on PullRequest { number title url updatedAt headRefName baseRefName isCrossRepository headRefOid additions deletions author { login } repository { nameWithOwner }
-      commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+      commits(last: 1) { nodes { commit { ${ROLLUP} } } }
       reviewThreads(first: 50) { nodes { isResolved } } } } }
 }`;
 
@@ -21,11 +23,28 @@ export const unresolved = (pr) => (pr.reviewThreads?.nodes ?? []).filter((n) => 
 
 const newest = (x, y) => seconds(y.updatedAt) - seconds(x.updatedAt);
 
+const NOT_RED = new Set(["SUCCESS", "NEUTRAL", "SKIPPED", "CANCELLED", "PENDING", "EXPECTED"]);
+
+// GitHub rolls a cancelled check up as FAILURE, but nothing failed. Anything else, or a list cut short, stays red.
+export function ciOf(p) {
+  const rollup = p.commits?.nodes[0]?.commit?.statusCheckRollup, state = rollup?.state ?? null;
+  const nodes = rollup?.contexts?.nodes;
+  if (state !== "FAILURE" || !nodes || rollup.contexts.pageInfo?.hasNextPage) return state;
+  const ends = nodes.map((n) => n.conclusion ?? n.state).filter(Boolean);
+  return ends.includes("CANCELLED") && ends.every((s) => NOT_RED.has(s)) ? "CANCELLED" : state;
+}
+
+// The Actions runs behind the cancelled checks of `gh pr checks --json state,link`.
+export function cancelledRuns(checks) {
+  const ids = checks.filter((c) => c.state === "CANCELLED").map((c) => /\/actions\/runs\/(\d+)/.exec(c.link ?? "")?.[1]);
+  return [...new Set(ids.filter(Boolean))];
+}
+
 // Your open PRs that need something: failing CI, changes requested, new reviews or open threads.
 export function mapMine(data) {
   const me = data.viewer.login;
   const list = data.viewer.pullRequests.nodes.filter((p) => !p.isDraft).map((p) => {
-    const last = p.commits.nodes[0]?.commit, ci = last?.statusCheckRollup?.state ?? null;
+    const last = p.commits.nodes[0]?.commit, ci = ciOf(p);
     const threads = unresolved(p);
     const since = last ? seconds(last.committedDate) : 0;
     const reviewers = [...new Set(p.reviews.nodes
@@ -36,6 +55,7 @@ export function mapMine(data) {
       reasons.push("CI failing");
       skills.push("fix");
     }
+    if (ci === "CANCELLED") reasons.push("CI cancelled");
     if (p.reviewDecision === "CHANGES_REQUESTED") reasons.push("changes requested");
     if (reviewers.length) reasons.push(`review from ${reviewers.join(", ")}`);
     if (p.reviewDecision === "CHANGES_REQUESTED" || reviewers.length || threads) skills.push("comments");
@@ -93,7 +113,6 @@ export function agentPRs(places, started, prs) {
 // Branch names of merged PRs from this repo; a fork's branch named like one of yours says nothing about yours.
 export const mergedHeads = (prs) => prs.filter((p) => !p.isCrossRepository).map((p) => p.headRefName);
 
-const ciOf = (p) => p.commits?.nodes[0]?.commit?.statusCheckRollup?.state ?? null;
 const RED = new Set(["FAILURE", "ERROR"]);
 
 const nameOf = (p) => `${p.repository.nameWithOwner.split("/")[1]} #${p.number}`;
