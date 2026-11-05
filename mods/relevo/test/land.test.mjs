@@ -46,17 +46,19 @@ test("workflows after a merge: running, failed, or landed; none after a while is
   assert.equal(landLine({ phase: "ci", running: 1, total: 3 }), "Merged · 1 of 3 workflows running");
 });
 
-let runs, view, head;
+let runs, view, head, remote;
 beforeEach(() => {
   resetFake();
   runs = [{ name: "Deploy", status: "completed", conclusion: "success", url: "https://github.com/me/app/actions/runs/9" }];
   view = { state: "MERGED", mergeCommit: { oid: "merge1" }, mergedAt: new Date().toISOString() };
   head = OID;
+  remote = OID;
   fake.exec = (cmd, args) => {
     const line = args.join(" ");
     if (cmd === "gh" && args[0] === "api") {
       return { stdout: JSON.stringify({ data: { viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [pr()] } }, search: { nodes: [] } } }) };
     }
+    if (cmd === "gh" && line.startsWith("pr view") && line.includes("headRefOid,state")) return { stdout: JSON.stringify({ headRefOid: remote, state: "OPEN" }) };
     if (cmd === "gh" && line.startsWith("pr view")) return { stdout: JSON.stringify(view) };
     if (cmd === "gh" && line.startsWith("run list")) return { stdout: JSON.stringify(runs) };
     if (cmd === "sh" && line.includes("worktree list --porcelain")) {
@@ -139,4 +141,29 @@ test("a merge GitHub refuses says why and starts nothing", async () => {
   await flush();
   assert.equal(fake.notices.at(-1).body, "Pull request is not mergeable");
   assert.equal(fake.stored[LANDING], undefined);
+});
+
+test("a PR with commits newer than its card isn't merged; the card is read again", async () => {
+  remote = "newer456";
+  const { box, cx } = await inbox();
+  click(find(box.render(cx), `land-btn-${URL}`), cx);
+  click(find(box.render(cx), `land-btn-${URL}`), cx);
+  await flush();
+  assert.equal(calls(/^gh pr merge/).length, 0);
+  assert.equal(fake.notices.at(-1).title, "app #1 has new commits");
+  assert.ok(calls(/^gh api graphql/).length >= 2);
+});
+
+test("a PR scan that never answered doesn't block the next one for good", async () => {
+  const { box, cx } = await inbox();
+  const before = calls(/^gh api graphql/).length;
+  box.scanningPRs = true;
+  box.scanStarted = Date.now();
+  box.scanPRs(cx);
+  await flush();
+  assert.equal(calls(/^gh api graphql/).length, before);
+  box.scanStarted = Date.now() - 200000;
+  box.scanPRs(cx);
+  await flush();
+  assert.equal(calls(/^gh api graphql/).length, before + 1);
 });

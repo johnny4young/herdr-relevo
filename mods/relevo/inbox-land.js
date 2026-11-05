@@ -51,6 +51,22 @@ export class LandViews {
   land(pr, auto, cx) {
     cx.spawn(async (cx) => {
       const name = `${pr.repo.split("/")[1]} #${pr.number}`;
+      // The card can be minutes old: new commits since then are news to look at, not a merge error.
+      const now = await exec("gh", ["pr", "view", String(pr.number), "--repo", pr.repo, "--json", "headRefOid,state"]);
+      let head = null;
+      try {
+        head = JSON.parse(now.stdout);
+      } catch {
+        return notify({ title: `Could not read ${name}`, body: first(now), level: "warning" });
+      }
+      if (head.state !== "OPEN" || head.headRefOid !== pr.headRefOid) {
+        notify({
+          title: head.state !== "OPEN" ? `${name} is ${head.state.toLowerCase()}` : `${name} has new commits`,
+          body: head.state !== "OPEN" ? undefined : "Nothing was merged. Look at them, then Land again.",
+          level: "warning",
+        });
+        return this.scanPRs(cx);
+      }
       const args = ["pr", "merge", String(pr.number), "--repo", pr.repo, mergeFlag(pr.repository), "--match-head-commit", pr.headRefOid];
       const r = await exec("gh", auto ? [...args, "--auto"] : args);
       if (r.code !== 0) return notify({ title: `Could not merge ${name}`, body: first(r), level: "warning" });
