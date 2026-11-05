@@ -46,7 +46,7 @@ task to another account.
     days fold under "▸ N older than 45 days"; addressed ones under "▸ N addressed", each with **Undo**. Your PRs
     with nothing left but the merge (CI green, not a draft, no changes requested, no open threads) fold under
     "▸ N ready to merge", outside the count.
-  - `AGENT TIME TODAY` with a **Week** button: one row per ticket (or repo) with today's time.
+  - `AGENT TIME TODAY` with a **Week** button: one row per project with today's time, tickets included. The name and the time, nothing else.
   - `MERGED WORKTREES`: one 30px row per worktree whose branch merged: repo, branch, age, **Open**/**Go**,
     **Remove** (after a day unused; before that the row says `used 22m ago`). "▸ N worktrees without a space" folds the rest. Opened, it reads each one and sorts it: `Nothing to lose`
     (clean, its commits in the main branch, unused for 7 days; **Remove**, and **Remove N** for those with no ignored

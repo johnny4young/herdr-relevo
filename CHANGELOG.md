@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.23 · 2026-11-04
+
+- **Agent time today is by project.** Each row is a project and its time. Time with a ticket adds to its project instead of having its own row, and overlaps count once. **Week** keeps its table per ticket, for filling a time tracker.
+
 ## 0.5.22 · 2026-11-04
 
 - **Agent time goes to the project.** Time in a worktree or a subfolder now counts for its repo, not for the folder's name, and overlapping agents in one project count once. Time with a ticket keeps its ticket row, with the repo beside it. Stretches already in the ledger keep the name they were saved with.
