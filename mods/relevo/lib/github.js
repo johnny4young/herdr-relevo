@@ -4,7 +4,9 @@ const ROLLUP = "statusCheckRollup { state contexts(first: 50) { pageInfo { hasNe
 
 export const PR_QUERY = `query {
   viewer { login pullRequests(states: OPEN, first: 30, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
-    number title url isDraft updatedAt reviewDecision headRefName baseRefName isCrossRepository headRefOid additions deletions repository { nameWithOwner }
+    number title url isDraft updatedAt reviewDecision headRefName baseRefName isCrossRepository headRefOid additions deletions mergeable mergeStateStatus
+    autoMergeRequest { enabledAt }
+    repository { nameWithOwner viewerDefaultMergeMethod squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed autoMergeAllowed }
     commits(last: 1) { nodes { commit { committedDate ${ROLLUP} } } }
     reviews(last: 10) { nodes { author { login } state submittedAt } }
     reviewThreads(first: 50) { nodes { isResolved } } } }
@@ -34,9 +36,11 @@ export function ciOf(p) {
   return ends.includes("CANCELLED") && ends.every((s) => NOT_RED.has(s)) ? "CANCELLED" : state;
 }
 
-// The Actions runs behind the cancelled checks of `gh pr checks --json state,link`.
-export function cancelledRuns(checks) {
-  const ids = checks.filter((c) => c.state === "CANCELLED").map((c) => /\/actions\/runs\/(\d+)/.exec(c.link ?? "")?.[1]);
+const RETRIED = new Set(["CANCELLED", "FAILURE", "ERROR", "TIMED_OUT", "STARTUP_FAILURE"]);
+
+// The Actions runs behind the cancelled or failed checks of `gh pr checks --json state,link`.
+export function cancelledRuns(checks, states = RETRIED) {
+  const ids = checks.filter((c) => states.has(c.state)).map((c) => /\/actions\/runs\/(\d+)/.exec(c.link ?? "")?.[1]);
   return [...new Set(ids.filter(Boolean))];
 }
 
@@ -56,12 +60,21 @@ export function mapMine(data) {
       skills.push("fix");
     }
     if (ci === "CANCELLED") reasons.push("CI cancelled");
+    if (p.mergeable === "CONFLICTING") reasons.push("merge conflict");
+    if (p.mergeStateStatus === "BEHIND") reasons.push("behind its base");
     if (p.reviewDecision === "CHANGES_REQUESTED") reasons.push("changes requested");
     if (reviewers.length) reasons.push(`review from ${reviewers.join(", ")}`);
     if (p.reviewDecision === "CHANGES_REQUESTED" || reviewers.length || threads) skills.push("comments");
     return { ...p, repo: p.repository.nameWithOwner, reasons, skills, threads, hot: skills.includes("fix") };
   }).filter((p) => p.reasons.length || p.threads);
   return list.sort(newest);
+}
+
+// Your drafts, to mark ready for review.
+export function mapDrafts(data) {
+  return data.viewer.pullRequests.nodes.filter((p) => p.isDraft)
+    .map((p) => ({ ...p, repo: p.repository.nameWithOwner, reasons: ["draft"], skills: [], threads: unresolved(p), hot: false }))
+    .sort(newest);
 }
 
 // Your open PRs with nothing left but the merge: CI green, no changes asked, no open threads.

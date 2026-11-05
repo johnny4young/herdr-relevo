@@ -34,6 +34,22 @@ with the last screen and the working tree. `⌥⌘N` starts a new agent on the C
 
 ![A quota at 95% and the handoff to another account](screenshots/handoff.png)
 
+### See where your tokens go
+
+`⌥⌘U` opens **Tokens**: output and new context by surface (Claude Desktop, terminal, automatic sessions, Codex),
+project, subagent type and day. It reads the transcripts on your Mac and sends nothing anywhere.
+
+### Claude Desktop sessions too
+
+Desktop sessions that ask you something or wait for a review show in the Inbox and the Agents list, one click from
+Desktop. With Herdr behind another app, alerts reach macOS; with `terminal-notifier`, a click lands on the agent.
+
+### Land a PR, and review only what changed
+
+**Land** merges a ready PR at the commit you saw, follows the workflows the merge starts and removes its worktree
+when nothing would be lost. In the review pane, **Since I looked** shows only what the agent changed after your
+last look, and **Viewed** marks files until they change.
+
 ### Edit files in the panel
 
 Right-click in Files to create, rename, trash, reveal or copy a path. Edit a preview and save with ⌘S; a change on
@@ -87,6 +103,13 @@ Mods reload by themselves. `--exclude config.js` keeps your accounts; copying th
 - Reads each Claude account's `history.jsonl` to rank the skills a PR's menu offers (counts only), its short
   one-line prompts to suggest quick replies you keep typing, and its sessions for `⌥⌘E`, with the title, branch and
   PR from the end of each session file (in memory, never written anywhere).
+- Reads every Claude account's `projects/` transcripts and Codex's `~/.codex/sessions` for token counts (message
+  ids, models, token numbers, folders, session titles), and Claude Desktop's session files in
+  `~/Library/Application Support/Claude/claude-code-sessions` (title, folder, and whether a session asks or waits for
+  a review). Keeps the counts in `~/.local/state/relevo/usage/`.
+- Merges, updates and marks PRs ready only when you click (`gh pr merge`, `gh pr update-branch`, `gh pr ready`), and
+  re-runs failed jobs with `gh run rerun --failed`. **Mark seen** stores a git tree under `refs/relevo/seen/` in the repo.
+- Shows macOS notifications with `terminal-notifier` when installed, else `osascript`.
 - Writes `~/relevo-backups/deletions.log` (each worktree it removes: time, repo, path, branch and commit),
   `~/.local/state/relevo/ledger.jsonl` (agent time), `~/.local/state/relevo/replies.json` (how often you send
   each saved quick reply), `~/.local/state/relevo/addressed.json` (PRs marked

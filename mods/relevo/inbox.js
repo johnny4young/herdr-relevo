@@ -23,6 +23,12 @@ import { KeyNav, INBOX_FOCUS } from "./inbox-keys.js";
 import { LiveViews } from "./inbox-live.js";
 import { LocalAddressed } from "./inbox-addressed.js";
 import { AwayViews } from "./inbox-away.js";
+import { DesktopViews } from "./inbox-desktop.js";
+import { LandViews } from "./inbox-land.js";
+import { USAGE, readReport } from "./usage-scan.js";
+import { openUsage } from "./usage.js";
+import { compact, summarize } from "./lib/usage.js";
+import { isSettled } from "./lib/desktop.js";
 
 // How long a send waits for its dialog to go, in 250 ms reads.
 const SETTLE_TRIES = 8;
@@ -85,6 +91,7 @@ export class Inbox {
     this.scanPRs(cx);
     this.loadQuotas(cx);
     this.scanTrees(cx);
+    this.startLand(cx);
     // These feed alerts, so they keep running behind other apps.
     cx.timer.every(180000, (cx) => this.scanPRs(cx));
     cx.timer.every(60000, (cx) => this.loadQuotas(cx));
@@ -101,6 +108,41 @@ export class Inbox {
         .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.muted).child(d.key))
         .child(div().flex_none().text_size(11).text_color(t.muted).child(duration(d.seconds))))),
     ];
+  }
+
+  // Today's tokens, read again when the sidebar's scan writes a new report.
+  todayTokens(cx) {
+    const at = shared(USAGE)?.updated ?? null;
+    if (at === this.tokensAt) return this.tokens;
+    this.tokensAt = at;
+    cx.spawn(async (cx) => {
+      const report = await readReport();
+      const total = report ? summarize(report, 1).total : null;
+      this.tokens = total ? total.write + total.output : null;
+      cx.notify();
+    });
+    return this.tokens;
+  }
+
+  // What waits on you at a glance; each number takes you to its part of the list.
+  summary(t, v, cx) {
+    const asks = v.local.filter((i) => i.kind === "blocked").length + v.desktop.filter((s) => s.state === "blocked").length;
+    const tokens = this.todayTokens(cx);
+    const tile = (id, label, value, tip, go = null, hot = false) => v_flex().id(`sum-${id}`).flex_1().min_w(0).px(8).py(6).gap(1)
+      .rounded(8).bg(t.background).border_1().border_color(hot ? t.blocked : t.border).tooltip(tip)
+      .when(Boolean(go), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => go(cx)))
+      .child(div().text_size(13).font_semibold().text_color(hot ? t.blocked : t.foreground).child(value))
+      .child(div().truncate().text_size(11).text_color(t.dim).child(label));
+    const open = (key) => (cx) => {
+      this.expanded[key] = true;
+      cx.notify();
+    };
+    return h_flex().id("inbox-summary").flex_none().gap(6)
+      .child(tile("asks", "need you", String(asks), "Agents and Desktop sessions waiting on an answer", () => run("relevo.next-waiting"), asks > 0))
+      .child(tile("reviews", "reviews", String(v.requested.length), "PRs waiting on your review"))
+      .child(tile("prs", "your PRs", String(v.mine.length), "Your PRs that need something"))
+      .child(tile("ready", "ready", String(v.ready.length), "Your PRs with nothing left but the merge", open("mine-ready")))
+      .child(tile("tokens", "today", tokens == null ? "…" : compact(tokens), "Tokens today: output and new context, all surfaces", () => openUsage()));
   }
 
   loadQuotas(cx) {
@@ -121,7 +163,9 @@ export class Inbox {
     const done = (p) => pr(p) && isAddressed(p, this.addressed);
     const local = this.local.filter((i) => inFocus(contextOfPath(i.top)));
     const off = (i) => i.kind === "diff" && Boolean(this.addressedLabel(i.agent.address));
+    const desktop = this.desktopSessions();
     return {
+      desktop: desktop.filter((s) => !isSettled(s, this.addressed)), desktopDone: desktop.filter((s) => isSettled(s, this.addressed)),
       local: local.filter((i) => !off(i)), localDone: local.filter(off),
       mine: this.mine.filter(open), requested: this.requested.filter(open),
       ready: this.ready.filter(open),
@@ -133,10 +177,11 @@ export class Inbox {
 
   publish(v = this.shown()) {
     const open = (list) => list.filter((p) => recent(p) && !this.seen(p)).length;
-    const n = v.local.length + open(v.mine) + open(v.requested);
+    const n = v.local.length + v.desktop.filter((s) => s.state === "blocked").length + open(v.mine) + open(v.requested);
     if (shared(COUNT) !== n) setShared(COUNT, n);
     this.publishReasons();
     this.publishAgentPRs();
+    this.publishSettled();
   }
 
   publishAgentPRs() {
@@ -587,7 +632,7 @@ export class Inbox {
     const view = this.viewport();
     this.hiddenIds = view.hidden;
     const part = (key, els) => (view.sections.has(key) ? [] : els.filter(Boolean));
-    const total = v.local.length + v.mine.length + v.requested.length;
+    const total = v.local.length + v.desktop.length + v.mine.length + v.requested.length;
     return v_flex().id("relevo-inbox").size_full().min_h(0).rounded(10).overflow_hidden()
       .bg(t.surface ?? t.chrome).border_1().border_color(this.keyboard ? t.accent : t.border).text_color(t.foreground)
       .track_focus(this.h)
@@ -611,10 +656,13 @@ export class Inbox {
         .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
         .when(!total && !this.error && Boolean(this.prsAt), (el) => el.child(
           div().p(12).text_size(13).text_color(t.dim).child("Nothing waiting")))
+        .when(view.above === 0, (el) => el.child(this.summary(t, v, cx)))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
         .children(part("away", this.awayGroup(t)))
         .children(part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
+        .children(part("desktop", this.desktopGroup(t, v.desktop, v.desktopDone)))
         .children(part("local", this.localGroup(t, "local", "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"), v.localDone)))
+        .children(part("mine", this.landingGroup(t)))
         .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone, v.ready)))
         .children(part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true, v.requestedDone)))
         .children(part("today", this.todayGroup(t, v.today)))
@@ -623,7 +671,7 @@ export class Inbox {
 }
 
 
-for (const views of [PrViews, TreeViews, KeyNav, LiveViews, LocalAddressed, AwayViews]) {
+for (const views of [PrViews, TreeViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews]) {
   for (const name of Object.getOwnPropertyNames(views.prototype)) {
     if (name !== "constructor") Inbox.prototype[name] = views.prototype[name];
   }

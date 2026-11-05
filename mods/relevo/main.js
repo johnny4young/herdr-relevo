@@ -14,12 +14,13 @@ import { Settings, openSettings } from "./settings.js";
 import { focusInbox } from "./inbox-keys.js";
 import { QuickReplies, openReplies } from "./replies.js";
 import { SessionFinder, openSessions } from "./sessions.js";
+import { UsageDialog, openUsage } from "./usage.js";
 
 const ROLES = {
   accounts: Sidebar, inbox: Inbox, "inbox-button": InboxButton, "account-menu": AccountMenu,
   "panel-bar": PanelBar, "panel-toggle": PanelToggle, "find-file": FileFinder, "checkout-menu": CheckoutMenu,
   handoff: Handoff, "review-diff": ReviewDiff, "ledger-week": LedgerWeek, settings: Settings,
-  "quick-replies": QuickReplies, sessions: SessionFinder,
+  "quick-replies": QuickReplies, sessions: SessionFinder, usage: UsageDialog,
 };
 
 export default class Relevo extends View {
@@ -49,6 +50,8 @@ export default class Relevo extends View {
       await openCheckoutsHere();
     });
     else if (name === "settings") openSettings();
+    else if (name === "usage") openUsage();
+    else if (name === "usage-scan") this.part.readTokens?.(cx);
     else if (name === "quick-reply") openReplies();
     else if (name === "sessions") cx.spawn(async () => { await openSessions(); });
     else if (name.startsWith("quick-reply-")) openReplies(name.slice(12));

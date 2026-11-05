@@ -166,7 +166,8 @@ export async function removalCheck(w) {
     if (here.some((p) => p.status === "working")) return { error: "an agent is working here" };
     if (await isLocked(w)) return { error: "locked" };
     const at = (await touchedAt([w.path])).get(w.path) ?? 0;
-    if (w.merged && justUsed(at, Date.now() / 1000)) return { error: "used in the last day" };
+    // Land already proved its HEAD is the merged commit, so recent use loses nothing.
+    if (w.merged && !w.landed && justUsed(at, Date.now() / 1000)) return { error: "used in the last day" };
     if (w.group) {
       if (groupOf(await treeState(w), at, Date.now() / 1000) !== w.group) return { error: "changed, look again" };
       if (w.group === "pushed" && !await onGitHub(w)) return { error: "not on GitHub anymore" };
@@ -196,12 +197,14 @@ export async function removalCheck(w) {
   }
 }
 
-// Never forced: git keeps a worktree with changes, and -d keeps a branch with unmerged commits.
-export async function removeWorktree(w) {
+// Never forced: git keeps a worktree with changes, and -d keeps a branch with unmerged commits. A branch whose
+// tip is the PR head that merged goes with -D, since a squash or rebase merge leaves it looking unmerged.
+export async function removeWorktree(w, merged = null) {
   const r = await exec("git", ["-C", w.main, "worktree", "remove", w.path]);
   if (r.code !== 0) return r.stderr.trim().split("\n")[0] || "git worktree remove failed";
   if (w.branch) {
-    const b = await exec("git", ["-C", w.main, "branch", "-d", w.branch]);
+    const tip = merged ? (await exec("git", ["-C", w.main, "rev-parse", `refs/heads/${w.branch}`])).stdout.trim() : "";
+    const b = await exec("git", ["-C", w.main, "branch", tip && tip === merged ? "-D" : "-d", w.branch]);
     if (b.code !== 0) notify({ title: `Kept branch ${w.branch}`, body: b.stderr.trim().split("\n")[0], level: "warning" });
   }
   return null;

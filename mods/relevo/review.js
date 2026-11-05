@@ -3,6 +3,7 @@ import { h_flex, v_flex, InputState, Input, Scrollbar } from "gpui-base";
 import { theme, exec, run, agents, panes, focused, props, settings, notify, shared, setShared } from "herdr";
 import { focusedCwd } from "./panelbar.js";
 import { button } from "./ui.js";
+import { ago } from "./lib/time.js";
 import { launchInRepo } from "./accounts.js";
 import { accountFor } from "./context.js";
 import { baseBranch } from "./worktrees.js";
@@ -14,6 +15,23 @@ const MAX_ROWS = 4000;
 const OPEN = "relevo.reviews";
 // Unsent comments by checkout, so closing the pane or Herdr doesn't lose them.
 const NOTES = "relevo.review.notes";
+// What the review showed when marked seen, by checkout or PR: { tree, at }.
+const SEEN = "relevo.review.seen";
+// Files marked viewed, by checkout or PR: path -> the content's hash then, so a change unmarks it.
+const VIEWED = "relevo.review.viewed";
+// The working tree as a git tree, untracked files in and ignored ones out, built in a scratch index.
+const SNAPSHOT = 'i=$(mktemp) || exit 1; cp "$(git rev-parse --git-path index)" "$i" 2>/dev/null || rm -f "$i"; '
+  + 'GIT_INDEX_FILE="$i" git add -A . >/dev/null 2>&1 && GIT_INDEX_FILE="$i" git write-tree; s=$?; rm -f "$i"; exit $s';
+// Each file's content hash, from a tree or commit when given, else from the working tree; "-" when absent.
+const HASHES = 'r=$1; shift; for f; do if [ -n "$r" ]; then git rev-parse -q --verify "$r:$f" 2>/dev/null || echo -; '
+  + 'else git hash-object -- "$f" 2>/dev/null || echo -; fi; done';
+const MAX_HASHED = 300;
+// A ref keeps the seen tree from git's garbage collection.
+const seenRef = (key) => {
+  let h = 5381;
+  for (const c of key) h = (h * 33 + c.charCodeAt(0)) >>> 0;
+  return `refs/relevo/seen/${h.toString(16)}`;
+};
 
 // An agent whose pane sits in this checkout; the one that made the changes is usually the only one.
 function agentIn(root) {
@@ -50,8 +68,9 @@ export class ReviewDiff {
     this.pr = p.pr ?? null;
     // Open panes and unsent comments are kept per checkout, and per PR when reviewing one.
     this.key = reviewKey(this.root, this.pr);
-    // Without a PR: "uncommitted", or "all" for the branch's commits too.
-    this.scope = "uncommitted";
+    // Without a PR: "uncommitted", or "all" for the branch's commits too; "pr" with one; "seen" since the mark.
+    this.scope = this.pr ? "pr" : "uncommitted";
+    this.hashes = new Map();
     this.files = [];
     this.rows = [];
     this.comments = shared(NOTES)?.[this.key] ?? [];
@@ -95,6 +114,7 @@ export class ReviewDiff {
 
   // The ref the diff starts from: HEAD for uncommitted work, the merge base with the branch's base otherwise.
   async since(git) {
+    if (this.scope === "seen") return this.seenMark()?.tree ?? "HEAD";
     if (!this.pr && this.scope !== "all") return "HEAD";
     if (!this.mergeBase) {
       const remote = this.pr ? await git(["rev-parse", "--verify", "--quiet", `origin/${this.pr.base}`]) : null;
@@ -117,18 +137,24 @@ export class ReviewDiff {
     const from = await this.since(git);
     if (scope !== this.scope) return;
     this.from = from;
-    const range = this.pr?.ref ? [this.from, this.pr.ref] : [this.from];
+    // Since the mark, both sides are trees: the seen one and the working tree now, untracked files included.
+    this.to = scope === "seen" ? await this.snapshot() || null : this.pr?.ref ?? null;
+    const range = this.to ? [this.from, this.to] : [this.from];
     const tracked = (await git(["diff", ...range, "--numstat", "--no-renames"])).stdout.split("\n").filter(Boolean)
       .map((l) => {
         const [add, del, path] = l.split("\t");
         return { path, add: +add || 0, del: +del || 0 };
       });
     // A branch that isn't checked out has no untracked files.
-    const others = this.pr?.ref ? "" : (await git(["ls-files", "--others", "--exclude-standard"])).stdout;
+    const others = this.to ? "" : (await git(["ls-files", "--others", "--exclude-standard"])).stdout;
     const untracked = others.split("\n").filter(Boolean).map((path) => ({ path, add: 0, del: 0, untracked: true }));
     // Switched while reading: the newer read draws.
     if (scope !== this.scope) return;
-    const files = [...tracked, ...untracked], sign = JSON.stringify(files);
+    const files = [...tracked, ...untracked];
+    const hashed = files.slice(0, MAX_HASHED).map((f) => f.path);
+    const sums = hashed.length ? (await exec("sh", ["-c", HASHES, "sh", this.to ?? "", ...hashed], { cwd: this.root })).stdout.split("\n") : [];
+    this.hashes = new Map(hashed.map((p, i) => [p, sums[i] || "-"]));
+    const sign = JSON.stringify([files, sums]);
     if (sign !== this.filesSign) {
       this.filesSign = sign;
       this.files = files;
@@ -148,7 +174,7 @@ export class ReviewDiff {
     this.open = file;
     const args = file.untracked
       ? ["diff", "--no-index", "--no-color", "--no-ext-diff", "--", "/dev/null", file.path]
-      : ["diff", this.from ?? "HEAD", ...(this.pr?.ref ? [this.pr.ref] : []), "--no-color", "--no-ext-diff", "--", file.path];
+      : ["diff", this.from ?? "HEAD", ...(this.to ? [this.to] : []), "--no-color", "--no-ext-diff", "--", file.path];
     const out = (await exec("git", [...READ, ...args], { cwd: this.root })).stdout;
     if (out === this.diffSign) return;
     this.diffSign = out;
@@ -201,7 +227,46 @@ export class ReviewDiff {
     setShared(NOTES, all);
   }
 
+  seenMark() {
+    return shared(SEEN)?.[this.key] ?? null;
+  }
+
+  async snapshot() {
+    if (this.pr?.ref) return (await exec("git", [...READ, "rev-parse", this.pr.ref], { cwd: this.root })).stdout.trim();
+    const r = await exec("sh", ["-c", SNAPSHOT], { cwd: this.root });
+    return r.code === 0 ? r.stdout.trim() : "";
+  }
+
+  // What the review shows now becomes where Since I looked starts.
+  async markSeen(cx) {
+    const tree = await this.snapshot();
+    if (!tree) {
+      this.note = "Could not mark it seen";
+      return cx.notify();
+    }
+    await exec("git", ["update-ref", seenRef(this.key), tree], { cwd: this.root });
+    setShared(SEEN, { ...(shared(SEEN) ?? {}), [this.key]: { tree, at: Math.round(Date.now() / 1000) } });
+    cx.notify();
+  }
+
+  viewed(path) {
+    const hash = this.hashes.get(path);
+    return Boolean(hash) && shared(VIEWED)?.[this.key]?.[path] === hash;
+  }
+
+  toggleViewed(path, cx) {
+    const all = { ...(shared(VIEWED) ?? {}) }, mine = { ...(all[this.key] ?? {}) };
+    if (this.viewed(path)) delete mine[path];
+    else mine[path] = this.hashes.get(path);
+    // Only files still in the review keep their mark, so the list doesn't grow.
+    const listed = new Set(this.files.map((f) => f.path));
+    all[this.key] = Object.fromEntries(Object.entries(mine).filter(([p]) => listed.has(p)));
+    setShared(VIEWED, all);
+    cx.notify();
+  }
+
   subject() {
+    if (this.scope === "seen") return `what changed since I last looked${this.pr ? ` at PR #${this.pr.number} (${this.pr.url})` : ""}`;
     if (!this.pr) return this.scope === "all" && this.mergeBase ? `the branch against ${this.baseName}, committed and uncommitted` : undefined;
     const where = this.pr.ref ? `; it is not checked out here, so work on it in a worktree (gh pr checkout ${this.pr.number})` : "";
     return `PR #${this.pr.number} (${this.pr.url}), the branch against ${this.pr.base}${where}`;
@@ -214,6 +279,9 @@ export class ReviewDiff {
   send(cx) {
     const agent = this.target();
     if (!this.comments.length) return;
+    cx.spawn(async (cx) => {
+      await this.markSeen(cx);
+    });
     // A PR with no agent on it gets a new one in its checkout, with the repo's account.
     if (!agent && this.pr) {
       const message = reviewMessage(this.comments, this.subject());
@@ -289,8 +357,12 @@ export class ReviewDiff {
         .child(this.pr
           ? `${this.pr.repo.split("/")[1]} #${this.pr.number} · against ${this.pr.base}`
           : `${this.root?.split("/").pop() ?? "No folder"}${this.scope === "all" && this.mergeBase ? ` · against ${this.baseName}` : ""}`))
-      .when(!this.pr, (el) => el.child(this.scopePicker(t)))
-      .child(div().text_size(11).text_color(t.muted).child("Click a line · shift-click a range"));
+      .when(!this.pr || Boolean(this.seenMark()), (el) => el.child(this.scopePicker(t)))
+      .when(this.files.length > 0, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim)
+        .child(`${this.files.filter((f) => this.viewed(f.path)).length} of ${this.files.length} viewed`)))
+      .child(button(t, "rv-mark-seen", "Mark seen", (cx) => cx.spawn(async (cx) => {
+        await this.markSeen(cx);
+      }), { size: "sm", tip: "What changes after this shows under Since I looked. Sending comments marks it too" }));
   }
 
   scopePicker(t) {
@@ -299,12 +371,14 @@ export class ReviewDiff {
       .when(this.scope === scope, (el) => el.bg(t.selected))
       .on_click((_e, cx) => this.setScope(scope, cx))
       .child(label);
+    const options = this.pr ? [["pr", "Whole PR"]] : [["uncommitted", "Uncommitted"], ["all", "All changes"]];
+    if (this.seenMark()) options.push(["seen", "Since I looked"]);
     return h_flex().id("rv-scope").flex_none().p(1).gap(1).rounded(5).bg(t.raised)
-      .child(pick("uncommitted", "Uncommitted"))
-      .child(pick("all", "All changes"));
+      .children(options.map(([scope, label]) => pick(scope, label)));
   }
 
   empty() {
+    if (this.scope === "seen") return `Nothing changed since you looked, ${ago(this.seenMark()?.at ?? 0)}`;
     if (this.scope !== "all") return "No uncommitted changes";
     return this.mergeBase ? `No changes against ${this.baseName}` : "No base branch to compare with";
   }
@@ -327,13 +401,21 @@ export class ReviewDiff {
       .when(!this.files.length, (el) => el.child(div().p(8).text_color(t.dim).child(this.pr ? "No changes" : this.empty())))
       .children(this.files.map((f) => {
         const count = this.comments.filter((c) => c.file === f.path).length;
+        const seen = this.viewed(f.path);
         return h_flex().id(`rv-file-${f.path}`).h(24).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer()
           .when(this.open?.path === f.path, (el) => el.bg(t.selected))
           .hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => cx.spawn(async (cx) => {
             await this.pick(f, cx);
           }))
-          .child(div().flex_1().min_w(0).truncate().text_size(13).child(f.path))
+          .child(div().id(`rv-viewed-${f.path}`).w(14).flex_none().text_size(11).text_color(seen ? t.accent : t.dim)
+            .tooltip(seen ? "Viewed: unmarks itself if the file changes" : "Mark viewed")
+            .on_click((_e, cx) => {
+              cx.stop_propagation();
+              this.toggleViewed(f.path, cx);
+            })
+            .child(seen ? "☑" : "☐"))
+          .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(seen ? t.dim : t.foreground).child(f.path))
           .when(count > 0, (el) => el.child(div().text_size(11).text_color(t.accent).child(`● ${count}`)))
           .when(f.untracked, (el) => el.child(div().text_size(11).text_color(t.ansi2).child("new")))
           .when(!f.untracked, (el) => el

@@ -1,7 +1,7 @@
 // The Inbox's pull requests: fetch, cards, skill buttons. Mixed into Inbox, so `this` is the Inbox.
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { home, exec, run, notify, setShared, openOverlay, readTextFile } from "herdr";
+import { home, exec, run, notify, shared, setShared, openOverlay, readTextFile } from "herdr";
 import { accountOf, pickAccount, chip } from "./accounts.js";
 import { contextFor } from "./context.js";
 import { reviewAlerts, prAlerts, mergedAlert } from "./alerts.js";
@@ -11,9 +11,12 @@ import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
-import { PR_QUERY, cancelledRuns, ciOf, seconds, recent, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
+import { PR_QUERY, cancelledRuns, ciOf, seconds, recent, mapDrafts, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
+import { mergeFlag, prMoves } from "./lib/land.js";
 import { keepListed } from "./lib/addressed.js";
 import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
+import { DESKTOP } from "./desktop.js";
+import { desktopKey } from "./lib/desktop.js";
 
 const ADDRESSED = ".local/state/relevo/addressed.json";
 
@@ -75,6 +78,7 @@ export class PrViews {
     this.requested = mapRequested(data);
     const listed = new Set(this.mine.map((p) => p.url));
     this.ready = mapReady(data).filter((p) => !listed.has(p.url));
+    this.drafts = mapDrafts(data);
     this.openPRs = openPRs(data);
     this.prsAt = Date.now() / 1000;
     const changes = prChanges(this.prState, data);
@@ -92,6 +96,7 @@ export class PrViews {
       this.clones[p.repo] = same ? path : null;
     }
     const live = new Set([...this.mine, ...this.ready, ...this.requested].map((p) => p.url));
+    for (const s of shared(DESKTOP) ?? []) live.add(desktopKey(s));
     const marks = keepListed(this.addressed, live);
     if (Object.keys(marks).length !== Object.keys(this.addressed).length) this.saveAddressed(marks);
     const kept = Object.entries(launched()).filter(([url]) => live.has(url));
@@ -170,7 +175,7 @@ export class PrViews {
       .child(glyph === "◌" ? spinner(color, 11) : glyph);
   }
 
-  // Only the cancelled jobs of each run go again; a run with none left says so.
+  // Only the failed and cancelled jobs of each run go again; a run with none left says so.
   retryCI(pr, cx) {
     this.retrying ??= new Set();
     if (this.retrying.has(pr.url)) return;
@@ -187,7 +192,7 @@ export class PrViews {
         } catch {
           return notify({ title: `Could not read CI · ${name}`, body: checks.stderr?.trim().split("\n")[0], level: "warning" });
         }
-        if (!runs.length) return notify({ title: `Nothing to retry · ${name}`, body: "No cancelled GitHub Actions run", level: "warning" });
+        if (!runs.length) return notify({ title: `Nothing to retry · ${name}`, body: "No failed or cancelled GitHub Actions run", level: "warning" });
         for (const id of runs) {
           const r = await exec("gh", ["run", "rerun", id, "--failed", "--repo", pr.repo]);
           if (r.code !== 0) return notify({ title: `Could not retry CI · ${name}`, body: r.stderr?.trim().split("\n")[0], level: "warning" });
@@ -199,6 +204,27 @@ export class PrViews {
         cx.notify();
       }
     });
+  }
+
+  // One gh pr command on a PR, then a fresh look.
+  prCommand(pr, args, done, cx) {
+    cx.spawn(async (cx) => {
+      const name = `${pr.repo.split("/")[1]} #${pr.number}`;
+      const r = await exec("gh", ["pr", ...args, String(pr.number), "--repo", pr.repo]);
+      if (r.code !== 0) return notify({ title: `Could not do it · ${name}`, body: r.stderr?.trim().split("\n")[0], level: "warning" });
+      notify({ title: `${done} · ${name}`, level: "success" });
+      this.scanPRs(cx);
+    });
+  }
+
+  draftCard(t, pr) {
+    return this.card(t, `pr-${pr.url}`, false,
+      this.head(t, "ring", `${pr.repo.split("/")[1]} #${pr.number} · ${pr.title}`, ago(seconds(pr.updatedAt)), ciOf(pr), pr.threads),
+      v_flex().text_size(11).text_color(t.muted).child("draft"),
+      [
+        button(t, `ready-${pr.url}`, "Ready for review", (cx) => this.prCommand(pr, ["ready"], "Ready for review", cx)),
+        button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url])),
+      ]);
   }
 
   agentLine(pr, agent) {
@@ -226,9 +252,26 @@ export class PrViews {
         tip: withKey("The whole PR against its base, line by line", "relevo.review"),
       }));
     }
-    if (!requested && ciOf(pr) === "CANCELLED") {
+    const moves = requested ? {} : prMoves(pr), landing = Boolean(this.landing()[pr.url]);
+    if ((moves.land || moves.auto) && !landing) {
+      const key = `land-${pr.url}`, armed = this.armed(key), how = mergeFlag(pr.repository).slice(2);
+      const label = moves.land ? "Land" : "Land when ready";
+      actions.unshift(button(t, `land-btn-${pr.url}`, armed ? `Confirm ${label.toLowerCase()}` : label,
+        (cx) => this.arm(key, cx, () => this.land(pr, !moves.land, cx)), {
+          kind: armed ? "danger" : "solid",
+          tip: moves.land
+            ? `Merges (${how}), follows the workflows it starts, then removes its worktree if nothing would be lost`
+            : `Turns on auto-merge (${how}) and follows it like Land`,
+        }));
+    }
+    if (moves.update) {
+      actions.push(button(t, `update-${pr.url}`, "Update branch", (cx) => this.prCommand(pr, ["update-branch"], "Branch updated", cx), {
+        tip: `Merges ${pr.baseRefName} into it on GitHub`,
+      }));
+    }
+    if (moves.rerun) {
       actions.push(button(t, `retry-ci-${pr.url}`, "Retry CI", (cx) => this.retryCI(pr, cx), {
-        tip: "Runs the cancelled jobs again", disabled: this.retrying?.has(pr.url),
+        tip: "Runs the failed and cancelled jobs again", disabled: this.retrying?.has(pr.url),
       }));
     }
     if (!actions.includes(openPR)) actions.push(openPR);
@@ -266,7 +309,7 @@ export class PrViews {
   // Old PRs fold under one line so each group shows what needs you this month, addressed ones under another,
   // and yours that only wait for the merge under a third, out of the count.
   prGroup(t, key, label, list, requested, done = [], ready = []) {
-    if (!list.length && !done.length && !ready.length) return [];
+    if (!list.length && !done.length && !ready.length && (requested || !this.drafts?.length)) return [];
     const fresh = list.filter(recent), old = list.filter((p) => !recent(p)), open = this.expanded[key];
     const rows = [sectionHeader(t, label, fresh.length), ...fresh.map((p) => this.prCard(t, p, requested))];
     if (old.length) {
@@ -289,6 +332,18 @@ export class PrViews {
         })
         .child(`${shown ? "▾" : "▸"} ${ready.length} ready to merge`));
       if (shown) rows.push(...ready.map((p) => this.prCard(t, p, requested)));
+    }
+    const drafts = requested ? [] : this.drafts ?? [];
+    if (drafts.length) {
+      const shown = this.expanded[`${key}-drafts`];
+      rows.push(div().id(`drafts-${key}`).px(4).py(2).text_size(11).text_color(t.dim).cursor_pointer()
+        .hover((s) => s.text_color(t.muted))
+        .on_click((_e, cx) => {
+          this.expanded[`${key}-drafts`] = !shown;
+          cx.notify();
+        })
+        .child(`${shown ? "▾" : "▸"} ${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"}`));
+      if (shown) rows.push(...drafts.map((p) => this.draftCard(t, p)));
     }
     rows.push(...this.addressedFold(t, key, done, (p) => this.prCard(t, p, requested, true)));
     return rows;

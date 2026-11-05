@@ -18,6 +18,7 @@
     "cmd-alt-r": "relevo.respond-pr",
     "cmd-alt-s": "relevo.quick-reply",
     "cmd-alt-shift-w": "relevo.worktree-open",
+    "cmd-alt-u": "relevo.usage",
     "cmd-alt-w": "relevo.worktree-new",
     "cmd-alt-x": "relevo.launch-codex",
     "cmd-j": "relevo.next-waiting",
