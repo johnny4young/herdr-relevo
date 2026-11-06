@@ -73,16 +73,15 @@ command_line() {
   printf '[ -f %s ] && bash %s || true' "$path" "$path"
 }
 
-# Only commands this script (or its Python predecessor) wrote count as ours; anything else that mentions it stays.
+# Only commands this script wrote count as ours; anything else that mentions it stays.
 read -r -d '' MANAGE <<'JQ' || true
   def events: ["SessionStart", "Stop", "SessionEnd"];
   def tok: "('[^']*'|[^\\s'\"]+)";
-  def ourfile: (if startswith("'") then .[1:-1] else . end) | split("/") | last | test("^relevo-labels\\.(py|sh)$");
+  def ourfile: (if startswith("'") then .[1:-1] else . end) | split("/") | last | test("^relevo-labels\\.sh$");
   def generated: (.command // "") as $c
-    | ([$c | capture("^\\s*python3\\s+(?<a>" + tok + ")\\s*$")?, capture("^\\s*\\[\\s+-f\\s+(?<a>" + tok
-        + ")\\s+\\]\\s+&&\\s+(python3|bash)\\s+(?<b>" + tok + ")\\s+\\|\\|\\s+true\\s*$")?
-        | select(.b == null or .a == .b) | .a | ourfile] | any);
-  def mentions: test("relevo-labels\\.(py|sh)");
+    | ([$c | capture("^\\s*\\[\\s+-f\\s+(?<a>" + tok + ")\\s+\\]\\s+&&\\s+bash\\s+(?<b>" + tok + ")\\s+\\|\\|\\s+true\\s*$")?
+        | select(.a == .b) | .a | ourfile] | any);
+  def mentions: test("relevo-labels\\.sh");
   def entries($e): [(.hooks // {})[$e] // [] | .[] | (.hooks // [])[] | select(generated)];
   def installed: . as $s | all(events[]; . as $e | ($s | [entries($e)[].command]) == [$cmd]);
   def outdated: (installed | not) and (. as $s | any(events[]; . as $e | $s | entries($e) | length > 0));

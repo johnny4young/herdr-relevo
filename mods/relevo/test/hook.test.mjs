@@ -114,14 +114,14 @@ test("the command exits 0 when the script is gone", () => {
   assert.equal(spawnSync("sh", ["-c", gone]).status, 0);
 });
 
-test("the Python hook's commands are outdated and get replaced", () => {
-  const py = `${home}/mod/hooks/relevo-labels.py`;
+test("commands for a moved script are outdated and get replaced", () => {
+  const moved = `${home}/old place/relevo-labels.sh`;
   const old = (command) => ({ hooks: [{ type: "command", command }] });
   const other = { hooks: [{ type: "command", command: "other" }] };
   write({ hooks: {
-    SessionStart: [old(`python3 /old/place/relevo-labels.py`)],
-    Stop: [other, old(`[ -f '${py}' ] && python3 '${py}' || true`)],
-    SessionEnd: [old(`python3 '${py}'`)],
+    SessionStart: [old("[ -f /old/relevo-labels.sh ] && bash /old/relevo-labels.sh || true")],
+    Stop: [other, old(`[ -f '${moved}' ] && bash '${moved}' || true`)],
+    SessionEnd: [old(`[ -f '${moved}' ] && bash '${moved}' || true`)],
   } });
   const check = run(["--check"]);
   assert.equal(check.status, 1);
@@ -137,7 +137,7 @@ test("the Python hook's commands are outdated and get replaced", () => {
 test("a stale command beside the current one is cleaned", () => {
   run(["--install"]);
   const settings = read();
-  settings.hooks.Stop.push({ hooks: [{ type: "command", command: "python3 /moved/away/relevo-labels.py" }] });
+  settings.hooks.Stop.push({ hooks: [{ type: "command", command: "[ -f /moved/away/relevo-labels.sh ] && bash /moved/away/relevo-labels.sh || true" }] });
   write(settings);
   const check = run(["--check"]);
   assert.equal(check.status, 1);
@@ -148,8 +148,8 @@ test("a stale command beside the current one is cleaned", () => {
 });
 
 test("someone else's command and the entry's own settings stay", () => {
-  const own = { type: "command", command: "tee log | python3 /old/relevo-labels.py; backup.sh" };
-  const old = { type: "command", command: "python3 /old/relevo-labels.py", timeout: 5 };
+  const own = { type: "command", command: "tee log | bash /old/relevo-labels.sh; backup.sh" };
+  const old = { type: "command", command: "[ -f /old/relevo-labels.sh ] && bash /old/relevo-labels.sh || true", timeout: 5 };
   write({ hooks: { Stop: [{ hooks: [own, old] }] } });
   run(["--install"]);
   const stop = read().hooks.Stop;

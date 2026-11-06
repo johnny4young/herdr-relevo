@@ -27,7 +27,7 @@ H=~/.config/herdr-app/mods/relevo/hooks/relevo-labels.sh
 1. Run `bash "$H" --check`. It lists each account in `mods/relevo/config.js` and whether the hook is installed.
    If it fails with no such file, stop: Relevo isn't installed. If it shows only the example accounts (`personal`,
    `work`) and those aren't theirs, stop and ask them to set their accounts in Relevo's Settings.
-2. If step 1 said `outdated` (an older command, such as the earlier Python hook), skip to step 3. Otherwise,
+2. If step 1 said `outdated` (the command points to a path that moved), skip to step 3. Otherwise,
    inside a Herdr terminal, run `hc get "$HC_TERMINAL_ID"`. If `labels` already has `agent.account`, another hook sets
    these labels: stop and ask the person, because two would overwrite each other.
 3. Run `bash "$H" --install`. Running it again changes nothing, unless the hook is `outdated`: then it updates the

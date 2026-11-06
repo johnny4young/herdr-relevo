@@ -7,7 +7,7 @@
 - **The side panel stays as you left it.** Herdr's tabs remembered the side panel per space, so going to an agent in another space opened or closed the Inbox. The layout now uses **relevo-tabs**, Herdr's tabs without that memory. Copy `mods/relevo-tabs` and the layout when you update.
 - **PR sessions you can tell apart.** A session opened from a PR card gets a space named after it, like "app #108 · resolve conflicts". **resolve conflicts** now watches the PR's checks after pushing and fixes what the merge broke until they pass.
 - **A lighter Relevo.** Fewer processes per scan, fewer redraws across mods, the Tokens scan writes only when something changed, and the Files panel stops polling a folder it already watches.
-- **The hook runs in bash.** `relevo-labels.sh` replaces the Python hook, with `jq` (in macOS 15 and later). It takes about a third of the time and a session end only clears labels. If you set up the hook before, run `bash ~/.config/herdr-app/mods/relevo/hooks/relevo-labels.sh --install`: it replaces the old command in each account's settings.
+- **The hook runs in bash.** `relevo-labels.sh` uses `jq` (in macOS 15 and later). It takes about a third of the time and a session end only clears labels. If you set up the hook before, run `bash ~/.config/herdr-app/mods/relevo/hooks/relevo-labels.sh --install`.
 
 ## 0.6.2 · 2026-11-05
 
