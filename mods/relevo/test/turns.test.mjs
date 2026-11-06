@@ -2,6 +2,7 @@
 import "./fake/register.mjs";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { setTimeout } from "node:timers";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
