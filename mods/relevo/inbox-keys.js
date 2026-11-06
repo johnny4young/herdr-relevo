@@ -30,7 +30,9 @@ export class KeyNav {
         },
       });
     }
-    for (const s of v.desktop) items.push({ id: `dk-${s.id}`, section: "desktop", go: () => openDesktop(s.id) });
+    for (const s of v.desktop.filter((x) => x.state === "blocked" || this.expanded["desktop-review"])) {
+      items.push({ id: `dk-${s.id}`, section: "desktop", go: () => openDesktop(s.id) });
+    }
     for (const i of v.local.filter((x) => x.kind === "diff")) {
       items.push({ id: `in-${i.agent.address}`, section: "local", go: () => openReview(i.top, i.agent.address) });
     }

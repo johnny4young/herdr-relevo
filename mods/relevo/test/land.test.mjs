@@ -31,6 +31,8 @@ test("what a PR can do comes from GitHub's merge state", () => {
   assert.deepEqual([prMoves(pr({ mergeStateStatus: "BLOCKED" })).land, prMoves(pr({ mergeStateStatus: "BLOCKED" })).auto], [false, true]);
   assert.equal(prMoves(pr({ mergeStateStatus: "BLOCKED", autoMergeRequest: { enabledAt: "x" } })).auto, false);
   assert.equal(prMoves(pr({ mergeStateStatus: "BEHIND" })).update, true);
+  assert.equal(prMoves(pr({ mergeStateStatus: "UNKNOWN", mergeable: "UNKNOWN" })).land, true);
+  assert.equal(prMoves(pr({ mergeStateStatus: "UNKNOWN", mergeable: "CONFLICTING" })).land, false);
   assert.equal(prMoves(pr({ isDraft: true })).land, false);
   const red = pr({ mergeStateStatus: "BLOCKED", commits: { nodes: [{ commit: { statusCheckRollup: { state: "FAILURE" } } }] } });
   assert.deepEqual([prMoves(red).auto, prMoves(red).rerun], [false, true]);
@@ -103,6 +105,9 @@ test("a landed PR whose worktree holds only the merged commit loses its worktree
   assert.deepEqual([entry.phase, entry.note], ["landed", "worktree removed"]);
   assert.equal(calls(new RegExp(`^git -C ${MAIN} worktree remove ${WT}$`)).length, 1);
   assert.equal(calls(/branch -D feat/).length, 1);
+  assert.equal(find(box.render(cx), `land-${URL}`), null);
+  assert.match(text(find(box.render(cx), "landed")), /▸ 1 landed/);
+  click(find(box.render(cx), "landed"), cx);
   assert.match(text(find(box.render(cx), `land-${URL}`)), /Landed · worktree removed/);
 });
 
@@ -151,19 +156,20 @@ test("a PR with commits newer than its card isn't merged; the card is read again
   await flush();
   assert.equal(calls(/^gh pr merge/).length, 0);
   assert.equal(fake.notices.at(-1).title, "app #1 has new commits");
-  assert.ok(calls(/^gh api graphql/).length >= 2);
+  assert.ok(calls(/^gh api graphql[\s\S]*review-requested/).length >= 2);
 });
 
 test("a PR scan that never answered doesn't block the next one for good", async () => {
   const { box, cx } = await inbox();
-  const before = calls(/^gh api graphql/).length;
+  const scans = () => calls(/^gh api graphql[\s\S]*review-requested/).length;
+  const before = scans();
   box.scanningPRs = true;
   box.scanStarted = Date.now();
   box.scanPRs(cx);
   await flush();
-  assert.equal(calls(/^gh api graphql/).length, before);
+  assert.equal(scans(), before);
   box.scanStarted = Date.now() - 200000;
   box.scanPRs(cx);
   await flush();
-  assert.equal(calls(/^gh api graphql/).length, before + 1);
+  assert.equal(scans(), before + 1);
 });

@@ -19,8 +19,9 @@ const NOTES = "relevo.review.notes";
 const SEEN = "relevo.review.seen";
 // Files marked viewed, by checkout or PR: path -> the content's hash then, so a change unmarks it.
 const VIEWED = "relevo.review.viewed";
-// The working tree as a git tree, untracked files in and ignored ones out, built in a scratch index.
-const SNAPSHOT = 'i=$(mktemp) || exit 1; cp "$(git rev-parse --git-path index)" "$i" 2>/dev/null || rm -f "$i"; '
+// The working tree as a git tree, untracked files in and ignored ones out, built in a scratch index. cp -p keeps
+// the index's time, which git needs to notice a same-size edit made in the second the index was written.
+const SNAPSHOT = 'i=$(mktemp) || exit 1; cp -p "$(git rev-parse --git-path index)" "$i" 2>/dev/null || rm -f "$i"; '
   + 'GIT_INDEX_FILE="$i" git add -A . >/dev/null 2>&1 && GIT_INDEX_FILE="$i" git write-tree; s=$?; rm -f "$i"; exit $s';
 // Each file's content hash, from a tree or commit when given, else from the working tree; "-" when absent.
 const HASHES = 'r=$1; shift; for f; do if [ -n "$r" ]; then git rev-parse -q --verify "$r:$f" 2>/dev/null || echo -; '

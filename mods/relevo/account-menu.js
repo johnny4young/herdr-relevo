@@ -21,6 +21,19 @@ export class AccountMenu {
     });
   }
 
+  // Closing the menu ends its view, and with it anything still awaited there, so a skill that opens a
+  // worktree session closes the menu only once the session is open.
+  runSkill(verb, cx) {
+    const p = props(), started = launchSkill(p.pr, verb, this.account, p.folder);
+    if (!started) return closeOverlay(p.overlay);
+    this.opening = verb;
+    cx.notify();
+    cx.spawn(async () => {
+      await started;
+      closeOverlay(p.overlay);
+    });
+  }
+
   session(cx) {
     const p = props();
     if (this.busy) return;
@@ -56,7 +69,8 @@ export class AccountMenu {
       .when(enabled, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => onClick(cx)))
       .child(div().flex_1().min_w(0).truncate().child(label))
       .when(Boolean(note), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(note)));
-    const skills = rankSkills(p.skill, SKILLS, this.uses ?? {});
+    // For conflicts the full PR fix is the other way to go.
+    const skills = rankSkills(p.skill, SKILLS, this.uses ?? {}, p.skill === "conflicts" ? ["fix"] : []);
     return v_flex().id("account-menu").w_full().p(4).gap(1).bg(t.popover ?? t.surface).text_color(t.foreground)
       .child(h_flex().px(8).pt(4).pb(4).gap(6).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(`${p.pr.repo.split("/").pop()} #${p.pr.number} with`))
@@ -64,12 +78,9 @@ export class AccountMenu {
       .child(div().px(8).pb(4).text_size(11).text_color(t.muted)
         .child(this.quotas ? `${acct.label}${usage ? ` · ${usage}` : ""}` : spinner(t.dim, 10)))
       .child(div().h(1).mx(6).my(2).bg(t.border))
-      .children(skills.map(({ verb, uses }) => row(`menu-skill-${verb}`, SKILLS[verb].name,
-        verb === p.skill ? "recommended" : `used ${uses}×`,
-        () => {
-          closeOverlay(p.overlay);
-          launchSkill(p.pr, verb, this.account, p.folder);
-        }, claude)))
+      .children(skills.map(({ verb, uses }) => row(`menu-skill-${verb}`, this.opening === verb ? "Opening…" : SKILLS[verb].name,
+        verb === p.skill ? "recommended" : uses ? `used ${uses}×` : "",
+        (cx) => this.runSkill(verb, cx), claude && !this.opening)))
       .when(!claude, (el) => el.child(div().px(8).pb(2).text_size(11).text_color(t.dim).child("Skills run on Claude accounts")))
       .child(div().h(1).mx(6).my(2).bg(t.border))
       .child(row("menu-session", this.busy ? "Creating the worktree…" : `New session in a worktree of ${localBranch(p.pr)}`,

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.2 · 2026-11-05
+
+- **A receipt for each turn.** When a Herdr agent or a Claude Desktop session stops working, Relevo adds up what that turn took: new context, output and the subagents it started. A turn over 5M gets an alert saying how much went to subagents, and **Tokens** lists the day's five heaviest turns.
+- **Resolve merge conflicts from the card.** A PR with conflicts leads with **resolve conflicts**: a session in a worktree of the PR's branch that merges the base, keeps both sides working, asks you when a conflict needs a decision, runs the checks and pushes without `--force`. A skill under Settings → Merge conflicts takes the built-in prompt's place, and ▾ always offers the full PR fix beside it.
+- **Quieter Inbox.** Desktop sessions ready for review fold under "▸ N ready for review"; only the ones asking something stay open. Landed PRs fold under "▸ N landed", in GitHub's merged purple.
+- **A PR stays with its agent.** An agent that ended its turn with a monitor still watching CI is still on its PR: the card says "waiting in the background" instead of offering the skill again.
+- **Cards follow the agent.** In a form with several questions, the waiting card moves to the next question as the agent does. It says **Answering…** while your answer goes out and **Next question** when the answer brought another.
+- **Land when GitHub hasn't settled.** Right after a push GitHub reports the merge state as unknown for a while; with CI green and no conflict, **Land** shows anyway, since it reads the PR again before merging.
+- **PRs that load on a slow day.** The PR list asked GitHub for everything at once and could pass its time limit, which showed as "unexpected end of JSON input". Your PRs now come ten at a time, review requests on their own, and a failed query is tried once more.
+- **Fixes.** A click on a waiting card can no longer be lost behind a send that never finished. A stuck read of agents or PRs lets the next one run, and a failed one says so in the Inbox. **Mark seen** no longer misses a same-size edit made in the second the index was written.
+
 ## 0.6.1 · 2026-11-05
 
 - **Land never merges commits you didn't see.** A card can be minutes old. Land now reads the PR again first: when it has commits newer than the card, nothing is merged, a toast says so and the PRs are read again, instead of showing GitHub's "Head branch was modified".

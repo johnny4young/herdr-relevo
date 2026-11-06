@@ -155,7 +155,8 @@ export class LandViews {
         : []),
       ...(failed || e.phase === "landed" ? [button(t, `land-done-${url}`, "✓", () => this.setLanding(url, null), { tip: "Remove from the list" })] : []),
     ];
-    const dot = failed ? t.blocked : e.phase === "landed" ? t.done : t.working;
+    // Merged in GitHub's purple.
+    const dot = failed ? t.blocked : e.phase === "landed" ? t.ansi5 : t.working;
     return this.card(t, `land-${url}`, failed,
       this.head(t, dot, `${e.repo.split("/")[1]} #${e.number} · ${e.title}`, ago(e.done ?? e.at)),
       v_flex().text_size(11).text_color(failed ? t.blocked : t.muted).child(div().child(landLine(e))),
@@ -170,9 +171,24 @@ export class LandViews {
     });
   }
 
+  // Landed PRs ask nothing more, so they fold under one line; what's still landing or failed stays open.
   landingGroup(t) {
-    const list = Object.entries(this.landing());
-    if (!list.length) return [];
-    return [sectionHeader(t, "LANDING", list.length), ...list.map(([url, e]) => this.landCard(t, url, e))];
+    const all = Object.entries(this.landing());
+    const open = all.filter(([, e]) => e.phase !== "landed"), landed = all.filter(([, e]) => e.phase === "landed");
+    const shown = this.expanded["landed"];
+    return [
+      ...(open.length ? [sectionHeader(t, "LANDING", open.length), ...open.map(([url, e]) => this.landCard(t, url, e))] : []),
+      ...(landed.length
+        ? [div().id("landed").px(4).py(2).flex().items_center().gap(5).text_size(11).text_color(t.dim).cursor_pointer()
+          .hover((s) => s.text_color(t.muted))
+          .on_click((_e, cx) => {
+            this.expanded["landed"] = !shown;
+            cx.notify();
+          })
+          .child(`${shown ? "▾" : "▸"} ${landed.length} landed`)
+          .child(div().size(6).rounded_full().bg(t.ansi5))]
+        : []),
+      ...(shown ? landed.map(([url, e]) => this.landCard(t, url, e)) : []),
+    ];
   }
 }

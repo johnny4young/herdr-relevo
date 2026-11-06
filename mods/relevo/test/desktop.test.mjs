@@ -190,3 +190,17 @@ test("with terminal-notifier a banner brings Herdr forward and focuses the agent
   await flush();
   assert.equal(calls(/terminal-notifier -remove relevo-t1/).length, 1);
 });
+
+test("Desktop sessions ready for review fold under one line; questions stay open", async () => {
+  const now = Date.now() / 1000;
+  fake.stored[DESKTOP] = [session({ at: now }), session({ id: "local_2", state: "review", at: now }), session({ id: "local_3", state: "review", at: now })];
+  const { box, cx } = await inbox();
+  let ui = box.render(cx);
+  assert.ok(find(ui, "dk-local_1"));
+  assert.equal(find(ui, "dk-local_2"), null);
+  assert.match(text(find(ui, "desktop-review")), /▸ 2 ready for review/);
+  click(find(ui, "desktop-review"), cx);
+  ui = box.render(cx);
+  assert.ok(find(ui, "dk-local_2"));
+  assert.equal(fake.stored["relevo.inbox.count"], 1);
+});

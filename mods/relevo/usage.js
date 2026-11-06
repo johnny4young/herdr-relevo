@@ -5,6 +5,7 @@ import { ACCOUNTS, CODEX } from "./accounts.js";
 import { ago } from "./lib/time.js";
 import { RANGES, compact, summarize } from "./lib/usage.js";
 import { USAGE, readReport } from "./usage-scan.js";
+import { TURNS } from "./turns.js";
 import { button, spinner, withKey } from "./ui.js";
 
 const NEW_TIP = "New context: tokens cached for the first time. Rereading the cache costs far less, so this and output are what grow a session's cost";
@@ -78,6 +79,22 @@ export class UsageDialog {
         .child(div().w(44).flex_none().text_right().text_size(11).text_color(t.muted).child(compact(p.output)))));
   }
 
+  // Today's heaviest turns, Herdr's and Desktop's, with what their subagents took.
+  turns(t) {
+    const today = new Date().setHours(0, 0, 0, 0) / 1000;
+    const list = (shared(TURNS) ?? []).filter((r) => r.at >= today).sort((a, b) => b.write + b.output - a.write - a.output).slice(0, 5);
+    if (!list.length) return null;
+    return v_flex().pt(8)
+      .child(title(t, "HEAVIEST TURNS TODAY", "New context and output of one turn, from when the agent started working until it stopped"))
+      .children(list.map((r, i) => v_flex().id(`turn-${i}`).py(3).flex_none()
+        .child(h_flex().gap(8).items_center()
+          .child(div().flex_1().min_w(0).truncate().text_size(13).child(r.where))
+          .child(div().flex_none().text_size(11).child(compact(r.write + r.output))))
+        .child(div().truncate().text_size(11).text_color(t.dim)
+          .child([r.surface === "desktop" ? "Desktop" : "Terminal", r.subs ? `${r.subs} subagents · ${compact(r.subWrite + r.subOutput)}` : null,
+            `${Math.max(1, Math.round(r.took / 60))}m`].filter(Boolean).join(" · ")))));
+  }
+
   kinds(t, s) {
     const share = (n) => (s.total.write ? `${Math.round(100 * n / s.total.write)}%` : "");
     return v_flex()
@@ -136,7 +153,7 @@ export class UsageDialog {
           .child(h_flex().gap(8).children(s.surfaces.map((x) => this.surface(t, x))))
           .when(days > 1, (el) => el.child(this.chart(t, s.days)))
           .child(h_flex().gap(20).items_start()
-            .child(this.projects(t, s.projects))
+            .child(v_flex().flex_1().min_w(0).child(this.projects(t, s.projects)).when(Boolean(this.turns(t)), (el) => el.child(this.turns(t))))
             .child(v_flex().w(320).flex_none().gap(14)
               .child(this.kinds(t, s))
               .when(s.sessions.length > 0, (el) => el.child(this.sessions(t, s.sessions)))));

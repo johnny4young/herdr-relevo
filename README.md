@@ -56,6 +56,12 @@ last look, and **Viewed** marks files until they change.
 
 ![Since I looked, with one file marked viewed](screenshots/since.png)
 
+### Resolve conflicts, and see what each turn cost
+
+A PR with merge conflicts offers **resolve conflicts**: an agent in a worktree of its branch that merges the base
+and pushes without `--force`. When an agent's turn ends, a receipt says what it took and how much went to
+subagents; a heavy one gets an alert.
+
 ### Edit files in the panel
 
 Right-click in Files to create, rename, trash, reveal or copy a path. Edit a preview and save with ⌘S; a change on

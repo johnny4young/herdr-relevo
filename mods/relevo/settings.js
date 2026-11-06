@@ -29,7 +29,7 @@ export class Settings {
     this.fallback = this.input(FALLBACK.join(", "), "personal, work");
     this.reposRoot = this.input(REPOS_ROOT, "code");
     this.backupsRoot = this.input(config.BACKUPS_ROOT ?? "relevo-backups", "relevo-backups");
-    this.skills = Object.fromEntries(["review", "fix", "comments"].map((k) => [k, this.input(SKILLS[k], k)]));
+    this.skills = Object.fromEntries(["review", "fix", "comments", "conflicts"].map((k) => [k, this.input(SKILLS[k] ?? "", k === "conflicts" ? "built-in prompt" : k)]));
     this.replies = replies().map((r) => this.replyRow(r));
   }
 
@@ -118,7 +118,7 @@ export class Settings {
       FALLBACK: parseList(this.fallback.value()),
       REPOS_ROOT: text(this.reposRoot),
       BACKUPS_ROOT: text(this.backupsRoot),
-      SKILLS: Object.fromEntries(Object.entries(this.skills).map(([k, s]) => [k, text(s)])),
+      SKILLS: Object.fromEntries(Object.entries(this.skills).map(([k, s]) => [k, text(s)]).filter(([k, v]) => k !== "conflicts" || v)),
       REPLIES: this.replies.map((r) => text(r.inputs.text)).filter(Boolean),
     };
   }
@@ -278,7 +278,7 @@ export class Settings {
           .child(this.labeled(t, "Backups under home", this.field(t, "settings-backups-root", this.backupsRoot, "backupsRoot"))),
       ]))
       .child(this.section(t, "settings-skills", "SKILLS", ["skills"], [
-        h_flex().gap(12).children([["review", "Review"], ["fix", "CI fix"], ["comments", "Review comments"]].map(([k, label]) =>
+        h_flex().gap(12).children([["review", "Review"], ["fix", "CI fix"], ["comments", "Review comments"], ["conflicts", "Merge conflicts"]].map(([k, label]) =>
           this.labeled(t, label, this.field(t, `settings-skill-${k}`, this.skills[k], `skills.${k}`)))),
       ]))
       .child(this.section(t, "settings-replies", "QUICK REPLIES", ["replies"], [

@@ -247,10 +247,10 @@ test("the PR and quota timers keep running behind other apps", async () => {
   setAgents();
   const { cx } = await open();
   fake.window.active = false;
-  const before = calls(/^gh api graphql/).length;
+  const before = calls(PRS).length;
   cx.fire(180000);
   await flush();
-  assert.equal(calls(/^gh api graphql/).length, before + 1);
+  assert.equal(calls(PRS).length, before + 1);
   assert.equal(cx.timers.some((t) => t.ms === 60000), true);
 });
 
@@ -439,7 +439,8 @@ function holdPRs() {
   return answer;
 }
 
-const PRS = /^gh api graphql/;
+// One query per scan asks for review requests; your own PRs come in pages beside it.
+const PRS = /^gh api graphql[\s\S]*review-requested/;
 
 test("a first PR scan spins while pending and stops when gh fails", async () => {
   const answer = holdPRs();
@@ -453,14 +454,29 @@ test("a first PR scan spins while pending and stops when gh fails", async () => 
   assert.equal(inbox.error, "offline");
 });
 
-test("a first PR scan that throws also stops the spinner", async () => {
+test("a cut answer from GitHub, read again and still cut, says so and stops the spinner", async () => {
   const answer = holdPRs();
   const { inbox, ui } = await open();
   answer({ stdout: "not json" });
   await flush();
   assert.match(text(ui()), /PRs unavailable/);
   assert.equal(spinners(ui()), 0);
-  assert.match(inbox.error, /^PRs: /);
+  assert.equal(inbox.error, "GitHub's answer was cut short");
+});
+
+test("a 502 is read again, and the second answer counts", async () => {
+  const data = { data: { viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [] } }, search: { nodes: [] } } };
+  const tries = new Map();
+  fake.exec = (cmd, args) => {
+    if (cmd !== "gh" || args[0] !== "api") return repoOutput(cmd, args);
+    const n = (tries.get(args[3]) ?? 0) + 1;
+    tries.set(args[3], n);
+    return n === 1 ? { code: 1, stderr: "gh: HTTP 502" } : { stdout: JSON.stringify(data) };
+  };
+  const { inbox, ui } = await open();
+  await flush();
+  assert.equal(inbox.error, null);
+  assert.match(text(ui()), /PRs now/);
 });
 
 test("gh failing with blank stderr still shows an error", async () => {
@@ -489,9 +505,10 @@ test("a PR scan already running is not started again", async () => {
   assert.equal(calls(PRS).length, 1);
   answer({ code: 1, stderr: "offline" });
   await flush();
+  const done = calls(PRS).length;
   inbox.scanPRs(cx);
   await flush();
-  assert.equal(calls(PRS).length, 2);
+  assert.ok(calls(PRS).length > done);
 });
 
 test("PR data that arrived stays dated when a later step fails", async () => {
@@ -603,7 +620,7 @@ test("a reply while the agent is still being answered keeps its text", async () 
   const { inbox, cx } = await waiting("Should I go on?\n");
   inbox.startReply({ address: "t1" }, null, cx);
   inbox.reply.set_value("yes");
-  inbox.answering.set("t1", Promise.resolve());
+  inbox.answering.set("t1", { turn: Promise.resolve(), at: Date.now() });
   inbox.sendReply(cx);
   await flush();
   assert.equal(inbox.replying, "t1");
@@ -884,4 +901,68 @@ test("each agent's PR is published for the agents list, also from a worktree wit
   for (let i = 0; i < 12; i++) await flush();
   ui();
   assert.deepEqual(fake.stored["relevo.agentPRs"], { t1: { number: 9, url: "https://github.com/me/app/pull/9", ci: "SUCCESS", add: 4, del: 2 } });
+});
+
+test("a send stuck on an hc call that never answered stops blocking clicks after a while", async () => {
+  const { ui, cx, inbox } = await waiting(DB);
+  inbox.answering.set("t1", { turn: new Promise(() => {}), at: Date.now() });
+  click(find(ui(), "answer-t1-1"), cx);
+  await flush();
+  assert.equal(calls(/^hc keys t1/).length, 0);
+  inbox.answering.set("t1", { turn: new Promise(() => {}), at: Date.now() - 60000 });
+  click(find(ui(), "answer-t1-1"), cx);
+  await flush();
+  assert.deepEqual(calls(/^hc keys t1/), ["hc keys t1 enter"]);
+});
+
+test("the card says it's answering while a send runs", async () => {
+  const { ui, inbox } = await waiting(DB);
+  inbox.answering.set("t1", { turn: new Promise(() => {}), at: Date.now() });
+  assert.match(text(find(ui(), "in-t1")), /Answering…/);
+});
+
+test("an answer that brings another question marks it as the next one", async () => {
+  const { ui, cx, screen } = await waiting(DB);
+  let sleeps = 0;
+  cx.sleep = async () => {
+    if (++sleeps === 1) screen.now = DELETE;
+  };
+  click(find(ui(), "answer-t1-1"), cx);
+  await flush();
+  assert.match(text(find(ui(), "in-t1")), /Next question/);
+});
+
+test("a PR whose agent left a monitor running stays with that agent, not a new skill", async () => {
+  const url = "https://github.com/me/app/pull/1";
+  fake.stored[LAUNCHED] = { [url]: { tab: "app#1 · fix", skill: "fix", at: 1 } };
+  setAgents(["t1", "idle", 3, { "agent.wait": "watch", "agent.bg": "⧗ 1 shell" }]);
+  fake.agents[0].tab_name = "app#1 · fix";
+  const node = {
+    number: 1, title: "Fix", url, isDraft: false, updatedAt: new Date().toISOString(), reviewDecision: null, headRefName: "feat",
+    repository: { nameWithOwner: "me/app" }, reviews: { nodes: [] }, reviewThreads: { nodes: [] },
+    commits: { nodes: [{ commit: { committedDate: new Date().toISOString(), statusCheckRollup: { state: "FAILURE" } } }] },
+  };
+  fake.exec = (cmd, args) => (cmd === "gh" && args[0] === "api"
+    ? { stdout: JSON.stringify({ data: { viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [node] } }, search: { nodes: [] } } }) }
+    : repoOutput(cmd, args));
+  const { ui, inbox } = await open();
+  inbox.clones["me/app"] = "/work/app";
+  const card = text(find(ui(), `pr-${url}`));
+  assert.match(card, /waiting in the background · ⧗ 1 shell/);
+  assert.equal(find(ui(), `skill-fix-${url}`), null);
+  assert.equal(fake.stored["relevo.inbox.count"], 0);
+});
+
+test("a waiting card follows the agent to its next question without a status change", async () => {
+  const { ui, cx, screen, inbox } = await waiting(DB);
+  assert.ok(find(ui(), "answer-t1-1"));
+  const first = text(find(ui(), "in-t1"));
+  screen.now = DELETE;
+  inbox.followPrompts(cx);
+  await flush();
+  assert.notEqual(text(find(ui(), "in-t1")), first);
+  const reads = calls(/^hc read t1/).length;
+  inbox.followPrompts(cx);
+  await flush();
+  assert.equal(calls(/^hc read t1/).length, reads);
 });

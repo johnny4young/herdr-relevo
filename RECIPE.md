@@ -53,7 +53,7 @@ task to another account.
   - `LANDING`, above your PRs: one card per landing PR, "Merges as soon as GitHub allows it", "Merging…", "Merged · N
     of M workflows running", "<workflow> failed after the merge" (red border, **Open run**) or "Landed · worktree
     removed", with **Open PR**, **Cancel** (auto-merge off) and ✓. Done cards go after a day.
-  - `IN DESKTOP`: a card per Claude Desktop session that asks something (red border) or is ready for review: `project
+  - `IN DESKTOP`: a card per Claude Desktop session that asks something (red border); the ones ready for review fold under "▸ N ready for review": `project
     · title`, its question or summary, **Open in Desktop** and ✓, which folds it under "▸ N addressed" until it does
     something new.
   - A summary row heads the list: five tiles (need you, reviews, your PRs, ready, tokens today), the first with a red
@@ -185,6 +185,19 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   <merge>`; no runs after 3 minutes counts as landed. Cleanup finds the PR branch's worktree, keeps it unless its
   HEAD is the PR's head and it passes Remove's checks (the day-of-use rule aside), closes resting agents' panes from
   other spaces, closes its space, removes it and deletes the branch with `-D` only when its tip is that head.
+- **Resolve conflicts**: a PR whose `mergeable` is `CONFLICTING` gets the `conflicts` skill first. Without
+  `SKILLS.conflicts` it runs a built-in prompt (merge the base, never rebase or force, ask on decisions, run the
+  checks, push) in a worktree of the PR's branch through the same path as **New session in a worktree**; from ▾ the
+  menu stays open, saying Opening…, until the session is open. ▾ always lists the `fix` skill beside it.
+- **Turn receipts**: every 3 s the accounts copy notes each agent's status; a turn starts when it works and ends
+  when it's done, idle or gone (a question only pauses it). At the start it records the sizes of the session file
+  and its `subagents/*.jsonl`; at the end it reads what they gained, messages from the turn's start on, each once.
+  Desktop sessions are matched to their transcript by `cliSessionId`. Receipts go to shared `relevo.turns` (40);
+  one over 5M of new context plus output gets a toast.
+- **Busy PR agents**: a PR whose launched agent works, waits, or has `agent.wait=watch` (something left running,
+  shown from `agent.bg`) keeps its agent line and **Agent**, with no skill button and outside the count.
+- **Following a form**: every 3 s, while an agent waits and no send runs, its screen is read again and the card
+  redraws when the dialog, question, cursor or boxes changed.
 - **Since I looked**: **Mark seen** builds the working tree as a git tree through a scratch index (`git add -A`, so
   ignored files stay out) and keeps it under `refs/relevo/seen/<hash>`; for a PR not checked out, its head. The
   scope diffs that tree against a fresh one. **Viewed** stores each file's blob hash, so a change clears it.

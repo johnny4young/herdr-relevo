@@ -2,6 +2,7 @@
 import "./fake/register.mjs";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { setTimeout } from "node:timers";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,7 +11,8 @@ import { fake, resetFake } from "./fake/herdr.mjs";
 import { fakeCx, find, flush, text } from "./fake/ui.mjs";
 
 const { ReviewDiff } = await import("../review.js");
-const settled = async () => { for (let i = 0; i < 20; i++) await flush(); };
+// Real git runs here, so each step gets real time as well as the event loop.
+const settled = async () => { for (let i = 0; i < 30; i++) { await flush(); await new Promise((r) => setTimeout(r, 15)); } };
 
 let repo;
 beforeEach(() => {
