@@ -8,7 +8,7 @@ import { openDesktop } from "./desktop.js";
 
 // A request to focus the Inbox, with the pane to give the keyboard back to on Esc.
 export const INBOX_FOCUS = "relevo.inbox.focus";
-const SECTIONS = ["away", "waiting", "desktop", "local", "mine", "requested", "today", "trees"];
+const SECTIONS = ["away", "waiting", "desktop", "landing", "requested", "mine", "local", "today", "trees"];
 
 export function focusInbox() {
   showPanel("inbox");
@@ -33,15 +33,15 @@ export class KeyNav {
     for (const s of v.desktop.filter((x) => x.state === "blocked" || this.expanded["desktop-review"])) {
       items.push({ id: `dk-${s.id}`, section: "desktop", go: () => openDesktop(s.id) });
     }
-    for (const i of v.local.filter((x) => x.kind === "diff")) {
-      items.push({ id: `in-${i.agent.address}`, section: "local", go: () => openReview(i.top, i.agent.address) });
-    }
-    for (const [key, list] of [["mine", v.mine], ["requested", v.requested]]) {
+    for (const [key, list] of [["requested", v.requested], ["mine", v.mine]]) {
       const shownPRs = [...list.filter(recent), ...(this.expanded[key] ? list.filter((p) => !recent(p)) : [])];
       if (key === "mine" && this.expanded["mine-ready"]) shownPRs.push(...v.ready);
       for (const pr of shownPRs) items.push({ id: `pr-${pr.url}`, section: key, go: () => this.runPR(pr) });
     }
-    for (const w of v.worktrees.filter((x) => x.merged)) {
+    for (const i of v.local.filter((x) => x.kind === "diff")) {
+      items.push({ id: `in-${i.agent.address}`, section: "local", go: () => openReview(i.top, i.agent.address) });
+    }
+    for (const w of v.worktrees.filter((x) => x.merged && this.inSight(x))) {
       items.push({ id: `wt-${w.path}`, section: "trees", go: () => this.openTree(w) });
     }
     if (this.expanded.loose) {

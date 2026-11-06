@@ -563,3 +563,21 @@ test("a worktree in use says its age once, on the note", () => {
   assert.match(shown, /used 1h ago/);
   assert.equal(shown.match(/1h/g).length, 1, shown);
 });
+
+test("merged worktrees fold under one line with Remove all on it; one with uncommitted files stays out", () => {
+  const v = Object.assign(new TreeViews(), {
+    expanded: {}, removing: new Set(), gone: new Set(), wtError: {}, confirm: null, selected: () => false, backupsKb: 2048,
+  });
+  const merged = (name, more = {}) => ({ ...row(name), merged: true, ...more });
+  const worktrees = [merged("a"), merged("b"), merged("dirty", { dirty: true })];
+  let ui = draw(v, worktrees);
+  assert.match(text(find(ui, "merged-trees")), /▸ 3 merged worktrees.*Remove 2/s);
+  assert.equal(find(ui, "wt-/w/a"), null);
+  assert.ok(find(ui, "wt-/w/dirty"));
+  assert.doesNotMatch(text(ui), /Backups/);
+  find(ui, "merged-trees").handlers.on_click({}, fakeCx());
+  ui = draw(v, worktrees);
+  assert.ok(find(ui, "wt-/w/a"));
+  assert.match(text(ui), /Backups/);
+  assert.deepEqual(fake.stored["relevo.inbox.folds"], { merged: true });
+});

@@ -30,6 +30,8 @@ test("the built-in prompt merges the base, asks on real decisions, and never for
   assert.match(prompt, /merge it into this branch/);
   assert.match(prompt, /stop to ask me/);
   assert.match(prompt, /never with --force/);
+  assert.match(prompt, /gh pr checks 7 --watch/);
+  assert.match(prompt, /push again until they're green/);
   assert.doesNotMatch(prompt, /feat\/x/);
 });
 
@@ -46,6 +48,7 @@ test("resolve conflicts opens a session in a worktree of the PR's branch with th
   const [name, args] = fake.runs.at(-1);
   assert.equal(name, "space.new");
   assert.equal(args.tab, "app#7 · conflicts");
+  assert.equal(args.name, "app #7 · resolve conflicts");
   assert.match(args.argv.join(" "), /merge conflicts with its base/);
   assert.equal(fake.stored[LAUNCHED][PR.url].skill, "conflicts");
 });

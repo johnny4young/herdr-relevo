@@ -25,8 +25,18 @@ const repoNames = (key) => {
   if (names.get(key)?.match !== match) names.set(key, { match, set: new Set(match.split(", ").filter(Boolean)) });
   return names.get(key).set;
 };
+// Kept per path until the folders' rules change, so a render asks the shared state once per path at most.
+let byPath = { sign: null, map: new Map() };
 export const contextOfPath = (path) => {
-  const parts = (path ?? "").split("/");
-  return (CONTEXTS.slice(1).find((c) => parts.some((part) => repoNames(c.key).has(part))) ?? CONTEXTS[0]).key;
+  const sign = (shared("space-folders")?.[""]?.list ?? []).map((f) => `${f.id}:${f.match ?? ""}`).join("|");
+  if (sign !== byPath.sign || byPath.map.size > 500) byPath = { sign, map: new Map() };
+  if (!byPath.map.has(path)) {
+    const parts = (path ?? "").split("/");
+    byPath.map.set(path, (CONTEXTS.slice(1).find((c) => parts.some((part) => repoNames(c.key).has(part))) ?? CONTEXTS[0]).key);
+  }
+  return byPath.map.get(path);
 };
-export const inFocus = (context) => focus() === "all" || focus() === context;
+export const inFocus = (context) => {
+  const now = focus();
+  return now === "all" || now === context;
+};

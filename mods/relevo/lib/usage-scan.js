@@ -240,11 +240,18 @@ export function addCodex(state, file, { project, cut }) {
 }
 
 // Drops days, files and sessions older than the window; `listed` is every file still in it.
+// Returns how many entries went.
 export function prune(state, cut, listed) {
-  for (const key of Object.keys(state.rows)) if (key.slice(0, 10) < cut) delete state.rows[key];
-  for (const day of Object.keys(state.seen)) if (day < cut) delete state.seen[day];
-  for (const path of Object.keys(state.files)) if (!listed.has(path)) delete state.files[path];
-  for (const [id, s] of Object.entries(state.sessions)) if (!s.last || s.last.slice(0, 10) < cut) delete state.sessions[id];
+  let gone = 0;
+  const drop = (obj, key) => {
+    delete obj[key];
+    gone += 1;
+  };
+  for (const key of Object.keys(state.rows)) if (key.slice(0, 10) < cut) drop(state.rows, key);
+  for (const day of Object.keys(state.seen)) if (day < cut) drop(state.seen, day);
+  for (const path of Object.keys(state.files)) if (!listed.has(path)) drop(state.files, path);
+  for (const [id, s] of Object.entries(state.sessions)) if (!s.last || s.last.slice(0, 10) < cut) drop(state.sessions, id);
+  return gone;
 }
 
 const COLUMNS = ["input", "write", "read", "output", "msgs", "pause_write", "pauses"];

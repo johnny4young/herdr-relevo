@@ -59,7 +59,7 @@ last look, and **Viewed** marks files until they change.
 ### Resolve conflicts, and see what each turn cost
 
 A PR with merge conflicts offers **resolve conflicts**: an agent in a worktree of its branch that merges the base
-and pushes without `--force`. When an agent's turn ends, a receipt says what it took and how much went to
+and pushes without `--force`, then watches CI until it passes. When an agent's turn ends, a receipt says what it took and how much went to
 subagents; a heavy one gets an alert.
 
 ### Edit files in the panel
@@ -81,8 +81,8 @@ worktrees that are safe to remove go in one Confirm. When your PR merges, the to
 1. Install the two community mods it uses: [space-folders](https://github.com/jankeesvw/herdr-space-folders)
    and [issues](https://github.com/jankeesvw/herdr-issues) (from herdr.dev, or copy their folders into
    `~/.config/herdr-app/mods/`).
-2. Copy `layouts/relevo.json` and `layouts/relevo.svg` to `~/.config/herdr-app/layouts/` and `mods/relevo`, `mods/relevo-agents` and
-   `mods/relevo-files` to `~/.config/herdr-app/mods/`. Merge `keys.json` into yours.
+2. Copy `layouts/relevo.json` and `layouts/relevo.svg` to `~/.config/herdr-app/layouts/` and `mods/relevo`, `mods/relevo-agents`,
+   `mods/relevo-files` and `mods/relevo-tabs` to `~/.config/herdr-app/mods/`. Merge `keys.json` into yours.
 3. Switch to the layout (`ctrl-shift-l`) and open Settings (the gear beside ACCOUNTS): your accounts, the GitHub
    orgs that use each one, and where your clones live. It writes `mods/relevo/config.js`, which you can also edit.
 
@@ -100,6 +100,7 @@ over the old ones. From a clone of this repo:
 rsync -a --exclude config.js mods/relevo/ ~/.config/herdr-app/mods/relevo/
 rsync -a mods/relevo-agents/ ~/.config/herdr-app/mods/relevo-agents/
 rsync -a mods/relevo-files/ ~/.config/herdr-app/mods/relevo-files/
+rsync -a mods/relevo-tabs/ ~/.config/herdr-app/mods/relevo-tabs/
 cp layouts/relevo.json layouts/relevo.svg ~/.config/herdr-app/layouts/
 ```
 
@@ -135,7 +136,7 @@ Mods reload by themselves. `--exclude config.js` keeps your accounts; copying th
   statusline writes to `~/.cache/herdr-relevo/quota-<account>.json` (only when the values change, or an idle session's
   old values look new); `agent.account`, `agent.jira` and
   `agent.transcript` terminal labels from a Claude hook, for account chips, per-ticket time and resumed handoffs.
-- That hook is one optional Claude hook on three events (SessionStart, Stop, SessionEnd), and it only sets terminal
+- That hook is one optional Claude hook on three events (SessionStart, Stop, SessionEnd), in bash with `jq`, and it only sets terminal
   labels: account, ticket, session file and background tasks. Without it Relevo still runs; you lose account chips,
   resumed handoffs (handoffs use the note) and the background-task marker, while ticket time falls back to the ticket
   in the branch name. To set it up, tell your agent: `Read ~/.config/herdr-app/mods/relevo/hooks/HOOK.md and follow it.`

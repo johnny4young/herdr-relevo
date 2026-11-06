@@ -57,7 +57,13 @@ export function folderNote(cwd, space) {
 // where it was put, else the first folder whose rules take where it works.
 const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b7cf6", ansi2: "#3fae6a", ansi1: "#d9649a" };
 
+const rules = new Map();
 function rule(pattern) {
+  if (!rules.has(pattern)) rules.set(pattern, compileRule(pattern));
+  return rules.get(pattern);
+}
+
+function compileRule(pattern) {
   const p = pattern.trim().replace(/\/+$/, "");
   if (!p) return null;
   const body = p.replace(/^~/, "\u0000").split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")
@@ -337,7 +343,7 @@ export default class Agents extends View {
 
   // Live sub-agents of `addr`, depth first, each with the tree lines in front of it.
   tree(all, addr, lead = []) {
-    const kids = all.filter((k) => k.parent === addr && k.state === "live");
+    const kids = this.kids?.get(addr) ?? all.filter((k) => k.parent === addr && k.state === "live");
     return kids.flatMap((k, i) => {
       const last = i === kids.length - 1;
       return [
@@ -392,6 +398,9 @@ export default class Agents extends View {
     let list = agents();
     this.listed = new Map(list.map((a) => [a.address, a.status]));
     const all = terminals();
+    // Children by parent once per render; tree() runs for every agent, twice.
+    this.kids = new Map();
+    for (const k of all) if (k.parent && k.state === "live") this.kids.set(k.parent, [...(this.kids.get(k.parent) ?? []), k]);
     const shown = focused()?.agent;
     const now = Date.now();
     this.track(list, now);
@@ -407,7 +416,11 @@ export default class Agents extends View {
     const rest = list.filter((a) => !a.pinned && !isSettled(a));
     const settled = list.filter((a) => !a.pinned && isSettled(a));
     list = [...pinned, ...rest, ...settled];
-    setAgentOrder(list.map((a) => a.address));
+    const order = list.map((a) => a.address);
+    if (order.join(" ") !== this.order) {
+      this.order = order.join(" ");
+      setAgentOrder(order);
+    }
 
     const withKids = (a, i) => {
       const subs = collapsed ? [] : this.tree(all, a.address);
@@ -459,6 +472,9 @@ export default class Agents extends View {
     }
 
     const labels = new Map(all.map((k) => [k.address, k.labels ?? {}]));
+    // What every row reads from the Relevo mod, once per render.
+    const reasons = shared("relevo.reasons") ?? {}, folders = shared("space-folders"), agentPRs = shared("relevo.agentPRs") ?? {};
+    const contexts = shared("relevo.agentContext") ?? {};
     const row = (a, i, subs = []) => {
       const pic = icon(a.program, 16, t.foreground);
       const tag = accountTag(t, a, labels.get(a.address) ?? {}, paneOf.get(a.pane));
@@ -518,12 +534,12 @@ export default class Agents extends View {
       // Without a space header above (priority, pinned) the row names its space.
       const full = byPriority || isPinned;
       const name = full ? a.space_name || label(a) : more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
-      const why = a.status === "blocked" ? shared("relevo.reasons")?.[a.address] : null;
+      const why = a.status === "blocked" ? reasons[a.address] : null;
       const cwd = paneOf.get(a.pane)?.cwd ?? a.cwd;
-      const place = folderOfSpace(spaceList.find((s) => s.id === a.space), shared("space-folders"), ps);
+      const place = folderOfSpace(spaceList.find((s) => s.id === a.space), folders, ps);
       const folder = folderNote(cwd, a.space_name);
-      const pr = shared("relevo.agentPRs")?.[a.address];
-      const ctx = shared("relevo.agentContext")?.[a.address];
+      const pr = agentPRs[a.address];
+      const ctx = contexts[a.address];
       const line = h_flex()
         .h(30)
         .flex_none()

@@ -6,7 +6,7 @@ import { DESKTOP, openDesktop } from "./desktop.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { desktopKey, isSettled } from "./lib/desktop.js";
 import { ago } from "./lib/time.js";
-import { button, sectionHeader } from "./ui.js";
+import { button, sectionHeader, foldRow } from "./ui.js";
 
 const SETTLED = "relevo.desktop.settled";
 const RANK = { blocked: 0, review: 1 };
@@ -56,15 +56,7 @@ export class DesktopViews {
     return [
       sectionHeader(t, "IN DESKTOP", asks.length),
       ...asks.map((s) => this.desktopCard(t, s)),
-      ...(review.length
-        ? [div().id("desktop-review").px(4).py(2).text_size(11).text_color(t.dim).cursor_pointer()
-          .hover((s) => s.text_color(t.muted))
-          .on_click((_e, cx) => {
-            this.expanded["desktop-review"] = !open;
-            cx.notify();
-          })
-          .child(`${open ? "▾" : "▸"} ${review.length} ready for review`)]
-        : []),
+      ...(review.length ? [foldRow(this, t, "desktop-review", "desktop-review", `${review.length} ready for review`)] : []),
       ...(open ? review.map((s) => this.desktopCard(t, s)) : []),
       ...this.addressedFold(t, "desktop", done, (s) => this.desktopCard(t, s, true)),
     ];

@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { fake, resetFake } from "./fake/herdr.mjs";
 import { fakeCx, find, flush, text } from "./fake/ui.mjs";
 
-const { ReviewDiff } = await import("../review.js");
+const { ReviewDiff, parseHashes } = await import("../review.js");
 // Real git runs here, so each step gets real time as well as the event loop.
 const settled = async () => { for (let i = 0; i < 30; i++) { await flush(); await new Promise((r) => setTimeout(r, 15)); } };
 
@@ -94,4 +94,24 @@ test("sending comments marks what the agent had done by then", async () => {
   v.send(cx);
   await settled();
   assert.ok(fake.stored["relevo.review.seen"][repo].tree);
+});
+
+test("hashes come from one git call, a gone file reads as gone", () => {
+  const work = parseHashes("a.txt\nb.txt\n--\naaa\nbbb\n", "");
+  assert.deepEqual([...work], [["a.txt", "aaa"], ["b.txt", "bbb"]]);
+  const tree = parseHashes("100644 blob abc\ta b.txt\u0000100644 blob def\tc.txt\u0000", "HEAD");
+  assert.deepEqual([...tree], [["a b.txt", "abc"], ["c.txt", "def"]]);
+  assert.equal(parseHashes("\n--\n", "").size, 0);
+});
+
+test("a file deleted after the mark shows as changed, and a viewed one stays viewed until it changes", async () => {
+  writeFileSync(join(repo, "a.txt"), "two\n");
+  writeFileSync(join(repo, "b.txt"), "two\n");
+  const { v, cx } = await open();
+  v.toggleViewed("a.txt", cx);
+  rmSync(join(repo, "b.txt"));
+  v.load(cx);
+  await settled();
+  assert.equal(v.viewed("a.txt"), true);
+  assert.equal(v.hashes.get("b.txt"), "-");
 });

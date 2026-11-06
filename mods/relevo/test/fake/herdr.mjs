@@ -3,7 +3,7 @@ const never = new Promise(() => {});
 const blank = () => ({
   agents: [], terminals: [], panes: [], spaces: [], layout: { id: "root", children: [] }, focused: null, props: {},
   window: { platform: "macos", titlebar: "none", active: true }, stored: {}, files: {},
-  read: null, write: null, exec: () => null, execs: [], runs: [], notices: [], overlays: [], folderChanges: new Map(), folderWaits: new Map(),
+  read: null, write: null, exec: () => null, execs: [], runs: [], notices: [], overlays: [], orders: [], folderChanges: new Map(), folderWaits: new Map(),
   reads: { panes: 0, terminals: 0 },
 });
 
@@ -41,7 +41,7 @@ export const notify = (notice) => { fake.notices.push(notice); };
 export const openOverlay = (overlay) => { fake.overlays.push(overlay); };
 export const closeOverlay = () => {};
 export const playSound = () => {};
-export const setAgentOrder = () => null;
+export const setAgentOrder = (order) => { fake.orders.push(order); return null; };
 export const nextCommand = () => never;
 export const readTextFile = async (path) => (fake.read ? fake.read(path) : fake.files[path] ?? null);
 export const writeTextFile = async (path, body, expected) => {

@@ -8,7 +8,7 @@ import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { openHandoff } from "./handoff.js";
 import { openReplies } from "./replies.js";
-import { button, sectionHeader, spinner, withKey } from "./ui.js";
+import { button, sectionHeader, spinner, withKey, foldRow, FOLDS, saveFolds } from "./ui.js";
 import { agentPRs, seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
 import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
@@ -24,7 +24,7 @@ import { LiveViews } from "./inbox-live.js";
 import { LocalAddressed } from "./inbox-addressed.js";
 import { AwayViews } from "./inbox-away.js";
 import { DesktopViews } from "./inbox-desktop.js";
-import { LandViews } from "./inbox-land.js";
+import { LandViews, LANDING } from "./inbox-land.js";
 import { USAGE, readReport } from "./usage-scan.js";
 import { openUsage } from "./usage.js";
 import { compact, summarize } from "./lib/usage.js";
@@ -38,6 +38,7 @@ const SEND_STALE = 20000;
 // How long a card says its question is a new one, after an answer brought it.
 const NEXT_FOR = 8000;
 const LOCAL_STUCK = 60000;
+const HEAD_FOR = 15000;
 const hc = (args) => exec("hc", args);
 // Lines of a command, diff or plan a card shows.
 const ASK_LINES = 8;
@@ -67,7 +68,7 @@ export class Inbox {
     this.prAgents = {};
     this.origins = new Map();
     this.clones = {};
-    this.expanded = {};
+    this.expanded = { ...(shared(FOLDS) ?? {}) };
     this.quotas = {};
     this.prsAt = 0;
     this.addressed = {};
@@ -108,11 +109,12 @@ export class Inbox {
   todayGroup(t, list) {
     const total = list.reduce((n, d) => n + d.seconds, 0);
     return [
-      h_flex().pt(6).px(2).gap(6).items_center().text_size(11).text_color(t.dim)
-        .child(div().flex_1().child("AGENT TIME TODAY"))
-        .when(total > 0, (el) => el.child(duration(total)))
-        .child(button(t, "week-open", "Week", () => openWeek(), { size: "sm", tip: "Agent time per ticket and day" })),
-      v_flex().children(list.map((d) => h_flex().id(`day-${d.key}`).h(24).px(8).gap(8).items_center().rounded(6)
+      foldRow(this, t, "today-time", "today", `Agent time today${total > 0 ? ` · ${duration(total)}` : ""}`, {
+        gap: true,
+        after: h_flex().flex_1().justify_end()
+          .child(button(t, "week-open", "Week", () => openWeek(), { size: "sm", tip: "Agent time per ticket and day" })),
+      }),
+      v_flex().children((this.expanded.today ? list : []).map((d) => h_flex().id(`day-${d.key}`).h(24).px(8).gap(8).items_center().rounded(6)
         .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.muted).child(d.key))
         .child(div().flex_none().text_size(11).text_color(t.muted).child(duration(d.seconds))))),
     ];
@@ -143,25 +145,28 @@ export class Inbox {
       .child(div().truncate().text_size(11).text_color(t.dim).child(label));
     const open = (key) => (cx) => {
       this.expanded[key] = true;
+      saveFolds(this.expanded);
       cx.notify();
     };
     return h_flex().id("inbox-summary").flex_none().gap(6)
       .child(tile("asks", "need you", String(asks), "Agents and Desktop sessions waiting on an answer", () => run("relevo.next-waiting"), asks > 0))
-      .child(tile("reviews", "reviews", String(v.requested.length), "PRs waiting on your review"))
-      .child(tile("prs", "your PRs", String(v.mine.length), "Your PRs that need something"))
+      .child(tile("reviews", "reviews", String(v.requested.filter(recent).length), "PRs waiting on your review, from the last 45 days"))
+      .child(tile("prs", "your PRs", String(v.mine.filter(recent).length), "Your PRs that need something, from the last 45 days"))
       .child(tile("ready", "ready", String(v.ready.length), "Your PRs with nothing left but the merge", open("mine-ready")))
       .child(tile("tokens", "today", tokens == null ? "…" : compact(tokens), "Tokens today: output and new context, all surfaces", () => openUsage()));
   }
 
   loadQuotas(cx) {
     cx.spawn(async (cx) => {
-      this.quotas = await loadClaudeQuotas();
+      const quotas = await loadClaudeQuotas();
+      if (JSON.stringify(quotas) === JSON.stringify(this.quotas)) return;
+      this.quotas = quotas;
       cx.notify();
     });
   }
 
   seen(pr) {
-    const l = launched()[pr.url];
+    const l = this.launchedMap()[pr.url];
     return Boolean(l) && seconds(pr.updatedAt) <= l.at;
   }
 
@@ -184,7 +189,7 @@ export class Inbox {
   }
 
   publish(v = this.shown()) {
-    const open = (list) => list.filter((p) => recent(p) && !this.seen(p) && !(launched()[p.url] && this.prBusy(p))).length;
+    const open = (list) => list.filter((p) => recent(p) && !this.seen(p) && !(this.launchedMap()[p.url] && this.prBusy(p))).length;
     const n = v.local.length + v.desktop.filter((s) => s.state === "blocked").length + open(v.mine) + open(v.requested);
     if (shared(COUNT) !== n) setShared(COUNT, n);
     this.publishReasons();
@@ -244,7 +249,7 @@ export class Inbox {
           if (top && !this.origins.has(top)) {
             this.origins.set(top, githubRepo(withoutLogin((await exec("git", ["-C", top, "remote", "get-url", "origin"])).stdout)));
           }
-          const head = top ? (await exec("git", [...GIT_READ, "-C", top, "rev-parse", "HEAD"])).stdout.trim() : "";
+          const head = top ? await this.headOf(top) : "";
           places.push({ address: a.address, repo: this.origins.get(top), branch: pane.branch, head });
         }
         this.places = places;
@@ -318,6 +323,16 @@ export class Inbox {
       // A change seen mid-scan may have been read too early.
       if (this.again) this.scanLocal(cx);
     });
+  }
+
+  // A repo's HEAD, kept for HEAD_FOR or until its git folder says it changed; several agents share one.
+  async headOf(top) {
+    this.heads ??= new Map();
+    const kept = this.heads.get(top);
+    if (kept && Date.now() - kept.at < HEAD_FOR && !this.dirty.has(top)) return kept.head;
+    const head = (await exec("git", [...GIT_READ, "-C", top, "rev-parse", "HEAD"])).stdout.trim();
+    this.heads.set(top, { head, at: Date.now() });
+    return head;
   }
 
   card(t, id, hot, head, meta, actions) {
@@ -649,6 +664,15 @@ export class Inbox {
   }
 
   render(cx) {
+    this.snap = { launched: launched(), landing: shared(LANDING) ?? {} };
+    try {
+      return this.draw(cx);
+    } finally {
+      this.snap = null;
+    }
+  }
+
+  draw(cx) {
     const t = theme(), v = this.shown();
     this.publish(v);
     this.takeFocus(cx);
@@ -689,10 +713,10 @@ export class Inbox {
         .children(part("away", this.awayGroup(t)))
         .children(part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
         .children(part("desktop", this.desktopGroup(t, v.desktop, v.desktopDone)))
-        .children(part("local", this.localGroup(t, "local", "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"), v.localDone)))
-        .children(part("mine", this.landingGroup(t)))
-        .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone, v.ready)))
+        .children(part("landing", this.landingGroup(t)))
         .children(part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true, v.requestedDone)))
+        .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone, v.ready)))
+        .children(part("local", this.localGroup(t, "local", "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"), v.localDone)))
         .children(part("today", this.todayGroup(t, v.today)))
         .children(part("trees", this.treeGroups(t, v.worktrees))));
   }

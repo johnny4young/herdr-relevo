@@ -113,7 +113,7 @@ test("a closed stretch keeps the project it opened with", async (t) => {
   working();
   await ledgerTick();
   const line = calls(/ledger\.jsonl/).at(-1);
-  assert.equal(JSON.parse(line.slice(line.indexOf('{"start"'))).repo, "app");
+  assert.equal(JSON.parse(line.slice(line.indexOf('{"start"'), line.lastIndexOf("}") + 1)).repo, "app");
   assert.deepEqual(opened(), {});
 });
 
@@ -132,6 +132,23 @@ test("totals still counts a ticket apart from its repo", () => {
 
 test("a row of today's time draws the project and its time, nothing else", async () => {
   const { Inbox } = await import("../inbox.js");
-  const [, list] = new Inbox().todayGroup(theme(), [{ key: "app", repo: "app", jira: null, seconds: 7200 }]);
+  const inbox = new Inbox();
+  inbox.expanded = { today: true };
+  const [, list] = inbox.todayGroup(theme(), [{ key: "app", repo: "app", jira: null, seconds: 7200 }]);
   assert.equal(text(find(list, "day-app")), "app 2h 00m");
+});
+
+test("past its limit the ledger keeps its newest half and moves the rest to ledger.old.jsonl", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtempSync, readFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { APPEND } = await import("../ledger.js");
+  const dir = mkdtempSync(join(tmpdir(), "relevo-ledger-")), file = join(dir, "state", "ledger.jsonl");
+  for (let i = 1; i <= 6; i++) execFileSync("sh", ["-c", APPEND, "sh", file, `{"n":${i}}`, "40"]);
+  const kept = readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l).n);
+  const old = readFileSync(join(dir, "state", "ledger.old.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l).n);
+  assert.deepEqual([...old, ...kept], [1, 2, 3, 4, 5, 6]);
+  assert.equal(kept.at(-1), 6);
+  assert.ok(kept.length < 6);
 });

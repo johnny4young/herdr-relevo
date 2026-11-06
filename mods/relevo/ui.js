@@ -1,6 +1,6 @@
 import { div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { appHome, readTextFile } from "herdr";
+import { appHome, readTextFile, shared, setShared } from "herdr";
 import { relevoKeys, formatShortcut } from "./lib/keys.js";
 
 const SIZES = {
@@ -49,3 +49,26 @@ export const withKey = (tip, action) => (shortcut(action) ? `${tip} · ${shortcu
 
 // Native rotation: no timer, no redraws.
 export const spinner = (color, size = 11) => svg("mods/relevo/spinner.svg").size(size).text_color(color).spin(900);
+
+// Which folds are open, kept across reloads; a card's "more" lines are not kept.
+export const FOLDS = "relevo.inbox.folds";
+export function saveFolds(expanded) {
+  const kept = Object.fromEntries(Object.entries(expanded).filter(([k, v]) => v && !k.startsWith("more-")));
+  if (JSON.stringify(kept) !== JSON.stringify(shared(FOLDS) ?? {})) setShared(FOLDS, kept);
+}
+
+// A "▸ N things" line that folds a list open or shut; `key` names its state in view.expanded.
+export function foldRow(view, t, id, key, label, { gap = false, onOpen = null, after = null } = {}) {
+  const open = Boolean(view.expanded[key]);
+  return div().id(id).px(4).when(gap, (el) => el.pt(6)).when(!gap, (el) => el.py(2))
+    .flex().items_center().gap(5).text_size(11).text_color(t.dim).cursor_pointer()
+    .hover((s) => s.text_color(t.muted))
+    .on_click((_e, cx) => {
+      view.expanded[key] = !open;
+      saveFolds(view.expanded);
+      if (!open) onOpen?.(cx);
+      cx.notify();
+    })
+    .child(`${open ? "▾" : "▸"} ${label}`)
+    .when(Boolean(after), (el) => el.child(after));
+}

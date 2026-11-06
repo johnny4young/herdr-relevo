@@ -19,15 +19,17 @@ task to another account.
   percentage, a 4px bar (accent under 50%, `ansi3` from 50%, `blocked` from 80%) and a pace tick where the
   window's time is. Below 160px wide it becomes a rail of chips, each with one 3px bar for the fuller window.
   Then space-folders' spaces and the agents list (equal weight), and Herdr's footer (69px).
-- **Tab bar** (42px): Herdr's tabs, an **Inbox** button (92px) with a red count badge, the issues button (78px)
+- **Tab bar** (42px): relevo-tabs (Herdr's tabs), an **Inbox** button (92px) with a red count badge, the issues button (78px)
   and a panel toggle (44px, `panel.svg`).
 - **Right panel** (380px): a panel bar (66px) with the branch chips of the focused checkout and an
   "Open file in …" finder field (`⌘O`), over a stack of Inbox, Files, Changes and Issues.
 - **Files**: Herdr's tree with a right-click menu (New file, New folder, Rename, Move to Trash, Reveal in Finder,
   Copy path, Copy relative path). A preview, and a file opened from the finder, show **Edit**; editing adds a
   7px unsaved dot and **Save** (`⌘S`), and a change on disk shows a bar with **Reload** and **Keep mine**.
-- **Inbox**: a rounded (10px) list with a 36px header `Inbox · PRs <age>` and ↻. Groups, each under an 11px
-  dim header with its count:
+- **Inbox**: a rounded (10px) list with a 36px header `Inbox · PRs <age>` and ↻. Groups in this order: waiting on
+  you, In Desktop, landing, review requests, your PRs, uncommitted work, then agent time and worktrees, folded. Each
+  open group sits under an 11px dim header with its count. A fold you open stays open across reloads (shared
+  `relevo.inbox.folds`); a card's extra lines don't:
   - `WAITING ON YOU`: a card per blocked agent, red border. A permission or plan first shows its title, why and,
     in a mono block, the command, diff or plan: up to 8 lines, wrapped and never cut, then "+N more lines", which shows the rest. A yes it can't
     read in full (the start is off screen, or it recognizes no command) has no choices, only **Agent**. Then the
@@ -50,16 +52,17 @@ task to another account.
     `CLEAN` or `HAS_HOOKS` gets **Land** first (solid); one `BLOCKED` in a repo that allows auto-merge gets
     **Land when ready**. The first click turns it into a red **Confirm land** for 4 s. `BEHIND` adds **Update branch**,
     and failed, errored or cancelled CI **Retry CI**.
-  - `LANDING`, above your PRs: one card per landing PR, "Merges as soon as GitHub allows it", "Merging…", "Merged · N
+  - `LANDING`, above review requests: one card per landing PR, "Merges as soon as GitHub allows it", "Merging…", "Merged · N
     of M workflows running", "<workflow> failed after the merge" (red border, **Open run**) or "Landed · worktree
     removed", with **Open PR**, **Cancel** (auto-merge off) and ✓. Done cards go after a day.
   - `IN DESKTOP`: a card per Claude Desktop session that asks something (red border); the ones ready for review fold under "▸ N ready for review": `project
     · title`, its question or summary, **Open in Desktop** and ✓, which folds it under "▸ N addressed" until it does
     something new.
-  - A summary row heads the list: five tiles (need you, reviews, your PRs, ready, tokens today), the first with a red
+  - A summary row heads the list: five tiles (need you, reviews and your PRs from the last 45 days, ready, tokens today), the first with a red
     border while something waits; it runs `⌘J`, ready unfolds the ready PRs, today opens Tokens.
-  - `AGENT TIME TODAY` with a **Week** button: one row per project with today's time, tickets included. The name and the time, nothing else.
-  - `MERGED WORKTREES`: one 30px row per worktree whose branch merged: repo, branch, age, **Open**/**Go**,
+  - "▸ Agent time today · <total>" with **Week** on the line; open, one row per project with today's time, tickets included. The name and the time, nothing else.
+  - "▸ N merged worktrees", with **Remove N** on the line when more than one can go. Folded, it still shows a merged
+    worktree with uncommitted files and the one a merge alert selected; open, the **Backups** row too. One 30px row per worktree whose branch merged: repo, branch, age, **Open**/**Go**,
     **Remove** (after a day unused; before that the row says `used 22m ago`). "▸ N worktrees without a space" folds the rest. Opened, it reads each one and sorts it: `Nothing to lose`
     (clean, its commits in the main branch, unused for 7 days; **Remove**, and **Remove N** for those with no ignored
     files to keep), `Pushed, not merged` (**Remove**; GitHub must still have the commit), `With work` (uncommitted or
@@ -234,7 +237,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
 
 - **Layout** `layouts/relevo.json`, with `layouts/relevo.svg` as the picture Settings shows: `root` row → `sidebar` column (`brand` workspace-chrome, `accounts`
   relevo `{role: "accounts"}`, `sidebar-lists` column with `spaces` space-folders and `agents` relevo-agents,
-  `sidebar-footer` workspace-chrome `{footer: true}`) and `work` column (`tab-bar` row with `tabs`,
+  `sidebar-footer` workspace-chrome `{footer: true}`) and `work` column (`tab-bar` row with `tabs` relevo-tabs,
   `inbox-button` relevo, `issues-button` issues `{button: true}`, `panel-toggle` relevo; `work-body` row with
   `main` and `panel` column: `panel-bar` relevo and `panel-body` stack of `inbox` relevo, `files` relevo-files, `changes`,
   `issues`; `status` workspace-status).
@@ -242,8 +245,8 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   `panel-toggle`, `panel-bar`, `account-menu`, `find-file`, `handoff`, `review-diff`, `ledger-week`, `settings`,
   `quick-replies`, `sessions`. `config.js` holds accounts, contexts, fallback, `REPOS_ROOT`, skills and quick replies; `lib/` holds pure helpers with
   `node --test` coverage. Only the accounts copy reads `nextCommand()`, so each `relevo.<command>` runs once.
-- **hooks/relevo-labels.py** (in mods/relevo): the optional Claude hook behind the `agent.*` labels, reading the
-  account from `config.js`. `--check`, `--install` and `--uninstall` change only the `hooks` key of each account's
+- **hooks/relevo-labels.sh** (in mods/relevo): the optional Claude hook behind the `agent.*` labels, in bash with one
+  `jq`, reading the account from `config.js`; a session end only clears labels. `--check`, `--install` and `--uninstall` change only the `hooks` key of each account's
   settings, with a backup; `HOOK.md` is the runbook for an agent.
 - **Why an agent waits**: `reasonOf` gives at most 40 characters from the screen or, when that says nothing, the
   agent's report: `Run: <first line> · +N lines`, `Edit: <file>`, `Fetch: <url>`, `Plan to approve`, its question or
@@ -258,6 +261,8 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   changed on disk is never overwritten silently; files of 1 MiB or more, binaries and truncated previews stay
   read-only. Trash is `/usr/bin/trash`; the tree follows renames and new files through shared
   `relevo-files.event`.
+- **mods/relevo-tabs**: Herdr's tabs 0.1.13 without its memory of the side panel per space, so the panel stays
+  open or shut whichever space you go to.
 - **Community mods**: space-folders (jankeesvw, tested at `cb83ff4`) and issues (jankeesvw).
 - **herdr**: `agents`, `panes`, `spaces`, `terminals`, `focused`, `layout`, `shared`/`setShared`, `exec`, `run`,
   `notify`, `openOverlay`, `playSound`, `readTextFile`, `writeTextFile`, `watchFolder`, `nextCommand`, `window`; commands `tab.new`, `space.new`,

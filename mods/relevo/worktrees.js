@@ -54,7 +54,8 @@ async function mergedBranches(main, force) {
 
 export async function scanWorktrees(force = false) {
   const list = parse((await exec("sh", ["-c", LIST, "sh", `${home()}/${ROOT}`])).stdout).filter((w) => !w.missing);
-  const open = new Set([...spaces().map((s) => s.folder), ...panes().map((p) => p.cwd)].filter(Boolean));
+  const spaceList = spaces();
+  const open = new Set([...spaceList.map((s) => s.folder), ...panes().map((p) => p.cwd)].filter(Boolean));
   const merged = {};
   for (const main of new Set(list.map((w) => w.main))) merged[main] = await mergedBranches(main, force);
   const touched = new Map((await exec("sh", ["-c", TOUCHED, "sh", ...list.map((w) => w.path)])).stdout
@@ -63,7 +64,7 @@ export async function scanWorktrees(force = false) {
     w.at = Number(touched.get(w.path)) || 0;
     w.repo = w.main.split("/").pop();
     w.name = w.path.split("/").pop();
-    w.space = spaces().find((s) => !s.machine && s.folder === w.path)?.id ?? null;
+    w.space = spaceList.find((s) => !s.machine && s.folder === w.path)?.id ?? null;
     w.open = [...open].some((p) => p === w.path || p.startsWith(`${w.path}/`));
     w.merged = Boolean(w.branch && merged[w.main].has(w.branch));
     if (w.merged) {

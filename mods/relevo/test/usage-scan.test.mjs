@@ -12,7 +12,7 @@ import {
   plan, prune, reportOf, seenSet,
 } from "../lib/usage-scan.js";
 
-const { UsageScanner, AGENT_CONTEXT, publishContext } = await import("../usage-scan.js");
+const { UsageScanner, AGENT_CONTEXT, ContextWatch } = await import("../usage-scan.js");
 
 const sh = (script, ...args) => execFileSync("sh", ["-c", script, "sh", ...args]).toString();
 const stamp = (hoursAgo = 0) => new Date(Date.now() - hoursAgo * 3600000).toISOString();
@@ -216,7 +216,48 @@ test("each live agent's context is published from its transcript", async () => {
   const { projects } = realHome();
   const f = join(projects, "a.jsonl");
   writeFileSync(f, line(1, stamp(), { write: 10 }));
-  fake.terminals = [{ address: "t1", state: "live", labels: { "agent.transcript": f } }];
-  await publishContext();
+  fake.terminals = [{ address: "t1", state: "live", turn: 1, labels: { "agent.transcript": f } }];
+  const watch = new ContextWatch();
+  await watch.tick();
   assert.equal(fake.stored[AGENT_CONTEXT].t1.context, 16);
+});
+
+test("a resting agent's transcript is read again only after a turn, and nothing behind other apps", async () => {
+  const { projects } = realHome();
+  const f = join(projects, "a.jsonl");
+  writeFileSync(f, line(1, stamp(), { write: 10 }));
+  fake.terminals = [{ address: "t1", state: "live", turn: 1, labels: { "agent.transcript": f } }];
+  fake.agents = [{ address: "t1", status: "idle" }];
+  const watch = new ContextWatch(), reads = () => fake.execs.filter((l) => l.startsWith("sh -c") && l.includes(f)).length;
+  await watch.tick();
+  await watch.tick();
+  assert.equal(reads(), 1);
+  fake.terminals[0].turn = 2;
+  await watch.tick();
+  assert.equal(reads(), 2);
+  fake.agents[0].status = "working";
+  fake.window = { active: false };
+  await watch.tick();
+  assert.equal(reads(), 2);
+  fake.window = { active: true };
+  await watch.tick();
+  assert.equal(reads(), 3);
+  assert.equal(fake.stored[AGENT_CONTEXT].t1.context, 16);
+});
+
+test("a token read that found nothing new writes no report and redraws nothing", async () => {
+  const { projects } = realHome();
+  writeFileSync(join(projects, "a.jsonl"), line(1, stamp()));
+  const scanner = new UsageScanner();
+  await scanner.scan();
+  const written = fake.stored["relevo.usage"].updated;
+  const writes = [];
+  const realWrite = fake.write;
+  fake.write = (path, body) => {
+    writes.push(path);
+    return realWrite(path, body);
+  };
+  await scanner.scan();
+  assert.deepEqual(writes, []);
+  assert.equal(fake.stored["relevo.usage"].updated, written);
 });

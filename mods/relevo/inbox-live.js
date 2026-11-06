@@ -53,6 +53,7 @@ export class LiveViews {
   // A waiting agent moves to the next question of a form without changing status, so while it waits its
   // screen is read again every few seconds and the card follows it. A read stuck past FOLLOW_STUCK is let go.
   followPrompts(cx) {
+    if (window()?.active === false) return;
     const at = Date.now();
     if (at - (this.followedAt ?? 0) < (this.following ? FOLLOW_STUCK : FOLLOW_EVERY)) return;
     const waiting = (this.local ?? []).filter((i) => i.kind === "blocked" && !this.sending(i.agent.address));

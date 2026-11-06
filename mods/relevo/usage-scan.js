@@ -1,6 +1,6 @@
 // Reads token usage from Claude's and Codex's transcripts into a saved state, a range of bytes at a time, so
 // the first read of months of files spreads over many short commands and later reads only take what was added.
-import { exec, home, readTextFile, writeTextFile, setShared, terminals, shared } from "herdr";
+import { agents, exec, home, readTextFile, writeTextFile, setShared, terminals, shared, window } from "herdr";
 import { ACCOUNTS } from "./accounts.js";
 import {
   AWK, CLAUDE_SCAN, CODEX_SCAN, CONTEXT_SCAN, LIST, addClaude, addCodex, contextOf, cutDay, emptyState, parseList,
@@ -13,6 +13,7 @@ export const REPORT = `${DIR}/report.json`;
 export const USAGE = "relevo.usage";
 export const AGENT_CONTEXT = "relevo.agentContext";
 const SAVE_EVERY = 5;
+const PROGRESS_EVERY = 1000;
 
 // writeTextFile only replaces what it was given, so each file remembers what it last read or wrote.
 class Saved {
@@ -132,11 +133,14 @@ export class UsageScanner {
           addClaude(this.state, this.seen, file, { account: account.get(file.path), kind, project: (cwd) => this.project(cwd), cut });
           this.state.files[file.path].kind = kind;
         }
-        setShared(USAGE, { ...(shared(USAGE) ?? {}), done: i + 1, total: batches.length });
+        if (Date.now() - (this.progressAt ?? 0) >= PROGRESS_EVERY || i + 1 === batches.length) {
+          this.progressAt = Date.now();
+          setShared(USAGE, { ...(shared(USAGE) ?? {}), done: i + 1, total: batches.length });
+        }
         if ((i + 1) % SAVE_EVERY === 0) await this.save();
       }
-      prune(this.state, cut, new Set(listed.keys()));
-      await this.save(true);
+      // Nothing read and nothing aged out: the saved report is still right, and a write would redraw every mod.
+      if (prune(this.state, cut, new Set(listed.keys())) || batches.length || !this.files.report.text) await this.save(true);
     } finally {
       this.busy = false;
     }
@@ -159,17 +163,44 @@ export async function readReport() {
   }
 }
 
-// Each live agent's model, context and cache life, from the end of its transcript, for the agents list.
-export async function publishContext() {
-  const paths = new Map(terminals().filter((k) => k.state === "live" && k.labels?.["agent.transcript"])
-    .map((k) => [k.address, k.labels["agent.transcript"]]));
-  let next = null;
-  if (paths.size) {
-    const r = await exec("sh", ["-c", CONTEXT_SCAN, "sh", AWK, ...new Set(paths.values())]).catch(() => null);
-    if (!r) return;
-    const found = new Map(parseScan(r.stdout).map((f) => [f.path, contextOf(f)]));
-    next = {};
-    for (const [address, path] of paths) if (found.get(path)) next[address] = found.get(path);
+// Each live agent's model, context and cache life, from the end of its transcript, for the agents list. Only a
+// transcript whose agent worked or took a turn since the last read is read again; the others keep their values.
+export class ContextWatch {
+  constructor() {
+    // address -> "path|turn" when last read
+    this.read = new Map();
   }
-  if (JSON.stringify(next) !== JSON.stringify(shared(AGENT_CONTEXT) ?? null)) setShared(AGENT_CONTEXT, next);
+
+  async tick() {
+    if (this.busy || window()?.active === false) return;
+    this.busy = true;
+    try {
+      await this.publish();
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  async publish() {
+    const live = terminals().filter((k) => k.state === "live" && k.labels?.["agent.transcript"]);
+    const working = new Set(agents().filter((a) => a.status === "working").map((a) => a.address));
+    const sign = (k) => `${k.labels["agent.transcript"]}|${k.turn ?? ""}`;
+    const stale = live.filter((k) => working.has(k.address) || this.read.get(k.address) !== sign(k));
+    const before = shared(AGENT_CONTEXT) ?? {}, next = {};
+    for (const k of live) if (before[k.address] && !stale.includes(k)) next[k.address] = before[k.address];
+    if (stale.length) {
+      const paths = [...new Set(stale.map((k) => k.labels["agent.transcript"]))];
+      const r = await exec("sh", ["-c", CONTEXT_SCAN, "sh", AWK, ...paths]).catch(() => null);
+      if (!r) return;
+      const found = new Map(parseScan(r.stdout).map((f) => [f.path, contextOf(f)]));
+      for (const k of stale) {
+        const c = found.get(k.labels["agent.transcript"]);
+        if (c) next[k.address] = c;
+        this.read.set(k.address, sign(k));
+      }
+    }
+    for (const address of this.read.keys()) if (!live.some((k) => k.address === address)) this.read.delete(address);
+    const value = Object.keys(next).length ? next : null;
+    if (JSON.stringify(value) !== JSON.stringify(shared(AGENT_CONTEXT) ?? null)) setShared(AGENT_CONTEXT, value);
+  }
 }

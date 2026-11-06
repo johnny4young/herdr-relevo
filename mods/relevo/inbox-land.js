@@ -8,7 +8,7 @@ import { localBranch } from "./lib/prmenu.js";
 import { ago } from "./lib/time.js";
 import { scanWorktrees, removalCheck, removeWorktree } from "./worktrees.js";
 import { headOf, logRemoval } from "./worktree-actions.js";
-import { button, sectionHeader } from "./ui.js";
+import { button, sectionHeader, foldRow } from "./ui.js";
 
 export const LANDING = "relevo.landing";
 const TICK_MS = 20000;
@@ -22,14 +22,15 @@ export class LandViews {
   }
 
   landing() {
-    return shared(LANDING) ?? {};
+    return this.snap?.landing ?? shared(LANDING) ?? {};
   }
 
+  // Every shared write redraws every mod, so a poll that found the same state writes nothing.
   setLanding(url, entry) {
-    const next = { ...this.landing() };
+    const now = shared(LANDING) ?? {}, next = { ...now };
     if (entry) next[url] = { ...next[url], ...entry };
     else delete next[url];
-    setShared(LANDING, next);
+    if (JSON.stringify(next) !== JSON.stringify(now)) setShared(LANDING, next);
   }
 
   // The first click arms the button, a second within ARM_MS lands.
@@ -79,7 +80,7 @@ export class LandViews {
   }
 
   async landTick(cx) {
-    if (this.landBusy) return;
+    if (this.landBusy || !Object.keys(this.landing()).length) return;
     this.landBusy = true;
     try {
       const now = Date.now() / 1000;
@@ -179,14 +180,7 @@ export class LandViews {
     return [
       ...(open.length ? [sectionHeader(t, "LANDING", open.length), ...open.map(([url, e]) => this.landCard(t, url, e))] : []),
       ...(landed.length
-        ? [div().id("landed").px(4).py(2).flex().items_center().gap(5).text_size(11).text_color(t.dim).cursor_pointer()
-          .hover((s) => s.text_color(t.muted))
-          .on_click((_e, cx) => {
-            this.expanded["landed"] = !shown;
-            cx.notify();
-          })
-          .child(`${shown ? "▾" : "▸"} ${landed.length} landed`)
-          .child(div().size(6).rounded_full().bg(t.ansi5))]
+        ? [foldRow(this, t, "landed", "landed", `${landed.length} landed`, { after: div().size(6).rounded_full().bg(t.ansi5) })]
         : []),
       ...(shown ? landed.map(([url, e]) => this.landCard(t, url, e)) : []),
     ];
