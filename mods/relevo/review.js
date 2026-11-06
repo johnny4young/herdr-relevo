@@ -1,6 +1,6 @@
 import { div, list } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, Scrollbar } from "gpui-base";
-import { theme, exec, run, agents, panes, focused, props, settings, notify, shared, setShared } from "herdr";
+import { theme, exec, run, agents, panes, focused, props, settings, notify, shared, setShared, window } from "herdr";
 import { focusedCwd } from "./panelbar.js";
 import { button } from "./ui.js";
 import { ago } from "./lib/time.js";
@@ -23,9 +23,27 @@ const VIEWED = "relevo.review.viewed";
 // the index's time, which git needs to notice a same-size edit made in the second the index was written.
 const SNAPSHOT = 'i=$(mktemp) || exit 1; cp -p "$(git rev-parse --git-path index)" "$i" 2>/dev/null || rm -f "$i"; '
   + 'GIT_INDEX_FILE="$i" git add -A . >/dev/null 2>&1 && GIT_INDEX_FILE="$i" git write-tree; s=$?; rm -f "$i"; exit $s';
-// Each file's content hash, from a tree or commit when given, else from the working tree; "-" when absent.
-const HASHES = 'r=$1; shift; for f; do if [ -n "$r" ]; then git rev-parse -q --verify "$r:$f" 2>/dev/null || echo -; '
-  + 'else git hash-object -- "$f" 2>/dev/null || echo -; fi; done';
+// Each file's content hash in one git call: from a tree or commit when given (ls-tree), else from the working
+// tree (hash-object on the files that exist, listed first so the hashes can be matched to them).
+const HASHES = 'r=$1; shift; if [ -n "$r" ]; then git ls-tree -r -z "$r" -- "$@"; else '
+  + 'e=$(for f; do [ -f "$f" ] && printf "%s\n" "$f"; done); printf "%s\n--\n" "$e"; '
+  + '[ -n "$e" ] && printf "%s\n" "$e" | git hash-object --stdin-paths; fi';
+
+// "path -> hash" from HASHES's answer; a path it doesn't name is gone, "-".
+export function parseHashes(out, ref) {
+  const map = new Map();
+  if (ref) {
+    for (const entry of out.split("\0")) {
+      const m = /^\d+ \w+ ([0-9a-f]+)\t([\s\S]+)$/.exec(entry);
+      if (m) map.set(m[2], m[1]);
+    }
+    return map;
+  }
+  const [names = "", sums = ""] = out.split("\n--\n");
+  const paths = names.split("\n").filter(Boolean), hashes = sums.split("\n").filter(Boolean);
+  paths.forEach((p, i) => hashes[i] && map.set(p, hashes[i]));
+  return map;
+}
 const MAX_HASHED = 300;
 // A ref keeps the seen tree from git's garbage collection.
 const seenRef = (key) => {
@@ -82,8 +100,9 @@ export class ReviewDiff {
     this.input.on("submit", (_e, cx) => this.save(cx));
     if (this.root) this.load(cx);
     // The agent keeps working while you read; pick up its changes unless you are typing.
+    // Behind another app nobody reads it, so it waits until the window is back.
     cx.timer.every(10000, (cx) => {
-      if (this.editing === null && !this.loading) this.load(cx);
+      if (this.editing === null && !this.loading && window()?.active !== false) this.load(cx);
     });
     // The split focuses the new pane, which is how this view learns its own id.
     cx.timer.after(300, () => {
@@ -153,9 +172,9 @@ export class ReviewDiff {
     if (scope !== this.scope) return;
     const files = [...tracked, ...untracked];
     const hashed = files.slice(0, MAX_HASHED).map((f) => f.path);
-    const sums = hashed.length ? (await exec("sh", ["-c", HASHES, "sh", this.to ?? "", ...hashed], { cwd: this.root })).stdout.split("\n") : [];
-    this.hashes = new Map(hashed.map((p, i) => [p, sums[i] || "-"]));
-    const sign = JSON.stringify([files, sums]);
+    const found = hashed.length ? parseHashes((await exec("sh", ["-c", HASHES, "sh", this.to ?? "", ...hashed], { cwd: this.root })).stdout, this.to) : new Map();
+    this.hashes = new Map(hashed.map((p) => [p, found.get(p) ?? "-"]));
+    const sign = JSON.stringify([files, [...this.hashes.values()]]);
     if (sign !== this.filesSign) {
       this.filesSign = sign;
       this.files = files;

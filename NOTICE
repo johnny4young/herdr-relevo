@@ -10,5 +10,9 @@ mods/relevo-files is derived from the `files` mod that ships with Herdr
 file, New folder, Rename, Move to Trash, Reveal in Finder, Copy path, Copy
 relative path), editing with ⌘S, and a file view in its own pane.
 
+mods/relevo-tabs is derived from the `tabs` mod that ships with Herdr
+(Apache License 2.0). Changes: it no longer remembers the side panel per
+space, so switching spaces leaves the panel open or closed.
+
 mods/relevo/spinner.svg comes from Herdr's `workspace-chrome` mod
 (Apache License 2.0), unchanged.

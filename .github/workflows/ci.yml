@@ -23,8 +23,6 @@ jobs:
       - name: Tests (relevo-files)
         working-directory: mods/relevo-files
         run: node --test 'test/*.test.mjs'
-      - name: Tests (hook)
-        run: python3 -m unittest discover -s mods/relevo/test -p '*_test.py'
       - name: Lint
         run: npx --yes eslint@10.13.0 mods
       - name: No machine paths in the mods

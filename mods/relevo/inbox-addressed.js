@@ -1,7 +1,7 @@
 // Marking a local card addressed. Mixed into Inbox, so `this` is the Inbox.
-import { div } from "gpui-kit";
 import { exec, notify, terminals } from "herdr";
 import { ADDRESSED_LABEL, addressedValue, staleAddressed } from "./lib/addressed.js";
+import { foldRow } from "./ui.js";
 
 export class LocalAddressed {
   // A label takes a moment to come back from the core; until then `labelling` answers ("" = removed).
@@ -43,16 +43,9 @@ export class LocalAddressed {
 
   addressedFold(t, key, done, draw) {
     if (!done.length) return [];
-    const shown = this.expanded[`${key}-done`];
     return [
-      div().id(`addressed-${key}`).px(4).py(2).text_size(11).text_color(t.dim).cursor_pointer()
-        .hover((s) => s.text_color(t.muted))
-        .on_click((_e, cx) => {
-          this.expanded[`${key}-done`] = !shown;
-          cx.notify();
-        })
-        .child(`${shown ? "▾" : "▸"} ${done.length} addressed`),
-      ...(shown ? done.map(draw) : []),
+      foldRow(this, t, `addressed-${key}`, `${key}-done`, `${done.length} addressed`),
+      ...(this.expanded[`${key}-done`] ? done.map(draw) : []),
     ];
   }
 }

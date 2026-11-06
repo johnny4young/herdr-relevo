@@ -25,7 +25,7 @@ export function launchSkill(pr, skill, account, folder) {
     launchInRepo({ repo: pr.repo, folder, tab, account, prompt });
     return null;
   }
-  return openPrSession(pr, folder, account, { prompt, tab }).then((error) => {
+  return openPrSession(pr, folder, account, { prompt, tab, purpose: "resolve conflicts" }).then((error) => {
     if (!error) return;
     const { [pr.url]: _, ...rest } = launched();
     setShared(LAUNCHED, rest);

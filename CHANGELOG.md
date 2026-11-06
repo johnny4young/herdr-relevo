@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.3 · 2026-11-05
+
+- **The Inbox leads with what waits on you.** Sections now run: waiting on you, In Desktop, landing, review requests, your PRs, uncommitted work. Review requests come before your PRs, since a teammate is blocked on them. Agent time folds to "▸ Agent time today · 5h 20m" with **Week** on the line, and merged worktrees to "▸ N merged worktrees" with **Remove N** on the line. A merged worktree with uncommitted files stays in sight, and so does the one a merge alert brings you to. Folds you open stay open after a reload.
+- **The summary matches the list.** The reviews and your PRs tiles count only the last 45 days, like their sections; older PRs still fold under "▸ N older than 45 days".
+- **The side panel stays as you left it.** Herdr's tabs remembered the side panel per space, so going to an agent in another space opened or closed the Inbox. The layout now uses **relevo-tabs**, Herdr's tabs without that memory. Copy `mods/relevo-tabs` and the layout when you update.
+- **PR sessions you can tell apart.** A session opened from a PR card gets a space named after it, like "app #108 · resolve conflicts". **resolve conflicts** now watches the PR's checks after pushing and fixes what the merge broke until they pass.
+- **A lighter Relevo.** Fewer processes per scan, fewer redraws across mods, the Tokens scan writes only when something changed, and the Files panel stops polling a folder it already watches.
+- **The hook runs in bash.** `relevo-labels.sh` replaces the Python hook, with `jq` (in macOS 15 and later). It takes about a third of the time and a session end only clears labels. If you set up the hook before, run `bash ~/.config/herdr-app/mods/relevo/hooks/relevo-labels.sh --install`: it replaces the old command in each account's settings.
+
 ## 0.6.2 · 2026-11-05
 
 - **A receipt for each turn.** When a Herdr agent or a Claude Desktop session stops working, Relevo adds up what that turn took: new context, output and the subagents it started. A turn over 5M gets an alert saying how much went to subagents, and **Tokens** lists the day's five heaviest turns.

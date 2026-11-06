@@ -52,6 +52,13 @@ export class AwayViews {
 
   // Rows in screen order, shared by the card and the keyboard.
   awayItems() {
+    if (this.snap?.away) return this.snap.away;
+    const items = this.buildAway();
+    if (this.snap) this.snap.away = items;
+    return items;
+  }
+
+  buildAway() {
     const d = this.digest;
     if (!d) return [];
     const live = new Map(agents().map((a) => [a.address, a])), pane = new Map(panes().map((p) => [p.pane, p]));

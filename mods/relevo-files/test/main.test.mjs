@@ -82,3 +82,26 @@ test("git status is asked for the files inside a new folder", async () => {
   await open({ dirty: false });
   assert.ok(seen.some((a) => a.includes("--untracked-files=all")));
 });
+
+test("a watched local folder isn't read on a timer; a new folder, or an unwatched one in front, is", async () => {
+  const { fakeCx } = await import("../../relevo/test/fake/ui.mjs");
+  const { Files } = await import("../main.js");
+  resetFake();
+  fake.spaces = [{ id: "s1", active: true, folder: "/work/app", machine: null }];
+  const files = new Files(), cx = fakeCx(), reads = [];
+  files.refresh = () => reads.push(1);
+  files.tick(cx);
+  assert.equal(reads.length, 1);
+  files.context = { key: JSON.stringify({ cwd: "/work/app", on: null, space: "s1" }) };
+  files.watched = "/work/app";
+  files.readAt = 0;
+  files.tick(cx);
+  assert.equal(reads.length, 1);
+  files.watched = null;
+  fake.window = { active: false };
+  files.tick(cx);
+  assert.equal(reads.length, 1);
+  fake.window = { active: true };
+  files.tick(cx);
+  assert.equal(reads.length, 2);
+});

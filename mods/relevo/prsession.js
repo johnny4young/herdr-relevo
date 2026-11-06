@@ -2,7 +2,7 @@
 import { exec, home, run, spaces, notify } from "herdr";
 import { ACCOUNTS, accountOf, launchArgv } from "./accounts.js";
 import { checkoutOf } from "./worktrees.js";
-import { parseUses, worktreePath, localBranch, checkoutArgs, sessionPrompt } from "./lib/prmenu.js";
+import { parseUses, worktreePath, localBranch, checkoutArgs, sessionPrompt, sessionSpaceName } from "./lib/prmenu.js";
 
 const HOUR = 3600 * 1000;
 let uses = null;
@@ -20,7 +20,7 @@ export async function skillUses() {
 // gh pr checkout fetches the branch, forks included. Resolves to an error message, or null.
 // Never for someone else's fork: an agent there could run its code, and no launch flag makes that safe.
 // `prompt` and `tab` replace the get-familiar prompt and the account-lettered tab name.
-export async function openPrSession(pr, clone, account, { prompt = null, tab: name = null } = {}) {
+export async function openPrSession(pr, clone, account, { prompt = null, tab: name = null, purpose = null } = {}) {
   if (pr.untrusted) return "Someone else's fork: check it out yourself";
   const branch = localBranch(pr);
   let path = await checkoutOf(clone, branch);
@@ -39,6 +39,6 @@ export async function openPrSession(pr, clone, account, { prompt = null, tab: na
   // Unnamed, like the worktree mod's spaces, so it follows the folder and nests under the repo.
   const space = spaces().find((s) => !s.machine && s.folder === path);
   if (space) run("tab.new", { space: space.id, name: tab, folder: path, argv });
-  else run("space.new", { folder: path, tab, argv });
+  else run("space.new", { name: sessionSpaceName(pr, purpose), folder: path, tab, argv });
   return null;
 }

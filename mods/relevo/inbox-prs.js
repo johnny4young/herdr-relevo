@@ -7,7 +7,7 @@ import { contextFor } from "./context.js";
 import { reviewAlerts, prAlerts, mergedAlert } from "./alerts.js";
 import { REPOS_ROOT } from "./config.js";
 import { LAUNCHED, SKILLS, launched, launchSkill } from "./skills.js";
-import { button, sectionHeader, spinner, withKey } from "./ui.js";
+import { button, sectionHeader, spinner, withKey, foldRow } from "./ui.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
@@ -24,6 +24,11 @@ const contextKey = (repo) => contextFor(repo).key;
 const STUCK_MS = 120000;
 
 export class PrViews {
+  // Launched skills, read once per render.
+  launchedMap() {
+    return this.snap?.launched ?? launched();
+  }
+
   loadAddressed(cx) {
     cx.spawn(async (cx) => {
       try {
@@ -125,8 +130,8 @@ export class PrViews {
     for (const s of shared(DESKTOP) ?? []) live.add(desktopKey(s));
     const marks = keepListed(this.addressed, live);
     if (Object.keys(marks).length !== Object.keys(this.addressed).length) this.saveAddressed(marks);
-    const kept = Object.entries(launched()).filter(([url]) => live.has(url));
-    if (kept.length !== Object.keys(launched()).length) setShared(LAUNCHED, Object.fromEntries(kept));
+    const kept = Object.entries(this.launchedMap()).filter(([url]) => live.has(url));
+    if (kept.length !== Object.keys(this.launchedMap()).length) setShared(LAUNCHED, Object.fromEntries(kept));
     reviewAlerts(this.requested, contextKey);
     this.publish();
   }
@@ -266,7 +271,7 @@ export class PrViews {
   }
 
   agentLine(pr, agent) {
-    const l = launched()[pr.url], name = SKILLS[l.skill].name, bg = this.backgroundOf(agent);
+    const l = this.launchedMap()[pr.url], name = SKILLS[l.skill].name, bg = this.backgroundOf(agent);
     if (!agent) return `${name} ran ${ago(l.at)}`;
     if (agent.status === "working") return `${name} working…`;
     if (bg !== null && agent.status !== "blocked") return `${name} waiting in the background${bg ? ` · ${bg}` : ""}`;
@@ -275,7 +280,7 @@ export class PrViews {
   }
 
   prCard(t, pr, requested, addressed = false) {
-    const l = launched()[pr.url], agent = this.prAgents[pr.url], seen = this.seen(pr), busy = Boolean(l) && this.prBusy(pr);
+    const l = this.launchedMap()[pr.url], agent = this.prAgents[pr.url], seen = this.seen(pr), busy = Boolean(l) && this.prBusy(pr);
     const meta = requested ? `review requested · ${pr.author?.login ?? ""}` : pr.reasons.join(" · ");
     const done = Boolean(l && seen) && (!agent || agent.status === "idle" || agent.status === "done");
     const openPR = button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url]), {
@@ -352,37 +357,17 @@ export class PrViews {
     const fresh = list.filter(recent), old = list.filter((p) => !recent(p)), open = this.expanded[key];
     const rows = [sectionHeader(t, label, fresh.length), ...fresh.map((p) => this.prCard(t, p, requested))];
     if (old.length) {
-      rows.push(div().id(`older-${key}`).px(4).py(2).text_size(11).text_color(t.dim).cursor_pointer()
-        .hover((s) => s.text_color(t.muted))
-        .on_click((_e, cx) => {
-          this.expanded[key] = !open;
-          cx.notify();
-        })
-        .child(`${open ? "▾" : "▸"} ${old.length} older than 45 days`));
+      rows.push(foldRow(this, t, `older-${key}`, key, `${old.length} older than 45 days`));
       if (open) rows.push(...old.map((p) => this.prCard(t, p, requested)));
     }
     if (ready.length) {
-      const shown = this.expanded[`${key}-ready`];
-      rows.push(div().id(`ready-${key}`).px(4).py(2).text_size(11).text_color(t.dim).cursor_pointer()
-        .hover((s) => s.text_color(t.muted))
-        .on_click((_e, cx) => {
-          this.expanded[`${key}-ready`] = !shown;
-          cx.notify();
-        })
-        .child(`${shown ? "▾" : "▸"} ${ready.length} ready to merge`));
-      if (shown) rows.push(...ready.map((p) => this.prCard(t, p, requested)));
+      rows.push(foldRow(this, t, `ready-${key}`, `${key}-ready`, `${ready.length} ready to merge`));
+      if (this.expanded[`${key}-ready`]) rows.push(...ready.map((p) => this.prCard(t, p, requested)));
     }
     const drafts = requested ? [] : this.drafts ?? [];
     if (drafts.length) {
-      const shown = this.expanded[`${key}-drafts`];
-      rows.push(div().id(`drafts-${key}`).px(4).py(2).text_size(11).text_color(t.dim).cursor_pointer()
-        .hover((s) => s.text_color(t.muted))
-        .on_click((_e, cx) => {
-          this.expanded[`${key}-drafts`] = !shown;
-          cx.notify();
-        })
-        .child(`${shown ? "▾" : "▸"} ${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"}`));
-      if (shown) rows.push(...drafts.map((p) => this.draftCard(t, p)));
+      rows.push(foldRow(this, t, `drafts-${key}`, `${key}-drafts`, `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"}`));
+      if (this.expanded[`${key}-drafts`]) rows.push(...drafts.map((p) => this.draftCard(t, p)));
     }
     rows.push(...this.addressedFold(t, key, done, (p) => this.prCard(t, p, requested, true)));
     return rows;

@@ -9,10 +9,15 @@ export const LEDGER = ".local/state/relevo/ledger.jsonl";
 const OPEN = "relevo.ledger.open";
 const JIRA = /\b([A-Z][A-Z0-9]+-\d+)\b/;
 
+// readTextFile stops at 1 MiB, so past ROTATE_AT the older half of the lines moves to ledger.old.jsonl.
+export const APPEND = 'mkdir -p "$(dirname "$1")" && printf "%s\\n" "$2" >> "$1" && s=$(wc -c < "$1") && [ "$s" -gt "$3" ] || exit 0; '
+  + 'n=$(wc -l < "$1"); h=$((n / 2)); head -n "$h" "$1" >> "${1%.jsonl}.old.jsonl" && tail -n +$((h + 1)) "$1" > "$1.tmp" && mv "$1.tmp" "$1"';
+const ROTATE_AT = 786432;
+
 function append(entries) {
   if (!entries.length) return;
   const text = entries.map((e) => JSON.stringify(e)).join("\n");
-  return exec("sh", ["-c", 'mkdir -p "$(dirname "$1")" && printf "%s\\n" "$2" >> "$1"', "sh", `${home()}/${LEDGER}`, text]);
+  return exec("sh", ["-c", APPEND, "sh", `${home()}/${LEDGER}`, text, String(ROTATE_AT)]);
 }
 
 // Time goes to the repo, whichever worktree or subfolder the agent is in. Asked once per folder.
@@ -79,10 +84,16 @@ export async function agentTimeBetween(since, until) {
   return timeWithin(await rowsSince(since), since, until);
 }
 
-// Today's worked time per project, tickets included; only the week's table splits by ticket.
+// Today's worked time per project, tickets included; only the week's table splits by ticket. Kept TODAY_FOR, or
+// until a stretch opens or closes.
+let todayKept = null;
+const TODAY_FOR = 30000;
 export async function today() {
-  const since = new Date().setHours(0, 0, 0, 0) / 1000;
-  return totals((await rowsSince(since)).map((r) => ({ ...r, jira: null })), since);
+  const since = new Date().setHours(0, 0, 0, 0) / 1000, key = `${since}|${Object.keys(shared(OPEN) ?? {}).sort().join(",")}`;
+  if (todayKept?.key === key && Date.now() - todayKept.at < TODAY_FOR) return todayKept.value;
+  const value = totals((await rowsSince(since)).map((r) => ({ ...r, jira: null })), since);
+  todayKept = { key, at: Date.now(), value };
+  return value;
 }
 
 // Seven days from Monday, `offset` weeks back or ahead of this one.

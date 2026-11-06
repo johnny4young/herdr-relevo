@@ -2,7 +2,7 @@
 // Derived from the `files` mod that ships with Herdr (Apache-2.0).
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, props, shared } from "herdr";
+import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, props, shared, window } from "herdr";
 import { FileEditor } from "./editor.js";
 import { FileMenu, NameDialog, openMenu } from "./actions.js";
 import { FileView } from "./view.js";
@@ -31,7 +31,14 @@ export class Files {
     this.saved = new Map();
     this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {};
     this.refresh(cx);
-    cx.timer.every(10000, cx => this.refresh(cx));
+    cx.timer.every(2000, cx => this.tick(cx));
+  }
+
+  // A new folder in focus is read at once. A local one that's watched is read again when the watch says it
+  // changed; a remote one, or one the watch couldn't take, every 10 s while the window is in front.
+  tick(cx) {
+    if (key() !== this.context?.key) return this.refresh(cx);
+    if ((this.on || !this.watched) && window()?.active !== false && Date.now() - (this.readAt ?? 0) >= 10000) this.refresh(cx);
   }
 
   watch(root, cx) {
@@ -39,7 +46,8 @@ export class Files {
     this.watched = root;
     const context = this.context;
     cx.spawn(async cx => {
-      try { while (this.context === context) { await watchFolder(root); if (this.current(context)) this.refresh(cx); } }
+      // A write is many events; reading after the burst saves a git status per event.
+      try { while (this.context === context) { await watchFolder(root); await cx.sleep(1500); if (this.current(context)) this.refresh(cx); } }
       catch { if (this.context === context) this.watched = null; }
     });
   }
@@ -69,6 +77,7 @@ export class Files {
       if (saved?.file) this.show(saved.file, cx);
     }
     if (!cwd || this.loading) return;
+    this.readAt = Date.now();
     const context = this.context;
     this.loading = true;
     this.limited = false;

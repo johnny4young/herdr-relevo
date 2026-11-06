@@ -113,7 +113,7 @@
               "type": "block",
               "window_drag": true,
               "content": {
-                "mod": "tabs"
+                "mod": "relevo-tabs"
               }
             },
             {

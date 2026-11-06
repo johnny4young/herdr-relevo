@@ -2,7 +2,7 @@
 import "./fake/register.mjs";
 import { test, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { fake, resetFake, calls, changeFolder, watched } from "./fake/herdr.mjs";
+import { fake, resetFake, calls, changeFolder, watched, theme } from "./fake/herdr.mjs";
 import { fakeCx, find, text, click, flush, spinners } from "./fake/ui.mjs";
 
 const { Inbox } = await import("../inbox.js");
@@ -965,4 +965,38 @@ test("a waiting card follows the agent to its next question without a status cha
   inbox.followPrompts(cx);
   await flush();
   assert.equal(calls(/^hc read t1/).length, reads);
+});
+
+test("open folds are kept for the next Inbox; a card's extra lines are not", async () => {
+  const { inbox, cx, ui } = await open();
+  assert.match(text(find(ui(), "today-time")), /▸ Agent time today/);
+  inbox.expanded["more-x"] = true;
+  click(find(ui(), "today-time"), cx);
+  assert.deepEqual(fake.stored["relevo.inbox.folds"], { today: true });
+  const next = await open();
+  assert.equal(next.inbox.expanded.today, true);
+  assert.equal(next.inbox.expanded["more-x"], undefined);
+});
+
+test("the keyboard goes through review requests, then your PRs, then uncommitted work", () => {
+  const inbox = new Inbox(), now = new Date().toISOString();
+  inbox.expanded = {};
+  const ids = inbox.navItems({
+    local: [{ kind: "diff", agent: { address: "t1" }, top: "/r" }], desktop: [], ready: [], worktrees: [],
+    mine: [{ url: "mine", updatedAt: now }], requested: [{ url: "theirs", updatedAt: now }],
+  }).map((i) => i.id);
+  assert.deepEqual(ids, ["pr-theirs", "pr-mine", "in-t1"]);
+});
+
+test("the summary counts the PRs its sections show, not the ones folded as older than 45 days", () => {
+  const inbox = new Inbox(), now = new Date().toISOString(), old = "2020-01-01T00:00:00Z";
+  inbox.expanded = {};
+  const v = {
+    local: [], desktop: [], ready: [],
+    mine: [{ url: "m1", updatedAt: now }, { url: "m2", updatedAt: old }],
+    requested: [{ url: "r1", updatedAt: old }],
+  };
+  const ui = inbox.summary(theme(), v, fakeCx());
+  assert.match(text(find(ui, "sum-reviews")), /^0/);
+  assert.match(text(find(ui, "sum-prs")), /^1/);
 });

@@ -1,6 +1,6 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { theme, run, focused, panes, setShared, notify, agents, terminals } from "herdr";
+import { theme, run, focused, panes, setShared, notify, agents, terminals, shared } from "herdr";
 import { AgentWatch, BackgroundWatch, quotaAlerts } from "./alerts.js";
 import { ACCOUNTS, CODEX, API_QUOTAS, launchArgv, chip, loadClaudeQuotas } from "./accounts.js";
 import { FOCUS, focus, publishSetup, contextOfPath } from "./context.js";
@@ -19,7 +19,7 @@ import { mostMargin } from "./lib/margin.js";
 import { ledgerTick } from "./ledger.js";
 import { spinner, withKey } from "./ui.js";
 import { openSettings } from "./settings.js";
-import { UsageScanner, publishContext } from "./usage-scan.js";
+import { UsageScanner, ContextWatch } from "./usage-scan.js";
 import { DesktopWatch } from "./desktop.js";
 import { TurnWatch } from "./turns.js";
 
@@ -44,6 +44,7 @@ export class Sidebar {
     this.watch = new BackgroundWatch();
     this.agentWatch = new AgentWatch();
     this.turns = new TurnWatch();
+    this.contexts = new ContextWatch();
     cx.timer.every(3000, (cx) => {
       this.watch.tick();
       this.agentWatch.tick();
@@ -64,7 +65,7 @@ export class Sidebar {
     this.readTokens(cx);
     cx.timer.every(300000, (cx) => this.readTokens(cx));
     cx.timer.every(20000, (cx) => cx.spawn(async () => {
-      await publishContext();
+      await this.contexts.tick();
     }));
   }
 
@@ -78,7 +79,8 @@ export class Sidebar {
   // The usage endpoints; the statusline also writes a snapshot while a session runs.
   collect(cx) {
     cx.spawn(async (cx) => {
-      setShared(API_QUOTAS, await collectQuotas());
+      const api = await collectQuotas();
+      if (JSON.stringify(api) !== JSON.stringify(shared(API_QUOTAS))) setShared(API_QUOTAS, api);
       Object.assign(this.quota, await loadClaudeQuotas());
       quotaAlerts(this.quota);
       cx.notify();
@@ -87,7 +89,9 @@ export class Sidebar {
 
   load(cx) {
     cx.spawn(async (cx) => {
+      const before = JSON.stringify(this.quota);
       Object.assign(this.quota, await loadClaudeQuotas());
+      if (this.loaded && JSON.stringify(this.quota) === before) return;
       this.loaded = true;
       cx.notify();
     });
