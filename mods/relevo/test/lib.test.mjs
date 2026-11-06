@@ -903,3 +903,13 @@ test("agentPRs: the PR it was started for wins over its branch; a fork's goes by
   assert.deepEqual(agentPRs([{ address: "t1", repo: "me/app", branch: "review-pr-5", head: "def" }], {}, atCommit), {});
   assert.deepEqual(agentPRs([{ address: "t1", repo: "you/app", branch: "x", head: "abc" }], {}, atCommit), {});
 });
+
+test("joinPRs: pages of your PRs, each once, with the rest of the answer", async () => {
+  const { joinPRs, mineQuery } = await import("../lib/github.js");
+  const page = (...urls) => ({ viewer: { pullRequests: { nodes: urls.map((url) => ({ url })) } } });
+  const data = joinPRs([page("a", "b"), page("b", "c")], { viewer: { login: "me", merged: { nodes: [{ url: "m" }] } }, search: { nodes: [{ url: "r" }] } });
+  assert.deepEqual(data.viewer.pullRequests.nodes.map((p) => p.url), ["a", "b", "c"]);
+  assert.deepEqual([data.viewer.login, data.viewer.merged.nodes.length, data.search.nodes.length], ["me", 1, 1]);
+  assert.match(mineQuery("Y3Vy"), /after: "Y3Vy"/);
+  assert.doesNotMatch(mineQuery(), /after:/);
+});

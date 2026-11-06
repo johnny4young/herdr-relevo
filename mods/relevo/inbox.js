@@ -32,6 +32,13 @@ import { isSettled } from "./lib/desktop.js";
 
 // How long a send waits for its dialog to go, in 250 ms reads.
 const SETTLE_TRIES = 8;
+// A send whose hc call never came back would hold the agent's turn, and every later click, for good.
+// Mods have no setTimeout, so the turn is let go by age rather than by a timer.
+const SEND_STALE = 20000;
+// How long a card says its question is a new one, after an answer brought it.
+const NEXT_FOR = 8000;
+const LOCAL_STUCK = 60000;
+const hc = (args) => exec("hc", args);
 // Lines of a command, diff or plan a card shows.
 const ASK_LINES = 8;
 // Why each waiting agent waits: address -> a short line, for the agents list.
@@ -77,6 +84,7 @@ export class Inbox {
     // A note to send right after the answer: address -> text.
     this.notes = new Map();
     this.answering = new Map();
+    this.nextAt = new Map();
     this.reply = InputState.new({ value: "", placeholder: "Reply · Enter sends, Esc cancels" });
     this.reply.on("submit", (_e, cx) => this.sendReply(cx));
     this.today = [];
@@ -176,7 +184,7 @@ export class Inbox {
   }
 
   publish(v = this.shown()) {
-    const open = (list) => list.filter((p) => recent(p) && !this.seen(p)).length;
+    const open = (list) => list.filter((p) => recent(p) && !this.seen(p) && !(launched()[p.url] && this.prBusy(p))).length;
     const n = v.local.length + v.desktop.filter((s) => s.state === "blocked").length + open(v.mine) + open(v.requested);
     if (shared(COUNT) !== n) setShared(COUNT, n);
     this.publishReasons();
@@ -200,8 +208,9 @@ export class Inbox {
     if (JSON.stringify(shared(REASONS) ?? {}) !== JSON.stringify(now)) setShared(REASONS, now);
   }
 
+  // A scan stuck on a call that never came back stops blocking the next one after LOCAL_STUCK.
   scanLocal(cx) {
-    if (this.scanning) {
+    if (this.scanning && Date.now() - this.localAt < LOCAL_STUCK) {
       this.again = true;
       return;
     }
@@ -253,7 +262,7 @@ export class Inbox {
           if (a.status === "blocked") {
             const at = since[`${a.address}:blocked`];
             if (this.prompts.get(a.address)?.since !== at) {
-              const screen = (await exec("hc", ["read", a.address, "--lines", "0"])).stdout;
+              const screen = (await hc(["read", a.address, "--lines", "0"])).stdout;
               const prompt = readPrompt(screen);
               this.prompts.set(a.address, { since: at, prompt, free: freeOption(prompt) });
             }
@@ -269,7 +278,7 @@ export class Inbox {
             const untracked = (await exec("git", [...GIT_READ, "ls-files", "--others", "--exclude-standard"], { cwd: top }))
               .stdout.split("\n").filter(Boolean).length;
             // What the agent said last, so the card tells whether to review or to answer it.
-            const said = lastMessage((await exec("hc", ["read", a.address, "--lines", "20"])).stdout);
+            const said = lastMessage((await hc(["read", a.address, "--lines", "20"])).stdout);
             this.stats.set(top, cached = { status: a.status, at: Date.now(), stat, untracked, said });
           }
           const { stat, untracked, said } = cached;
@@ -298,6 +307,11 @@ export class Inbox {
           this.publish();
           cx.notify();
         }
+        this.localError = null;
+      } catch (e) {
+        // Said in the Inbox: a scan that throws would otherwise leave the cards as they were, silently.
+        this.localError = `Agents: ${String(e?.message ?? e).split("\n")[0]}`;
+        cx.notify();
       } finally {
         this.scanning = false;
       }
@@ -396,7 +410,8 @@ export class Inbox {
       button(t, `handoff-${a.address}`, "Continue with…", () => openHandoff(a.address)),
     ];
     return this.card(t, `in-${a.address}`, true,
-      this.head(t, t.blocked, `${item.repo} · ${a.tab_name || item.branch || ""}`, ago(item.at)),
+      this.head(t, t.blocked, `${item.repo} · ${a.tab_name || item.branch || ""}`,
+        this.sending(a.address) ? "Answering…" : Date.now() - (this.nextAt.get(a.address) ?? 0) < NEXT_FOR ? "Next question" : ago(item.at)),
       v_flex().gap(4)
         .when(Boolean(p.ask), (el) => el.child(this.askBlock(t, p.ask, a.address)))
         .child(v_flex().children((p.question || "Waiting for you").split("\n")
@@ -443,19 +458,28 @@ export class Inbox {
 
   // One send per agent at a time: a second click's Enter would land in whatever dialog the first one reveals.
   // A box of a multiple choice doesn't move on to anything, so those clicks wait their turn.
+  // A send still running, unless it has been stuck long enough to give up on.
+  sending(address) {
+    const held = this.answering.get(address);
+    return held && Date.now() - held.at <= SEND_STALE ? held : null;
+  }
+
   sendOnce(address, seen, cx, send, queue = false) {
-    const busy = this.answering.get(address);
+    const busy = this.sending(address)?.turn;
     if (busy && !queue) return;
     let done;
     const turn = new Promise((resolve) => { done = resolve; });
-    this.answering.set(address, turn);
+    const mine = { turn, at: Date.now() };
+    this.answering.set(address, mine);
+    cx.notify();
     cx.spawn(async (cx) => {
       try {
         await busy;
         if (await this.stillAsking(address, seen, cx)) await send(this.prompts.get(address), cx);
       } finally {
-        if (this.answering.get(address) === turn) this.answering.delete(address);
+        if (this.answering.get(address) === mine) this.answering.delete(address);
         done();
+        cx.notify();
       }
     });
   }
@@ -488,12 +512,14 @@ export class Inbox {
   // After a key the screen changes (a box checks, the next question shows), so read it again.
   async press(a, keys, label, cx) {
     const before = this.prompts.get(a.address)?.prompt;
-    const r = await exec("hc", ["keys", a.address, ...keys]);
+    const r = await hc(["keys", a.address, ...keys]);
     if (r.code !== 0) {
       notify({ title: "Could not answer", body: r.stderr.trim().split("\n")[0], level: "warning" });
       return;
     }
     await this.settle(a.address, before, cx);
+    const after = this.prompts.get(a.address)?.prompt;
+    if (after?.options.length && before && !samePrompt(before, after)) this.nextAt.set(a.address, Date.now());
     cx.notify();
     await this.sendNote(a);
     if (!this.prompts.get(a.address)?.prompt.multi) {
@@ -509,13 +535,13 @@ export class Inbox {
     const now = this.prompts.get(a.address)?.prompt;
     if (!note || now?.options.length || now?.unparsed) return;
     this.notes.delete(a.address);
-    const r = await exec("hc", ["send", a.address, `Note on my last answer: ${note}`]);
+    const r = await hc(["send", a.address, `Note on my last answer: ${note}`]);
     if (r.code !== 0) notify({ title: "Could not send the note", body: r.stderr.trim().split("\n")[0], level: "warning" });
   }
 
   // False when there's no screen to go by; what the card knows stays as it was.
   async rereadPrompt(address) {
-    const r = await exec("hc", ["read", address, "--lines", "0"]);
+    const r = await hc(["read", address, "--lines", "0"]);
     if (r.code !== 0 || !r.stdout.trim()) return false;
     const was = this.prompts.get(address);
     const prompt = readPrompt(r.stdout);
@@ -541,7 +567,7 @@ export class Inbox {
   sendReply(cx) {
     const text = this.reply.value().trim(), address = this.replying, key = this.replyKey, mode = this.replyMode;
     const seen = this.replySeen;
-    if (mode !== "note" && text && this.answering.has(address)) {
+    if (mode !== "note" && text && this.sending(address)) {
       notify({ title: "Still answering this agent", body: "Nothing was sent. Try again in a moment.", level: "warning" });
       return;
     }
@@ -560,10 +586,10 @@ export class Inbox {
         notify({ title: "Could not reply", body: r.stderr.trim().split("\n")[0], level: "warning" });
         return true;
       };
-      const keys = (list) => (list.length ? exec("hc", ["keys", address, ...list]) : null);
+      const keys = (list) => (list.length ? hc(["keys", address, ...list]) : null);
       const moved = key && p?.multi ? await keys(moveKeys(p, key)) : key && p?.cursor !== key ? await keys([String(key)]) : null;
       if (failed(moved)) return;
-      if (failed(await exec("hc", ["send", "--force", address, text]))) return;
+      if (failed(await hc(["send", "--force", address, text]))) return;
       if (key && p?.multi) {
         await cx.sleep(250);
         await this.rereadPrompt(address);
@@ -655,6 +681,7 @@ export class Inbox {
           .child("↻")))
       .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().p(8).gap(6)
         .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
+        .when(Boolean(this.localError), (el) => el.child(div().id("local-error").p(8).text_size(11).text_color(t.blocked).child(this.localError)))
         .when(!total && !this.error && Boolean(this.prsAt), (el) => el.child(
           div().p(12).text_size(13).text_color(t.dim).child("Nothing waiting")))
         .when(view.above === 0, (el) => el.child(this.summary(t, v, cx)))

@@ -22,7 +22,9 @@ export function mergeFlag(repo) {
 // What a PR of yours can do next, as GitHub sees it.
 export function prMoves(pr) {
   const state = pr.mergeStateStatus, ci = ciOf(pr);
-  const land = !pr.isDraft && (state === "CLEAN" || state === "HAS_HOOKS");
+  // Right after a push GitHub says UNKNOWN for a while; with CI green and no conflict, Land reads it again anyway.
+  const land = !pr.isDraft && (state === "CLEAN" || state === "HAS_HOOKS"
+    || (state === "UNKNOWN" && pr.mergeable !== "CONFLICTING" && ci === "SUCCESS"));
   return {
     land,
     auto: !land && !pr.isDraft && state === "BLOCKED" && Boolean(pr.repository?.autoMergeAllowed) && !pr.autoMergeRequest && !RED.has(ci),

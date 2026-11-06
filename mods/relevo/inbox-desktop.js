@@ -48,11 +48,24 @@ export class DesktopViews {
       ]);
   }
 
+  // Only questions stay open; sessions ready for review fold under one line, since they wait on nobody.
   desktopGroup(t, list, done) {
     if (!list.length && !done.length) return [];
+    const asks = list.filter((s) => s.state === "blocked"), review = list.filter((s) => s.state !== "blocked");
+    const open = this.expanded["desktop-review"];
     return [
-      sectionHeader(t, "IN DESKTOP", list.length),
-      ...list.map((s) => this.desktopCard(t, s)),
+      sectionHeader(t, "IN DESKTOP", asks.length),
+      ...asks.map((s) => this.desktopCard(t, s)),
+      ...(review.length
+        ? [div().id("desktop-review").px(4).py(2).text_size(11).text_color(t.dim).cursor_pointer()
+          .hover((s) => s.text_color(t.muted))
+          .on_click((_e, cx) => {
+            this.expanded["desktop-review"] = !open;
+            cx.notify();
+          })
+          .child(`${open ? "▾" : "▸"} ${review.length} ready for review`)]
+        : []),
+      ...(open ? review.map((s) => this.desktopCard(t, s)) : []),
       ...this.addressedFold(t, "desktop", done, (s) => this.desktopCard(t, s, true)),
     ];
   }

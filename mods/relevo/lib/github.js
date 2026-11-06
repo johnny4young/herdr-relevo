@@ -2,21 +2,46 @@
 
 const ROLLUP = "statusCheckRollup { state contexts(first: 50) { pageInfo { hasNextPage } nodes { ... on CheckRun { conclusion } ... on StatusContext { state } } } }";
 
-export const PR_QUERY = `query {
-  viewer { login pullRequests(states: OPEN, first: 30, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
-    number title url isDraft updatedAt reviewDecision headRefName baseRefName isCrossRepository headRefOid additions deletions mergeable mergeStateStatus
+const MINE_FIELDS = `number title url isDraft updatedAt reviewDecision headRefName baseRefName isCrossRepository headRefOid additions deletions mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     repository { nameWithOwner viewerDefaultMergeMethod squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed autoMergeAllowed }
     commits(last: 1) { nodes { commit { committedDate ${ROLLUP} } } }
     reviews(last: 10) { nodes { author { login } state submittedAt } }
-    reviewThreads(first: 50) { nodes { isResolved } } } }
-    merged: pullRequests(states: MERGED, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
-      url number headRefName isCrossRepository repository { nameWithOwner } } } }
+    reviewThreads(first: 50) { nodes { isResolved } }`;
+
+// GitHub gives a query about 10 s and answers a slower one with a 502 or nothing; your PRs cost about 0.2 s
+// each, so they come in pages, and the rest in a query of its own.
+export const MINE_PAGE = 10;
+export const MINE_PAGES = 3;
+export const mineQuery = (after = null) => `query {
+  viewer { pullRequests(states: OPEN, first: ${MINE_PAGE}${after ? `, after: ${JSON.stringify(after)}` : ""}, orderBy: {field: UPDATED_AT, direction: DESC}) {
+    pageInfo { hasNextPage endCursor } nodes { ${MINE_FIELDS} } } }
+}`;
+
+export const OTHERS_QUERY = `query {
+  viewer { login merged: pullRequests(states: MERGED, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
+    url number headRefName isCrossRepository repository { nameWithOwner } } } }
   search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 20) { nodes {
     ... on PullRequest { number title url updatedAt headRefName baseRefName isCrossRepository headRefOid additions deletions author { login } repository { nameWithOwner }
       commits(last: 1) { nodes { commit { ${ROLLUP} } } }
       reviewThreads(first: 50) { nodes { isResolved } } } } }
 }`;
+
+// The pages and the rest, in the one shape the mappers read.
+export function joinPRs(pages, others) {
+  const seen = new Set(), nodes = [];
+  for (const page of pages) {
+    for (const p of page?.viewer?.pullRequests?.nodes ?? []) {
+      if (seen.has(p.url)) continue;
+      seen.add(p.url);
+      nodes.push(p);
+    }
+  }
+  return {
+    viewer: { login: others?.viewer?.login, merged: others?.viewer?.merged ?? { nodes: [] }, pullRequests: { nodes } },
+    search: others?.search ?? { nodes: [] },
+  };
+}
 
 export const RECENT = 45 * 86400;
 export const seconds = (iso) => Date.parse(iso) / 1000;
@@ -60,7 +85,10 @@ export function mapMine(data) {
       skills.push("fix");
     }
     if (ci === "CANCELLED") reasons.push("CI cancelled");
-    if (p.mergeable === "CONFLICTING") reasons.push("merge conflict");
+    if (p.mergeable === "CONFLICTING") {
+      reasons.push("merge conflict");
+      skills.unshift("conflicts");
+    }
     if (p.mergeStateStatus === "BEHIND") reasons.push("behind its base");
     if (p.reviewDecision === "CHANGES_REQUESTED") reasons.push("changes requested");
     if (reviewers.length) reasons.push(`review from ${reviewers.join(", ")}`);

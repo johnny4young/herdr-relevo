@@ -126,7 +126,9 @@ export function validate(c) {
   if (!backups.trim()) fail("backupsRoot", "Backups folder is required");
   else if (backups.startsWith("/") || backups.startsWith("~")) fail("backupsRoot", "Backups folder is relative to home, like relevo-backups");
   const skills = c.SKILLS ?? {};
-  if (Object.keys(skills).sort().join() !== [...SKILL_KEYS].sort().join()) fail("skills", "Skills: review, fix and comments");
+  // A conflicts skill is optional: without one, the built-in prompt runs.
+  const keys = Object.keys(skills).filter((k) => k !== "conflicts");
+  if (keys.sort().join() !== [...SKILL_KEYS].sort().join()) fail("skills", "Skills: review, fix and comments");
   for (const k of SKILL_KEYS) if (k in skills && !skills[k]?.trim()) fail(`skills.${k}`, `Skills: ${k} is required`);
   if (new Set(c.REPLIES ?? []).size !== (c.REPLIES ?? []).length) fail("replies", "Replies: each one once");
   return errors;

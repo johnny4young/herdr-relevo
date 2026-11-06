@@ -1,6 +1,6 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { theme, run, focused, panes, setShared, notify } from "herdr";
+import { theme, run, focused, panes, setShared, notify, agents, terminals } from "herdr";
 import { AgentWatch, BackgroundWatch, quotaAlerts } from "./alerts.js";
 import { ACCOUNTS, CODEX, API_QUOTAS, launchArgv, chip, loadClaudeQuotas } from "./accounts.js";
 import { FOCUS, focus, publishSetup, contextOfPath } from "./context.js";
@@ -21,6 +21,7 @@ import { spinner, withKey } from "./ui.js";
 import { openSettings } from "./settings.js";
 import { UsageScanner, publishContext } from "./usage-scan.js";
 import { DesktopWatch } from "./desktop.js";
+import { TurnWatch } from "./turns.js";
 
 // Chip and label; wide enough for an 8-letter account name.
 const NAME_W = 92;
@@ -42,9 +43,11 @@ export class Sidebar {
     });
     this.watch = new BackgroundWatch();
     this.agentWatch = new AgentWatch();
+    this.turns = new TurnWatch();
     cx.timer.every(3000, (cx) => {
       this.watch.tick();
       this.agentWatch.tick();
+      this.turns.agents(agents(), new Map(terminals().map((k) => [k.address, k.labels ?? {}])));
       cx.spawn(async () => {
         await ledgerTick();
       });
@@ -52,7 +55,7 @@ export class Sidebar {
     cx.timer.every(600000, (cx) => cx.spawn(async () => {
       await syncFolders();
     }));
-    this.desktop = new DesktopWatch();
+    this.desktop = new DesktopWatch(this.turns);
     const readDesktop = (cx) => cx.spawn(async () => {
       await this.desktop.tick();
     });

@@ -4,6 +4,8 @@ import { agents, exec, panes, spaces, terminals, watchFolder, window } from "her
 import { ADDRESSED_LABEL } from "./lib/addressed.js";
 import { LOCAL_EVERY, TREES_EVERY, endedFolders, gitStateChanged, isDue, repoOf, runningCommands } from "./lib/refresh.js";
 
+const FOLLOW_EVERY = 3000;
+const FOLLOW_STUCK = 30000;
 // A commit is many writes, and they arrive in batches.
 const WATCH_SETTLE = 2000;
 
@@ -45,6 +47,34 @@ export class LiveViews {
     const at = Date.now(), active = window()?.active !== false;
     if (now.agents !== was.agents || repos.length || isDue(this.localAt, LOCAL_EVERY, at, active)) this.scanLocal(cx);
     if (now.spaces !== was.spaces || isDue(this.treesAt, TREES_EVERY, at, active)) this.scanTrees(cx);
+    this.followPrompts(cx);
+  }
+
+  // A waiting agent moves to the next question of a form without changing status, so while it waits its
+  // screen is read again every few seconds and the card follows it. A read stuck past FOLLOW_STUCK is let go.
+  followPrompts(cx) {
+    const at = Date.now();
+    if (at - (this.followedAt ?? 0) < (this.following ? FOLLOW_STUCK : FOLLOW_EVERY)) return;
+    const waiting = (this.local ?? []).filter((i) => i.kind === "blocked" && !this.sending(i.agent.address));
+    if (!waiting.length) return;
+    this.following = true;
+    this.followedAt = at;
+    cx.spawn(async (cx) => {
+      try {
+        const shown = (p) => JSON.stringify([p?.dialog, p?.question, p?.cursor, p?.options.map((o) => [o.label, o.checked])]);
+        let changed = false;
+        for (const i of waiting) {
+          const before = shown(this.prompts.get(i.agent.address)?.prompt);
+          if (await this.rereadPrompt(i.agent.address) && shown(this.prompts.get(i.agent.address)?.prompt) !== before) changed = true;
+        }
+        if (changed) {
+          this.publish();
+          cx.notify();
+        }
+      } finally {
+        this.following = false;
+      }
+    });
   }
 
   // The git folders of the repos with a resting agent; a linked worktree shares its checkout's.

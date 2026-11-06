@@ -11,7 +11,7 @@ import { button, sectionHeader, spinner, withKey } from "./ui.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
-import { PR_QUERY, cancelledRuns, ciOf, seconds, recent, mapDrafts, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
+import { MINE_PAGES, OTHERS_QUERY, joinPRs, mineQuery, cancelledRuns, ciOf, seconds, recent, mapDrafts, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
 import { mergeFlag, prMoves } from "./lib/land.js";
 import { keepListed } from "./lib/addressed.js";
 import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
@@ -69,14 +69,37 @@ export class PrViews {
     });
   }
 
+  // One GraphQL query, tried twice: GitHub's 502s and cut answers come and go.
+  async graphql(query) {
+    let last = "gh failed";
+    for (let i = 0; i < 2; i++) {
+      const r = await exec("gh", ["api", "graphql", "-f", `query=${query}`]);
+      if (r.code === 0) {
+        try {
+          return { data: JSON.parse(r.stdout).data };
+        } catch {
+          last = "GitHub's answer was cut short";
+          continue;
+        }
+      }
+      last = (r.stderr?.trim() || last).split("\n")[0];
+    }
+    return { error: last };
+  }
+
   async loadPRs() {
-    const r = await exec("gh", ["api", "graphql", "-f", `query=${PR_QUERY}`]);
-    if (r.code !== 0) {
-      this.error = (r.stderr?.trim() || "gh failed").split("\n")[0];
+    const [first, others] = await Promise.all([this.graphql(mineQuery()), this.graphql(OTHERS_QUERY)]);
+    const pages = [first];
+    while (pages.length < MINE_PAGES && pages.at(-1).data?.viewer?.pullRequests?.pageInfo?.hasNextPage) {
+      pages.push(await this.graphql(mineQuery(pages.at(-1).data.viewer.pullRequests.pageInfo.endCursor)));
+    }
+    const failed = [...pages, others].find((r) => r.error);
+    if (failed) {
+      this.error = failed.error;
       return;
     }
     this.error = null;
-    const data = JSON.parse(r.stdout).data;
+    const data = joinPRs(pages.map((r) => r.data), others.data);
     this.mine = mapMine(data);
     this.requested = mapRequested(data);
     const listed = new Set(this.mine.map((p) => p.url));
@@ -230,16 +253,29 @@ export class PrViews {
       ]);
   }
 
+  // What the PR's agent left running when its turn ended, like a monitor waiting on CI: null when nothing.
+  backgroundOf(agent) {
+    const labels = agent ? this.terms?.get(agent.address)?.labels : null;
+    return labels?.["agent.wait"] === "watch" ? labels["agent.bg"] ?? "" : null;
+  }
+
+  // Its agent is still on it: working, asking, or waiting on something it started.
+  prBusy(pr) {
+    const agent = this.prAgents[pr.url];
+    return Boolean(agent) && (agent.status === "working" || agent.status === "blocked" || this.backgroundOf(agent) !== null);
+  }
+
   agentLine(pr, agent) {
-    const l = launched()[pr.url], name = SKILLS[l.skill].name;
+    const l = launched()[pr.url], name = SKILLS[l.skill].name, bg = this.backgroundOf(agent);
     if (!agent) return `${name} ran ${ago(l.at)}`;
     if (agent.status === "working") return `${name} working…`;
+    if (bg !== null && agent.status !== "blocked") return `${name} waiting in the background${bg ? ` · ${bg}` : ""}`;
     if (agent.status === "blocked") return `${name} is waiting for you`;
     return l.skill === "review" ? "draft review ready on GitHub" : `${name} finished`;
   }
 
   prCard(t, pr, requested, addressed = false) {
-    const l = launched()[pr.url], agent = this.prAgents[pr.url], seen = this.seen(pr);
+    const l = launched()[pr.url], agent = this.prAgents[pr.url], seen = this.seen(pr), busy = Boolean(l) && this.prBusy(pr);
     const meta = requested ? `review requested · ${pr.author?.login ?? ""}` : pr.reasons.join(" · ");
     const done = Boolean(l && seen) && (!agent || agent.status === "idle" || agent.status === "done");
     const openPR = button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url]), {
@@ -247,8 +283,8 @@ export class PrViews {
     });
     const actions = done && l.skill === "review" ? [openPR] : [];
     if (agent) actions.push(button(t, `agent-${pr.url}`, "Agent", () => run("agent.focus", { terminal: agent.address })));
-    if (this.clones[pr.repo] && !(seen && agent)) {
-      pr.skills.forEach((s) => actions.push(this.skillButton(t, pr, s, !seen && !requested && pr.hot && s === "fix")));
+    if (this.clones[pr.repo] && !(seen && agent) && !busy) {
+      pr.skills.forEach((s) => actions.push(this.skillButton(t, pr, s, !seen && !requested && (s === "conflicts" || (pr.hot && s === "fix")))));
     }
     if (!requested && this.clones[pr.repo]) {
       actions.push(button(t, `review-pr-${pr.url}`, "Review", () => this.reviewPR(pr), {
@@ -289,8 +325,8 @@ export class PrViews {
         ciOf(pr), pr.threads),
       v_flex().gap(2).text_size(11).text_color(t.muted)
         .when(Boolean(meta), (el) => el.child(meta))
-        .when(Boolean(l && seen), (el) => el.child(
-          div().text_color(agent?.status === "working" ? t.working : t.dim).child(this.agentLine(pr, agent)))),
+        .when(Boolean(l && (seen || busy)), (el) => el.child(
+          div().text_color(agent?.status === "working" || this.backgroundOf(agent) !== null ? t.working : t.dim).child(this.agentLine(pr, agent)))),
       this.foldActions(t, `pr-${pr.url}`, actions, mark));
   }
 

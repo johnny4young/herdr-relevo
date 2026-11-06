@@ -10,7 +10,9 @@ export const openDesktop = (id) => exec("open", [desktopLink(id)]);
 // Keeps what's worth showing in shared state and tells of what changed. A toast only: Desktop has its own
 // notifications, and someone outside Herdr is probably in Desktop already.
 export class DesktopWatch {
-  constructor() {
+  // `turns` gets every read, for each session's turn receipts.
+  constructor(turns = null) {
+    this.turns = turns;
     // path -> { mtime, file }: a session file is read again only when it changes.
     this.read = new Map();
   }
@@ -49,6 +51,7 @@ export class DesktopWatch {
       });
     }
     this.before = now;
+    this.turns?.desktop(now);
     if (JSON.stringify(shared(DESKTOP) ?? []) !== JSON.stringify(now)) setShared(DESKTOP, now);
   }
 }

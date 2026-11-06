@@ -26,7 +26,7 @@ export function desktopSession(d, nowMs = Date.now()) {
     : summary.status_category === "blocked" || summary.needs_action ? "blocked"
       : { review_ready: "review", completed: "done" }[summary.status_category] ?? "idle";
   return {
-    id: d.sessionId, title: (d.title ?? "").slice(0, 120), cwd: d.cwd ?? null,
+    id: d.sessionId, cli: d.cliSessionId ?? null, title: (d.title ?? "").slice(0, 120), cwd: d.cwd ?? null,
     project: projectFromPath(d.cwd) ?? basename(d.originCwd || d.cwd),
     at: Math.round(active / 1000), state, needs: (summary.needs_action ?? "").slice(0, 300), detail: (summary.status_detail ?? "").slice(0, 300),
   };
