@@ -19,6 +19,13 @@ replies, like "commit and push". `⌥⌘E` finds a past session of this repo and
 
 ![An agent's question answered from the Inbox](screenshots/answer.png)
 
+### See what happened while you were away
+
+Back after ten minutes or more, a card at the top of the Inbox lists which agents finished and what they said last,
+which ones wait for you, what changed on your PRs and how much quota and agent time went. Click a row to go there.
+
+![While you were away: finished and waiting agents, PR changes and quota spent](screenshots/away.png)
+
 ### Review a whole PR, then hand the comments to its agent
 
 Click a line or shift-click a range, comment, and **Send to agent**. Your PR cards open the PR against its base even
