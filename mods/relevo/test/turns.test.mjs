@@ -130,3 +130,90 @@ test("an agent whose terminal closed mid-turn still gets its receipt", async () 
   await settle();
   assert.equal(fake.stored[TURNS][0].where, "fix");
 });
+
+
+test("a new session in a still-working terminal gets its own receipt", async () => {
+  const first = join(dir, "first.jsonl"), second = join(dir, "second.jsonl");
+  writeFileSync(first, "");
+  writeFileSync(second, "");
+  const watch = new TurnWatch();
+  const agent = (status, tab_name) => [{ address: "t1", status, tab_name }];
+  const labels = (path) => new Map([["t1", { "agent.transcript": path }]]);
+  watch.agents(agent("working", "First task"), labels(first));
+  await flush();
+  appendFileSync(first, line(1, 2000));
+
+  watch.agents(agent("working", "Second task"), labels(second));
+  await flush();
+  appendFileSync(second, line(2, 3000));
+  watch.agents(agent("idle", "Second task"), labels(second));
+  await flush();
+
+  assert.deepEqual(fake.stored[TURNS].map((r) => [r.where, r.write, r.surface]), [
+    ["Second task", 3000, "terminal"], ["First task", 2000, "terminal"],
+  ]);
+});
+
+test("a repeated working tick keeps the same receipt even while its label is missing", async () => {
+  const main = join(dir, "same.jsonl");
+  writeFileSync(main, "");
+  const watch = new TurnWatch(), labels = new Map([["t1", { "agent.transcript": main }]]);
+  const working = [{ address: "t1", status: "working", tab_name: "Same task" }];
+  watch.agents(working, labels);
+  await flush();
+  appendFileSync(main, line(1, 2000));
+
+  watch.agents(working, new Map());
+  watch.agents(working, labels);
+  await flush();
+  appendFileSync(main, line(2, 3000));
+  watch.agents([{ address: "t1", status: "idle", tab_name: "Same task" }], labels);
+  await flush();
+
+  assert.deepEqual(fake.stored[TURNS].map((r) => [r.where, r.write]), [["Same task", 5000]]);
+});
+
+test("a Desktop session switching CLI transcripts keeps the two receipts separate", async () => {
+  const first = join(dir, "desktop-first.jsonl"), second = join(dir, "desktop-second.jsonl");
+  writeFileSync(first, "");
+  writeFileSync(second, "");
+  const watch = new TurnWatch();
+  watch.transcriptOf = async (id) => id === "first" ? first : second;
+  await watch.desktop([{ id: "local_1", cli: "first", state: "working", project: "app", title: "First task" }]);
+  await flush();
+  appendFileSync(first, line(1, 2000));
+
+  await watch.desktop([{ id: "local_1", cli: "second", state: "working", project: "app", title: "Second task" }]);
+  await flush();
+  appendFileSync(second, line(2, 3000));
+  await watch.desktop([]);
+  await flush();
+
+  assert.deepEqual(fake.stored[TURNS].map((r) => [r.where, r.write, r.surface]), [
+    ["app · Second task", 3000, "desktop"], ["app · First task", 2000, "desktop"],
+  ]);
+});
+
+
+test("a late Desktop lookup cannot close the newer session receipt", async () => {
+  const first = join(dir, "stale.jsonl"), second = join(dir, "current.jsonl");
+  writeFileSync(first, "");
+  writeFileSync(second, "");
+  const watch = new TurnWatch();
+  let release;
+  const stale = new Promise((resolve) => { release = resolve; });
+  watch.transcriptOf = async (id) => id === "first" ? stale : second;
+  const older = watch.desktop([{ id: "local_1", cli: "first", state: "working", project: "app", title: "Old task" }]);
+  await watch.desktop([{ id: "local_1", cli: "second", state: "working", project: "app", title: "Current task" }]);
+  await flush();
+  appendFileSync(second, line(1, 2000));
+
+  release(first);
+  await older;
+  await flush();
+  appendFileSync(second, line(2, 3000));
+  await watch.desktop([]);
+  await flush();
+
+  assert.deepEqual(fake.stored[TURNS].map((r) => [r.where, r.write, r.surface]), [["app · Current task", 5000, "desktop"]]);
+});

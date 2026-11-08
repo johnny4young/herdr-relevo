@@ -27,11 +27,14 @@ export class TurnWatch {
     // key -> { transcript, sizes at the start, when }
     this.open = new Map();
     this.paths = new Map();
+    this.desktopTick = 0;
   }
 
   // Marked open at once, so a second tick before the sizes arrive doesn't start it again.
   start(key, transcript, where, surface) {
-    if (this.open.has(key) || !transcript) return;
+    if (!transcript || this.open.get(key)?.transcript === transcript) return;
+    // A terminal can start a new session between polls without ever looking idle.
+    if (this.open.has(key)) this.end(key);
     this.open.set(key, { transcript, where, surface, before: sizes(transcript), at: Date.now() / 1000 });
   }
 
@@ -69,13 +72,19 @@ export class TurnWatch {
   // Desktop's sessions, from its own files; the transcript is found once by the session's CLI id.
   // A finished session leaves the list Relevo shows, so anything not working now ends its turn.
   async desktop(sessions) {
+    const tick = ++this.desktopTick;
     const working = new Set();
     for (const s of sessions.filter((x) => x.state === "working")) {
       const key = `desktop:${s.id}`;
       working.add(key);
-      this.start(key, await this.transcriptOf(s.cli), s.title && s.title !== s.project ? `${s.project} · ${s.title}` : s.project, "desktop");
+      const transcript = await this.transcriptOf(s.cli);
+      if (tick !== this.desktopTick) return;
+      this.start(key, transcript, s.title && s.title !== s.project ? `${s.project} · ${s.title}` : s.project, "desktop");
     }
-    for (const key of [...this.open.keys()]) if (key.startsWith("desktop:") && !working.has(key)) await this.end(key);
+    for (const key of [...this.open.keys()]) {
+      if (tick !== this.desktopTick) return;
+      if (key.startsWith("desktop:") && !working.has(key)) await this.end(key);
+    }
   }
 
   async transcriptOf(id) {
