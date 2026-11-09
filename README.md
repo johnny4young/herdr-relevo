@@ -144,7 +144,7 @@ Mods reload by themselves. `--exclude config.js` keeps your accounts; copying th
   `~/Library/Application Support/Claude/claude-code-sessions` (title, folder, and whether a session asks or waits for
   a review). Keeps the counts in `~/.local/state/relevo/usage/`.
 - Merges, updates and marks PRs ready only when you click (`gh pr merge`, `gh pr update-branch`, `gh pr ready`), and
-  re-runs failed jobs with `gh run rerun --failed`. **Mark seen** stores a git tree under `refs/relevo/seen/` in the repo.
+  re-runs failed jobs with `gh run rerun --failed`. **Save checkpoint** stores a git tree under `refs/relevo/seen/` for **Since I looked**. **Mark file viewed** and **Mark all viewed** track reviewed file contents separately.
 - Shows macOS notifications with `terminal-notifier` when installed, else `osascript`.
 - Writes `~/relevo-backups/deletions.log` (each worktree it removes: time, repo, path, branch and commit),
   `~/.local/state/relevo/ledger.jsonl` (agent time), `~/.local/state/relevo/replies.json` (how often you send

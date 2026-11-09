@@ -200,10 +200,12 @@ export class GoalViews {
             .child(h_flex().gap(5).flex_wrap()
               .child(button(t, `goal-review-next-${goal.id}`, "Review changes", () => this.reviewGoal(items),
                 { kind: "solid", disabled: !reviewable.length, tip: reviewable.length ? "R on this goal: open the existing diff review; does not run an agent or approve work" : "No linked diff is available yet. Keep the agent connected or link a PR with a local clone." }))
-              .child(button(t, `goal-record-${goal.id}`, "Record decision", () => openGoal(goal.id), { tip: "Record feedback after review. Saving does not send it or approve a PR." })))
+              .child(button(t, `goal-record-${goal.id}`, "Decision & next steps", () => openGoal(goal.id), { tip: "Keep a local review note, resolve the pending decision and validate progress. Nothing is sent automatically." })))
             .child(line(`${reviewable.length} change sets available · acceptance stays with you`, t)))
           .child(line(`${["Urgent", "High", "Normal", "Low"][goal.priority]} · Owner: ${goal.owner || "Not set"}`, t))
           .child(line(`${GOAL_STATES[goalState(goal)]} · ${steps.filter((s) => s.state === "done").length}/${steps.length} steps validated by you`, t))
+          .when(Boolean(steps.length), (el) => el.child(button(t, `goal-validate-${goal.id}`, "Validate steps", () => openGoal(goal.id, null, "plan"),
+            { size: "sm", tip: "Open the plan to validate individual outcomes or all steps, then save or finish the goal" })))
           .when(goalState(goal) !== "active" && items.some((s) => !s.addressed && !s.draft), (el) => el.child(line("Open work remains visible regardless of the goal state.", t)))
           .when(Boolean(steps.length), (el) => el.child(foldRow(this, t, `goal-plan-${goal.id}`, `goal-${goal.id}-plan`, "Plan and progress")))
           .children(this.expanded[`goal-${goal.id}-plan`] ? steps.map((s) => line(`${STEP_STATES[s.state]} · ${s.title}`, t)) : [])

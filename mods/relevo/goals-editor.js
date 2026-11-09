@@ -5,9 +5,9 @@ import { button } from "./ui.js";
 import { newGoal, webLink, GOAL_STATES, STEP_STATES, goalState } from "./lib/goals.js";
 import { readGoals, writeGoal } from "./goals-store.js";
 
-export function openGoal(id = null, source = null) {
+export function openGoal(id = null, source = null, panel = "decision") {
   openOverlay({ mod: "relevo", kind: "dialog", width: 620, height: 710,
-    props: { role: "goal-editor", goalId: id, source } });
+    props: { role: "goal-editor", goalId: id, source, panel } });
 }
 const labels = { title: "Goal", owner: "Human owner", decision: "Pending decision", recommendation: "Lead recommendation", criteria: "Acceptance criteria" };
 const multiline = new Set(["decision", "recommendation", "criteria", "response"]);
@@ -18,7 +18,8 @@ export class GoalEditor {
     this.closed = false;
     this.loading = false;
     this.h = cx.focus_handle();
-    this.panel = "decision";
+    this.panel = ["plan", "ownership"].includes(props()?.panel) ? props().panel : "decision";
+    this.resolvePending = false;
     this.planFocusRequest = 0;
     this.fields = Object.fromEntries(Object.keys(labels).map((k) => [k, (multiline.has(k) ? TextareaState : InputState).new({ value: "", placeholder: labels[k] })]));
     this.response = TextareaState.new({ value: "", placeholder: "Decision or feedback (recorded, not sent automatically)" });
@@ -92,6 +93,12 @@ export class GoalEditor {
     this.focusPlanStep(this.steps[Math.min(index, this.steps.length - 1)]?.input, cx); cx.notify();
   }
 
+  validateAll(cx) {
+    if (this.closed || this.busy || !this.goal || this.panel !== "plan") return;
+    this.steps.forEach((step) => { step.state = "done"; });
+    cx.notify();
+  }
+
   save(cx) {
     if (this.closed || this.busy || !this.goal) return;
     this.planFocusRequest++;
@@ -99,6 +106,8 @@ export class GoalEditor {
     const goal = { ...this.goal, ...Object.fromEntries(Object.entries(this.fields).map(([k, f]) => [k, f.value().trim()])),
       steps: this.steps.map(({ id, state, input }) => ({ id, state, title: input.value().trim() })) };
     const response = this.response.value().trim(), url = this.link.value().trim(), kind = this.kind, source = props()?.source, overlay = props()?.overlay;
+    const resolved = this.resolvePending ? goal.decision : "";
+    if (resolved) goal.decision = "";
     // Validate the editable draft before any read, evidence lookup or write.
     // The store remains authoritative for versions and document invariants.
     const checks = [
@@ -142,7 +151,8 @@ export class GoalEditor {
           if (r.code !== 0 || JSON.parse(r.stdout).headRefOid !== source.revision) throw Error("The PR changed or could not be verified. Refresh Inbox before attaching evidence.");
           goal.evidence = [...goal.evidence, { source: source.key, revision: source.revision, kind, url, label: kind === "video" ? "Product demo" : "Product screenshot" }];
         }
-        if (response) goal.decisions = [...goal.decisions, { text: response, at: new Date().toISOString(), revisions: source?.revision ? [{ source: source.key, revision: source.revision }] : [] }];
+        const record = (text, extra = {}) => ({ text, ...extra, at: new Date().toISOString(), revisions: source?.revision ? [{ source: source.key, revision: source.revision }] : [] });
+        goal.decisions = [...goal.decisions, ...(resolved ? [record(resolved, { resolved: true })] : []), ...(response ? [record(response)] : [])];
         await writeGoal(goal, this.version);
         if (!this.closed) closeOverlay(overlay);
       } catch (e) { if (!this.closed) this.error = `Not saved: ${e.message ?? e}`; }
@@ -203,16 +213,23 @@ export class GoalEditor {
           .when(Boolean(p?.source?.revision) || Boolean(this.link.value()), (el) => el.child(field("evidence", this.link, "Evidence URL · exact PR commit"))
             .child(h_flex().gap(5).children([["screenshot", "Screenshot"], ["video", "Video"]].map(([kind, label]) =>
               choice(`goal-kind-${kind}`, label, this.kind === kind, (cx) => { this.kind = kind; cx.notify(); }, "The PR commit is checked again before attaching this link")))))
-          .child(field("response", this.response, "Record decision or feedback"))
-          .children((goal?.decisions ?? []).slice(-5).map((d) => row(`${d.at}: ${d.text}`, t)))
-          .child(row("Saving records context. Use the Inbox's Reply, Review and Land actions to act on it.", t)))
+          .child(field("response", this.response, "Review note · saved with this goal"))
+          .child(row("Keep your reasoning for the next review. Notes stay local; they do not send instructions or validate steps.", t))
+          .child(choice("goal-resolve-decision", this.resolvePending ? "Decision resolved on save ✓" : "Resolve pending decision", this.resolvePending,
+            (cx) => { if (!this.closed && !this.busy && this.goal) { this.resolvePending = !this.resolvePending; cx.notify(); } },
+            "Save clears the pending decision and keeps its text in the history. Click again to leave it pending."))
+          .child(button(t, "goal-review-steps", "Next: validate steps", (cx) => { this.panel = "plan"; cx.notify(); },
+            { disabled: this.busy, tip: "Review progress before finishing the goal. Changes remain a draft until saved." }))
+          .children((goal?.decisions ?? []).slice(-5).map((d) => row(`${d.at} · ${d.resolved ? "Resolved decision" : "Review note"}: ${d.text}`, t)))
+          .child(row("To request changes, use Send to agent in Review or Message lead in Inbox.", t)))
         .when(this.panel === "plan", (el) => el
-          .child(field("criteria", this.fields.criteria, labels.criteria))
-          .child(row("Goal state · closing does not approve or merge PRs", t))
-          .child(h_flex().gap(5).children(Object.entries(GOAL_STATES).map(([state, label]) =>
-            choice(`goal-state-${state}`, label, goal && goalState(goal) === state, (cx) => { if (this.goal) this.goal = { ...this.goal, state }; cx.notify(); },
-              state === "completed" ? "Requires every step validated and no pending decision. Open work remains visible." : "Update the goal state without starting or stopping agents"))))
-          .child(row("Progress is confirmed by you, not inferred from terminals.", t))
+          .child(row(`${this.steps.filter((step) => step.state === "done").length}/${this.steps.length} steps validated · save to apply`, t))
+          .child(row("Review each outcome, then choose Validated. Save applies your progress.", t))
+          .child(h_flex().gap(6).flex_wrap().child(button(t, "goal-validate-all", "Validate all steps", (cx) => this.validateAll(cx),
+            { disabled: this.busy || !goal || !this.steps.some((step) => step.state !== "done"), tip: "Confirm you reviewed every outcome. Marks all steps Validated in this draft; Save applies it." }))
+          .when(Boolean(this.fields.decision.value().trim()) && !this.resolvePending, (el) => el
+            .child(button(t, "goal-plan-decision", "Resolve pending decision…", (cx) => { this.panel = "decision"; cx.notify(); },
+              { disabled: this.busy, tip: "Open Decision to record the outcome and resolve the question before finishing" }))))
           .children(this.steps.map((step) => v_flex().gap(4)
             .child(field(`step-${step.id}`, step.input, "Expected outcome"))
             .child(h_flex().gap(4).flex_wrap().children(Object.entries(STEP_STATES).map(([state, label]) =>
@@ -221,7 +238,12 @@ export class GoalEditor {
               .child(button(t, `goal-step-remove-${step.id}`, "Remove", (cx) => this.removeStep(step, cx),
                 { disabled: this.busy, tip: "Remove this plan step when you save" })))))
           .child(button(t, "goal-add-step", "+ Plan step", (cx) => this.addStep(cx),
-            { disabled: this.busy || this.steps.length >= 20, tip: "Add a concrete result to validate; up to 20 steps" })))
+            { disabled: this.busy || this.steps.length >= 20, tip: "Add a concrete result to validate; up to 20 steps" }))
+          .child(field("criteria", this.fields.criteria, labels.criteria))
+          .child(row("Goal state · closing does not approve or merge PRs", t))
+          .child(h_flex().gap(5).children(Object.entries(GOAL_STATES).map(([state, label]) =>
+            choice(`goal-state-${state}`, label, goal && goalState(goal) === state, (cx) => { if (this.goal) this.goal = { ...this.goal, state }; cx.notify(); },
+              state === "completed" ? "Requires every step validated and no pending decision. Open work remains visible." : "Update the goal state without starting or stopping agents")))))
         .when(this.panel === "ownership", (el) => el
           .child(field("owner", this.fields.owner, labels.owner))
           .child(row("Declared priority · visible blockers appear first", t))
@@ -234,7 +256,13 @@ export class GoalEditor {
             .children(agents().map((a) => choice(`goal-lead-${a.address}`, a.tab_name || a.address, goal?.lead === a.address, (cx) => {
               if (this.goal) this.goal = { ...this.goal, lead: a.address }; cx.notify();
             }, "Assign this connected agent as the goal's lead"))))))
-      .child(button(t, "goal-save", this.loading ? "Loading…" : this.busy ? "Saving…" : "Save", (cx) => this.save(cx),
-        { kind: "solid", disabled: this.busy || !goal, tip: "⌘S saves all sections. This does not send messages, approve or merge changes." }));
+      .child(h_flex().flex_none().gap(8).flex_wrap()
+        .child(button(t, "goal-save", this.loading ? "Loading…" : this.busy ? "Saving…" : "Save", (cx) => this.save(cx),
+          { kind: "solid", disabled: this.busy || !goal, tip: "⌘S saves all sections. This does not send messages, approve or merge changes." }))
+        .when(this.panel === "plan", (el) => el.child(button(t, "goal-finish", "Save and finish goal", (cx) => {
+          if (this.closed || this.busy || !this.goal) return;
+          this.goal = { ...this.goal, state: "completed" }; this.save(cx);
+        }, { disabled: this.busy || !goal || this.steps.some((step) => step.state !== "done") || (Boolean(this.fields.decision.value().trim()) && !this.resolvePending),
+          tip: "Requires every step validated and the pending decision resolved. Saves and closes this goal; agents and PRs keep their own workflow." }))));
   }
 }

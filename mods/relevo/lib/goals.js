@@ -34,7 +34,7 @@ export function validateGoals(doc) {
           !webLink(e.url) || !bounded(e.label, 240)) throw Error("Invalid evidence: requires a linked PR, exact revision and HTTPS link");
     }
     for (const d of g.decisions) {
-      if (!bounded(d.text) || !bounded(d.at, 100) || !Array.isArray(d.revisions) ||
+      if (!bounded(d.text) || (d.resolved !== undefined && typeof d.resolved !== "boolean") || !bounded(d.at, 100) || !Array.isArray(d.revisions) ||
           !d.revisions.every((r) => bounded(r.source, 600) && bounded(r.revision, 100))) throw Error("Invalid decision");
     }
   }
