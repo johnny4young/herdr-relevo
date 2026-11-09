@@ -15,7 +15,7 @@ A goal records an expected outcome, owner, priority, optional existing lead, lin
 
 ## Further work
 
-Durable task ownership, coordinator dispatch, delivery receipts, recovery, cost budgets, local artifact fingerprints, artifact generation, voice and preference learning require separate implementation and acceptance. Assigning a lead does not start any of these mechanisms.
+The [local workflow runtime](workflow-runtime.md) adds explicit task ownership, coordinator dispatch, delivery records, restart reconciliation, round/time limits, local artifact fingerprints, batches and accepted scoped preferences. Assigning a lead alone does not start execution. Automatic goal decomposition, provider-enforced money budgets, automatic visual artifact generation and built-in speech capture remain outside this increment; native text fields support system dictation.
 
 Keep work logs, research, named project examples and run results local. Public documentation describes product behavior and reproducible commands only.
 

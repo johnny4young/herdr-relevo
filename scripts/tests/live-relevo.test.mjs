@@ -45,3 +45,28 @@ test('standalone rollback launcher handles spaces, quotes and shell metacharacte
   const r = spawnSync('/bin/bash', [path.join(backup, 'rollback.command')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr); assert.equal(f.read('main.js'), 'old');
 });
+test('install and rollback include runtime mjs files and stop the coordinator before replacement', (t) => {
+  const f = fixture(t), appHome = path.join(path.dirname(f.target), 'app home');
+  fs.mkdirSync(path.join(f.source, 'runtime'), { recursive: true });
+  fs.writeFileSync(path.join(f.source, 'runtime/cli.mjs'), 'new runtime');
+  fs.mkdirSync(path.join(f.target, 'runtime'), { recursive: true });
+  fs.writeFileSync(path.join(f.target, 'runtime/cli.mjs'), 'old runtime');
+  fs.mkdirSync(path.join(appHome, 'relevo-workflow', 'engine.lock'), { recursive: true });
+  fs.writeFileSync(path.join(appHome, 'relevo-workflow/state.json'), '{}');
+  fs.writeFileSync(path.join(appHome, 'relevo-workflow/engine.lock/owner.json'), JSON.stringify({ pid: 424242 }));
+  let alive = true, stops = 0;
+  const stopOptions = { isAlive: () => alive, wait: () => {}, spawnSyncImpl: (_node, args) => {
+    stops++;
+    assert.deepEqual(JSON.parse(args.at(-1)), { action: 'stop' });
+    if (stops === 1) assert.equal(fs.readFileSync(path.join(f.target, 'runtime/cli.mjs'), 'utf8'), 'old runtime');
+    else assert.equal(fs.readFileSync(path.join(f.target, 'runtime/cli.mjs'), 'utf8'), 'new runtime');
+    alive = false;
+    return { status: 0, stderr: '' };
+  } };
+  assert.equal(deploy(f.source, f.target, f.backup, { appHome, stopOptions }), 3);
+  assert.equal(fs.readFileSync(path.join(f.target, 'runtime/cli.mjs'), 'utf8'), 'new runtime');
+  alive = true;
+  rollback(f.backup, { appHome, stopOptions });
+  assert.equal(fs.readFileSync(path.join(f.target, 'runtime/cli.mjs'), 'utf8'), 'old runtime');
+  assert.equal(stops, 2);
+});

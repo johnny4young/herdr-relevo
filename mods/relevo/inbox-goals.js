@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { agents, terminals, run, exec, shared, setShared } from "herdr";
+import { agents, terminals, run, exec, shared, setShared, readTextFile, appHome } from "herdr";
 import { accountFor, inFocus } from "./context.js";
 import { button, sectionHeader, foldRow } from "./ui.js";
 import { openGoal } from "./goals-editor.js";
@@ -10,6 +10,7 @@ import { isAddressed } from "./lib/addressed.js";
 import { openReplies } from "./replies.js";
 import { openReview } from "./review.js";
 import { reviewableWork, scopeGoals } from "./lib/goal-workflow.js";
+import { openWorkflow } from "./workflow.js";
 
 export const GOAL_MODE = "relevo.goals.mode";
 export const GOAL_SCOPE = "relevo.goals.scope";
@@ -29,6 +30,11 @@ export class GoalViews {
     cx.spawn(async (cx) => {
       try {
         this.goalDoc = (await readGoals()).doc;
+        try {
+          const raw = await readTextFile(`${appHome()}/relevo-workflow/state.json`);
+          this.workflowTasks = raw ? JSON.parse(raw).tasks ?? [] : [];
+          this.workflowError = null;
+        } catch { this.workflowError = "Workflow status unavailable; open Workflow to retry."; }
         this.goalsError = null;
       } catch (e) { this.goalsError = `Goals: ${e.message ?? e}. Classic Inbox is still available.`; }
       this.goalChange = shared(GOALS_CHANGED);
@@ -90,6 +96,7 @@ export class GoalViews {
       this.focusGoal(this.goalProjection.scope ? null : group.goal.id, cx); return true;
     }
     if (key === "r" && group) { this.reviewGoal(group.items); return true; }
+    if (key === "w" && group) { openWorkflow(group.goal.id); return true; }
     const source = this.goalProjection?.sources.find((s) => (s.kind === "pr" ? `pr-${s.pr.url}` : `in-${s.item.agent.address}`) === this.sel);
     if (key === "e" && (group || source)) {
       const goal = group?.goal ?? this.goalDoc.goals.find((g) => g.sources.includes(source.key));
@@ -189,6 +196,8 @@ export class GoalViews {
         const children = lead ? terminals().filter((k) => k.parent === lead.address && liveAgents.some((a) => a.address === k.address)) : [];
         const missing = goal.sources.filter((key) => !sources.some((s) => s.key === key));
         const steps = goal.steps ?? [];
+        const tasks = (this.workflowTasks ?? []).filter((task) => task.goalId === goal.id);
+        const needsYou = tasks.filter((task) => ["needs_you", "blocked"].includes(task.state)).length;
         const reviewable = reviewableWork(items, this.clones);
         return v_flex().id(`goal-${goal.id}`).p(8).gap(7).rounded(8).bg(t.background).border_1().border_color(this.selected(`goal-${goal.id}`) ? t.accent : urgency === 0 ? t.blocked : t.border)
           .child(h_flex().gap(5).items_center().child(div().flex_1().min_w(0).text_size(13).font_semibold().child(goal.title))
@@ -202,6 +211,9 @@ export class GoalViews {
                 { kind: "solid", disabled: !reviewable.length, tip: reviewable.length ? "R on this goal: open the existing diff review; does not run an agent or approve work" : "No linked diff is available yet. Keep the agent connected or link a PR with a local clone." }))
               .child(button(t, `goal-record-${goal.id}`, "Decision & next steps", () => openGoal(goal.id), { tip: "Keep a local review note, resolve the pending decision and validate progress. Nothing is sent automatically." })))
             .child(line(`${reviewable.length} change sets available · acceptance stays with you`, t)))
+          .child(h_flex().gap(6).items_center()
+            .child(button(t, `goal-workflow-${goal.id}`, "Workflow", () => openWorkflow(goal.id), { size: "sm", tip: "W on this goal: assign tasks, follow handoffs and act on reviewed results" }))
+            .child(line(this.workflowError || `${tasks.length} tasks · ${needsYou} need you · ${tasks.filter((task) => task.state === "accepted").length} accepted`, t)))
           .child(line(`${["Urgent", "High", "Normal", "Low"][goal.priority]} · Owner: ${goal.owner || "Not set"}`, t))
           .child(line(`${GOAL_STATES[goalState(goal)]} · ${steps.filter((s) => s.state === "done").length}/${steps.length} steps validated by you`, t))
           .when(Boolean(steps.length), (el) => el.child(button(t, `goal-validate-${goal.id}`, "Validate steps", () => openGoal(goal.id, null, "plan"),

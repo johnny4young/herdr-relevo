@@ -47,12 +47,16 @@ node scripts/live-relevo.mjs verify-original --backup "$HOME/relevo-backups/deci
 
 Rollback restores changed original files and removes only the newly installed files whose hashes still match. It refuses to overwrite later local edits. Goal metadata remains available for a future reinstall; accounts and sessions are not reset. If applying multiple versions, restore the previous version before installing a new candidate, or roll back backups in reverse order.
 
-## Remaining work in this single PR
+## Bounded workflow increment
 
-- Lead/coordinator execution, explicit lifecycle and recovery, concurrency budgets and structured reports.
-- Delivery receipts for decisions, revalidation at action time and reconciliation after direct GitHub/session actions.
-- Source reassignment, richer evidence handling, artifact generation/retention and an agent-facing metadata update protocol.
-- Voice input, review batches, preference learning and measured reduction in human corrections.
+The [workflow runtime](workflow-runtime.md) adds durable assignments, delivery records, independent review, explicit human decisions, restart reconciliation, concurrency/round/time limits, local evidence, decision batches and accepted scoped preferences. It uses existing local agent sessions and preserves the original GitHub controls.
+
+## Remaining boundaries
+
+- Autonomous goal decomposition, remote-checkout coordination and provider-enforced spending limits.
+- Automatic reconciliation of arbitrary direct GitHub/session actions outside the workflow; checkout revisions are revalidated before decisions.
+- Automatic screenshot/video generation and configurable archival beyond the bounded local artifact quota.
+- Built-in speech capture and measured reduction in human corrections over repeated use. System dictation produces editable text in native fields.
 - Human keyboard/accessibility acceptance and broader live interaction testing.
 
-These are not claimed as implemented. The current increment establishes live goals, reusable review actions and a reversible rollout so feedback can guide subsequent commits in the same PR. There is no autonomous approval, merge, release, scheduler or claim that an idle terminal is a completed objective.
+These remaining capabilities are not claimed as implemented. There is no autonomous human approval, merge, release or claim that an idle terminal is a completed objective.

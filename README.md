@@ -17,7 +17,9 @@ Track a goal's plan through pending, working, review and manually validated step
 
 Click the **Inbox** heading to focus its queue: **↑/↓** selects work, **G** reaches the next goal, **E** opens context, **S** opens the existing skill/account picker, and **R** opens review where available. **?** shows help; **Tab/Shift-Tab** moves between controls. Enter activates the focused control. Goal cards keep secondary **Criteria and feedback** in a keyboard-accessible fold while decisions, evidence and work controls stay visible. The goal editor separates **Decision**, **Plan** and **Ownership**, retains edits across sections, and saves with **⌘S**. Skills still run through the existing account and worktree flow. See the [keyboard interaction guide](docs/proposals/goal-ux.md).
 
-See [installation, rollback and current limits](docs/proposals/decision-inbox.md). The reversible installer preserves accounts, layouts, keys and sessions and creates a standalone rollback launcher. Lead/coordinator automation, voice and preference learning are follow-up work in this PR.
+Open **Workflow** on a goal (**W** with the goal selected) to assign existing executor/reviewer sessions, follow durable handoffs, inspect local evidence and act on reviewed results. The bounded local coordinator runs through `hc`; human acceptance, GitHub approvals and merges remain distinct. Preferences require explicit acceptance, and native text fields accept system dictation before sending. See the [workflow guide and limits](docs/proposals/workflow-runtime.md).
+
+See [installation and rollback](docs/proposals/decision-inbox.md). The reversible installer preserves accounts, layouts, keys and sessions and creates a standalone rollback launcher that stops the coordinator before restoring code.
 
 ## Native Decision Inbox preview
 

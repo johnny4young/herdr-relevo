@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 export const digest = (p) => fs.existsSync(p) ? crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex') : null;
 export function atomic(p, data, mode = 0o600) {
@@ -22,6 +23,25 @@ export function files(root, prefix = '') {
     return e.isDirectory() ? (e.name === 'test' ? [] : files(root, rel)) : [rel];
   });
 }
+function engineAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 1) return false;
+  try { process.kill(pid, 0); return true; } catch (error) { return error.code === 'EPERM'; }
+}
+export function stopCoordinator(appHome, target, { spawnSyncImpl = spawnSync, isAlive = engineAlive, wait = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms), node = process.execPath } = {}) {
+  const state = path.join(appHome, 'relevo-workflow', 'state.json');
+  const cli = path.join(target, 'runtime', 'cli.mjs');
+  if (!fs.existsSync(state) || !fs.existsSync(cli)) return false;
+  let owner;
+  const ownerFile = path.join(appHome, 'relevo-workflow', 'engine.lock', 'owner.json');
+  try { owner = JSON.parse(fs.readFileSync(ownerFile, 'utf8')); } catch { return false; }
+  if (!isAlive(owner.pid)) return false;
+  const result = spawnSyncImpl(node, [cli, '--home', path.resolve(appHome), 'command', JSON.stringify({ action: 'stop' })], { encoding: 'utf8', timeout: 30000 });
+  if (result.error || result.status !== 0) throw new Error(result.stderr?.trim() || 'Could not stop the Relevo coordinator safely');
+  const deadline = Date.now() + 20000;
+  while (isAlive(owner.pid) && Date.now() < deadline) wait(50);
+  if (isAlive(owner.pid)) throw new Error('Relevo coordinator did not exit; refusing to replace its runtime');
+  return true;
+}
 function confined(root, rel) {
   if (path.isAbsolute(rel) || rel.split(path.sep).includes('..')) throw Error('Invalid manifest path');
   const target = path.join(root, rel);
@@ -30,11 +50,12 @@ function confined(root, rel) {
   }
   return target;
 }
-export function deploy(source, target, backup) {
+export function deploy(source, target, backup, options = {}) {
   source = path.resolve(source); target = path.resolve(target); backup = path.resolve(backup);
   if (!fs.statSync(target).isDirectory() || fs.lstatSync(target).isSymbolicLink()) throw Error('Expected an existing mod directory');
   if (fs.existsSync(backup)) throw Error('Backup exists; choose a new backup for each installation');
-  const changed = files(source).filter((rel) => rel.endsWith('.js') && path.basename(rel) !== 'config.js' && digest(path.join(source, rel)) !== digest(confined(target, rel)))
+  stopCoordinator(options.appHome ?? path.dirname(path.dirname(target)), target, options.stopOptions);
+  const changed = files(source).filter((rel) => /\.(?:m?js)$/.test(rel) && path.basename(rel) !== 'config.js' && digest(path.join(source, rel)) !== digest(confined(target, rel)))
     .sort((a, b) => Number(a === 'main.js') - Number(b === 'main.js') || a.localeCompare(b));
   fs.mkdirSync(backup, { recursive: true, mode: 0o700 });
   const manifest = { version: 1, target, created: new Date().toISOString(), files: {} };
@@ -69,8 +90,9 @@ export function verify(backup, installed = false) {
   }
   return Object.keys(m.files).length;
 }
-export function rollback(backup) {
+export function rollback(backup, options = {}) {
   const m = load(backup);
+  stopCoordinator(options.appHome ?? path.dirname(path.dirname(m.target)), m.target, options.stopOptions);
   for (const [rel, hashes] of Object.entries(m.files)) {
     if (![hashes.installed, hashes.original].includes(digest(confined(m.target, rel)))) throw Error(`New local edit preserved; resolve before rollback: ${rel}`);
     if (hashes.original !== null && digest(path.join(backup, 'original', rel)) !== hashes.original) throw Error(`Backup checksum mismatch: ${rel}`);

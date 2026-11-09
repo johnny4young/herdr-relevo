@@ -19,8 +19,10 @@ import { focusInbox } from "./inbox-keys.js";
 import { QuickReplies, openReplies } from "./replies.js";
 import { SessionFinder, openSessions } from "./sessions.js";
 import { UsageDialog, openUsage } from "./usage.js";
+import { Workflow, openWorkflow } from "./workflow.js";
 
 const ROLES = {
+  workflow: Workflow,
   "goal-editor": GoalEditor,
   accounts: Sidebar, inbox: Inbox, "inbox-button": InboxButton, "account-menu": AccountMenu,
   "panel-bar": PanelBar, "panel-toggle": PanelToggle, "find-file": FileFinder, "checkout-menu": CheckoutMenu,
@@ -60,6 +62,7 @@ export default class Relevo extends View {
     else if (name === "classic-inbox") { setShared(GOAL_MODE, false); focusInbox(); }
     else if (name === "goal-new") openGoal();
     else if (name.startsWith("goal-focus-")) { setShared(GOAL_MODE, true); setShared(GOAL_SCOPE, name.slice(11)); focusInbox(); }
+    else if (name.startsWith("workflow-")) openWorkflow(name.slice(9));
     else if (name.startsWith("goal-")) openGoal(name.slice(5));
     else if (name === "find-file") openFinder();
     else if (name === "focus-next") this.part.cycleFocus(cx);
