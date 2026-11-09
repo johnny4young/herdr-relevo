@@ -371,29 +371,30 @@ export class ReviewDiff {
   }
 
   header(t) {
-    return h_flex().h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
+    return v_flex().flex_none().px(12).py(6).gap(6).border_b(1).border_color(t.border)
+      .child(h_flex().gap(8).items_center()
       .child(div().font_semibold().child("Review"))
       .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim)
         .child(this.pr
           ? `${this.pr.repo.split("/")[1]} #${this.pr.number} · against ${this.pr.base}`
-          : `${this.root?.split("/").pop() ?? "No folder"}${this.scope === "all" && this.mergeBase ? ` · against ${this.baseName}` : ""}`))
+          : `${this.root?.split("/").pop() ?? "No folder"}${this.scope === "all" && this.mergeBase ? ` · against ${this.baseName}` : ""}`)))
+      .child(h_flex().flex_wrap().gap(8).items_center()
       .when(!this.pr || Boolean(this.seenMark()), (el) => el.child(this.scopePicker(t)))
       .when(this.files.length > 0, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim)
         .child(`${this.files.filter((f) => this.viewed(f.path)).length} of ${this.files.length} viewed`)))
       .child(button(t, "rv-mark-seen", "Mark seen", (cx) => cx.spawn(async (cx) => {
         await this.markSeen(cx);
-      }), { size: "sm", tip: "What changes after this shows under Since I looked. Sending comments marks it too" }));
+      }), { size: "sm", tip: "What changes after this shows under Since I looked. Sending comments marks it too" })));
   }
 
   scopePicker(t) {
-    const pick = (scope, label) => div().id(`rv-scope-${scope}`).px(7).h(18).flex().items_center().rounded(4).cursor_pointer()
-      .text_size(11).text_color(this.scope === scope ? t.foreground : t.muted)
-      .when(this.scope === scope, (el) => el.bg(t.selected))
-      .on_click((_e, cx) => this.setScope(scope, cx))
-      .child(label);
+    const tips = { pr: "Review the entire PR against its base", uncommitted: "Review working tree changes, including new files",
+      all: "Review committed and uncommitted changes against the branch base", seen: "Review changes since your last Mark seen" };
+    const pick = (scope, label) => button(t, `rv-scope-${scope}`, label, (cx) => this.setScope(scope, cx),
+      { size: "sm", selected: this.scope === scope, kind: this.scope === scope ? "solid" : "outline", tip: tips[scope] });
     const options = this.pr ? [["pr", "Whole PR"]] : [["uncommitted", "Uncommitted"], ["all", "All changes"]];
     if (this.seenMark()) options.push(["seen", "Since I looked"]);
-    return h_flex().id("rv-scope").flex_none().p(1).gap(1).rounded(5).bg(t.raised)
+    return h_flex().id("rv-scope").flex_wrap().min_w(0).p(1).gap(3).rounded(5).bg(t.raised)
       .children(options.map(([scope, label]) => pick(scope, label)));
   }
 

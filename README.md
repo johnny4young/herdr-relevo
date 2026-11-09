@@ -9,6 +9,22 @@ alerts when a PR's CI or reviews change, and a ledger of agent time per ticket.
 
 *The preview and screenshots are mockups with demo data, drawn to match the layout.*
 
+## Live goals in the existing Inbox
+
+Choose **Goals** in Inbox to group PRs and local changes by an explicit goal, owner and priority. Link existing agents as leads and attach revision-bound screenshot/video links while retaining Relevo's review, reply, CI and Land controls. **Classic** switches back immediately. Goal metadata persists separately and does not grant approvals or send messages automatically.
+
+Track a goal's plan through pending, working, review and manually validated steps; pause, close or reopen it explicitly. Drafts and addressed work keep their original controls in expandable groups. See the [product goal and acceptance plan](docs/proposals/relevo-goal.md) for the complete scope and remaining work.
+
+Click the **Inbox** heading to focus its queue: **↑/↓** selects work, **G** reaches the next goal, **E** opens context, **S** opens the existing skill/account picker, and **R** opens review where available. **?** shows help; **Tab/Shift-Tab** moves between controls. Enter activates the focused control. Goal cards keep secondary **Criteria and feedback** in a keyboard-accessible fold while decisions, evidence and work controls stay visible. The goal editor separates **Decision**, **Plan** and **Ownership**, retains edits across sections, and saves with **⌘S**. Skills still run through the existing account and worktree flow. See the [keyboard interaction guide](docs/proposals/goal-ux.md).
+
+See [installation, rollback and current limits](docs/proposals/decision-inbox.md). The reversible installer preserves accounts, layouts, keys and sessions and creates a standalone rollback launcher. Lead/coordinator automation, voice and preference learning are follow-up work in this PR.
+
+## Native Decision Inbox preview
+
+Try the goal-aware Inbox inside the real Herdr app, in an isolated local profile with fictional data. See the [native preview instructions](docs/previews/native-decision-inbox.md). It keeps the existing Inbox and does not change your installed configuration or connect to real agents.
+
+To inspect your actual saved workspace/tab metadata without connecting the preview to live agents, use the separate [local metadata snapshot](scripts/SNAPSHOT.md). It keeps real names and relationships, marks missing goals and states as unknown, and does not import accounts or credentials.
+
 ## What it does
 
 ### Answer agents without leaving your work

@@ -1,6 +1,6 @@
 // Since I looked and Viewed, on a real git repo: only what changed after the mark, untracked files included.
 import "./fake/register.mjs";
-import { test, beforeEach } from "node:test";
+import { test, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { setTimeout } from "node:timers";
 import { execFileSync } from "node:child_process";
@@ -15,6 +15,7 @@ const { ReviewDiff, parseHashes } = await import("../review.js");
 const settled = async () => { for (let i = 0; i < 30; i++) { await flush(); await new Promise((r) => setTimeout(r, 15)); } };
 
 let repo;
+after(() => { if (repo) rmSync(repo, { recursive: true, force: true }); });
 beforeEach(() => {
   resetFake();
   if (repo) rmSync(repo, { recursive: true, force: true });
@@ -29,6 +30,10 @@ beforeEach(() => {
   git("add", "-A");
   git("commit", "-qm", "start");
   fake.exec = (cmd, args, options = {}) => {
+    // Git integration is real; agent messages and all other programs stay simulated.
+    if (cmd === "hc") return { code: 0, stdout: "", stderr: "" };
+    assert.ok(["git", "sh"].includes(cmd), `Unexpected integration command: ${cmd}`);
+    assert.equal(options.cwd, repo, "Integration commands must stay in the temporary repository");
     try {
       return { code: 0, stdout: execFileSync(cmd, args, { cwd: options.cwd }).toString() };
     } catch (e) {
@@ -94,6 +99,8 @@ test("sending comments marks what the agent had done by then", async () => {
   v.send(cx);
   await settled();
   assert.ok(fake.stored["relevo.review.seen"][repo].tree);
+  assert.match(v.note, /^Sent to fix/);
+  assert.equal(v.comments.length, 0);
 });
 
 test("hashes come from one git call, a gone file reads as gone", () => {

@@ -12,6 +12,12 @@ export function element(kind = "div") {
         else if (name === "child") target.items.push(args[0]);
         else if (name === "children") target.items.push(...args[0]);
         else if (name === "tooltip") target.tip = args[0];
+        else if (name === "accessibility_label") target.accessibleLabel = args[0];
+        else if (name === "disabled") target.isDisabled = args[0];
+        else if (name === "selected") target.isSelected = args[0];
+        else if (name === "tab_stop") target.tabStop = args[0];
+        else if (name === "tab_index") target.tabIndex = args[0];
+        else if (name === "focus") target.hasFocusStyle = true;
         else if (name === "spin") target.spinning = true;
         else if (name === "when") { if (args[0]) args[1](el); }
         else if (name === "map") return args[0](el);

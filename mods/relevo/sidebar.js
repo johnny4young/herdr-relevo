@@ -31,6 +31,12 @@ const STALE = 30 * 60;
 export class Sidebar {
   init(_props, cx) {
     this.quota = {};
+    if (_props?.syntheticPreview === true) {
+      this.syntheticPreview = true;
+      this.width = 268;
+      this.loaded = true;
+      return;
+    }
     publishSetup([...ACCOUNTS, CODEX]);
     this.width = 268;
     // The snapshots on disk answer at once; the usage endpoints follow.
@@ -98,6 +104,7 @@ export class Sidebar {
   }
 
   launch(key) {
+    if (this.syntheticPreview) return;
     const f = focused();
     const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
     if (key === "best") key = this.best(pane?.cwd ?? f?.cwd);
@@ -149,7 +156,7 @@ export class Sidebar {
         cx.notify();
       })
       .child(div().id(`account-name-${p.key}`).w(NAME_W).flex_none().flex().items_center().gap(8)
-        .tooltip(withKey(`${note}. Click to start ${app} here.`, `relevo.launch-${p.key}`))
+        .tooltip(withKey(this.syntheticPreview ? "Perfil aislado: cuentas y lanzadores desconectados" : `${note}. Click to start ${app} here.`, `relevo.launch-${p.key}`))
         .child(chip(div, p))
         .child(div().flex_1().min_w(0).truncate().text_size(13).font_medium().text_color(stale ? t.muted : t.foreground)
           .child(p.label)))
@@ -161,6 +168,7 @@ export class Sidebar {
 
   // Hides the other context in the Inbox, folds its space folder and mutes its alerts.
   focusPicker(t) {
+    if (this.syntheticPreview) return div().text_size(11).text_color(t.ansi3).child("PREVIEW");
     const now = focus();
     return h_flex().id("focus").h(18).p(1).gap(1).rounded(5).bg(t.raised).text_size(11)
       .tooltip(withKey("Which context the Inbox and alerts show", "relevo.focus-next"))
@@ -230,7 +238,7 @@ export class Sidebar {
             .tooltip(withKey("Settings", "relevo.settings"))
             .on_click((_e, cx) => {
               cx.stop_propagation();
-              openSettings();
+              if (!this.syntheticPreview) openSettings();
             })
             .child(svg("mods/relevo/settings.svg").size(11))))
         .child(this.focusPicker(t)))

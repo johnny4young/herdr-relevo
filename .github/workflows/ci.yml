@@ -23,7 +23,9 @@ jobs:
       - name: Tests (relevo-files)
         working-directory: mods/relevo-files
         run: node --test 'test/*.test.mjs'
+      - name: Launcher and rollback tests
+        run: node --test 'scripts/tests/*.test.mjs'
       - name: Lint
-        run: npx --yes eslint@10.13.0 mods
+        run: npx --yes eslint@10.13.0 mods scripts
       - name: No machine paths in the mods
         run: "! grep -rIn --exclude-dir=test -e '/Users/' -e '/home/[a-z]' mods layouts keys.json"

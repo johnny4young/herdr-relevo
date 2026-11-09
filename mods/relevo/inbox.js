@@ -1,4 +1,7 @@
+import { GoalViews, GOAL_MODE } from "./inbox-goals.js";
 import { div } from "gpui-kit";
+import { PreviewInbox } from "./decision-preview.js";
+import { SnapshotInbox } from "./snapshot-preview.js";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { theme, exec, run, notify, settings, agents, panes, terminals, shared, setShared } from "herdr";
 import { loadClaudeQuotas } from "./accounts.js";
@@ -57,6 +60,11 @@ function savedSince() {
 
 export class Inbox {
   init(_props, cx) {
+    if (_props?.syntheticPreview === true) {
+      this.preview = _props?.snapshotPreview === true ? new SnapshotInbox() : new PreviewInbox();
+      this.preview.init(_props, cx);
+      return;
+    }
     this.local = [];
     this.h = cx.focus_handle();
     this.sel = null;
@@ -94,6 +102,7 @@ export class Inbox {
     if (!panels.includes("inbox")) setShared("workspace.panels", [...panels, "inbox"]);
     this.labelling = {};
     this.terms = new Map();
+    this.startGoals(cx);
     this.startLive(cx);
     this.scanLocal(cx);
     this.loadAddressed(cx);
@@ -369,6 +378,7 @@ export class Inbox {
   }
 
   close() {
+    if (this.preview) return this.preview.close();
     this.reply.release();
     this.wanted.clear();
   }
@@ -664,6 +674,7 @@ export class Inbox {
   }
 
   render(cx) {
+    if (this.preview) return this.preview.render(cx);
     this.snap = { launched: launched(), landing: shared(LANDING) ?? {} };
     try {
       return this.draw(cx);
@@ -676,20 +687,25 @@ export class Inbox {
     const t = theme(), v = this.shown();
     this.publish(v);
     this.takeFocus(cx);
-    this.nav = this.navItems(v);
+    const goalMode = shared(GOAL_MODE) === true;
+    if (goalMode) this.goalProjection = this.projectGoals(v);
+    const scoped = goalMode && Boolean(this.goalProjection.scope);
+    this.nav = scoped ? this.goalNav(this.goalProjection.ordered) : goalMode
+      ? [...this.navItems(v).filter((n) => ["away", "desktop"].includes(n.section)), ...this.goalNav(this.goalProjection.ordered), ...this.navItems(v).filter((n) => n.section === "trees")]
+      : this.navItems(v);
     this.keyboard = this.h.is_focused();
     if (this.sel && !this.nav.some((i) => i.id === this.sel)) this.sel = null;
-    const view = this.viewport();
+    const view = goalMode ? this.goalViewport() : this.viewport();
     this.hiddenIds = view.hidden;
     const part = (key, els) => (view.sections.has(key) ? [] : els.filter(Boolean));
     const total = v.local.length + v.desktop.length + v.mine.length + v.requested.length;
     return v_flex().id("relevo-inbox").size_full().min_h(0).rounded(10).overflow_hidden()
       .bg(t.surface ?? t.chrome).border_1().border_color(this.keyboard ? t.accent : t.border).text_color(t.foreground)
       .track_focus(this.h)
-      .on_mouse_down("left", () => this.h.focus())
+      .tab_index(0).role("group").accessibility_label("Inbox. Arrow keys select work; Enter opens its primary action. Tab moves through controls.")
       .on_key_down((e, cx) => this.navKey(e, cx))
       .child(h_flex().h(36).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
-        .child(div().font_semibold().text_size(13).child("Inbox"))
+        .child(button(t, "inbox-focus-list", "Inbox", () => this.h.focus(), { tip: "Focus the queue to navigate with arrow keys" }))
         .child(h_flex().gap(5).items_center().text_size(11).text_color(t.dim)
           .when(!this.prsAt && this.scanningPRs, (el) => el.child(spinner(t.dim, 10)))
           .when(Boolean(this.error), (el) => el.text_color(t.blocked).id("prs-state").tooltip(this.error))
@@ -703,27 +719,34 @@ export class Inbox {
             this.scanTrees(cx, true);
           })
           .child("↻")))
+      .child(this.goalToolbar(t, cx))
+      .when(goalMode, (el) => el.child(h_flex().px(10).pb(5).gap(5).items_center()
+        .child(div().flex_1().text_size(11).text_color(t.muted).child("↑↓ Select · Tab Controls · G Goal · F Focus · ? Help"))
+        .child(button(t, "goal-key-help", "?", (cx) => { this.goalHelp = !this.goalHelp; cx.notify(); }, { size: "sm", tip: "Show keyboard shortcuts for the focused queue", accessibleLabel: "Keyboard help" }))))
+      .when(goalMode && this.goalHelp, (el) => el.child(div().px(10).pb(7).text_size(13).text_color(t.foreground)
+        .child("Focus Inbox first. ↑↓ select; Home/End first/last; Enter primary action; G next goal; F focus/all work; E context; S skills and account; R review; 1–9 answer a waiting agent; Esc return. Tab/Shift-Tab reach buttons and folds. Shortcuts do not run while typing.")))
       .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().p(8).gap(6)
         .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
         .when(Boolean(this.localError), (el) => el.child(div().id("local-error").p(8).text_size(11).text_color(t.blocked).child(this.localError)))
-        .when(!total && !this.error && Boolean(this.prsAt), (el) => el.child(
+        .when(!total && !this.error && Boolean(this.prsAt) && (!goalMode || (!this.goalProjection.groups.length && !this.goalProjection.sources.length)), (el) => el.child(
           div().p(12).text_size(13).text_color(t.dim).child("Nothing waiting")))
-        .when(view.above === 0, (el) => el.child(this.summary(t, v, cx)))
+        .when(view.above === 0 && !scoped, (el) => el.child(this.summary(t, v, cx)))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
-        .children(part("away", this.awayGroup(t)))
-        .children(part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
-        .children(part("desktop", this.desktopGroup(t, v.desktop, v.desktopDone)))
-        .children(part("landing", this.landingGroup(t)))
-        .children(part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true, v.requestedDone)))
-        .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone, v.ready)))
-        .children(part("local", this.localGroup(t, "local", "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"), v.localDone)))
-        .children(part("today", this.todayGroup(t, v.today)))
-        .children(part("trees", this.treeGroups(t, v.worktrees))));
+        .children(scoped ? [] : part("away", this.awayGroup(t)))
+        .children(goalMode ? [] : part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
+        .children(scoped ? [] : part("desktop", this.desktopGroup(t, v.desktop, v.desktopDone)))
+        .children(scoped ? [] : part("landing", this.landingGroup(t)))
+        .children(goalMode ? this.goalsGroup(t) : [])
+        .children(goalMode ? [] : part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true, v.requestedDone)))
+        .children(goalMode ? [] : part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone, v.ready)))
+        .children(goalMode ? [] : part("local", this.localGroup(t, "local", "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"), v.localDone)))
+        .children(scoped ? [] : part("today", this.todayGroup(t, v.today)))
+        .children(scoped ? [] : part("trees", this.treeGroups(t, v.worktrees))));
   }
 }
 
 
-for (const views of [PrViews, TreeViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews]) {
+for (const views of [PrViews, TreeViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews, GoalViews]) {
   for (const name of Object.getOwnPropertyNames(views.prototype)) {
     if (name !== "constructor") Inbox.prototype[name] = views.prototype[name];
   }

@@ -1,19 +1,22 @@
-import { div, svg } from "gpui-kit";
-import { h_flex } from "gpui-base";
+import { svg } from "gpui-kit";
+import { h_flex, Button } from "gpui-base";
 import { appHome, readTextFile, shared, setShared } from "herdr";
 import { relevoKeys, formatShortcut } from "./lib/keys.js";
 
 const SIZES = {
-  sm: { h: 20, px: 7, text: 11, radius: 5 },
-  md: { h: 24, px: 9, text: 11, radius: 6 },
-  lg: { h: 28, px: 12, text: 11, radius: 6 },
+  sm: { h: 24, px: 7, text: 11, radius: 5 },
+  md: { h: 28, px: 9, text: 13, radius: 6 },
+  lg: { h: 32, px: 12, text: 13, radius: 6 },
 };
 
 // kind: "outline" (default), "solid" or "danger". A disabled button keeps its place and ignores clicks.
-export function button(t, id, label, onClick, { kind = "outline", size = "md", tip = null, disabled = false } = {}) {
+export function button(t, id, label, onClick, { kind = "outline", size = "md", tip = null, disabled = false, selected = false, accessibleLabel = null } = {}) {
   const s = SIZES[size];
   const quiet = size === "sm" ? t.muted : t.foreground;
-  return div().id(id).h(s.h).px(s.px).flex_none().flex().items_center().gap(5).rounded(s.radius).text_size(s.text)
+  return Button.new(id).id(id).h(s.h).px(s.px).flex_none().flex().items_center().gap(5).rounded(s.radius).text_size(s.text)
+    .disabled(disabled).selected(selected).tab_index(0).tab_stop(!disabled)
+    .accessibility_label(accessibleLabel ?? (typeof label === "string" ? (tip ? `${label}. ${tip}` : label) : tip ?? id))
+    .focus((el) => el.border_2().border_color(t.accent))
     .when(disabled, (el) => el.bg(t.raised).text_color(t.dim))
     .when(!disabled && kind === "solid", (el) => el.bg(t.solid).text_color(t.solid_foreground).cursor_pointer())
     .when(!disabled && kind === "outline", (el) => el.border_1().border_color(t.border).text_color(quiet).cursor_pointer()
@@ -60,10 +63,13 @@ export function saveFolds(expanded) {
 // A "▸ N things" line that folds a list open or shut; `key` names its state in view.expanded.
 export function foldRow(view, t, id, key, label, { gap = false, onOpen = null, after = null } = {}) {
   const open = Boolean(view.expanded[key]);
-  return div().id(id).px(4).when(gap, (el) => el.pt(6)).when(!gap, (el) => el.py(2))
+  return Button.new(id).id(id).tab_index(0).selected(open).accessibility_label(`${label}. ${open ? "Collapse" : "Expand"}`)
+    .tooltip(`${open ? "Collapse" : "Expand"} ${label}`).focus((el) => el.border_2().border_color(t.accent))
+    .min_h(28).px(4).when(gap, (el) => el.pt(6)).when(!gap, (el) => el.py(2))
     .flex().items_center().gap(5).text_size(11).text_color(t.dim).cursor_pointer()
     .hover((s) => s.text_color(t.muted))
     .on_click((_e, cx) => {
+      cx.stop_propagation();
       view.expanded[key] = !open;
       saveFolds(view.expanded);
       if (!open) onOpen?.(cx);

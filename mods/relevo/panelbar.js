@@ -45,6 +45,8 @@ export class PanelBar {
     this.cwd = null;
     this.top = null;
     this.list = [];
+    this.syntheticPreview = _props?.syntheticPreview === true;
+    if (this.syntheticPreview) return;
     cx.timer.every(2000, (cx) => this.refresh(cx));
     this.refresh(cx);
   }
@@ -84,7 +86,7 @@ export class PanelBar {
       .child(h_flex().id("find-file").flex_1().min_w(0).h(26).px(8).gap(6).items_center().rounded(6)
         .border_1().border_color(t.border).bg(t.background)
         .cursor_pointer().hover((s) => s.bg(t.hover))
-        .on_click(() => openFinder())
+        .on_click(() => { if (!this.syntheticPreview) openFinder(); })
         .child(div().text_color(t.dim).child("⌕"))
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted)
           .child(`Open file in ${this.top?.split("/").pop() ?? "…"}`))

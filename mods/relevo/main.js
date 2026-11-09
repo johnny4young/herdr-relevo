@@ -1,5 +1,9 @@
+import { GOAL_MODE, GOAL_SCOPE } from "./inbox-goals.js";
+import { GoalEditor, openGoal } from "./goals-editor.js";
 import { View } from "gpui-kit";
-import { props, nextCommand } from "herdr";
+import { PREVIEW_ROLES } from "./decision-preview.js";
+import { SnapshotDetail, SnapshotBanner } from "./snapshot-preview.js";
+import { props, nextCommand, setShared } from "herdr";
 import { Sidebar } from "./sidebar.js";
 import { Inbox } from "./inbox.js";
 import { InboxButton, PanelToggle, showPanel } from "./toolbar.js";
@@ -17,6 +21,7 @@ import { SessionFinder, openSessions } from "./sessions.js";
 import { UsageDialog, openUsage } from "./usage.js";
 
 const ROLES = {
+  "goal-editor": GoalEditor,
   accounts: Sidebar, inbox: Inbox, "inbox-button": InboxButton, "account-menu": AccountMenu,
   "panel-bar": PanelBar, "panel-toggle": PanelToggle, "find-file": FileFinder, "checkout-menu": CheckoutMenu,
   handoff: Handoff, "review-diff": ReviewDiff, "ledger-week": LedgerWeek, settings: Settings,
@@ -26,8 +31,17 @@ const ROLES = {
 export default class Relevo extends View {
   init(_props, cx) {
     const role = props()?.role ?? "accounts";
-    this.part = new (ROLES[role] ?? Sidebar)();
-    this.part.init?.(props(), cx);
+    const snapshot = props()?.snapshotPreview === true;
+    const preview = props()?.syntheticPreview === true || snapshot;
+    this.syntheticPreview = preview;
+    const Part = preview
+      ? ({ inbox: Inbox, accounts: Sidebar, "inbox-button": InboxButton, "panel-toggle": PanelToggle, "panel-bar": PanelBar }[role] ??
+        (snapshot ? ({ "snapshot-detail": SnapshotDetail }[role] ?? SnapshotBanner) : PREVIEW_ROLES[role] ?? PREVIEW_ROLES["preview-banner"]))
+      : ROLES[role] ?? Sidebar;
+    this.part = new Part();
+    this.part.init?.(snapshot ? { ...props(), syntheticPreview: true } : props(), cx);
+    // Preview roles never start account watchers, usage scans, or command listeners.
+    if (preview) return;
     cx.spawn(async (cx) => {
       await loadKeys();
       cx.notify();
@@ -41,7 +55,13 @@ export default class Relevo extends View {
   }
 
   command(name, cx) {
-    if (name === "find-file") openFinder();
+    if (this.syntheticPreview) return;
+    if (name === "goals") { setShared(GOAL_MODE, true); focusInbox(); }
+    else if (name === "classic-inbox") { setShared(GOAL_MODE, false); focusInbox(); }
+    else if (name === "goal-new") openGoal();
+    else if (name.startsWith("goal-focus-")) { setShared(GOAL_MODE, true); setShared(GOAL_SCOPE, name.slice(11)); focusInbox(); }
+    else if (name.startsWith("goal-")) openGoal(name.slice(5));
+    else if (name === "find-file") openFinder();
     else if (name === "focus-next") this.part.cycleFocus(cx);
     else if (name === "next-waiting") nextWaiting();
     else if (name === "handoff") openHandoff();

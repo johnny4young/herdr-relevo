@@ -104,11 +104,18 @@ export class KeyNav {
       cx.stop_propagation();
       return cx.notify();
     }
+    // A focused button/input owns its keys. Never run a selected card's action
+    // as a side effect of activating a descendant control with Enter.
+    if (!this.h.is_focused()) return;
     const items = this.nav ?? [];
     const at = items.findIndex((i) => i.id === this.sel);
     const held = e.modifiers?.platform || e.modifiers?.control || e.modifiers?.alt;
-    if (/^[1-9]$/.test(e.key) && held) return;
-    if (/^[1-9]$/.test(e.key) && items[at]?.choose) {
+    if (held) return;
+    if (this.goalAction?.(e.key, cx)) {
+      // These commands only apply while the queue itself has keyboard focus.
+    } else if (e.key === "home" || e.key === "end") {
+      this.sel = items[e.key === "home" ? 0 : items.length - 1]?.id ?? null;
+    } else if (/^[1-9]$/.test(e.key) && items[at]?.choose) {
       items[at].choose(Number(e.key), cx);
     } else if (e.key === "down" || e.key === "up") {
       const next = at < 0 ? 0 : Math.min(items.length - 1, Math.max(0, at + (e.key === "down" ? 1 : -1)));
