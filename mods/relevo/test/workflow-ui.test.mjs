@@ -39,7 +39,11 @@ test('shows activity and evidence actions only on selection and handles Escape',
   click(find(tree, 'workflow-new-task'), cx); tree = v.render(); assert.ok(find(tree, 'workflow-title'));
   v.selected = 'task-1'; v.h.is_focused = () => false; tree = v.render();
   const escape = find(tree, 'workflow-dialog').handlers['on_key_down'];
-  escape({ key: 'escape' }, { stop_propagation() {} });
+  v.form.title.set_value('Unsent title');
+  escape({ key: 'escape' }, cx);
+  assert.equal(fake.closedOverlays.length, 0); assert.equal(v.form.title.value(), 'Unsent title');
+  v.h.is_focused = () => true;
+  escape({ key: 'escape' }, cx);
   assert.equal(fake.closedOverlays.at(-1), 'o'); v.close();
 });
 
@@ -146,6 +150,22 @@ test('decision drafts cannot leak from one task into another task', async () => 
   v.editDecisionNote(a, false, cx); v.form.decision.set_value('Only for A');
   v.editDecisionNote(b, true, cx); assert.equal(v.form.decision.value(), '');
   v.editDecisionNote(a, false, cx); assert.equal(v.form.decision.value(), 'Only for A'); v.close();
+});
+
+test('number shortcuts follow the visible tab order and Escape keeps an input draft', async () => {
+  const { v, cx } = await setup();
+  v.tasks = [{ id: 'result', goalId: 'g', title: 'Result', state: 'needs_you' }]; v.selected = 'result';
+  v.h.is_focused = () => true;
+  for (const [index, tab] of ['Overview', 'Changes', 'Evidence', 'Activity', 'Preferences'].entries()) {
+    find(v.render(), 'workflow-dialog').handlers.on_key_down({ key: String(index + 1) }, cx);
+    assert.equal(v.tab, tab);
+  }
+  v.tab = 'Overview'; v.editDecisionNote(v.tasks[0], true, cx); v.form.decision.set_value('Keep this feedback');
+  let focused = false; v.h.is_focused = () => focused; v.h.focus = () => { focused = true; };
+  find(v.render(), 'workflow-dialog').handlers.on_key_down({ key: 'escape' }, cx);
+  assert.equal(focused, true); assert.equal(v.form.decision.value(), 'Keep this feedback');
+  assert.equal(v.requestChangesFor, 'result'); assert.equal(fake.closedOverlays.length, 0);
+  assert.equal(fake.execs.length, 0); v.close();
 });
 
 test('compact review preserves full context on demand without dispatching or implying missing evidence passed', async () => {

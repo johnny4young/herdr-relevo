@@ -16,6 +16,7 @@ const STATES = { planned: "Planned", ready: "Ready", running: "In progress", nee
 const row = (t, value) => div().w_full().min_w(0).text_size(13).text_color(t.muted).child(value);
 const taskState = (state) => STATES[state] ?? state ?? "Unknown";
 const caption = (value, limit = 42) => value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
+const TABS = ["Overview", "Changes", "Evidence", "Activity", "Preferences"];
 
 export class Workflow extends WorkflowPlan {
   init(_props, cx) {
@@ -418,9 +419,9 @@ export class Workflow extends WorkflowPlan {
         .child(row(t, caption(implementation.summary ?? "Implementation report available", 160)))))
       .child(h_flex().gap(5)
         .child(button(t, "workflow-inspect-result", "Review result", (context) => { this.tab = "Changes"; this.h.focus(); context.notify(); },
-          { size: "lg", tip: "3: inspect the diff, recorded checks and full agent reports before deciding" }))
+          { size: "lg", tip: "2: inspect the diff, recorded checks and full agent reports before deciding" }))
         .child(button(t, "workflow-inspect-evidence", "Open evidence", (context) => { this.tab = "Evidence"; this.h.focus(); context.notify(); },
-          { tip: "4: inspect attached screenshots, videos and reports" })))
+          { tip: "3: inspect attached screenshots, videos and reports" })))
       .children([this.decisions(t, task), this.uncertainAttempt(t, task)].filter(Boolean))
       .when(!["needs_you", "accepted", "cancelled"].includes(task.state), (el) => el.child(this.taskActions(t, task, cx)))
       .child(button(t, "workflow-details-toggle", details ? "Hide details" : "Details, agents & skills", (context) => {
@@ -603,12 +604,17 @@ export class Workflow extends WorkflowPlan {
       : this.emptyQueue(t);
     return v_flex().id("workflow-dialog").role("dialog").accessibility_label("Goal workflow").track_focus(this.h)
       .on_key_down((event, cx) => {
-        if (event.key === "escape") { closeOverlay(overlay); return; }
+        if (event.key === "escape") {
+          if (!this.h.is_focused()) {
+            cx.stop_propagation(); this.h.focus(); cx.notify(); return;
+          }
+          closeOverlay(overlay); return;
+        }
         if (!this.h.is_focused() || event.modifiers?.platform || event.modifiers?.alt || event.modifiers?.control) return;
         if (event.key === "?") { this.showHelp = !this.showHelp; cx.notify(); }
         else if (event.key === "n") { this.selected = null; this.explicitNew = true; this.tab = "Overview"; this.showHelp = false; cx.notify(); }
         else if (event.key === "p") { this.openPlan(cx); }
-        else if (["1", "2", "3", "4", "5"].includes(event.key)) { this.tab = ["Overview", "Activity", "Changes", "Evidence", "Preferences"][Number(event.key) - 1]; cx.notify(); }
+        else if (["1", "2", "3", "4", "5"].includes(event.key)) { this.tab = TABS[Number(event.key) - 1]; cx.notify(); }
         else if (["arrowdown", "arrowup"].includes(event.key)) {
           const tasks = workflowItems(this.tasks ?? [], this.filter);
           const index = tasks.findIndex((item) => item.id === this.selected);
@@ -630,12 +636,12 @@ export class Workflow extends WorkflowPlan {
         .when(Boolean(this.engine?.enabled), (controls) => controls.child(button(t, "workflow-engine-stop", "Pause automation", (cx) => this.command({ action: "stop" }, cx), { disabled: this.busy, tip: "Stop future dispatches across every goal; current agent sessions keep running" })))))
       .when(Boolean(this.notice), (el) => el.child(div().role("status").child(row(t, this.notice))))
       .when(Boolean(this.error), (el) => el.child(div().id("workflow-error").role("alert").text_color(t.blocked).child(this.error)))
-      .when(this.showHelp, (el) => el.child(row(t, "Keyboard: P goal plan · 1–5 switch tabs · ↑/↓ select tasks · N new task · ? help · Esc close. Shortcuts are disabled while an input has focus.")))
+      .when(this.showHelp, (el) => el.child(row(t, "Keyboard: 1 decision · 2 result · 3 evidence · 4 activity · 5 preferences · P plan · ↑/↓ tasks · N new · Esc returns focus to the queue; Esc again closes. Typing never triggers shortcuts.")))
       .child(h_flex().items_start().h_full().flex_1().min_h(0).min_w(0).gap(20).child(this.taskList(t))
         .child(v_flex().flex_1().h_full().min_h(0).min_w(0).gap(16)
-          .when(Boolean(task) && !["Plan", "Preferences"].includes(this.tab), (el) => el.child(h_flex().gap(6).children(["Overview", "Changes", "Evidence", "Activity"].map((tab) => button(t,
+          .when(Boolean(task) && !["Plan", "Preferences"].includes(this.tab), (el) => el.child(h_flex().gap(6).children(TABS.slice(0, 4).map((tab, index) => button(t,
             `workflow-tab-${tab}`, tab === "Overview" ? (task.state === "needs_you" ? "Decision" : "Summary") : tab === "Changes" ? "Result" : tab,
-            (cx) => { this.tab = tab; this.h.focus(); cx.notify(); }, { size: "sm", selected: this.tab === tab, tip: `${tab === "Overview" ? "1" : tab === "Activity" ? "2" : tab === "Changes" ? "3" : "4"}: open ${tab.toLowerCase()}` })
+            (cx) => { this.tab = tab; this.h.focus(); cx.notify(); }, { size: "sm", selected: this.tab === tab, tip: `${index + 1}: open ${tab.toLowerCase()}` })
             .when(this.tab === tab, (item) => item.border_color(t.accent).text_color(t.accent))))))
           .child(v_flex().id(`workflow-panel-${this.tab}-${this.selected ?? "queue"}`).flex_1().w_full().min_h(0).min_w(0).overflow_y_scrollbar().gap(10)
             .child(panel).when(!this.selected && !["Preferences", "Plan"].includes(this.tab) && (this.explicitNew || !(this.tasks ?? []).length), (el) => el.child(this.taskForm(t))))));
