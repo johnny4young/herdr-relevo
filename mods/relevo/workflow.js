@@ -9,7 +9,9 @@ import { readGoals } from "./goals-store.js";
 import { WorkflowPlan } from "./workflow-plan.js";
 
 export function openWorkflow(goalId) {
-  openOverlay({ mod: "relevo", kind: "dialog", width: 850, height: 720, props: { role: "workflow", goalId } });
+  // Herdr dialogs consume Escape before mod handlers. A keyed window lets
+  // Workflow return focus from an input without discarding its draft.
+  openOverlay({ mod: "relevo", kind: "window", key: `relevo-workflow-${goalId}`, width: 850, height: 720, props: { role: "workflow", goalId } });
 }
 
 const STATES = { planned: "Planned", ready: "Ready", running: "In progress", needs_review: "Needs review", needs_you: "Needs you", accepted: "Completed", blocked: "Blocked", failed: "Failed", cancelled: "Cancelled" };
@@ -603,10 +605,12 @@ export class Workflow extends WorkflowPlan {
           : this.overview(t, task)
       : this.emptyQueue(t);
     return v_flex().id("workflow-dialog").role("dialog").accessibility_label("Goal workflow").track_focus(this.h)
+      .on_mouse_down("left", (_event, cx) => cx.stop_propagation())
       .on_key_down((event, cx) => {
         if (event.key === "escape") {
+          cx.stop_propagation();
           if (!this.h.is_focused()) {
-            cx.stop_propagation(); this.h.focus(); cx.notify(); return;
+            this.h.focus(); cx.notify(); return;
           }
           closeOverlay(overlay); return;
         }
