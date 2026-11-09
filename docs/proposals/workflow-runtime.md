@@ -43,3 +43,11 @@ Native text fields accept system dictation as editable text. The user reviews th
 Use `scripts/live-relevo.mjs` to install the mod with a fresh backup path. It preserves `config.js`, accounts, layouts, keys, goals and sessions. Its standalone rollback launcher stops the local coordinator before restoring code. Running agent sessions are not killed, and private state/evidence stay on disk for inspection. An edit made after installation blocks rollback before code is overwritten.
 
 This is a bounded task coordinator, not an autonomous chief of staff. Goal decomposition and role selection remain explicit. Human goal acceptance stays separate from test execution and workflow completion.
+
+### Everyday use
+
+Open a goal's **Workflow** to see **Needs you** first. Read **Result** and **Evidence**, then choose **Accept result** or **Request changes**. Acceptance advances the queue; dependent tasks continue only when their prerequisites are accepted and automation is enabled.
+
+Use **Tools** (**T** with the workflow focused) to search task actions, configured skills, and agent sessions. Selecting a skill previews its command and recipient; **Queue skill** submits it explicitly. Queued work can change a pending result, so inspect new changes before accepting. **Activity** explains who received each assignment and what they reported. Full assignments and the technical event log expand on demand.
+
+**New task** starts with the desired outcome. Expand **Repository & agents** to assign connected sessions; checks, limits and dependencies have a separate section. Creating a task saves a draft; **Start** begins work. Input drafts survive switching sections and validation errors. Escape in Tools returns to the previous view; elsewhere it first leaves a text field, then closes the workflow when its root has focus.

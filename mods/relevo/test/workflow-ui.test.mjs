@@ -34,6 +34,8 @@ test('keeps validation and command failures visible and closed views ignore late
 test('shows activity and evidence actions only on selection and handles Escape', async () => {
   fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [{ id: 'task-1', goalId: 'g', title: 'Build', state: 'running', evidence: [{ id: 'e1', kind: 'report', path: '/tmp/report.md', label: 'Report' }] }], events: [{ goalId: 'g', taskId: 'task-1', type: 'started', detail: 'Started' }] });
   const { v, cx } = await setup(); v.selected = 'task-1'; v.tab = 'Activity';
+  assert.match(text(v.render()), /Who did what/);
+  click(find(v.render(), 'workflow-event-log'), cx);
   assert.match(text(v.render()), /Started/);
   v.tab = 'Evidence'; let tree = v.render(); assert.ok(find(tree, 'workflow-remove-e1')); assert.ok(find(tree, 'workflow-open-e1'));
   assert.equal(find(tree, 'workflow-path'), null, 'evidence is readable before opening the attachment form');
@@ -89,7 +91,7 @@ test('every task state produces native-compatible children, including absent opt
   const check=(node)=>{ assert.notEqual(node,null,'native GPUI does not accept null children'); assert.notEqual(node,undefined); for(const child of node?.items??[])check(child); };
   for(const state of ['planned','running','needs_review','needs_you','blocked','accepted','cancelled']) {
     v.tasks=[{id:'native-check',goalId:'g',title:'Task',state,criteria:'Expected result',attempts:[],checksResult:[],messages:[],evidence:[]}];v.selected='native-check';
-    for(const tab of ['Overview','Activity','Changes','Evidence','Preferences']) {v.tab=tab;check(v.render());}
+    for(const tab of ['Overview','Activity','Changes','Evidence','Preferences','Tools']) {v.tab=tab;check(v.render());}
   }
   v.close();
 });
@@ -106,7 +108,11 @@ test('the first screen explains the decision and keeps sessions and messaging se
   assert.equal(find(tree, 'workflow-message'), null); assert.equal(find(tree, 'workflow-focus-executor'), null);
   assert.equal(find(tree, 'workflow-decision'), null);
   click(find(tree, 'workflow-details-toggle'), cx); tree = v.render();
-  assert.ok(find(tree, 'workflow-message')); assert.ok(find(tree, 'workflow-focus-executor'));
+  assert.equal(find(tree, 'workflow-message'), null);
+  click(find(tree, 'workflow-details-tools'), cx); tree = v.render();
+  assert.ok(find(tree, 'workflow-tool-executor'));
+  click(find(tree, 'workflow-tool-message'), cx); assert.ok(find(v.render(), 'workflow-message'));
+  click(find(v.render(), 'workflow-tools-back'), cx); tree = v.render();
   click(find(tree, 'workflow-inspect-result'), cx); assert.equal(v.tab, 'Changes');
   assert.ok(find(v.render(), 'workflow-decide-accept'), 'decision remains reachable after reading reports');
   assert.equal(fake.execs.length, 0); v.close();
@@ -221,4 +227,80 @@ test('filters keep selection consistent and failed work remains actionable rathe
   v.selectFilter('Completed', cx); assert.equal(v.selected, 'a');
   v.selectFilter('Needs you', cx); assert.equal(v.selected, 'b');
   v.selectFilter('In progress', cx); assert.equal(v.selected, null); assert.match(text(v.render()), /No work in progress/); v.close();
+});
+
+test('task creation discloses setup only when needed and keeps the draft through validation', async () => {
+  const { v, cx } = await setup();
+  assert.ok(find(v.render(), 'workflow-title')); assert.ok(find(v.render(), 'workflow-criteria'));
+  assert.equal(find(v.render(), 'workflow-root'), null); assert.equal(find(v.render(), 'workflow-checks'), null);
+  v.form.title.set_value('Add search'); v.form.criteria.set_value('Find matching items');
+  click(find(v.render(), 'workflow-create'), cx);
+  assert.ok(find(v.render(), 'workflow-root')); assert.equal(v.form.title.value(), 'Add search');
+  assert.equal(fake.execs.length, 0);
+  fake.agents = [agent('a', 'A'), agent('b', 'B')];
+  v.form.root.set_value('/work'); v.executor = 'a'; v.reviewer = 'b'; v.form.checks.set_value('invalid json');
+  v.create(cx); assert.ok(find(v.render(), 'workflow-checks'));
+  assert.equal(v.form.criteria.value(), 'Find matching items'); assert.equal(fake.execs.length, 0); v.close();
+});
+
+test('Tools search and skill preview never send until explicit queue confirmation', async () => {
+  const { v, cx } = await setup();
+  v.tasks = [{ id: 'a', goalId: 'g', title: 'Search', state: 'needs_you', executor: { address: 'builder' } }]; v.selected = 'a';
+  click(find(v.render(), 'workflow-task-tools'), cx);
+  v.form.toolSearch.type('fix', cx);
+  let tree = v.render(); assert.equal(find(tree, 'workflow-tool-result'), null);
+  assert.ok(find(tree, 'workflow-tool-skill-fix'));
+  click(find(tree, 'workflow-tool-skill-fix'), cx);
+  assert.match(text(v.render()), /Recipient: builder/); assert.match(text(v.render()), /may change the pending result/);
+  assert.equal(fake.execs.length, 0);
+  click(find(v.render(), 'workflow-tool-cancel'), cx); assert.equal(find(v.render(), 'workflow-tool-confirm'), null);
+  click(find(v.render(), 'workflow-tool-skill-fix'), cx);
+  fake.exec = async (_command, args) => {
+    assert.deepEqual(JSON.parse(args.at(-1)), { action: 'skill', taskId: 'a', skill: 'fix-ci', mode: 'queue' });
+    return { stdout: '{}' };
+  };
+  click(find(v.render(), 'workflow-tool-confirm'), cx); await flush();
+  assert.equal(fake.execs.length, 1); assert.equal(v.toolPreview, null); v.close();
+});
+
+test('Tools keyboard escape returns to the result, isolates task previews and protects typing', async () => {
+  const { v, cx } = await setup();
+  v.tasks = [{ id: 'a', title: 'A', state: 'running' }, { id: 'b', title: 'B', state: 'accepted' }]; v.selected = 'a';
+  v.h.is_focused = () => false;
+  find(v.render(), 'workflow-dialog').handlers.on_key_down({ key: 't' }, cx); assert.equal(v.tab, 'Overview');
+  v.h.is_focused = () => true;
+  find(v.render(), 'workflow-dialog').handlers.on_key_down({ key: 't' }, cx); assert.equal(v.tab, 'Tools');
+  click(find(v.render(), 'workflow-tool-skill-review'), cx); assert.ok(find(v.render(), 'workflow-tool-confirm'));
+  v.selected = 'b'; assert.equal(find(v.render(), 'workflow-tool-confirm'), null);
+  assert.equal(find(v.render(), 'workflow-tool-skill-review').isDisabled, true);
+  assert.equal(find(v.render(), 'workflow-tool-message').isDisabled, true);
+  v.h.is_focused = () => false;
+  find(v.render(), 'workflow-dialog').handlers.on_key_down({ key: 'escape' }, cx);
+  assert.equal(v.tab, 'Overview'); assert.equal(fake.closedOverlays.length, 0); assert.equal(fake.execs.length, 0); v.close();
+});
+
+test('Activity distinguishes actual delivery and reports without inventing autonomous agent calls', async () => {
+  const { v, cx } = await setup();
+  v.tasks = [{ id: 'a', title: 'A', state: 'blocked', attempts: [
+    { id: 'one', role: 'executor', address: 'builder', delivery: 'acknowledged', state: 'reported', prompt: 'Exact assignment', report: { status: 'completed', summary: 'Implementation report' } },
+    { id: 'two', role: 'reviewer', address: 'reviewer', delivery: 'uncertain', state: 'running', prompt: 'Review assignment' },
+  ] }]; v.selected = 'a'; v.tab = 'Activity';
+  let tree = v.render();
+  assert.match(text(tree), /Coordinator → Implementer/); assert.match(text(tree), /Report: Completed/);
+  assert.match(text(tree), /Coordinator → Reviewer/); assert.match(text(tree), /Delivery uncertain/);
+  assert.match(text(tree), /No acceptance recorded/); assert.ok(!text(tree).includes('Exact assignment'));
+  click(find(tree, 'workflow-prompt-toggle-one'), cx); assert.match(text(v.render()), /Exact assignment/);
+  assert.equal(fake.execs.length, 0); v.close();
+});
+
+test('message drafts remain bound to the selected task and clear only after success', async () => {
+  const { v, cx } = await setup();
+  v.tasks = [{ id: 'a', title: 'A', state: 'running' }, { id: 'b', title: 'B', state: 'running' }]; v.selected = 'a'; v.openTools(cx);
+  click(find(v.render(), 'workflow-tool-message'), cx); v.form.message.set_value('Only A');
+  v.selected = 'b'; click(find(v.render(), 'workflow-tool-message'), cx); assert.equal(v.form.message.value(), '');
+  v.form.message.set_value('Only B'); v.selected = 'a'; click(find(v.render(), 'workflow-tool-message'), cx); assert.equal(v.form.message.value(), 'Only A');
+  fake.exec = async () => ({ code: 1, stderr: 'offline' });
+  click(find(v.render(), 'workflow-message-queue'), cx); await flush(); assert.equal(v.form.message.value(), 'Only A');
+  fake.exec = async () => ({ stdout: '{}' });
+  click(find(v.render(), 'workflow-message-queue'), cx); await flush(); assert.equal(v.form.message.value(), ''); v.close();
 });
