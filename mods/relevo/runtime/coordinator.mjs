@@ -408,7 +408,9 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     attempt.prompt = prompt(task, attempt, preferencesFor(doc.preferences, { goalId: task.goalId, root: task.root }));
     update((next) => {
       const t = taskById(next, task.id);
-      if (!next.engine.enabled || t.paused || !['ready', 'needs_review'].includes(t.state)) throw Error('Task changed before dispatch');
+      // Human controls can change while the agent and checkout are inspected.
+      // Leave that decision intact; the attempt-id guard below prevents a send.
+      if (!next.engine.enabled || t.paused || !['ready', 'needs_review'].includes(t.state)) return;
       const scopeIssue = planScopeIssue(t, next);
       if (scopeIssue) throw Error(scopeIssue);
       const currentWaitingReason = dependencyWaitReason(t, next);
@@ -470,6 +472,9 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         try { checks = await checksImpl(task.root, task.checks, { signal: controller.signal,
           timeoutMs: Math.max(1, Math.min(task.maxMinutes * 60000 - (clock() - Date.parse(attempt.at)), 60000)) }); }
         finally { watcher.close(); activeChecks.delete(task.id); }
+        // Stop/cancel is not a failed check. Keep the report available so an
+        // explicit resume validates this same attempt without another round.
+        if (controller.signal.aborted) return;
       }
       const afterChecks = await fingerprintImpl(task.root);
       update((doc) => {

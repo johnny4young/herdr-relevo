@@ -9,7 +9,7 @@ import { createRuntime } from "../runtime/coordinator.mjs";
 import { transaction } from "../runtime/store.mjs";
 import { runChecks } from "../runtime/evidence.mjs";
 
-async function fixture({ sendCode = 0, checkCode = 0, maxRounds = 3, checksImpl: injectedChecks } = {}) {
+async function fixture({ sendCode = 0, checkCode = 0, maxRounds = 3, checksImpl: injectedChecks, fingerprintImpl: injectedFingerprint } = {}) {
   const base = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "relevo-runtime-"));
   const home = path.join(base, "home"), root = path.join(base, "repo");
   fs.mkdirSync(home); fs.mkdirSync(root);
@@ -29,7 +29,7 @@ async function fixture({ sendCode = 0, checkCode = 0, maxRounds = 3, checksImpl:
   };
   let now = Date.parse("2026-01-02T03:04:05Z");
   let revision = "checkout-r1";
-  const runtime = createRuntime({ home, runCommand, clock: () => now++, fingerprintImpl: async () => revision,
+  const runtime = createRuntime({ home, runCommand, clock: () => now++, fingerprintImpl: injectedFingerprint ?? (async () => revision),
     checksImpl: injectedChecks ?? (async () => [{ argv: ["npm", "test"], code: checkCode, stdout: "", stderr: "" }]) });
   const task = { goalId: "g1", title: "Example task", criteria: "Expected behavior", root,
     executor: { address: "exec-agent", label: "Executor" }, reviewer: { address: "review-agent", label: "Reviewer" },
@@ -258,6 +258,64 @@ test("timeout interrupts once, requires explicit reconciliation, and ignores a l
   assert.equal(f.runtime.read().tasks[0].attempts.at(-1).id, next.id);
   assert.equal(f.runtime.read().tasks[0].state, "running");
   assert.equal(f.sends.length, 2);
+});
+
+for (const action of ['pause', 'stop']) test(`${action} during dispatch preparation preserves the task without sending or consuming a round`, async (t) => {
+  let started, release, armed = false;
+  const preparing = new Promise((resolve) => { started = resolve; });
+  const gate = new Promise((resolve) => { release = resolve; });
+  const f = await fixture({ fingerprintImpl: async () => { if (armed) { started(); await gate; } return 'checkout-r1'; } });
+  t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: 'start', taskId: f.taskId });
+  armed = true;
+  const dispatching = f.runtime.tick(); await preparing;
+
+  await f.runtime.command({ action, taskId: f.taskId });
+  release(); await dispatching;
+
+  const task = f.runtime.read().tasks[0];
+  assert.equal(task.state, 'ready');
+  assert.equal(task.paused, true);
+  assert.equal(task.error, null);
+  assert.equal(task.round, 0);
+  assert.equal(task.attempts.length, 0);
+  assert.equal(f.sends.length, 0);
+  await f.runtime.command({ action: 'resume', taskId: f.taskId }); await f.runtime.tick();
+  assert.equal(f.sends.length, 1);
+  assert.equal(f.runtime.read().tasks[0].round, 1);
+});
+
+test('stopping required checks preserves the report and resumes validation without another implementation round', async (t) => {
+  let started, runs = 0;
+  const checking = new Promise((resolve) => { started = resolve; });
+  const f = await fixture({ maxRounds: 1, checksImpl: async (_root, _checks, { signal }) => {
+    runs++;
+    if (runs > 1) return [{ code: 0, stdout: '', stderr: '' }];
+    started();
+    return await new Promise((resolve) => signal.addEventListener('abort', () => resolve([{ code: 'cancelled' }]), { once: true }));
+  } });
+  t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: 'start', taskId: f.taskId }); await f.runtime.tick();
+  const attempt = f.report('executor', 'completed', 'Implementation complete');
+  const collecting = f.runtime.tick(); await checking;
+
+  await f.runtime.command({ action: 'stop' }); await collecting;
+
+  const task = f.runtime.read().tasks[0];
+  assert.equal(task.state, 'running');
+  assert.equal(task.paused, true);
+  assert.equal(task.error, null);
+  assert.deepEqual(task.checksResult, []);
+  assert.equal(task.attempts[0].state, 'running');
+  assert.equal(task.attempts[0].id, attempt.id);
+  await f.runtime.command({ action: 'resume', taskId: f.taskId }); await f.runtime.tick();
+  const resumed = f.runtime.read().tasks[0];
+  assert.equal(runs, 2);
+  assert.equal(resumed.round, 1);
+  assert.equal(resumed.attempts[0].id, attempt.id);
+  assert.equal(resumed.attempts[0].state, 'reported');
+  assert.equal(resumed.attempts.at(-1).role, 'reviewer');
+  assert.equal(f.sends.length, 2, 'one executor and one reviewer, with no implementation retry');
 });
 
 test("cancelling while required checks run aborts the in-flight check work", async (t) => {
