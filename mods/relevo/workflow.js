@@ -5,6 +5,8 @@ import { button } from "./ui.js";
 import { openReview } from "./review.js";
 import { SKILLS as CONFIGURED_SKILLS } from "./config.js";
 import { workflowBucket, workflowItems, acceptanceEffect, queueSummary } from "./lib/workflow-navigation.js";
+import { readGoals } from "./goals-store.js";
+import { WorkflowPlan } from "./workflow-plan.js";
 
 export function openWorkflow(goalId) {
   openOverlay({ mod: "relevo", kind: "dialog", width: 850, height: 720, props: { role: "workflow", goalId } });
@@ -15,7 +17,7 @@ const row = (t, value) => div().w_full().min_w(0).text_size(13).text_color(t.mut
 const taskState = (state) => STATES[state] ?? state ?? "Unknown";
 const caption = (value, limit = 42) => value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 
-export class Workflow {
+export class Workflow extends WorkflowPlan {
   init(_props, cx) {
     this.closed = false;
     this.busy = false;
@@ -58,12 +60,21 @@ export class Workflow {
     const request = this.loadVersion = (this.loadVersion ?? 0) + 1;
     cx.spawn(async (cx) => {
       try {
-        const raw = await readTextFile(`${appHome()}/relevo-workflow/state.json`);
+        const [raw, goalResult] = await Promise.all([
+          readTextFile(`${appHome()}/relevo-workflow/state.json`),
+          readGoals().catch((error) => ({ error: error.message ?? String(error) })),
+        ]);
         if (this.closed || request !== this.loadVersion) return;
-        if (this.loadedOnce && raw === this.lastLoadedRaw && !this.error?.startsWith("Could not load workflow:")) return;
+        const goalRaw = goalResult.raw ?? goalResult.error;
+        if (this.loadedOnce && raw === this.lastLoadedRaw && goalRaw === this.lastGoalRaw && !this.error?.startsWith("Could not load workflow:")) return;
+        this.lastGoalRaw = goalRaw;
+        this.goal = goalResult.doc?.goals.find((goal) => goal.id === this.goalId) ?? null;
+        this.goalError = goalResult.error ? `Could not load goal: ${goalResult.error}` : null;
         const state = raw ? JSON.parse(raw) : { tasks: [], events: [] };
+        const initial = !this.loadedOnce;
         this.loadedOnce = true; this.lastLoadedRaw = raw;
         this.applyState(state);
+        if (initial && this.goal && !this.tasks.length) this.openPlan(cx);
         if (this.error?.startsWith("Could not load workflow:")) this.error = null;
       } catch (error) {
         if (!this.closed && request === this.loadVersion) this.error = `Could not load workflow: ${error.message ?? error}`;
@@ -75,6 +86,7 @@ export class Workflow {
   applyState(state, advance = false) {
     const previous = this.tasks?.find((task) => task.id === this.selected);
     this.tasks = (state.tasks ?? []).filter((task) => task.goalId === this.goalId);
+    this.plans = (state.plans ?? []).filter((plan) => plan.goalId === this.goalId);
     this.events = (state.events ?? []).filter((event) => event.goalId === this.goalId);
     this.prefsData = state.preferences ?? [];
     this.engine = state.engine ?? { enabled: false };
@@ -124,7 +136,7 @@ export class Workflow {
         this.notice = accepted ? "Acceptance saved. The queue has advanced." : "Feedback saved. The next result will return for your review.";
         this.tab = "Overview"; this.h.focus();
       }
-      afterSuccess?.(response);
+      afterSuccess?.(response, cx);
       if (response.suggestions) this.suggestions = response.suggestions;
       if (response.preview) this.batchPreview = response.preview;
       if (payload.action === "batch" && payload.preview === false) this.batchPreview = null;
@@ -186,9 +198,10 @@ export class Workflow {
     const batchable = visible.filter((task) => task.state === "needs_you");
     return v_flex().w(255).flex_none().h_full().min_h(0).min_w(0).gap(7)
       .child(div().font_semibold().child("Tasks"))
+      .child(button(t, "workflow-goal-plan", "Goal plan", (context) => this.openPlan(context), { kind: this.tab === "Plan" ? "solid" : "outline", tip: "P: connect goal outcomes to one executable plan and track accepted results" }))
       .child(v_flex().gap(4).children(["Needs you", "In progress", "Completed"].map((filter) => button(t, `workflow-filter-${filter}`,
         `${filter === "Completed" ? "History" : filter} (${workflowItems(this.tasks ?? [], filter).length})`,
-        (context) => this.selectFilter(filter, context), { kind: this.filter === filter ? "solid" : "outline" }))))
+        (context) => this.selectFilter(filter, context), { kind: this.tab !== "Plan" && this.filter === filter ? "solid" : "outline" }))))
       .child(button(t, "workflow-new-task", "+ New task", (context) => { this.explicitNew = true; this.selected = null; this.tab = "Overview"; this.h.focus(); context.notify(); }, { tip: "Clear selection and create a goal task" }))
       .child(v_flex().w_full().min_w(0).flex_1().min_h(0).overflow_y_scrollbar().gap(5).children(visible.map((task) => button(t, `workflow-task-${task.id}`,
         [v_flex().w_full().min_w(0).gap(3).text_left().child(div().w_full().min_w(0).truncate().child(task.title))
@@ -279,13 +292,15 @@ export class Workflow {
     const action = (label, name, tip) => button(t, `workflow-action-${name}`, label,
       (context) => this.command({ action: name, taskId: task.id }, context), { disabled: this.busy, tip });
     const actions = [];
-    if (["planned", "ready"].includes(task.state) && !task.paused) actions.push(action("Start", "start", "Start the chosen existing sessions"));
+    const planDraft = task.planId && (this.plans ?? []).some((plan) => plan.id === task.planId && plan.state === "planned");
+    if (planDraft) actions.push(button(t, "workflow-action-plan", "View plan", (context) => this.openPlan(context), { tip: "Start all planned tasks together from Goal plan" }));
+    if (!planDraft && (task.state === "planned" || (task.state === "ready" && !this.engine?.enabled)) && !task.paused) actions.push(action("Start", "start", "Start the chosen existing sessions"));
     const last = task.attempts?.at(-1);
     if (task.state === "blocked" && last?.role === "reviewer" && last.state === "reported") {
       actions.push(action("Retry review", "retry-review", "Ask the independent reviewer to reassess the same checked revision; the coordinator verifies it is unchanged"));
     }
     if (["blocked", "failed"].includes(task.state) && !task.paused) actions.push(action("Retry", "start", "Start a new bounded attempt after reviewing the reported issue"));
-    if (task.paused && !["needs_you", "accepted", "cancelled"].includes(task.state)) actions.push(action("Resume", "resume", "Resume dispatches for this task"));
+    if (!planDraft && task.paused && !["needs_you", "accepted", "cancelled"].includes(task.state)) actions.push(action("Resume", "resume", "Resume dispatches for this task"));
     else if (!task.paused && ["running", "ready", "planned", "needs_review", "needs_you", "blocked"].includes(task.state)) actions.push(action("Pause", "pause", "Pause new dispatches; an active agent may finish"));
     if (!["accepted", "cancelled"].includes(task.state)) actions.push(action("Cancel", "cancel", "Cancel task and request an interrupt if an agent is running"));
     actions.push(action("Refresh", "refresh", "Refresh checkout and evidence status"));
@@ -355,6 +370,16 @@ export class Workflow {
     if (task.state === "cancelled") return "This task was cancelled. No more work will be assigned. Create a new task if you want to continue.";
     if (task.state === "blocked" || task.state === "failed") return "This task needs attention. Read the issue below, inspect the activity if needed, then retry when it is resolved.";
     if (task.paused) return "This task is paused. Choose Resume when you want the coordinator to continue.";
+    if (task.state === "planned" && task.planId) return "This task belongs to a saved plan. Open Goal plan and choose Start plan once for the whole sequence.";
+    if (task.state === "ready" && this.engine?.enabled) {
+      const pending = (task.dependsOn ?? []).map((id) => this.tasks?.find((item) => item.id === id)).filter((item) => !item || item.state !== "accepted");
+      const cancelled = pending.find((item) => item?.state === "cancelled");
+      if (cancelled) return `The prerequisite “${cancelled.title}” was cancelled. This task cannot start automatically. Cancel this task and prepare an updated plan, or create a separate task with the prerequisites you need.`;
+      const blocked = pending.find((item) => ["blocked", "failed"].includes(item?.state));
+      if (blocked) return `Waiting for “${blocked.title}” to be resolved and accepted. Open that task in Needs you to inspect the issue. This task continues automatically once its prerequisite is accepted.`;
+      if (pending.length) return `Waiting for your acceptance of ${pending.map((item) => item?.title ?? "a prerequisite task").join(", ")}. This task starts automatically afterwards.`;
+      return "Queued for an available agent. The plan is already started; no further action is needed. Checks and independent review will follow automatically.";
+    }
     if (task.state === "planned" || task.state === "ready") return "Choose Start to assign this task. The coordinator will run checks, request independent review and bring the result back here.";
     if (task.state === "needs_review") return "Independent review is in progress. You can leave this screen; the result will appear in Needs you when it is ready.";
     return "Work is in progress. You can leave this screen; checks and independent review will follow automatically.";
@@ -540,7 +565,8 @@ export class Workflow {
       .when(this.filter === "Needs you" && active.length > 0, (el) => el
         .children(active.slice(0, 4).map((task) => row(t, `${task.title} · ${task.paused ? "Paused" : taskState(task.state)}`)))
         .child(button(t, "workflow-view-active", "View ongoing work", (cx) => this.selectFilter("In progress", cx), { tip: "Inspect progress without starting anything" })))
-      .child(button(t, "workflow-back-goal", "Back to goal", () => closeOverlay(props()?.overlay), { kind: "solid", tip: "Return to Inbox; your acceptance is already saved" }))
+      .when(Boolean(this.goal?.steps?.some((step) => step.state !== "done")), (el) => el.child(button(t, "workflow-continue-goal", "Continue goal plan", (cx) => this.openPlan(cx), { kind: "solid", tip: "Review remaining outcomes and prepare their execution together" })))
+      .child(button(t, "workflow-back-goal", "Back to goal", () => closeOverlay(props()?.overlay), { kind: this.goal?.steps?.some((step) => step.state !== "done") ? "outline" : "solid", tip: "Return to Inbox; your acceptance is already saved" }))
       .when(history.length > 0, (el) => el.child(button(t, "workflow-view-history", "View accepted results & history", (cx) => this.selectFilter("Completed", cx), { tip: "Inspect previous results without changing their decisions" })))
       .child(row(t, "Goal criteria and GitHub reviews remain available in Inbox."));
   }
@@ -549,7 +575,7 @@ export class Workflow {
     const t = theme();
     const overlay = props()?.overlay;
     const task = this.tasks?.find((item) => item.id === this.selected);
-    const panel = this.tab === "Preferences" ? this.preferences(t)
+    const panel = this.tab === "Plan" ? this.planPanel(t) : this.tab === "Preferences" ? this.preferences(t)
       : task ? this.tab === "Activity" ? this.activity(t, task)
       : this.tab === "Changes" ? this.changes(t, task)
         : this.tab === "Evidence" ? this.evidence(t, task)
@@ -561,6 +587,7 @@ export class Workflow {
         if (!this.h.is_focused() || event.modifiers?.platform || event.modifiers?.alt || event.modifiers?.control) return;
         if (event.key === "?") { this.showHelp = !this.showHelp; cx.notify(); }
         else if (event.key === "n") { this.selected = null; this.explicitNew = true; this.tab = "Overview"; this.showHelp = false; cx.notify(); }
+        else if (event.key === "p") { this.openPlan(cx); }
         else if (["1", "2", "3", "4", "5"].includes(event.key)) { this.tab = ["Overview", "Activity", "Changes", "Evidence", "Preferences"][Number(event.key) - 1]; cx.notify(); }
         else if (["arrowdown", "arrowup"].includes(event.key)) {
           const tasks = workflowItems(this.tasks ?? [], this.filter);
@@ -576,14 +603,14 @@ export class Workflow {
           .child(button(t, "workflow-tab-Preferences", "Preferences", (cx) => { this.tab = "Preferences"; this.h.focus(); cx.notify(); }, { tip: "Manage guidance for future work" }))
           .when(Boolean(this.engine?.enabled), (el) => el.child(button(t, "workflow-engine-stop", "Pause automation", (cx) => this.command({ action: "stop" }, cx), { disabled: this.busy, tip: "Stop future dispatches across every goal; current agent sessions keep running" })))
           .child(button(t, "workflow-close", "Close", () => closeOverlay(overlay), { tip: "Close workflow" }))))
-      .when(Boolean(task), (el) => el.child(h_flex().gap(6).children(["Overview", "Changes", "Evidence", "Activity"].map((tab) => button(t,
+      .when(Boolean(task) && this.tab !== "Plan", (el) => el.child(h_flex().gap(6).children(["Overview", "Changes", "Evidence", "Activity"].map((tab) => button(t,
         `workflow-tab-${tab}`, tab === "Overview" ? (task.state === "needs_you" ? "Review" : "Summary") : tab,
         (cx) => { this.tab = tab; this.h.focus(); cx.notify(); }, { kind: this.tab === tab ? "solid" : "outline" })))))
       .when(Boolean(this.notice), (el) => el.child(div().role("status").child(row(t, this.notice))))
       .when(Boolean(this.error), (el) => el.child(div().id("workflow-error").role("alert").text_color(t.blocked).child(this.error)))
-      .when(this.showHelp, (el) => el.child(row(t, "Keyboard: 1–5 switch tabs · ↑/↓ select tasks · N new task · ? help · Esc close. Shortcuts are disabled while an input has focus.")))
+      .when(this.showHelp, (el) => el.child(row(t, "Keyboard: P goal plan · 1–5 switch tabs · ↑/↓ select tasks · N new task · ? help · Esc close. Shortcuts are disabled while an input has focus.")))
       .child(h_flex().items_start().h_full().flex_1().min_h(0).min_w(0).gap(12).child(this.taskList(t))
         .child(v_flex().flex_1().h_full().min_h(0).min_w(0).overflow_y_scrollbar().gap(10)
-          .child(panel).when(!this.selected && this.tab !== "Preferences" && (this.explicitNew || !(this.tasks ?? []).length), (el) => el.child(this.taskForm(t)))));
+          .child(panel).when(!this.selected && !["Preferences", "Plan"].includes(this.tab) && (this.explicitNew || !(this.tasks ?? []).length), (el) => el.child(this.taskForm(t)))));
   }
 }

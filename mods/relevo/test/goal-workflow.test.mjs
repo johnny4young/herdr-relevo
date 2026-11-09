@@ -2,7 +2,7 @@ import './fake/register.mjs';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { fake, resetFake } from './fake/herdr.mjs';
-import { fakeCx, flush, find, click } from './fake/ui.mjs';
+import { fakeCx, flush, find, click, text } from './fake/ui.mjs';
 import { reviewableWork, scopeGoals } from '../lib/goal-workflow.js';
 const { Inbox } = await import('../inbox.js');
 const { GOAL_MODE, GOAL_SCOPE } = await import('../inbox-goals.js');
@@ -83,4 +83,36 @@ test('no available diff keeps goal review disabled while decision context remain
   const { v, cx } = await inbox(); delete v.clones[pr.repo]; const tree = v.render(cx);
   assert.equal(find(tree, 'goal-review-next-g').isDisabled, true);
   assert.equal(find(tree, 'goal-record-g').isDisabled, false);
+});
+
+test('goal card projects matching workflow progress and exposes failures without changing saved intent', async () => {
+  const { v, cx } = await inbox();
+  const goal = v.goalDoc.goals[0];
+  goal.criteria = 'Expected behavior';
+  goal.steps = [
+    { id: 's1', title: 'Implement search', state: 'todo' },
+    { id: 's2', title: 'Handle errors', state: 'working' },
+    { id: 's3', title: 'Keep keyboard access', state: 'done' },
+  ];
+  const task = (id, stepId, title, state) => ({ id, goalId: goal.id, goalStep: { id: stepId, title, criteria: goal.criteria }, state });
+  v.workflowTasks = [
+    task('accepted', 's1', 'Implement search', 'accepted'),
+    task('failed', 's2', 'Handle errors', 'failed'),
+    task('duplicate-a', 's3', 'Keep keyboard access', 'ready'),
+    task('duplicate-b', 's3', 'Keep keyboard access', 'running'),
+    { ...task('stale', 's1', 'Old title', 'accepted') },
+  ];
+  const before = JSON.stringify(v.goalDoc);
+  let tree = v.render(cx);
+  assert.match(text(find(tree, 'goal-g')), /2\/3 steps complete/);
+  assert.match(text(find(tree, 'goal-g')), /workflow issue/);
+  assert.match(text(find(tree, 'goal-g')), /5 tasks · 1 need you · 2 accepted · 1 linked outcome/);
+  v.expanded['goal-g-plan'] = true;
+  tree = v.render(cx);
+  const card = text(find(tree, 'goal-g'));
+  assert.match(card, /Accepted in Workflow · Implement search/);
+  assert.match(card, /Blocked · Handle errors · workflow/);
+  assert.match(card, /Validated by you · Keep keyboard access · manual/);
+  assert.match(card, /Multiple active workflow tasks/);
+  assert.equal(JSON.stringify(v.goalDoc), before);
 });

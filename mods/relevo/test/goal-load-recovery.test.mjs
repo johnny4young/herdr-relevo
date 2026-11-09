@@ -24,7 +24,7 @@ test('failed context read offers an explicit read-only retry, without automatic 
 test('retry recovers loaded fields and hides stale errors without writing the goal', async () => {
   fake.props = { goalId: 'original' }; fake.read = () => { throw Error('Synthetic temporary read failure'); };
   const { view, cx } = await start(); let reads = 0, writes = 0;
-  fake.read = () => { reads++; return JSON.stringify(doc()); }; fake.write = () => { writes++; };
+  fake.read = (path) => path === goalsPath() ? (reads++, JSON.stringify(doc())) : null; fake.write = () => { writes++; };
   click(find(view.render(), 'goal-retry-load'), cx); await flush();
   assert.equal(reads, 1); assert.equal(writes, 0); assert.equal(view.fields.title.value(), 'Original goal'); assert.equal(view.version, 1);
   assert.equal(find(view.render(), 'goal-retry-load'), null); assert.equal(find(view.render(), 'goal-save-error'), null); assert.equal(find(view.render(), 'goal-save').isDisabled, false); view.close();
@@ -32,7 +32,7 @@ test('retry recovers loaded fields and hides stale errors without writing the go
 
 test('a pending retry cannot be duplicated and keeps Save disabled', async () => {
   fake.read = () => { throw Error('Synthetic first failure'); }; const { view, cx } = await start();
-  const pending = deferred(); let reads = 0; fake.read = () => { reads++; return pending.promise; };
+  const pending = deferred(); let reads = 0; fake.read = (path) => path === goalsPath() ? (reads++, pending.promise) : null;
   const retry = find(view.render(), 'goal-retry-load'); click(retry, cx); click(retry, cx); await flush();
   assert.equal(reads, 1); assert.ok(find(view.render(), 'goal-loading')); assert.equal(find(view.render(), 'goal-retry-load'), null);
   assert.equal(find(view.render(), 'goal-save').isDisabled, true); view.save(cx); assert.deepEqual(fake.files, {});
@@ -40,23 +40,23 @@ test('a pending retry cannot be duplicated and keeps Save disabled', async () =>
 });
 
 test('initial load and subsequent retry retain the original goal identity', async () => {
-  const pending = deferred(); fake.props = { goalId: 'original' }; fake.read = () => pending.promise;
+  const pending = deferred(); fake.props = { goalId: 'original' }; fake.read = (path) => path === goalsPath() ? pending.promise : null;
   const { view } = await start(); fake.props.goalId = 'different'; pending.resolve(JSON.stringify(doc())); await flush();
   assert.equal(view.goal?.id, 'original'); view.close();
-  fake.props = { goalId: 'original' }; fake.read = () => { throw Error('Synthetic retry failure'); };
-  const again = await start(); fake.props.goalId = 'different'; fake.read = () => JSON.stringify(doc());
+  fake.props = { goalId: 'original' }; fake.read = (path) => { if (path === goalsPath()) throw Error('Synthetic retry failure'); return null; };
+  const again = await start(); fake.props.goalId = 'different'; fake.read = (path) => path === goalsPath() ? JSON.stringify(doc()) : null;
   click(find(again.view.render(), 'goal-retry-load'), again.cx); await flush(); assert.equal(again.view.goal.id, 'original'); again.view.close();
 });
 
 test('a new goal retains the originally linked source across a pending read', async () => {
-  const pending = deferred(); fake.props = { source: { key: 'pr:https://example.com/pull/1' } }; fake.read = () => pending.promise;
+  const pending = deferred(); fake.props = { source: { key: 'pr:https://example.com/pull/1' } }; fake.read = (path) => path === goalsPath() ? pending.promise : null;
   const { view } = await start(); fake.props.source.key = 'pr:https://example.com/pull/2'; pending.resolve(null); await flush();
   assert.deepEqual(view.goal.sources, ['pr:https://example.com/pull/1']); view.close();
 });
 
 test('dismissed retries never touch released fields, notify or start another read', async () => {
   fake.read = () => { throw Error('Synthetic first failure'); }; const { view, cx } = await start();
-  const pending = deferred(); let reads = 0; fake.read = () => { reads++; return pending.promise; };
+  const pending = deferred(); let reads = 0; fake.read = (path) => path === goalsPath() ? (reads++, pending.promise) : null;
   const retry = find(view.render(), 'goal-retry-load'); click(retry, cx); await flush(); view.close();
   const notified = cx.notified; for (const field of Object.values(view.fields)) field.set_value = () => assert.fail('disposed field');
   pending.resolve(null); await flush(); click(retry, cx); await flush();
@@ -64,10 +64,10 @@ test('dismissed retries never touch released fields, notify or start another rea
 });
 
 test('loaded drafts cannot be replaced by a stale retry handler or direct load', async () => {
-  fake.read = () => { throw Error('Synthetic initial failure'); }; const { view, cx } = await start();
+  fake.read = (path) => { if (path === goalsPath()) throw Error('Synthetic initial failure'); return null; }; const { view, cx } = await start();
   const retry = find(view.render(), 'goal-retry-load'); fake.read = () => null; click(retry, cx); await flush();
   view.fields.title.set_value('Keep my draft'); view.fields.owner.set_value('Draft owner'); const goal = view.goal; let reads = 0;
-  fake.read = () => { reads++; return null; }; click(retry, cx); view.load(cx); await flush();
+  fake.read = (path) => { if (path === goalsPath()) reads++; return null; }; click(retry, cx); view.load(cx); await flush();
   assert.equal(reads, 0); assert.equal(view.goal, goal); assert.equal(view.fields.title.value(), 'Keep my draft'); assert.equal(view.fields.owner.value(), 'Draft owner'); assert.equal(fake.files[goalsPath()], undefined); view.close();
 });
 

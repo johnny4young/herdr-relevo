@@ -27,7 +27,15 @@ export function atomic(file, value) {
 export function validateState(doc) {
   if (doc?.version !== 1 || !Number.isSafeInteger(doc.revision) || !Array.isArray(doc.tasks) || doc.tasks.length > 200 ||
       !Array.isArray(doc.events) || !Array.isArray(doc.preferences) || !doc.engine || typeof doc.engine.enabled !== 'boolean' ||
-      !Number.isInteger(doc.engine.maxConcurrent) || doc.engine.maxConcurrent < 1 || doc.engine.maxConcurrent > 2) throw Error('Invalid workflow state; original file preserved');
+      !Number.isInteger(doc.engine.maxConcurrent) || doc.engine.maxConcurrent < 1 || doc.engine.maxConcurrent > 2 ||
+      (doc.plans !== undefined && (!Array.isArray(doc.plans) || doc.plans.length > 200))) throw Error('Invalid workflow state; original file preserved');
+  const planIds = new Set();
+  for (const plan of doc.plans ?? []) {
+    if (!plan?.id || planIds.has(plan.id) || !plan.goalId || !Number.isSafeInteger(plan.goalVersion) ||
+        !Array.isArray(plan.taskIds) || !Array.isArray(plan.stepIds) || plan.taskIds.length !== plan.stepIds.length ||
+        !['planned', 'started', 'cancelled'].includes(plan.state) || typeof plan.createdAt !== 'string') throw Error('Invalid workflow plan');
+    planIds.add(plan.id);
+  }
   const ids = new Set();
   for (const task of doc.tasks) {
     if (!task.id || ids.has(task.id) || !Array.isArray(task.attempts) || !Array.isArray(task.decisions) || !Array.isArray(task.messages) || !Array.isArray(task.evidence) ||

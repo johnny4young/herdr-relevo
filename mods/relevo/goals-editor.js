@@ -1,9 +1,15 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
-import { agents, props, theme, openOverlay, closeOverlay, exec } from "herdr";
+import { agents, props, theme, openOverlay, closeOverlay, exec, readTextFile, appHome } from "herdr";
 import { button } from "./ui.js";
 import { newGoal, webLink, GOAL_STATES, STEP_STATES, goalState } from "./lib/goals.js";
 import { readGoals, writeGoal } from "./goals-store.js";
+import { projectGoalPlan } from "./lib/goal-plan.js";
+
+async function workflowTasks() {
+  const raw = await readTextFile(`${appHome()}/relevo-workflow/state.json`);
+  return raw ? JSON.parse(raw).tasks ?? [] : [];
+}
 
 export function openGoal(id = null, source = null, panel = "decision") {
   openOverlay({ mod: "relevo", kind: "dialog", width: 620, height: 710,
@@ -50,6 +56,8 @@ export class GoalEditor {
         this.version = this.goal.version;
         this.steps = (this.goal.steps ?? []).map((s) => ({ ...s, input: InputState.new({ value: s.title }) }));
         for (const k of Object.keys(labels)) this.fields[k].set_value(this.goal[k]);
+        this.workflowTasks = await workflowTasks().catch(() => []);
+        if (this.closed) return;
       } catch (e) {
         if (this.closed) return;
         this.error = String(e.message ?? e);
@@ -99,12 +107,19 @@ export class GoalEditor {
     cx.notify();
   }
 
+  projectedSteps() {
+    return projectGoalPlan({ ...this.goal, criteria: this.fields.criteria.value().trim(),
+      steps: this.steps.map(({ id, state, input }) => ({ id, state, title: input.value().trim() })) }, this.workflowTasks);
+  }
+
   save(cx) {
     if (this.closed || this.busy || !this.goal) return;
     this.planFocusRequest++;
     // Capture exactly what was submitted; callbacks never consume a later edit.
     const goal = { ...this.goal, ...Object.fromEntries(Object.entries(this.fields).map(([k, f]) => [k, f.value().trim()])),
       steps: this.steps.map(({ id, state, input }) => ({ id, state, title: input.value().trim() })) };
+    const accepted = this.projectedSteps().filter((item) => item.source === "workflow" && item.state === "done").map((item) => item.step.id);
+    goal.steps = goal.steps.map((step) => accepted.includes(step.id) ? { ...step, state: "done" } : step);
     const response = this.response.value().trim(), url = this.link.value().trim(), kind = this.kind, source = props()?.source, overlay = props()?.overlay;
     const resolved = this.resolvePending ? goal.decision : "";
     if (resolved) goal.decision = "";
@@ -146,6 +161,14 @@ export class GoalEditor {
     this.error = null;
     cx.spawn(async (cx) => {
       try {
+        if (accepted.length) {
+          const tasks = await workflowTasks();
+          // Recheck the submitted outcomes against current evidence, using the
+          // original manual state so an optimistic projection cannot validate itself.
+          const original = { ...goal, steps: goal.steps.map((step) => accepted.includes(step.id) ? { ...step, state: "todo" } : step) };
+          const validated = projectGoalPlan(original, tasks).filter((item) => item.source === "workflow" && item.state === "done").map((item) => item.step.id);
+          if (accepted.some((id) => !validated.includes(id))) throw Error("An accepted workflow result changed. Reopen this goal to review current progress.");
+        }
         if (url) {
           const r = await exec("gh", ["pr", "view", source.key.slice(3), "--json", "headRefOid"]);
           if (r.code !== 0 || JSON.parse(r.stdout).headRefOid !== source.revision) throw Error("The PR changed or could not be verified. Refresh Inbox before attaching evidence.");
@@ -180,6 +203,7 @@ export class GoalEditor {
 
   render() {
     const t = theme(), p = props(), goal = this.goal;
+    const projected = this.projectedSteps();
     // Keep a named group as well: some host builds omit the retained editor's
     // own accessible name, even when the native frame supplies it.
     const field = (key, input, label) => v_flex().id(`goal-field-group-${key}`).role("group").accessibility_label(label).gap(4).child(row(label, t))
@@ -223,8 +247,8 @@ export class GoalEditor {
           .children((goal?.decisions ?? []).slice(-5).map((d) => row(`${d.at} · ${d.resolved ? "Resolved decision" : "Review note"}: ${d.text}`, t)))
           .child(row("To request changes, use Send to agent in Review or Message lead in Inbox.", t)))
         .when(this.panel === "plan", (el) => el
-          .child(row(`${this.steps.filter((step) => step.state === "done").length}/${this.steps.length} steps validated · save to apply`, t))
-          .child(row("Review each outcome, then choose Validated. Save applies your progress.", t))
+          .child(row(`${projected.filter((step) => step.state === "done").length}/${this.steps.length} steps validated · save to apply`, t))
+          .child(row("Accepted Workflow outcomes already count. Validate remaining outcomes here; Save applies your progress.", t))
           .child(h_flex().gap(6).flex_wrap().child(button(t, "goal-validate-all", "Validate all steps", (cx) => this.validateAll(cx),
             { disabled: this.busy || !goal || !this.steps.some((step) => step.state !== "done"), tip: "Confirm you reviewed every outcome. Marks all steps Validated in this draft; Save applies it." }))
           .when(Boolean(this.fields.decision.value().trim()) && !this.resolvePending, (el) => el
@@ -232,8 +256,9 @@ export class GoalEditor {
               { disabled: this.busy, tip: "Open Decision to record the outcome and resolve the question before finishing" }))))
           .children(this.steps.map((step) => v_flex().gap(4)
             .child(field(`step-${step.id}`, step.input, "Expected outcome"))
+            .when(projected.some((item) => item.step.id === step.id && item.source === "workflow" && item.state === "done"), (el) => el.child(row("Validated by your Workflow acceptance · checked again on save", t)))
             .child(h_flex().gap(4).flex_wrap().children(Object.entries(STEP_STATES).map(([state, label]) =>
-              choice(`goal-step-${step.id}-${state}`, label, step.state === state, (cx) => { step.state = state; cx.notify(); },
+              choice(`goal-step-${step.id}-${state}`, label, (projected.find((item) => item.step.id === step.id)?.state === "done" ? "done" : step.state) === state, (cx) => { step.state = state; cx.notify(); },
                 state === "done" ? "Record your validation of this result" : "Record this step's current stage")))
               .child(button(t, `goal-step-remove-${step.id}`, "Remove", (cx) => this.removeStep(step, cx),
                 { disabled: this.busy, tip: "Remove this plan step when you save" })))))

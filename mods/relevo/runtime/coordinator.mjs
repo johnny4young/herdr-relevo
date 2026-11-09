@@ -35,7 +35,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       return await hc(['interrupt', attempt.address]);
     } catch (error) { return { code: 1, stderr: error.message }; }
   };
-  function validateTask(input, doc) {
+  function validateTask(input, doc, allowedNewDependencies = []) {
     if (!input || !text(input.goalId, 100) || !text(input.title, 240) || !text(input.criteria, 4000) || !path.isAbsolute(input.root ?? '')) throw Error('Choose a goal, title, repository and expected outcome');
     const goals = JSON.parse(fs.readFileSync(path.join(home, 'relevo-goals.json'), 'utf8'));
     if (!goals.goals?.some((g) => g.id === input.goalId && g.state !== 'completed')) throw Error('Choose an open goal');
@@ -43,13 +43,27 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if ([input.executor, input.reviewer].some((actor) => actor.address.includes('/'))) throw Error('This workflow requires local agents in the selected checkout');
     if (!Array.isArray(input.checks ?? []) || (input.checks?.length ?? 0) > 10 || (input.checks ?? []).some((args) => !Array.isArray(args) || !args.length || args.length > 30 || args.some((a) => typeof a !== 'string' || a.length > 2000 || a.includes('\0')))) throw Error('Checks must be JSON arrays of command arguments');
     const dependencies = input.dependsOn ?? [];
-    if (!Array.isArray(dependencies) || new Set(dependencies).size !== dependencies.length || dependencies.some((id) => !doc.tasks.some((t) => t.id === id && t.goalId === input.goalId))) throw Error('Dependencies must be existing tasks in this goal');
+    if (!Array.isArray(dependencies) || new Set(dependencies).size !== dependencies.length || dependencies.some((id) =>
+      !doc.tasks.some((t) => t.id === id && t.goalId === input.goalId) && !allowedNewDependencies.includes(id))) throw Error('Dependencies must be existing tasks in this goal');
     const maxRounds = input.maxRounds ?? 2, maxMinutes = input.maxMinutes ?? 20;
     if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5 || !Number.isInteger(maxMinutes) || maxMinutes < 1 || maxMinutes > 120) throw Error('Use 1–5 attempts and a 1–120 minute limit');
     return { id: uid(), goalId: input.goalId, title: input.title.trim(), criteria: input.criteria.trim(), root: fs.realpathSync(input.root),
       executor: { address: input.executor.address, label: input.executor.label || input.executor.address }, reviewer: { address: input.reviewer.address, label: input.reviewer.label || input.reviewer.address },
       checks: input.checks ?? [], dependsOn: dependencies, maxRounds, maxMinutes, round: 0, state: 'planned', paused: false,
       attempts: [], messages: [], evidence: [], decisions: [], checksResult: [], revision: '', createdAt: new Date(clock()).toISOString(), error: null };
+  }
+  function planScopeIssue(task, doc) {
+    if (!task.planId) return null;
+    const plan = (doc.plans ?? []).find((item) => item.id === task.planId);
+    if (!plan || plan.state !== 'started') return 'The linked goal plan is no longer active; inspect it before continuing.';
+    const goal = JSON.parse(fs.readFileSync(path.join(home, 'relevo-goals.json'), 'utf8')).goals?.find((item) => item.id === task.goalId);
+    if (!goal) return 'The linked goal was removed; inspect this task before continuing.';
+    if ((goal.state ?? 'active') !== 'active') return 'The linked goal is not active; reopen it before continuing this task.';
+    const step = (goal.steps ?? []).find((item) => item.id === task.goalStep?.id);
+    if (!step || step.title !== task.goalStep?.title || step.state === 'done' || goal.criteria !== task.goalStep?.criteria) {
+      return 'The linked goal step or acceptance criteria changed after this plan started; review the plan before continuing.';
+    }
+    return null;
   }
   async function command(payload) {
     if (!payload || typeof payload !== 'object') throw Error('Command required');
@@ -60,6 +74,141 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       await fingerprintImpl(task.root);
       await getActor(task.executor, task.root); await getActor(task.reviewer, task.root);
       return update((doc) => { validateTask(payload.task, doc); doc.tasks.push(task); log(doc, task, 'Task created', 'Existing agents linked; no message sent', 'Human'); return { taskId: task.id }; });
+    }
+    if (action === 'create-plan') {
+      const planId = payload.planId;
+      if (!text(planId, 100) || !text(payload.goalId, 100) || !Number.isSafeInteger(payload.goalVersion) || payload.goalVersion < 1 ||
+          !Array.isArray(payload.stepIds) || payload.stepIds.length < 1 || payload.stepIds.length > 20 ||
+          payload.stepIds.some((id) => !text(id, 100)) || new Set(payload.stepIds).size !== payload.stepIds.length) throw Error('Choose a plan ID, goal version and 1–20 unique goal steps');
+
+      const existing = (doc) => (doc.plans ?? []).find((plan) => plan.id === planId);
+      const sameRequest = (doc, plan) => {
+        const tasks = plan.taskIds.map((id) => doc.tasks.find((task) => task.id === id));
+        let root;
+        try { root = fs.realpathSync(payload.root); } catch { return false; }
+        return plan.goalId === payload.goalId && plan.goalVersion === payload.goalVersion &&
+          plan.stepIds.length === payload.stepIds.length && plan.stepIds.every((id) => payload.stepIds.includes(id)) && tasks.length === payload.stepIds.length &&
+          tasks.every((task, index) => task?.planId === planId && task.goalId === payload.goalId && task.goalStep?.id === plan.stepIds[index] &&
+            task.root === root && task.executor?.address === payload.executor?.address && task.executor?.label === (payload.executor?.label || payload.executor?.address) &&
+            task.reviewer?.address === payload.reviewer?.address && task.reviewer?.label === (payload.reviewer?.label || payload.reviewer?.address) &&
+            JSON.stringify(task.checks) === JSON.stringify(payload.checks ?? []) && task.maxRounds === (payload.maxRounds ?? 2) &&
+            task.maxMinutes === (payload.maxMinutes ?? 20));
+      };
+      const before = readState(home), prior = existing(before);
+      if (prior) {
+        if (!sameRequest(before, prior)) throw Error('Plan ID is already in use for a different plan');
+        return { doc: before, result: { planId, taskIds: prior.taskIds, existing: true } };
+      }
+
+      const readGoal = () => {
+        const goals = JSON.parse(fs.readFileSync(path.join(home, 'relevo-goals.json'), 'utf8'));
+        const goal = goals.goals?.find((item) => item.id === payload.goalId);
+        if (!goal || goal.version !== payload.goalVersion || (goal.state ?? 'active') !== 'active') throw Error('The goal changed or is not active. Reopen it before creating this plan.');
+        if (!text(goal.criteria, 4000)) throw Error('The goal needs expected criteria before it can be planned');
+        const steps = goal.steps ?? [];
+        if (!Array.isArray(steps) || steps.length > 20) throw Error('The goal plan is invalid or exceeds 20 steps');
+        const selected = new Set(payload.stepIds);
+        const ordered = steps.filter((step) => selected.has(step.id));
+        if (ordered.length !== selected.size || ordered.some((step) => step.state === 'done')) throw Error('Choose existing goal steps that are not already done');
+        return { goal, steps: ordered };
+      };
+      const { goal, steps } = readGoal();
+      if (before.tasks.length + steps.length > 200) throw Error('Workflow task limit reached; archive tasks before creating this plan');
+      const requestedOrder = steps.map((step) => step.id);
+      const ids = steps.map(() => uid());
+      const planTasks = [];
+      for (let index = 0; index < steps.length; index++) {
+        const step = steps[index], id = ids[index];
+        const taskInput = { goalId: payload.goalId, title: step.title,
+          criteria: `${goal.criteria.trim()}\n\nStep expected outcome: ${step.title.trim()}`, root: payload.root,
+          executor: payload.executor, reviewer: payload.reviewer, checks: payload.checks ?? [],
+          dependsOn: index ? [ids[index - 1]] : [], maxRounds: payload.maxRounds, maxMinutes: payload.maxMinutes };
+        const task = validateTask(taskInput, { ...before, tasks: [...before.tasks, ...planTasks] }, index ? [ids[index - 1]] : []);
+        task.id = id; task.planId = planId;
+        task.goalStep = { id: step.id, title: step.title, criteria: goal.criteria };
+        planTasks.push(task);
+      }
+      await fingerprintImpl(planTasks[0].root);
+      await getActor(planTasks[0].executor, planTasks[0].root); await getActor(planTasks[0].reviewer, planTasks[0].root);
+      return update((doc) => {
+        const raced = existing(doc);
+        if (raced) {
+          if (!sameRequest(doc, raced)) throw Error('Plan ID is already in use for a different plan');
+          return { planId, taskIds: raced.taskIds, existing: true };
+        }
+        const current = readGoal();
+        if (current.goal.version !== goal.version || JSON.stringify(current.goal) !== JSON.stringify(goal)) throw Error('The goal changed while this plan was being created');
+        if (doc.tasks.length + planTasks.length > 200) throw Error('Workflow task limit reached; archive tasks before creating this plan');
+        for (const step of steps) if (doc.tasks.some((task) => task.goalId === payload.goalId && task.goalStep?.id === step.id && task.state !== 'cancelled')) {
+          throw Error(`Goal step already has a noncancelled task: ${step.title}`);
+        }
+        if ((doc.plans ?? []).length >= 200) throw Error('Workflow plan limit reached; archive plans before continuing');
+        // Revalidate against the committed document and current goal before adding any task.
+        let previous = null;
+        for (const task of planTasks) {
+          validateTask({ ...task, dependsOn: previous ? [previous] : [] }, { ...doc, tasks: [...doc.tasks, ...planTasks.filter((candidate) => candidate.id !== task.id)] }, previous ? [previous] : []);
+          previous = task.id;
+        }
+        doc.plans ??= [];
+        doc.tasks.push(...planTasks);
+        doc.plans.push({ id: planId, goalId: payload.goalId, goalVersion: payload.goalVersion, taskIds: ids,
+          stepIds: requestedOrder, state: 'planned', createdAt: new Date(clock()).toISOString() });
+        for (const task of planTasks) log(doc, task, 'Plan task created', `Goal step: ${task.goalStep.title}`, 'Human');
+        return { planId, taskIds: ids, existing: false };
+      });
+    }
+    if (action === 'start-plan') {
+      const planId = payload.planId;
+      if (!text(planId, 100)) throw Error('Choose a plan ID');
+      const doc = readState(home), plan = (doc.plans ?? []).find((item) => item.id === planId);
+      if (!plan) throw Error('Plan is no longer available');
+      if (plan.state === 'started') return { doc, result: { planId, taskIds: plan.taskIds, existing: true } };
+      if (plan.state !== 'planned') throw Error('Only a planned workflow can be started');
+      const goal = JSON.parse(fs.readFileSync(path.join(home, 'relevo-goals.json'), 'utf8')).goals?.find((item) => item.id === plan.goalId);
+      if (!goal || goal.version !== plan.goalVersion || (goal.state ?? 'active') !== 'active') throw Error('The goal changed or is not active. Reopen it before starting this plan.');
+      const selected = new Set(plan.stepIds), currentSteps = (goal.steps ?? []).filter((step) => selected.has(step.id));
+      const snapshotTasks = plan.taskIds.map((id) => doc.tasks.find((task) => task.id === id));
+      if (currentSteps.length !== selected.size || currentSteps.some((step, index) => step.id !== plan.stepIds[index] || step.state === 'done' ||
+          step.id !== snapshotTasks[index]?.goalStep?.id || step.title !== snapshotTasks[index]?.goalStep?.title || goal.criteria !== snapshotTasks[index]?.goalStep?.criteria)) throw Error('The plan no longer matches the goal steps');
+      if (snapshotTasks.some((task) => task?.paused) && payload.resumePaused !== true) throw Error('One or more planned tasks are paused. Set resumePaused to true to explicitly resume this draft plan.');
+      return update((next) => {
+        const current = (next.plans ?? []).find((item) => item.id === planId);
+        if (!current) throw Error('Plan is no longer available');
+        if (current.state === 'started') return { planId, taskIds: current.taskIds, existing: true };
+        if (current.state !== 'planned') throw Error('Only a planned workflow can be started');
+        const reread = JSON.parse(fs.readFileSync(path.join(home, 'relevo-goals.json'), 'utf8')).goals?.find((item) => item.id === current.goalId);
+        if (!reread || reread.version !== current.goalVersion || JSON.stringify(reread) !== JSON.stringify(goal) || (reread.state ?? 'active') !== 'active') throw Error('The goal changed while this plan was starting');
+        const tasks = current.taskIds.map((id) => taskById(next, id));
+        if (tasks.some((task, index) => task.planId !== planId || task.state !== 'planned' || (task.paused && payload.resumePaused !== true) || task.goalStep?.id !== current.stepIds[index] ||
+            task.goalStep?.title !== (reread.steps ?? []).find((step) => step.id === task.goalStep?.id)?.title || task.goalStep?.criteria !== reread.criteria)) throw Error('Plan tasks changed or are paused; inspect them before starting');
+        for (const task of tasks) {
+          task.state = 'ready';
+          if (payload.resumePaused === true) task.paused = false;
+          log(next, task, 'Task started', payload.resumePaused === true ? 'Paused draft explicitly resumed; ready work runs when dependencies and agents are available' : 'Ready work runs when dependencies and agents are available', 'Human');
+        }
+        current.state = 'started'; next.engine.enabled = true;
+        return { planId, taskIds: current.taskIds, existing: false };
+      });
+    }
+    if (action === 'cancel-plan') {
+      if (!text(payload.planId, 100)) throw Error('Choose a plan ID');
+      const before = readState(home), plan = (before.plans ?? []).find((item) => item.id === payload.planId);
+      if (!plan) throw Error('Plan is no longer available');
+      if (plan.state === 'cancelled') return { doc: before, result: { planId: plan.id, taskIds: plan.taskIds, existing: true } };
+      if (plan.state !== 'planned') throw Error('An active plan cannot be cancelled as a draft; cancel or finish its tasks individually.');
+      return update((doc) => {
+        const current = (doc.plans ?? []).find((item) => item.id === payload.planId);
+        if (!current) throw Error('Plan is no longer available');
+        if (current.state === 'cancelled') return { planId: current.id, taskIds: current.taskIds, existing: true };
+        if (current.state !== 'planned') throw Error('An active plan cannot be cancelled as a draft; cancel or finish its tasks individually.');
+        const tasks = current.taskIds.map((id) => taskById(doc, id));
+        if (tasks.some((task) => task.planId !== current.id || !['planned', 'cancelled'].includes(task.state))) throw Error('Plan tasks changed; inspect them before cancelling this draft.');
+        for (const task of tasks) if (task.state === 'planned') {
+          task.state = 'cancelled'; task.paused = true; log(doc, task, 'Task cancelled', 'Draft plan cancelled before start', 'Human');
+        }
+        current.state = 'cancelled';
+        return { planId: current.id, taskIds: current.taskIds, existing: false };
+      });
     }
     if (action === 'stop') { for (const controller of activeChecks.values()) controller.abort(); return update((doc) => {
       doc.engine.enabled = false;
@@ -159,6 +308,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       const task = taskById(doc, before.id);
       if (action === 'pause') { task.paused = true; log(doc, task, 'Task paused', 'New dispatches paused; current agent may finish', 'Human'); return; }
       if (!['start', 'resume'].includes(action)) throw Error('Unknown workflow action');
+      if (task.planId && (doc.plans ?? []).some((plan) => plan.id === task.planId && plan.state === 'planned')) throw Error('Start this work through Start plan');
       if (terminalStates.has(task.state)) throw Error('Create a new task after acceptance or cancellation');
       if (task.attempts.at(-1)?.delivery === 'uncertain') throw Error('Delivery is uncertain. Inspect the agent and reconcile this attempt before resuming.');
       if (task.state === 'blocked' && task.attempts.at(-1)?.state === 'running') throw Error('This attempt may still be running. Await its report or cancel and inspect the session.');
@@ -173,6 +323,10 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
   function decide(doc, task, payload, current) {
     if (task.state !== 'needs_you' || !task.revision || payload.revision !== task.revision || current !== task.revision) throw Error('This review is stale or no longer awaiting a decision. Refresh it.');
     if (!['accept', 'changes', 'defer'].includes(payload.outcome)) throw Error('Choose Accept result, Request changes or Defer');
+    if (payload.outcome === 'accept') {
+      const issue = planScopeIssue(task, doc);
+      if (issue) throw Error(issue);
+    }
     if (payload.outcome === 'changes' && !text(payload.text)) throw Error('Explain the requested changes');
     if (payload.outcome === 'changes' && task.round >= task.maxRounds) throw Error('Attempt budget exhausted. Create a new bounded task for further changes.');
     task.decisions.push({ id: uid(), outcome: payload.outcome, text: String(payload.text ?? '').slice(0, 4000), revision: task.revision, at: new Date(clock()).toISOString() });
@@ -214,6 +368,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
   async function dispatch(taskId) {
     const doc = readState(home), task = taskById(doc, taskId), role = task.nextRole || (task.state === 'needs_review' ? 'reviewer' : 'executor'), actor = task[role];
     if (!doc.engine.enabled || task.paused || !['ready', 'needs_review'].includes(task.state)) return;
+    const scopeIssue = planScopeIssue(task, doc);
+    if (scopeIssue) { block(task.id, scopeIssue); return; }
     if (task.dependsOn.some((id) => taskById(doc, id).state !== 'accepted')) return;
     const working = doc.tasks.filter((t) => ['running'].includes(t.state));
     if (working.length >= doc.engine.maxConcurrent || working.some((t) => t.root === task.root || [t.executor.address, t.reviewer.address].includes(actor.address))) return;
@@ -227,6 +383,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     update((next) => {
       const t = taskById(next, task.id);
       if (!next.engine.enabled || t.paused || !['ready', 'needs_review'].includes(t.state)) throw Error('Task changed before dispatch');
+      const scopeIssue = planScopeIssue(t, next);
+      if (scopeIssue) throw Error(scopeIssue);
       const active = next.tasks.filter((other) => other.id !== t.id && other.attempts.at(-1)?.state === 'running');
       if (active.length >= next.engine.maxConcurrent || active.some((other) => other.root === t.root || [other.executor.address, other.reviewer.address].includes(actor.address))) throw Error('Another attempt is using this checkout or agent');
       if (role === 'executor') { if (t.round >= t.maxRounds) throw Error('Attempt budget exhausted'); t.round++; }

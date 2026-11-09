@@ -85,7 +85,7 @@ test('account picker preserves native selection and rejects duplicate skill laun
 
 test('goal editor distinguishes loading from saving and locks fields until data arrives', async () => {
   let resolveRead;
-  fake.read = () => new Promise((resolve) => { resolveRead = resolve; });
+  fake.read = (path) => path === goalsPath() ? new Promise((resolve) => { resolveRead = resolve; }) : null;
   const e = new GoalEditor(), cx = fakeCx(); e.init({}, cx); await flush();
   let tree = e.render();
   assert.equal(find(tree, 'goal-save').items[0], 'Loading…');
@@ -103,7 +103,7 @@ test('goal editor distinguishes loading from saving and locks fields until data 
 
 test('closing during initial load never touches released inputs or schedules late focus', async () => {
   let resolveRead;
-  fake.read = () => new Promise((resolve) => { resolveRead = resolve; });
+  fake.read = (path) => path === goalsPath() ? new Promise((resolve) => { resolveRead = resolve; }) : null;
   const e = new GoalEditor(), cx = fakeCx(); e.init({}, cx); await flush();
   e.close();
   let touched = 0;

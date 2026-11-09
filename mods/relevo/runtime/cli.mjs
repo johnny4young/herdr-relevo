@@ -217,7 +217,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     const result = await runtime.command(parsed.payload);
     const doc = result?.doc ?? runtime.read();
     const action = parsed.payload.action;
-    const startsWork = ['start', 'resume', 'retry-review'].includes(action) || (action === 'decide' && parsed.payload.outcome === 'changes') ||
+    const startsWork = ['start', 'resume', 'retry-review'].includes(action) || (action === 'start-plan' && result?.result?.existing !== true) || (action === 'decide' && parsed.payload.outcome === 'changes') ||
       (action === 'batch' && parsed.payload.outcome === 'changes' && parsed.payload.preview === false);
     const acceptedIds = parsed.payload.outcome === 'accept' ? action === 'decide' ? [parsed.payload.taskId]
       : action === 'batch' && parsed.payload.preview === false ? parsed.payload.ids ?? [] : [] : [];

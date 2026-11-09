@@ -11,10 +11,11 @@ import { openReplies } from "./replies.js";
 import { openReview } from "./review.js";
 import { reviewableWork, scopeGoals } from "./lib/goal-workflow.js";
 import { openWorkflow } from "./workflow.js";
+import { projectGoalPlan } from "./lib/goal-plan.js";
 
 export const GOAL_MODE = "relevo.goals.mode";
 export const GOAL_SCOPE = "relevo.goals.scope";
-const line = (s, t) => div().text_size(11).text_color(t.muted).child(s);
+const line = (s, t, attention = false) => div().text_size(11).text_color(attention ? t.blocked : t.muted).child(s);
 
 export class GoalViews {
   startGoals(cx) {
@@ -197,7 +198,11 @@ export class GoalViews {
         const missing = goal.sources.filter((key) => !sources.some((s) => s.key === key));
         const steps = goal.steps ?? [];
         const tasks = (this.workflowTasks ?? []).filter((task) => task.goalId === goal.id);
-        const needsYou = tasks.filter((task) => ["needs_you", "blocked"].includes(task.state)).length;
+        const needsYou = tasks.filter((task) => ["needs_you", "blocked", "failed"].includes(task.state)).length;
+        const plan = projectGoalPlan(goal, this.workflowTasks ?? []);
+        const completedSteps = plan.filter((row) => row.state === "done").length;
+        const workflowAccepted = plan.filter((row) => row.state === "done" && row.source === "workflow").length;
+        const planIssues = plan.filter((row) => row.issue || row.state === "blocked").length;
         const reviewable = reviewableWork(items, this.clones);
         return v_flex().id(`goal-${goal.id}`).p(8).gap(7).rounded(8).bg(t.background).border_1().border_color(this.selected(`goal-${goal.id}`) ? t.accent : urgency === 0 ? t.blocked : t.border)
           .child(h_flex().gap(5).items_center().child(div().flex_1().min_w(0).text_size(13).font_semibold().child(goal.title))
@@ -213,14 +218,19 @@ export class GoalViews {
             .child(line(`${reviewable.length} change sets available · acceptance stays with you`, t)))
           .child(h_flex().gap(6).items_center()
             .child(button(t, `goal-workflow-${goal.id}`, "Workflow", () => openWorkflow(goal.id), { size: "sm", tip: "W on this goal: assign tasks, follow handoffs and act on reviewed results" }))
-            .child(line(this.workflowError || `${tasks.length} tasks · ${needsYou} need you · ${tasks.filter((task) => task.state === "accepted").length} accepted`, t)))
+            .child(line(this.workflowError || `${tasks.length} tasks · ${needsYou} need you · ${tasks.filter((task) => task.state === "accepted").length} accepted · ${workflowAccepted} linked outcome(s)`, t)))
           .child(line(`${["Urgent", "High", "Normal", "Low"][goal.priority]} · Owner: ${goal.owner || "Not set"}`, t))
-          .child(line(`${GOAL_STATES[goalState(goal)]} · ${steps.filter((s) => s.state === "done").length}/${steps.length} steps validated by you`, t))
+          .child(line(`${GOAL_STATES[goalState(goal)]} · ${completedSteps}/${steps.length} steps complete${planIssues ? ` · ${planIssues} workflow issue(s)` : ""}`, t, planIssues > 0))
           .when(Boolean(steps.length), (el) => el.child(button(t, `goal-validate-${goal.id}`, "Validate steps", () => openGoal(goal.id, null, "plan"),
             { size: "sm", tip: "Open the plan to validate individual outcomes or all steps, then save or finish the goal" })))
           .when(goalState(goal) !== "active" && items.some((s) => !s.addressed && !s.draft), (el) => el.child(line("Open work remains visible regardless of the goal state.", t)))
           .when(Boolean(steps.length), (el) => el.child(foldRow(this, t, `goal-plan-${goal.id}`, `goal-${goal.id}-plan`, "Plan and progress")))
-          .children(this.expanded[`goal-${goal.id}-plan`] ? steps.map((s) => line(`${STEP_STATES[s.state]} · ${s.title}`, t)) : [])
+          .children(this.expanded[`goal-${goal.id}-plan`] ? plan.map(({ step, state, source, issue }) => {
+            const label = state === "done" ? source === "workflow" ? "Accepted in Workflow" : "Validated by you"
+              : state === "blocked" ? "Blocked" : STEP_STATES[state] ?? state;
+            return line(`${label} · ${step.title} · ${source === "workflow" ? "workflow" : "manual"}${issue ? ` · ${issue}` : ""}`,
+              t, Boolean(issue || state === "blocked"));
+          }) : [])
           .child(line(`Lead: ${lead ? lead.tab_name || lead.address : goal.lead ? `${goal.lead} · not connected` : "Unassigned"}${lead ? ` · ${children.length} observed child agents` : ""}`, t))
           .when(Boolean(lead), (el) => el.child(h_flex().gap(5)
             .child(button(t, `goal-focus-${goal.id}`, "Focus lead", () => run("agent.focus", { terminal: lead.address }), { size: "sm" }))
