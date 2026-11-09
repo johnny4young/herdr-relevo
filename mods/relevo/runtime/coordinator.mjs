@@ -65,6 +65,19 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     }
     return null;
   }
+  function dependencyWaitReason(task, doc) {
+    const pending = task.dependsOn.map((id) => taskById(doc, id)).filter((dependency) => dependency.state !== 'accepted');
+    if (!pending.length) return null;
+    const attention = pending.filter((dependency) => ['cancelled', 'blocked', 'failed'].includes(dependency.state));
+    if (attention.length) {
+      const summaries = attention.slice(0, 3).map((dependency) => `“${dependency.title}” (${dependency.state})`);
+      const more = attention.length > 3 ? ` and ${attention.length - 3} more` : '';
+      return `Waiting on prerequisite ${summaries.join(', ')}${more}. Resolve or replace the prerequisite to continue.`.slice(0, 1000);
+    }
+    const titles = pending.slice(0, 3).map((dependency) => `“${dependency.title}”`);
+    const more = pending.length > 3 ? ` and ${pending.length - 3} more` : '';
+    return `Waiting for human acceptance of ${titles.join(', ')}${more}.`.slice(0, 1000);
+  }
   async function command(payload) {
     if (!payload || typeof payload !== 'object') throw Error('Command required');
     const action = payload.action;
@@ -370,7 +383,20 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (!doc.engine.enabled || task.paused || !['ready', 'needs_review'].includes(task.state)) return;
     const scopeIssue = planScopeIssue(task, doc);
     if (scopeIssue) { block(task.id, scopeIssue); return; }
-    if (task.dependsOn.some((id) => taskById(doc, id).state !== 'accepted')) return;
+    const waitingReason = dependencyWaitReason(task, doc);
+    if (waitingReason) {
+      if (task.waitingReason !== waitingReason) update((next) => {
+        const current = taskById(next, task.id), currentReason = dependencyWaitReason(current, next);
+        if (current.state === 'ready' && !current.paused && currentReason && current.waitingReason !== currentReason) current.waitingReason = currentReason;
+      });
+      return;
+    }
+    if (task.waitingReason) {
+      update((next) => {
+        const current = taskById(next, task.id);
+        if (current.state === 'ready' && !current.paused && !dependencyWaitReason(current, next)) current.waitingReason = null;
+      });
+    }
     const working = doc.tasks.filter((t) => ['running'].includes(t.state));
     if (working.length >= doc.engine.maxConcurrent || working.some((t) => t.root === task.root || [t.executor.address, t.reviewer.address].includes(actor.address))) return;
     let observed;
@@ -385,12 +411,18 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (!next.engine.enabled || t.paused || !['ready', 'needs_review'].includes(t.state)) throw Error('Task changed before dispatch');
       const scopeIssue = planScopeIssue(t, next);
       if (scopeIssue) throw Error(scopeIssue);
+      const currentWaitingReason = dependencyWaitReason(t, next);
+      if (currentWaitingReason) {
+        t.waitingReason = currentWaitingReason;
+        return { waiting: true };
+      }
       const active = next.tasks.filter((other) => other.id !== t.id && other.attempts.at(-1)?.state === 'running');
       if (active.length >= next.engine.maxConcurrent || active.some((other) => other.root === t.root || [other.executor.address, other.reviewer.address].includes(actor.address))) throw Error('Another attempt is using this checkout or agent');
       if (role === 'executor') { if (t.round >= t.maxRounds) throw Error('Attempt budget exhausted'); t.round++; }
-      t.state = 'running'; t.attempts.push(attempt); t.error = null;
+      t.state = 'running'; t.waitingReason = null; t.attempts.push(attempt); t.error = null;
       log(next, t, 'Task assigned', `${role} → ${actor.label || actor.address}; attempt ${attempt.id}`);
     });
+    if (taskById(readState(home), task.id).attempts.at(-1)?.id !== attempt.id) return;
     let result;
     // hc accepts an exact guard only for idle/working. A freshly observed done
     // session uses normal send, which still refuses blocked permission prompts.

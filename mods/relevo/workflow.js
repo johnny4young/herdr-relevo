@@ -293,8 +293,9 @@ export class Workflow extends WorkflowPlan {
       (context) => this.command({ action: name, taskId: task.id }, context), { disabled: this.busy, tip });
     const actions = [];
     const planDraft = task.planId && (this.plans ?? []).some((plan) => plan.id === task.planId && plan.state === "planned");
+    const cancelledDependency = (task.dependsOn ?? []).some((id) => this.tasks?.find((item) => item.id === id)?.state === "cancelled");
     if (planDraft) actions.push(button(t, "workflow-action-plan", "View plan", (context) => this.openPlan(context), { tip: "Start all planned tasks together from Goal plan" }));
-    if (!planDraft && (task.state === "planned" || (task.state === "ready" && !this.engine?.enabled)) && !task.paused) actions.push(action("Start", "start", "Start the chosen existing sessions"));
+    if (!planDraft && !cancelledDependency && (task.state === "planned" || (task.state === "ready" && !this.engine?.enabled)) && !task.paused) actions.push(action("Start", "start", "Start the chosen existing sessions"));
     const last = task.attempts?.at(-1);
     if (task.state === "blocked" && last?.role === "reviewer" && last.state === "reported") {
       actions.push(action("Retry review", "retry-review", "Ask the independent reviewer to reassess the same checked revision; the coordinator verifies it is unchanged"));
@@ -369,17 +370,18 @@ export class Workflow extends WorkflowPlan {
     if (task.state === "accepted") return "Accepted and saved in History. This task no longer needs your attention.";
     if (task.state === "cancelled") return "This task was cancelled. No more work will be assigned. Create a new task if you want to continue.";
     if (task.state === "blocked" || task.state === "failed") return "This task needs attention. Read the issue below, inspect the activity if needed, then retry when it is resolved.";
-    if (task.paused) return "This task is paused. Choose Resume when you want the coordinator to continue.";
-    if (task.state === "planned" && task.planId) return "This task belongs to a saved plan. Open Goal plan and choose Start plan once for the whole sequence.";
-    if (task.state === "ready" && this.engine?.enabled) {
+    if (task.state === "ready") {
       const pending = (task.dependsOn ?? []).map((id) => this.tasks?.find((item) => item.id === id)).filter((item) => !item || item.state !== "accepted");
+      const continuation = this.engine?.enabled && !task.paused ? "This task continues automatically once its prerequisite is accepted." : "After the prerequisite is accepted, resume this task or start automation to continue.";
       const cancelled = pending.find((item) => item?.state === "cancelled");
       if (cancelled) return `The prerequisite “${cancelled.title}” was cancelled. This task cannot start automatically. Cancel this task and prepare an updated plan, or create a separate task with the prerequisites you need.`;
       const blocked = pending.find((item) => ["blocked", "failed"].includes(item?.state));
-      if (blocked) return `Waiting for “${blocked.title}” to be resolved and accepted. Open that task in Needs you to inspect the issue. This task continues automatically once its prerequisite is accepted.`;
-      if (pending.length) return `Waiting for your acceptance of ${pending.map((item) => item?.title ?? "a prerequisite task").join(", ")}. This task starts automatically afterwards.`;
-      return "Queued for an available agent. The plan is already started; no further action is needed. Checks and independent review will follow automatically.";
+      if (blocked) return `Waiting for “${blocked.title}” to be resolved and accepted. Open that task in Needs you to inspect the issue. ${continuation}`;
+      if (pending.length) return `Waiting for your acceptance of ${pending.map((item) => item?.title ?? "a prerequisite task").join(", ")}. ${continuation}`;
     }
+    if (task.paused) return "This task is paused. Choose Resume when you want the coordinator to continue.";
+    if (task.state === "planned" && task.planId) return "This task belongs to a saved plan. Open Goal plan and choose Start plan once for the whole sequence.";
+    if (task.state === "ready" && this.engine?.enabled) return "Queued for an available agent. The plan is already started; no further action is needed. Checks and independent review will follow automatically.";
     if (task.state === "planned" || task.state === "ready") return "Choose Start to assign this task. The coordinator will run checks, request independent review and bring the result back here.";
     if (task.state === "needs_review") return "Independent review is in progress. You can leave this screen; the result will appear in Needs you when it is ready.";
     return "Work is in progress. You can leave this screen; checks and independent review will follow automatically.";

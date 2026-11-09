@@ -218,6 +218,60 @@ test('dispatch rechecks plan scope after asynchronous agent lookup and does not 
   assert.match(f.runtime.read().tasks[0].error, /acceptance criteria changed/);
 });
 
+test('pending dependencies persist an actionable reason without polling writes', async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command(f.request);
+  await f.runtime.command({ action: 'start-plan', planId: 'stable-plan-1' });
+  const [prerequisite, dependent] = f.runtime.read().tasks;
+  await f.runtime.command({ action: 'cancel', taskId: prerequisite.id });
+  await f.runtime.dispatch(dependent.id);
+  const firstWait = f.runtime.read(), waitingTask = firstWait.tasks.find((task) => task.id === dependent.id);
+  assert.equal(waitingTask.state, 'ready');
+  assert.match(waitingTask.waitingReason, /First outcome.*cancelled/);
+  const revision = firstWait.revision, events = firstWait.events.length;
+  await f.runtime.dispatch(dependent.id);
+  const repeatedWait = f.runtime.read();
+  assert.equal(repeatedWait.revision, revision);
+  assert.equal(repeatedWait.events.length, events);
+});
+
+test('blocked dependency reason clears when acceptance unlocks dispatch', async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command(f.request);
+  await f.runtime.command({ action: 'start-plan', planId: 'stable-plan-1' });
+  const [prerequisite, dependent] = f.runtime.read().tasks;
+  transaction(f.home, (doc) => { doc.tasks.find((task) => task.id === prerequisite.id).state = 'blocked'; });
+  await f.runtime.dispatch(dependent.id);
+  assert.match(f.runtime.read().tasks.find((task) => task.id === dependent.id).waitingReason, /First outcome.*blocked/);
+  transaction(f.home, (doc) => { doc.tasks.find((task) => task.id === prerequisite.id).state = 'accepted'; });
+  await f.runtime.dispatch(dependent.id);
+  const current = f.runtime.read().tasks.find((task) => task.id === dependent.id);
+  assert.equal(current.waitingReason, null);
+  assert.equal(current.state, 'running');
+  assert.equal(f.sends.length, 1);
+});
+
+test('acceptance clears the prerequisite reason even while another task holds the checkout', async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const other = await f.runtime.command({ action: 'create', task: { goalId: 'g1', title: 'Checkout holder', criteria: 'Other outcome', root: f.root,
+    executor: { address: 'other-exec' }, reviewer: { address: 'other-review' } } });
+  await f.runtime.command(f.request);
+  await f.runtime.command({ action: 'start-plan', planId: 'stable-plan-1' });
+  const [prerequisite, dependent] = f.runtime.read().tasks.filter((task) => task.planId === 'stable-plan-1');
+  transaction(f.home, (doc) => { doc.tasks.find((task) => task.id === prerequisite.id).state = 'blocked'; });
+  await f.runtime.dispatch(dependent.id);
+  assert.match(f.runtime.read().tasks.find((task) => task.id === dependent.id).waitingReason, /blocked/);
+  transaction(f.home, (doc) => {
+    doc.tasks.find((task) => task.id === prerequisite.id).state = 'accepted';
+    doc.tasks.find((task) => task.id === other.result.taskId).state = 'running';
+  });
+  await f.runtime.dispatch(dependent.id);
+  const current = f.runtime.read().tasks.find((task) => task.id === dependent.id);
+  assert.equal(current.state, 'ready');
+  assert.equal(current.waitingReason, null);
+  assert.equal(f.sends.length, 0);
+});
+
 test('cancel-plan removes every task from an unstarted draft and does not cancel a started plan', async (t) => {
   const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
   await f.runtime.command(f.request);

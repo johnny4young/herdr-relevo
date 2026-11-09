@@ -107,6 +107,9 @@ test('started plan tasks never ask for another Start and explain acceptance depe
   assert.match(text(v.render()), /already started; no further action is needed/);
   v.tasks[0].state = 'blocked'; assert.match(text(v.render()), /to be resolved and accepted/);
   v.tasks[0].state = 'cancelled'; assert.match(text(v.render()), /cannot start automatically/);
-  v.engine.enabled = false; assert.ok(find(v.render(), 'workflow-action-start'));
+  v.engine.enabled = false; assert.match(text(v.render()), /cannot start automatically/);
+  assert.equal(find(v.render(), 'workflow-action-start'), null);
+  v.tasks[0].state = 'blocked'; assert.match(text(v.render()), /to be resolved and accepted/);
+  v.tasks[0].state = 'accepted'; assert.ok(find(v.render(), 'workflow-action-start'));
   v.close();
 });

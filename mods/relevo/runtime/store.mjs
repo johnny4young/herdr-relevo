@@ -40,6 +40,7 @@ export function validateState(doc) {
   for (const task of doc.tasks) {
     if (!task.id || ids.has(task.id) || !Array.isArray(task.attempts) || !Array.isArray(task.decisions) || !Array.isArray(task.messages) || !Array.isArray(task.evidence) ||
         !Array.isArray(task.dependsOn) || !Array.isArray(task.checks) || !Array.isArray(task.checksResult) || !path.isAbsolute(task.root ?? '') ||
+        (task.waitingReason !== undefined && task.waitingReason !== null && (typeof task.waitingReason !== 'string' || task.waitingReason.length > 1000)) ||
         !['planned', 'ready', 'running', 'blocked', 'needs_review', 'needs_you', 'accepted', 'failed', 'cancelled'].includes(task.state)) throw Error('Invalid workflow task');
     ids.add(task.id);
   }
