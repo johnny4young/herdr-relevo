@@ -66,6 +66,17 @@ test('engine launch uses hc background name and does not duplicate a live lock o
   await ensureEngine(home, options); assert.equal(calls.length, 2); assert.equal(calls[1][1], 'get');
 }));
 
+test('acceptance restores an enabled coordinator only for already-started eligible follow-ups', async () => fixture(async (home) => {
+  let launches = 0;
+  const doc = { engine: { enabled: true }, tasks: [{ id: 'a', state: 'accepted' }, { id: 'b', state: 'ready', dependsOn: ['a'], paused: false }] };
+  const deps = { runtimeFactory: () => ({ command: async () => ({ doc }), read: () => doc }), ensureEngine: async () => { launches++; } };
+  const command = ['--home', home, 'command', '{"action":"decide","taskId":"a","outcome":"accept"}'];
+  assert.equal((await main(command, deps)).code, 0); assert.equal(launches, 1);
+  doc.engine.enabled = false; await main(command, deps); assert.equal(launches, 1, 'explicit stop remains stopped');
+  doc.engine.enabled = true; doc.tasks[1].state = 'planned'; await main(command, deps); assert.equal(launches, 1, 'unstarted work remains unstarted');
+  doc.tasks[1].state = 'ready'; doc.tasks[1].paused = true; await main(command, deps); assert.equal(launches, 1, 'paused work remains paused');
+}));
+
 test('a same-name terminal with a different command is never treated as this home engine', async () => fixture(async (home) => {
   let calls = 0;
   await assert.rejects(ensureEngine(home, { cli: '/abs/cli.mjs', node: '/abs/node', runCommand: async () => {

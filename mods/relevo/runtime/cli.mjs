@@ -219,10 +219,14 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     const action = parsed.payload.action;
     const startsWork = ['start', 'resume', 'retry-review'].includes(action) || (action === 'decide' && parsed.payload.outcome === 'changes') ||
       (action === 'batch' && parsed.payload.outcome === 'changes' && parsed.payload.preview === false);
+    const acceptedIds = parsed.payload.outcome === 'accept' ? action === 'decide' ? [parsed.payload.taskId]
+      : action === 'batch' && parsed.payload.preview === false ? parsed.payload.ids ?? [] : [] : [];
+    const continuesWork = (doc.tasks ?? []).some((task) => task.state === 'ready' && !task.paused &&
+      task.dependsOn?.some((id) => acceptedIds.includes(id)) && task.dependsOn.every((id) => doc.tasks.some((parent) => parent.id === id && parent.state === 'accepted')));
     const keepsEngineBusy = ['message', 'skill'].includes(action);
     const passive = ['read', 'create', 'refresh', 'suggest-preferences'].includes(action);
     const response = result ?? { doc };
-    if (doc?.engine?.enabled && (startsWork || keepsEngineBusy)) {
+    if (doc?.engine?.enabled && (startsWork || keepsEngineBusy || continuesWork)) {
       try { await (deps.ensureEngine ?? ensureEngine)(parsed.home, deps.engineOptions); }
       catch (error) { return { code: 1, output: { ...response, doc, error: String(error?.message ?? error), saved: true } }; }
     } else if (!passive && doc?.engine?.enabled) wakeEngine(parsed.home);

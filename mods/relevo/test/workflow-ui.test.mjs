@@ -11,7 +11,7 @@ async function setup() { fake.props = { goalId: 'g', overlay: 'o' }; const v = n
 test('opens a native workflow overlay and renders task creation without sending commands', async () => {
   openWorkflow('g'); assert.deepEqual(fake.overlays.at(-1).props, { role: 'workflow', goalId: 'g' });
   const { v } = await setup(); const tree = v.render();
-  assert.match(text(tree), /Create task/); assert.match(text(tree), /does not launch an agent/); assert.equal(fake.execs.length, 0);
+  assert.match(text(tree), /Create task/); assert.match(text(tree), /After Start/); assert.equal(fake.execs.length, 0);
   assert.ok(find(tree, 'workflow-dialog')); v.close();
 });
 
@@ -92,7 +92,7 @@ test('the first screen explains the decision and keeps sessions and messaging se
     executor: { address: 'builder' }, reviewer: { address: 'reviewer' }, revision: 'current',
     checksResult: [{ code: 0 }], attempts: [{ role: 'executor', report: { summary: 'Search implemented' } }] }];
   v.selected = 'result'; let tree = v.render();
-  assert.match(text(tree), /Your next step/); assert.match(text(tree), /Search implemented/);
+  assert.match(text(tree), /Ready for your review/); assert.match(text(tree), /Search implemented/);
   assert.match(text(tree), /Recorded checks: 1\/1 passed/);
   assert.ok(find(tree, 'workflow-decide-accept')); assert.ok(find(tree, 'workflow-inspect-result'));
   assert.equal(find(tree, 'workflow-message'), null); assert.equal(find(tree, 'workflow-focus-executor'), null);
@@ -144,4 +144,38 @@ test('decision drafts cannot leak from one task into another task', async () => 
   v.editDecisionNote(a, false, cx); v.form.decision.set_value('Only for A');
   v.editDecisionNote(b, true, cx); assert.equal(v.form.decision.value(), '');
   v.editDecisionNote(a, false, cx); assert.equal(v.form.decision.value(), 'Only for A'); v.close();
+});
+
+test('acceptance from reports immediately advances to the next decision without a navigation click', async () => {
+  const a = { id: 'a', goalId: 'g', title: 'First', state: 'needs_you', revision: 'r1' };
+  const b = { id: 'b', goalId: 'g', title: 'Second', state: 'needs_you', revision: 'r2' };
+  const file = '/home/test/.config/herdr-app/relevo-workflow/state.json';
+  fake.files[file] = JSON.stringify({ tasks: [a, b] });
+  const { v, cx } = await setup(); v.tab = 'Changes';
+  fake.exec = async () => { const doc = { tasks: [{ ...a, state: 'accepted' }, b] }; fake.files[file] = JSON.stringify(doc); return { stdout: JSON.stringify({ doc }) }; };
+  click(find(v.render(), 'workflow-decide-accept'), cx); await flush();
+  assert.equal(v.selected, 'b'); assert.equal(v.tab, 'Overview'); assert.equal(v.filter, 'Needs you');
+  assert.match(text(v.render()), /Acceptance saved/); assert.equal(find(v.render(), 'workflow-task-a'), null);
+  assert.ok(find(v.render(), 'workflow-task-b')); v.close();
+});
+
+test('accepting the last task shows completion, persists across reopening, and keeps history accessible', async () => {
+  const a = { id: 'a', goalId: 'g', title: 'First', state: 'needs_you', revision: 'r1' };
+  const file = '/home/test/.config/herdr-app/relevo-workflow/state.json';
+  fake.files[file] = JSON.stringify({ tasks: [a] }); const { v, cx } = await setup();
+  fake.exec = async () => { const doc = { tasks: [{ ...a, state: 'accepted' }] }; fake.files[file] = JSON.stringify(doc); return { stdout: JSON.stringify({ doc }) }; };
+  click(find(v.render(), 'workflow-decide-accept'), cx); await flush();
+  assert.equal(v.selected, null); assert.match(text(v.render()), /You're all caught up/);
+  assert.equal(find(v.render(), 'workflow-tab-Overview'), null); assert.equal(find(v.render(), 'workflow-title'), null);
+  click(find(v.render(), 'workflow-view-history'), cx); assert.equal(v.selected, 'a');
+  assert.match(text(v.render()), /Accepted and saved in History/); v.close();
+  const reopened = await setup(); assert.equal(reopened.v.selected, null); assert.match(text(reopened.v.render()), /You're all caught up/); reopened.v.close();
+});
+
+test('filters keep selection consistent and failed work remains actionable rather than completed', async () => {
+  const { v, cx } = await setup();
+  v.tasks = [{ id: 'a', state: 'accepted', title: 'Accepted' }, { id: 'b', state: 'failed', title: 'Failed' }];
+  v.selectFilter('Completed', cx); assert.equal(v.selected, 'a');
+  v.selectFilter('Needs you', cx); assert.equal(v.selected, 'b');
+  v.selectFilter('In progress', cx); assert.equal(v.selected, null); assert.match(text(v.render()), /No work in progress/); v.close();
 });

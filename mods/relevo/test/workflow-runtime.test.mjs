@@ -58,6 +58,26 @@ test("executor checks reviewer and explicit human acceptance complete the task",
   assert.equal(f.runtime.read().tasks[0].state, "accepted");
 });
 
+test("accepting a prerequisite automatically dispatches its already-started dependent task", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const definition = { goalId: 'g1', title: 'Follow-up', criteria: 'Expected follow-up', root: f.root,
+    executor: { address: 'exec-agent' }, reviewer: { address: 'review-agent' }, dependsOn: [f.taskId] };
+  const child = (await f.runtime.command({ action: 'create', task: definition })).result.taskId;
+  const unstarted = (await f.runtime.command({ action: 'create', task: { ...definition, title: 'Later unstarted work' } })).result.taskId;
+  await f.runtime.command({ action: 'start', taskId: child });
+  await f.runtime.tick(); assert.equal(f.sends.length, 0, 'waits for acceptance');
+  await f.runtime.command({ action: 'start', taskId: f.taskId }); await f.runtime.tick();
+  f.report('executor', 'completed', 'Implemented'); await f.runtime.tick();
+  f.report('reviewer', 'completed', 'Reviewed'); await f.runtime.tick();
+  const parent = f.runtime.read().tasks.find((task) => task.id === f.taskId);
+  const before = f.sends.length;
+  await f.runtime.command({ action: 'decide', taskId: f.taskId, outcome: 'accept', revision: parent.revision });
+  await f.runtime.tick();
+  assert.equal(f.sends.length, before + 1);
+  assert.equal(f.runtime.read().tasks.find((task) => task.id === child).state, 'running');
+  assert.equal(f.runtime.read().tasks.find((task) => task.id === unstarted).state, 'planned');
+});
+
 test("nested Codex done status is eligible and uses hc's idle send guard", async (t) => {
   const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
   f.setActorStatus("exec-agent", "done");

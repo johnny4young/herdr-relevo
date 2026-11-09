@@ -4,6 +4,7 @@ import { agents, panes, props, theme, openOverlay, closeOverlay, exec, appHome, 
 import { button } from "./ui.js";
 import { openReview } from "./review.js";
 import { SKILLS as CONFIGURED_SKILLS } from "./config.js";
+import { workflowBucket, workflowItems, acceptanceEffect, queueSummary } from "./lib/workflow-navigation.js";
 
 export function openWorkflow(goalId) {
   openOverlay({ mod: "relevo", kind: "dialog", width: 850, height: 720, props: { role: "workflow", goalId } });
@@ -62,22 +63,40 @@ export class Workflow {
         if (this.loadedOnce && raw === this.lastLoadedRaw && !this.error?.startsWith("Could not load workflow:")) return;
         const state = raw ? JSON.parse(raw) : { tasks: [], events: [] };
         this.loadedOnce = true; this.lastLoadedRaw = raw;
-        this.tasks = (state.tasks ?? []).filter((task) => task.goalId === this.goalId);
-        this.events = (state.events ?? []).filter((event) => event.goalId === this.goalId);
-        this.prefsData = state.preferences ?? [];
-        this.engine = state.engine ?? { enabled: false };
-        if (!this.explicitNew && !this.tasks.some((task) => task.id === this.selected)) {
-          const initial = this.tasks.find((task) => task.state === "needs_you") ?? this.tasks.find((task) => task.state === "blocked")
-            ?? this.tasks.find((task) => ["running", "ready", "planned", "needs_review"].includes(task.state)) ?? this.tasks[0];
-          if (initial && !["needs_you", "blocked"].includes(initial.state)) this.filter = ["running", "ready", "planned", "needs_review"].includes(initial.state) ? "In progress" : "Completed";
-          this.selected = initial?.id ?? null;
-        }
+        this.applyState(state);
         if (this.error?.startsWith("Could not load workflow:")) this.error = null;
       } catch (error) {
         if (!this.closed && request === this.loadVersion) this.error = `Could not load workflow: ${error.message ?? error}`;
       }
       if (!this.closed && request === this.loadVersion) cx.notify();
     });
+  }
+
+  applyState(state, advance = false) {
+    const previous = this.tasks?.find((task) => task.id === this.selected);
+    this.tasks = (state.tasks ?? []).filter((task) => task.goalId === this.goalId);
+    this.events = (state.events ?? []).filter((event) => event.goalId === this.goalId);
+    this.prefsData = state.preferences ?? [];
+    this.engine = state.engine ?? { enabled: false };
+    if (this.explicitNew) return;
+    const selected = this.tasks.find((task) => task.id === this.selected);
+    const finished = selected?.state === "accepted" && previous && previous.state !== "accepted";
+    if (advance || finished) {
+      this.filter = "Needs you"; this.tab = "Overview";
+      this.selected = workflowItems(this.tasks, this.filter)[0]?.id ?? null;
+    } else if (!this.navigationInitialized) {
+      const initial = workflowItems(this.tasks, "Needs you")[0] ?? workflowItems(this.tasks, "In progress")[0];
+      this.selected = initial?.id ?? null; this.filter = initial ? workflowBucket(initial) : "Needs you";
+    } else if (!selected) {
+      this.selected = workflowItems(this.tasks, this.filter)[0]?.id ?? null;
+    }
+    this.navigationInitialized = true;
+  }
+
+  selectFilter(filter, cx) {
+    this.filter = filter; this.explicitNew = false; this.tab = "Overview";
+    this.selected = workflowItems(this.tasks ?? [], filter)[0]?.id ?? null;
+    this.h.focus(); cx.notify();
   }
 
   command(payload, sourceCx, afterSuccess = null) {
@@ -98,6 +117,13 @@ export class Workflow {
       if (response.error) throw Error(response.error);
       if (result.code !== 0) throw Error(result.stderr || "Workflow command failed");
       if (this.closed) return;
+      const accepted = payload.outcome === "accept" && (payload.action === "decide" || (payload.action === "batch" && payload.preview === false));
+      const changed = payload.action === "decide" && payload.outcome === "changes";
+      if (response.doc?.tasks) { this.loadVersion = (this.loadVersion ?? 0) + 1; this.applyState(response.doc, accepted || changed); }
+      if (accepted || changed) {
+        this.notice = accepted ? "Acceptance saved. The queue has advanced." : "Feedback saved. The next result will return for your review.";
+        this.tab = "Overview"; this.h.focus();
+      }
       afterSuccess?.(response);
       if (response.suggestions) this.suggestions = response.suggestions;
       if (response.preview) this.batchPreview = response.preview;
@@ -151,24 +177,23 @@ export class Workflow {
       this.reviewer = "";
       this.explicitNew = false;
       this.selected = response.result?.taskId ?? null;
+      this.filter = "In progress";
     });
   }
 
   taskList(t, cx) {
-    const visible = (this.tasks ?? []).filter((task) => this.filter === "Needs you"
-      ? ["needs_you", "blocked"].includes(task.state)
-      : this.filter === "In progress" ? ["running", "ready", "planned", "needs_review"].includes(task.state)
-        : ["accepted", "failed", "cancelled"].includes(task.state));
+    const visible = workflowItems(this.tasks ?? [], this.filter);
     const batchable = visible.filter((task) => task.state === "needs_you");
     return v_flex().w(255).flex_none().h_full().min_h(0).min_w(0).gap(7)
-      .child(div().font_semibold().child("Queue"))
-      .child(h_flex().gap(4).children(["Needs you", "In progress", "Completed"].map((filter) => button(t, `workflow-filter-${filter}`, filter,
-        (context) => { this.filter = filter; this.h.focus(); context.notify(); }, { kind: this.filter === filter ? "solid" : "outline" }))))
+      .child(div().font_semibold().child("Tasks"))
+      .child(v_flex().gap(4).children(["Needs you", "In progress", "Completed"].map((filter) => button(t, `workflow-filter-${filter}`,
+        `${filter === "Completed" ? "History" : filter} (${workflowItems(this.tasks ?? [], filter).length})`,
+        (context) => this.selectFilter(filter, context), { kind: this.filter === filter ? "solid" : "outline" }))))
       .child(button(t, "workflow-new-task", "+ New task", (context) => { this.explicitNew = true; this.selected = null; this.tab = "Overview"; this.h.focus(); context.notify(); }, { tip: "Clear selection and create a goal task" }))
       .child(v_flex().w_full().min_w(0).flex_1().min_h(0).overflow_y_scrollbar().gap(5).children(visible.map((task) => button(t, `workflow-task-${task.id}`,
         [v_flex().w_full().min_w(0).gap(3).text_left().child(div().w_full().min_w(0).truncate().child(task.title))
           .child(div().text_size(11).child(taskState(task.state)))],
-        (context) => { this.explicitNew = false; this.selected = task.id; this.h.focus(); context.notify(); },
+        (context) => { this.explicitNew = false; this.selected = task.id; this.tab = "Overview"; this.h.focus(); context.notify(); },
         { kind: this.selected === task.id ? "solid" : "outline", tip: task.title, accessibleLabel: `${task.title}. ${taskState(task.state)}` }).w_full().min_w(0).h(48).overflow_hidden())))
       .when(this.filter === "Needs you" && batchable.length > 1, (el) => el.child(this.batchPanel(t, batchable)));
   }
@@ -298,7 +323,8 @@ export class Workflow {
     });
     return v_flex().gap(6).pt(5)
       .child(div().font_semibold().child("Your decision"))
-      .child(row(t, "Accept the result if it meets your expectations. This does not approve or merge a PR."))
+      .child(row(t, acceptanceEffect(task, this.tasks ?? [], this.engine)))
+      .child(row(t, "PR approval and merge remain separate actions."))
       .child(h_flex().gap(5)
         .child(button(t, "workflow-decide-accept", "Accept result", (cx) => submit("accept", cx),
           { kind: "solid", disabled: this.busy || changes, tip: "Accept this revision and allow dependent tasks to proceed" }))
@@ -325,7 +351,7 @@ export class Workflow {
 
   nextStep(task) {
     if (task.state === "needs_you") return "The agents have finished. Review the result below, then accept it or request changes. You do not need to open their sessions.";
-    if (task.state === "accepted") return "You accepted this result. Return to the goal to validate any remaining plan steps, or create the next task.";
+    if (task.state === "accepted") return "Accepted and saved in History. This task no longer needs your attention.";
     if (task.state === "cancelled") return "This task was cancelled. No more work will be assigned. Create a new task if you want to continue.";
     if (task.state === "blocked" || task.state === "failed") return "This task needs attention. Read the issue below, inspect the activity if needed, then retry when it is resolved.";
     if (task.paused) return "This task is paused. Choose Resume when you want the coordinator to continue.";
@@ -344,7 +370,7 @@ export class Workflow {
     return v_flex().w_full().min_w(0).gap(8)
       .child(div().font_semibold().w_full().min_w(0).child(task.title))
       .child(div().p(9).rounded(6).border_1().border_color(t.border).child(v_flex().gap(5)
-        .child(div().font_semibold().child("Your next step"))
+        .child(div().font_semibold().child(task.state === "needs_you" ? "Ready for your review" : taskState(task.state)))
         .child(row(t, this.nextStep(task)))))
       .when(Boolean(task.error), (el) => el.child(div().role("alert").text_color(t.blocked).child(task.error)))
       .when(this.decisionNoteFor !== task.id && Boolean(implementation || review || checks.length), (el) => el.child(v_flex().gap(5)
@@ -501,6 +527,24 @@ export class Workflow {
             { disabled: this.busy, kind: "danger", tip: "Delete this preference" })))));
   }
 
+  emptyQueue(t) {
+    if (this.explicitNew || !(this.tasks ?? []).length) return v_flex().gap(6)
+      .child(div().font_semibold().child("Plan a task"))
+      .child(row(t, "Define the result once. After Start, implementation, checks and review run automatically until a decision is needed."));
+    const summary = queueSummary(this.tasks ?? [], this.engine);
+    const active = workflowItems(this.tasks ?? [], "In progress");
+    const history = workflowItems(this.tasks ?? [], "Completed");
+    return v_flex().w_full().gap(12).p(16)
+      .child(div().font_semibold().child(this.filter === "Needs you" ? summary.title : this.filter === "In progress" ? "No work in progress" : "No completed tasks yet"))
+      .child(row(t, this.filter === "Needs you" ? summary.detail : "Choose another list to see your tasks."))
+      .when(this.filter === "Needs you" && active.length > 0, (el) => el
+        .children(active.slice(0, 4).map((task) => row(t, `${task.title} · ${task.paused ? "Paused" : taskState(task.state)}`)))
+        .child(button(t, "workflow-view-active", "View ongoing work", (cx) => this.selectFilter("In progress", cx), { tip: "Inspect progress without starting anything" })))
+      .child(button(t, "workflow-back-goal", "Back to goal", () => closeOverlay(props()?.overlay), { kind: "solid", tip: "Return to Inbox; your acceptance is already saved" }))
+      .when(history.length > 0, (el) => el.child(button(t, "workflow-view-history", "View accepted results & history", (cx) => this.selectFilter("Completed", cx), { tip: "Inspect previous results without changing their decisions" })))
+      .child(row(t, "Goal criteria and GitHub reviews remain available in Inbox."));
+  }
+
   render() {
     const t = theme();
     const overlay = props()?.overlay;
@@ -510,8 +554,7 @@ export class Workflow {
       : this.tab === "Changes" ? this.changes(t, task)
         : this.tab === "Evidence" ? this.evidence(t, task)
           : this.overview(t, task)
-      : v_flex().gap(8).child(div().font_semibold().child("Select a task or create one"))
-        .child(row(t, "Creating records the assignment. It does not launch an agent until you choose Start."));
+      : this.emptyQueue(t);
     return v_flex().id("workflow-dialog").role("dialog").accessibility_label("Goal workflow").track_focus(this.h)
       .on_key_down((event, cx) => {
         if (event.key === "escape") { closeOverlay(overlay); return; }
@@ -520,20 +563,23 @@ export class Workflow {
         else if (event.key === "n") { this.selected = null; this.explicitNew = true; this.tab = "Overview"; this.showHelp = false; cx.notify(); }
         else if (["1", "2", "3", "4", "5"].includes(event.key)) { this.tab = ["Overview", "Activity", "Changes", "Evidence", "Preferences"][Number(event.key) - 1]; cx.notify(); }
         else if (["arrowdown", "arrowup"].includes(event.key)) {
-          const tasks = (this.tasks ?? []).filter((item) => this.filter === "Needs you" ? ["needs_you", "blocked"].includes(item.state) : this.filter === "In progress" ? ["running", "ready", "planned", "needs_review"].includes(item.state) : ["accepted", "failed", "cancelled"].includes(item.state));
+          const tasks = workflowItems(this.tasks ?? [], this.filter);
           const index = tasks.findIndex((item) => item.id === this.selected);
           const next = Math.max(0, Math.min(tasks.length - 1, index + (event.key === "arrowdown" ? 1 : -1)));
           if (tasks.length) { this.selected = tasks[next].id; cx.notify(); }
         }
       })
       .size_full().min_h(0).p(14).gap(9).bg(t.popover ?? t.surface).text_color(t.foreground)
-      .child(h_flex().w_full().min_w(0).justify_between().items_start().child(div().flex_1().min_w(0).font_semibold().child("Goal workflow"))
-        .child(h_flex().gap(5).child(row(t, `Coordinator ${this.engine?.enabled ? "running" : "stopped"}`))
-          .child(button(t, "workflow-focus-queue", "Focus task queue", () => this.h.focus(), { tip: "Focus the workflow so keyboard shortcuts work" }))
-          .child(button(t, "workflow-engine-stop", "Stop coordinator (all goals)", (cx) => this.command({ action: "stop" }, cx), { disabled: this.busy || !this.engine?.enabled, tip: "Stop future dispatches across every goal; current agent sessions keep running" }))
+      .child(h_flex().w_full().min_w(0).justify_between().items_start().child(div().flex_1().min_w(0).font_semibold().child("Work for this goal"))
+        .child(h_flex().gap(5)
+          .child(button(t, "workflow-focus-queue", "Keyboard help", (cx) => { this.showHelp = !this.showHelp; this.h.focus(); cx.notify(); }, { tip: "Show shortcuts and focus the queue" }))
+          .child(button(t, "workflow-tab-Preferences", "Preferences", (cx) => { this.tab = "Preferences"; this.h.focus(); cx.notify(); }, { tip: "Manage guidance for future work" }))
+          .when(Boolean(this.engine?.enabled), (el) => el.child(button(t, "workflow-engine-stop", "Pause automation", (cx) => this.command({ action: "stop" }, cx), { disabled: this.busy, tip: "Stop future dispatches across every goal; current agent sessions keep running" })))
           .child(button(t, "workflow-close", "Close", () => closeOverlay(overlay), { tip: "Close workflow" }))))
-      .child(h_flex().gap(6).children(["Overview", "Activity", "Changes", "Evidence", "Preferences"].map((tab) => button(t,
-        `workflow-tab-${tab}`, tab === "Overview" ? "Next step" : tab, (cx) => { this.tab = tab; this.h.focus(); cx.notify(); }, { kind: this.tab === tab ? "solid" : "outline" }))))
+      .when(Boolean(task), (el) => el.child(h_flex().gap(6).children(["Overview", "Changes", "Evidence", "Activity"].map((tab) => button(t,
+        `workflow-tab-${tab}`, tab === "Overview" ? (task.state === "needs_you" ? "Review" : "Summary") : tab,
+        (cx) => { this.tab = tab; this.h.focus(); cx.notify(); }, { kind: this.tab === tab ? "solid" : "outline" })))))
+      .when(Boolean(this.notice), (el) => el.child(div().role("status").child(row(t, this.notice))))
       .when(Boolean(this.error), (el) => el.child(div().id("workflow-error").role("alert").text_color(t.blocked).child(this.error)))
       .when(this.showHelp, (el) => el.child(row(t, "Keyboard: 1–5 switch tabs · ↑/↓ select tasks · N new task · ? help · Esc close. Shortcuts are disabled while an input has focus.")))
       .child(h_flex().items_start().h_full().flex_1().min_h(0).min_w(0).gap(12).child(this.taskList(t))
