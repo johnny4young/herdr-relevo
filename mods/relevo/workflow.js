@@ -196,18 +196,20 @@ export class Workflow extends WorkflowPlan {
   taskList(t, cx) {
     const visible = workflowItems(this.tasks ?? [], this.filter);
     const batchable = visible.filter((task) => task.state === "needs_you");
-    return v_flex().w(255).flex_none().h_full().min_h(0).min_w(0).gap(7)
-      .child(div().font_semibold().child("Tasks"))
-      .child(button(t, "workflow-goal-plan", "Goal plan", (context) => this.openPlan(context), { kind: this.tab === "Plan" ? "solid" : "outline", tip: "P: connect goal outcomes to one executable plan and track accepted results" }))
+    return v_flex().w(190).flex_none().h_full().min_h(0).min_w(0).gap(8).p(10).rounded(8).bg(t.chrome)
+      .child(div().text_size(11).text_color(t.muted).child("WORK QUEUE"))
       .child(v_flex().gap(4).children(["Needs you", "In progress", "Completed"].map((filter) => button(t, `workflow-filter-${filter}`,
         `${filter === "Completed" ? "History" : filter} (${workflowItems(this.tasks ?? [], filter).length})`,
-        (context) => this.selectFilter(filter, context), { kind: this.tab !== "Plan" && this.filter === filter ? "solid" : "outline" }))))
-      .child(button(t, "workflow-new-task", "+ New task", (context) => { this.explicitNew = true; this.selected = null; this.tab = "Overview"; this.h.focus(); context.notify(); }, { tip: "Clear selection and create a goal task" }))
+        (context) => this.selectFilter(filter, context), { selected: this.tab !== "Plan" && this.filter === filter })
+        .when(this.tab !== "Plan" && this.filter === filter, (el) => el.bg(t.selected).border_color(t.accent).text_color(t.foreground)))))
       .child(v_flex().w_full().min_w(0).flex_1().min_h(0).overflow_y_scrollbar().gap(5).children(visible.map((task) => button(t, `workflow-task-${task.id}`,
         [v_flex().w_full().min_w(0).gap(3).text_left().child(div().w_full().min_w(0).truncate().child(task.title))
           .child(div().text_size(11).child(taskState(task.state)))],
         (context) => { this.explicitNew = false; this.selected = task.id; this.tab = "Overview"; this.h.focus(); context.notify(); },
-        { kind: this.selected === task.id ? "solid" : "outline", tip: task.title, accessibleLabel: `${task.title}. ${taskState(task.state)}` }).w_full().min_w(0).h(48).overflow_hidden())))
+        { selected: this.selected === task.id, tip: task.title, accessibleLabel: `${task.title}. ${taskState(task.state)}` }).w_full().min_w(0).h(56).overflow_hidden()
+        .when(this.selected === task.id && this.tab !== "Plan", (el) => el.bg(t.selected).border_color(t.accent)))))
+      .child(button(t, "workflow-goal-plan", "Goal plan", (context) => this.openPlan(context), { selected: this.tab === "Plan", tip: "P: connect goal outcomes to one executable plan and track accepted results" }))
+      .child(button(t, "workflow-new-task", "+ New task", (context) => { this.explicitNew = true; this.selected = null; this.tab = "Overview"; this.h.focus(); context.notify(); }, { size: "sm", tip: "Clear selection and create a goal task" }))
       .when(this.filter === "Needs you" && batchable.length > 1, (el) => el.child(this.batchPanel(t, batchable)));
   }
 
@@ -337,17 +339,17 @@ export class Workflow extends WorkflowPlan {
       if (this.decisionDrafts) delete this.decisionDrafts[task.id];
       this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null;
     });
-    return v_flex().gap(6).pt(5)
-      .child(div().font_semibold().child("Your decision"))
-      .child(row(t, acceptanceEffect(task, this.tasks ?? [], this.engine)))
-      .child(row(t, "PR approval and merge remain separate actions."))
+    return v_flex().id("workflow-decision-card").w_full().min_w(0).gap(10).p(14).rounded(8).bg(t.raised)
+      .child(div().text_size(11).text_color(t.muted).child("YOUR DECISION"))
       .child(h_flex().gap(5)
         .child(button(t, "workflow-decide-accept", "Accept result", (cx) => submit("accept", cx),
-          { kind: "solid", disabled: this.busy || changes, tip: "Accept this revision and allow dependent tasks to proceed" }))
+          { kind: "solid", size: "lg", disabled: this.busy || changes, tip: "Accept this revision and allow dependent tasks to proceed. Does not approve or merge a PR." })
+          .when(!this.busy && !changes, (el) => el.bg(t.accent).text_color(t.accent_foreground)))
         .child(button(t, "workflow-decide-changes", "Request changes", (cx) => this.editDecisionNote(task, true, cx),
-          { disabled: this.busy, tip: "Describe what needs to change before sending it to the executor" }))
+          { size: "lg", disabled: this.busy, tip: "Describe what needs to change before sending it to the executor" }))
         .child(button(t, "workflow-decide-defer", "Decide later", (cx) => submit("defer", cx),
-          { disabled: this.busy, tip: "Keep the result pending and pause further work" })))
+          { size: "sm", disabled: this.busy, tip: "Keep the result pending and pause further work" })))
+      .child(div().text_size(11).text_color(t.muted).child(acceptanceEffect(task, this.tasks ?? [], this.engine)))
       .when(!editing, (el) => el.child(button(t, "workflow-decision-note-toggle", "Add a note (optional)", (cx) => this.editDecisionNote(task, false, cx),
         { size: "sm", tip: "Record your reasoning with your decision" })))
       .when(editing, (el) => el.child(this.field(t, "decision", changes ? "What should change?" : "Optional decision note", true))
@@ -394,28 +396,38 @@ export class Workflow extends WorkflowPlan {
     const implementation = latest("executor"), review = latest("reviewer");
     const checks = task.checksResult ?? [];
     const details = this.detailsFor === task.id;
-    return v_flex().w_full().min_w(0).gap(8)
-      .child(div().font_semibold().w_full().min_w(0).child(task.title))
-      .child(div().p(9).rounded(6).border_1().border_color(t.border).child(v_flex().gap(5)
-        .child(div().font_semibold().child(task.state === "needs_you" ? "Ready for your review" : taskState(task.state)))
-        .child(row(t, this.nextStep(task)))))
+    const metric = (label, value, color) => v_flex().flex_1().min_w(0).gap(5).p(10).rounded(6).bg(t.raised)
+      .child(div().text_size(11).text_color(t.muted).child(label))
+      .child(div().text_size(13).font_semibold().text_color(color ?? t.foreground).child(value));
+    return v_flex().w_full().min_w(0).gap(16)
+      .child(v_flex().id("workflow-outcome-header").w_full().min_w(0).gap(8).pl(12).border_l(3).border_color(task.state === "needs_you" ? t.accent : t.border)
+        .child(div().text_size(11).text_color(t.accent).font_semibold().child(task.state === "needs_you" ? "READY FOR YOUR REVIEW" : taskState(task.state).toUpperCase()))
+        .child(div().font_semibold().w_full().min_w(0).tooltip(task.title).accessibility_label(task.title).child(caption(task.title, 115)))
+        .when(task.state !== "needs_you", (el) => el.child(row(t, this.nextStep(task))))
+        .when(task.state === "needs_you", (el) => el.child(row(t, "Review the evidence, then decide."))))
       .when(Boolean(task.error), (el) => el.child(div().role("alert").text_color(t.blocked).child(task.error)))
-      .when(this.decisionNoteFor !== task.id && Boolean(implementation || review || checks.length), (el) => el.child(v_flex().gap(5)
-        .child(div().font_semibold().child("Result at a glance"))
-        .when(Boolean(implementation), (panel) => panel.child(row(t, caption(implementation.summary ?? "Implementation report available", 220))))
-        .child(row(t, checks.length ? `Recorded checks: ${checks.filter((check) => check.code === 0).length}/${checks.length} passed` : "No checks recorded"))
-        .child(row(t, review ? `Independent review: ${review.status}. ${caption(review.summary ?? "", 160)}` : "Independent review has not reported yet"))))
+      .child(h_flex().w_full().gap(8).items_start().children([
+        metric("CHECKS", checks.length ? `${checks.filter((check) => check.code === 0).length}/${checks.length} passed` : "Not recorded",
+          checks.some((check) => check.code !== 0) ? t.blocked : t.foreground),
+        metric("INDEPENDENT REVIEW", review ? (review.status === "completed" ? "Completed" : taskState(review.status)) : "Not reported",
+          review && review.status !== "completed" ? t.blocked : t.foreground),
+        metric("EVIDENCE", `${task.evidence?.length ?? 0} attached`),
+      ]))
+      .when(this.decisionNoteFor !== task.id && Boolean(implementation), (el) => el.child(v_flex().gap(5)
+        .child(div().text_size(11).text_color(t.muted).child("AGENT SUMMARY"))
+        .child(row(t, caption(implementation.summary ?? "Implementation report available", 160)))))
       .child(h_flex().gap(5)
-        .child(button(t, "workflow-inspect-result", "Review changes & reports", (context) => { this.tab = "Changes"; this.h.focus(); context.notify(); },
-          { tip: "Inspect the diff, recorded checks and agent reports before deciding" }))
-        .child(button(t, "workflow-inspect-evidence", `Evidence (${task.evidence?.length ?? 0})`, (context) => { this.tab = "Evidence"; this.h.focus(); context.notify(); },
-          { tip: "Inspect attached screenshots, videos and reports" })))
+        .child(button(t, "workflow-inspect-result", "Review result", (context) => { this.tab = "Changes"; this.h.focus(); context.notify(); },
+          { size: "lg", tip: "3: inspect the diff, recorded checks and full agent reports before deciding" }))
+        .child(button(t, "workflow-inspect-evidence", "Open evidence", (context) => { this.tab = "Evidence"; this.h.focus(); context.notify(); },
+          { tip: "4: inspect attached screenshots, videos and reports" })))
       .children([this.decisions(t, task), this.uncertainAttempt(t, task)].filter(Boolean))
       .when(!["needs_you", "accepted", "cancelled"].includes(task.state), (el) => el.child(this.taskActions(t, task, cx)))
-      .child(button(t, "workflow-details-toggle", details ? "Hide task details & controls" : "Task details & controls", (context) => {
+      .child(button(t, "workflow-details-toggle", details ? "Hide details" : "Details, agents & skills", (context) => {
         this.detailsFor = details ? null : task.id; context.notify();
       }, { size: "sm", tip: "Optional: expected outcome, sessions, limits, messages and skills" }))
       .when(details, (el) => el.child(v_flex().gap(8)
+        .child(div().font_semibold().child(task.title))
         .child(row(t, task.criteria || "No acceptance criteria recorded"))
         .child(row(t, `Executor: ${task.executor?.label ?? task.executor?.address ?? "Unknown"} · Reviewer: ${task.reviewer?.label ?? task.reviewer?.address ?? "Unknown"}`))
         .child(row(t, `Rounds ${task.round ?? 0}/${task.maxRounds ?? 2} · time limit ${task.maxMinutes ?? 20} minutes · spend unavailable`))
@@ -464,19 +476,25 @@ export class Workflow extends WorkflowPlan {
 
   evidence(t, task, cx) {
     const items = task.evidence ?? [];
-    return v_flex().gap(6)
+    const adding = this.attachEvidenceFor === task.id;
+    return v_flex().gap(12)
+      .child(div().font_semibold().child("Evidence for this result"))
       .when(!items.length, (el) => el.child(row(t, "No evidence attached to this task yet.")))
-      .child(this.field(t, "path", "Local file path"))
-      .child(this.field(t, "label", "Evidence label"))
-      .child(h_flex().gap(5).children(["screenshot", "video", "report"].map((kind) => button(t,
-        `workflow-attach-${kind}`, `Attach ${kind}`, (context) => this.command({ action: "attach", taskId: task.id,
-          source: this.form.path.value().trim(), kind, label: this.form.label.value().trim() || kind }, context),
-        { disabled: this.busy || !this.form.path.value().trim(), tip: `Record a local ${kind} attachment` }))))
-      .children(items.map((item) => v_flex().gap(3).child(row(t, `${item.kind ?? "Evidence"} · ${item.label ?? item.path} · ${item.valid === false ? "Missing or altered" : task.revision && item.revision === task.revision ? "Current revision" : "Stale revision"}`))
+      .children(items.map((item) => v_flex().gap(8).p(12).rounded(8).bg(t.raised).child(row(t, `${item.kind ?? "Evidence"} · ${item.label ?? item.path} · ${item.valid === false ? "Missing or altered" : task.revision && item.revision === task.revision ? "Current revision" : "Stale revision"}`))
         .child(h_flex().gap(5).child(button(t, `workflow-open-${item.id}`, "Open file", () => exec("open", [item.path]),
           { disabled: !item.path, tip: "Open this recorded local evidence file" }))
           .child(button(t, `workflow-remove-${item.id}`, "Remove", (context) => this.command({ action: "remove-artifact", taskId: task.id, artifactId: item.id }, context),
-          { disabled: this.busy, kind: "danger", tip: "Remove this evidence record" })))));
+          { disabled: this.busy, size: "sm", kind: "danger", tip: "Remove this evidence record" })))))
+      .child(button(t, "workflow-evidence-add", adding ? "Hide attachment form" : "+ Attach evidence", (context) => {
+        this.attachEvidenceFor = adding ? null : task.id; context.notify();
+      }, { size: "sm", tip: "Attach a local screenshot, video or report" }))
+      .when(adding, (el) => el.child(v_flex().gap(6)
+        .child(this.field(t, "path", "Local file path"))
+        .child(this.field(t, "label", "Evidence label"))
+        .child(h_flex().gap(5).children(["screenshot", "video", "report"].map((kind) => button(t,
+          `workflow-attach-${kind}`, `Attach ${kind}`, (context) => this.command({ action: "attach", taskId: task.id,
+            source: this.form.path.value().trim(), kind, label: this.form.label.value().trim() || kind }, context),
+          { disabled: this.busy || !this.form.path.value().trim(), tip: `Record a local ${kind} attachment` }))))));
   }
 
   skillActions(t, task) {
@@ -598,21 +616,28 @@ export class Workflow extends WorkflowPlan {
           if (tasks.length) { this.selected = tasks[next].id; cx.notify(); }
         }
       })
-      .size_full().min_h(0).p(14).gap(9).bg(t.popover ?? t.surface).text_color(t.foreground)
-      .child(h_flex().w_full().min_w(0).justify_between().items_start().child(div().flex_1().min_w(0).font_semibold().child("Work for this goal"))
+      .size_full().min_h(0).p(16).gap(14).bg(t.popover ?? t.surface).text_color(t.foreground)
+      .child(h_flex().w_full().min_w(0).justify_between().items_center()
+        .child(v_flex().flex_1().min_w(0).gap(3)
+          .child(div().font_semibold().child("Workflow"))
+          .child(div().text_size(11).text_color(t.muted).truncate().child(this.goal?.title ?? "Work for this goal")))
         .child(h_flex().gap(5)
-          .child(button(t, "workflow-focus-queue", "Keyboard help", (cx) => { this.showHelp = !this.showHelp; this.h.focus(); cx.notify(); }, { tip: "Show shortcuts and focus the queue" }))
-          .child(button(t, "workflow-tab-Preferences", "Preferences", (cx) => { this.tab = "Preferences"; this.h.focus(); cx.notify(); }, { tip: "Manage guidance for future work" }))
-          .when(Boolean(this.engine?.enabled), (el) => el.child(button(t, "workflow-engine-stop", "Pause automation", (cx) => this.command({ action: "stop" }, cx), { disabled: this.busy, tip: "Stop future dispatches across every goal; current agent sessions keep running" })))
+          .child(button(t, "workflow-focus-queue", "?", (cx) => { this.showHelp = !this.showHelp; this.h.focus(); cx.notify(); }, { tip: "Keyboard help: show shortcuts and focus the queue", accessibleLabel: "Keyboard help" }))
+          .child(button(t, "workflow-tools-toggle", this.showTools ? "Hide controls" : "Controls", (cx) => { this.showTools = !this.showTools; cx.notify(); }, { tip: "Automation controls and saved preferences", selected: Boolean(this.showTools) }))
           .child(button(t, "workflow-close", "Close", () => closeOverlay(overlay), { tip: "Close workflow" }))))
-      .when(Boolean(task) && this.tab !== "Plan", (el) => el.child(h_flex().gap(6).children(["Overview", "Changes", "Evidence", "Activity"].map((tab) => button(t,
-        `workflow-tab-${tab}`, tab === "Overview" ? (task.state === "needs_you" ? "Review" : "Summary") : tab,
-        (cx) => { this.tab = tab; this.h.focus(); cx.notify(); }, { kind: this.tab === tab ? "solid" : "outline" })))))
+      .when(this.showTools, (el) => el.child(h_flex().gap(6)
+        .child(button(t, "workflow-tab-Preferences", "Preferences", (cx) => { this.tab = "Preferences"; this.h.focus(); cx.notify(); }, { tip: "5: manage guidance for future work" }))
+        .when(Boolean(this.engine?.enabled), (controls) => controls.child(button(t, "workflow-engine-stop", "Pause automation", (cx) => this.command({ action: "stop" }, cx), { disabled: this.busy, tip: "Stop future dispatches across every goal; current agent sessions keep running" })))))
       .when(Boolean(this.notice), (el) => el.child(div().role("status").child(row(t, this.notice))))
       .when(Boolean(this.error), (el) => el.child(div().id("workflow-error").role("alert").text_color(t.blocked).child(this.error)))
       .when(this.showHelp, (el) => el.child(row(t, "Keyboard: P goal plan · 1–5 switch tabs · ↑/↓ select tasks · N new task · ? help · Esc close. Shortcuts are disabled while an input has focus.")))
-      .child(h_flex().items_start().h_full().flex_1().min_h(0).min_w(0).gap(12).child(this.taskList(t))
-        .child(v_flex().flex_1().h_full().min_h(0).min_w(0).overflow_y_scrollbar().gap(10)
-          .child(panel).when(!this.selected && !["Preferences", "Plan"].includes(this.tab) && (this.explicitNew || !(this.tasks ?? []).length), (el) => el.child(this.taskForm(t)))));
+      .child(h_flex().items_start().h_full().flex_1().min_h(0).min_w(0).gap(20).child(this.taskList(t))
+        .child(v_flex().flex_1().h_full().min_h(0).min_w(0).gap(16)
+          .when(Boolean(task) && !["Plan", "Preferences"].includes(this.tab), (el) => el.child(h_flex().gap(6).children(["Overview", "Changes", "Evidence", "Activity"].map((tab) => button(t,
+            `workflow-tab-${tab}`, tab === "Overview" ? (task.state === "needs_you" ? "Decision" : "Summary") : tab === "Changes" ? "Result" : tab,
+            (cx) => { this.tab = tab; this.h.focus(); cx.notify(); }, { size: "sm", selected: this.tab === tab, tip: `${tab === "Overview" ? "1" : tab === "Activity" ? "2" : tab === "Changes" ? "3" : "4"}: open ${tab.toLowerCase()}` })
+            .when(this.tab === tab, (item) => item.border_color(t.accent).text_color(t.accent))))))
+          .child(v_flex().id(`workflow-panel-${this.tab}-${this.selected ?? "queue"}`).flex_1().w_full().min_h(0).min_w(0).overflow_y_scrollbar().gap(10)
+            .child(panel).when(!this.selected && !["Preferences", "Plan"].includes(this.tab) && (this.explicitNew || !(this.tasks ?? []).length), (el) => el.child(this.taskForm(t))))));
   }
 }

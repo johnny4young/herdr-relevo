@@ -30,7 +30,9 @@ test('goal entry offers an ordered plan without redoing review or validated outc
   const tree = v.render(); assert.ok(find(tree, 'workflow-create-plan'));
   assert.equal(find(tree, 'workflow-plan-select-d'), null);
   assert.equal(find(tree, 'workflow-title'), null);
-  assert.match(text(tree), /Your acceptance unlocks the next task automatically/);
+  assert.match(text(tree), /Choose outcomes/);
+  assert.ok(find(tree, 'workflow-plan-config'));
+  assert.equal(find(tree, 'workflow-root'), null);
   click(find(tree, 'workflow-plan-select-c'), cx); assert.deepEqual(v.planStepIds, ['a', 'b', 'c']);
   assert.equal(fake.execs.length, 0); v.close();
 });
@@ -75,9 +77,20 @@ test('a saved plan starts once and paused drafts require explicit resume', async
   const plan = { id: 'p', goalId: 'g', goalVersion: 1, taskIds: ['a', 'b'], state: 'planned' };
   const doc = { tasks, plans: [plan], events: [], engine: { enabled: false } };
   fake.files[stateFile] = JSON.stringify(doc); v.applyState(doc); v.openPlan(cx);
-  assert.ok(find(v.render(), 'workflow-start-plan-p'));
+  let tree = v.render();
+  assert.ok(find(tree, 'workflow-start-plan-p'));
+  assert.match(text(tree), /Ready to start/);
+  assert.ok(find(tree, 'workflow-plan-more'));
+  assert.ok(find(tree, 'workflow-plan-details-p'));
+  assert.doesNotMatch(text(tree), /Repository:/); // setup detail stays folded by default
   v.selected = 'a'; v.tab = 'Overview'; assert.equal(find(v.render(), 'workflow-action-start'), null);
   click(find(v.render(), 'workflow-action-plan'), cx);
+  tree = v.render();
+  assert.equal(find(tree, 'workflow-plan-select-a'), null);
+  click(find(tree, 'workflow-plan-more'), cx);
+  tree = v.render();
+  assert.ok(find(tree, 'workflow-plan-select-b'));
+  assert.ok(find(tree, 'workflow-plan-config'));
   fake.exec = async (_cmd, args) => {
     assert.deepEqual(JSON.parse(args.at(-1)), { action: 'start-plan', planId: 'p' });
     const next = { ...doc, tasks: tasks.map((task) => ({ ...task, state: 'ready' })), plans: [{ ...plan, state: 'started' }], engine: { enabled: true } };
@@ -92,6 +105,51 @@ test('a saved plan starts once and paused drafts require explicit resume', async
   click(find(v.render(), 'workflow-start-plan-p'), cx); await flush(); v.openPlan(cx);
   assert.ok(find(v.render(), 'workflow-cancel-plan-p'));
   const check = (node) => { assert.notEqual(node, null); assert.notEqual(node, undefined); for (const child of node?.items ?? []) check(child); }; check(v.render());
+  v.close();
+});
+
+test('saved-plan next actions open results and progress without dispatching work', async () => {
+  const { v, cx } = await setup();
+  const tasks = [
+    { id: 'review', goalId: 'g', planId: 'p', title: 'Review the first result', state: 'needs_you' },
+    { id: 'next', goalId: 'g', planId: 'p', title: 'Continue the plan', state: 'ready' },
+  ];
+  const plan = { id: 'p', goalId: 'g', goalVersion: 1, taskIds: ['review', 'next'], state: 'started' };
+  v.applyState({ tasks, plans: [plan], events: [] }); v.openPlan(cx);
+  let tree = v.render();
+  assert.match(text(tree), /Review: Review the first result/);
+  assert.match(text(tree), /Review result/);
+  click(find(tree, 'workflow-plan-next-p'), cx);
+  assert.equal(v.selected, 'review'); assert.equal(v.filter, 'Needs you'); assert.equal(v.tab, 'Overview');
+  assert.equal(fake.execs.length, 0);
+
+  const reviewing = [tasks[0] = { ...tasks[0], state: 'accepted' }, { ...tasks[1], state: 'needs_review' }];
+  v.applyState({ tasks: reviewing, plans: [plan], events: [] }); v.openPlan(cx);
+  tree = v.render();
+  assert.match(text(tree), /Independent review: Continue the plan/);
+  assert.match(text(tree), /View progress/);
+  click(find(tree, 'workflow-plan-next-p'), cx);
+  assert.equal(v.selected, 'next'); assert.equal(v.filter, 'In progress'); assert.equal(v.tab, 'Overview');
+  assert.equal(fake.execs.length, 0);
+
+  const completed = reviewing.map((task) => ({ ...task, state: 'accepted' }));
+  v.applyState({ tasks: completed, plans: [plan], events: [] }); v.openPlan(cx);
+  assert.equal(find(v.render(), 'workflow-plan-more'), null);
+  assert.ok(find(v.render(), 'workflow-create-plan'));
+  v.close();
+});
+
+test('missing plan setup opens configuration and preserves the current draft', async () => {
+  const { v, cx } = await setup();
+  const selected = [...v.planStepIds];
+  v.form.root.set_value('/work/app');
+  click(find(v.render(), 'workflow-create-plan'), cx);
+  assert.equal(v.planConfigOpen, true);
+  assert.equal(v.form.root.value(), '/work/app');
+  assert.deepEqual(v.planStepIds, selected);
+  assert.ok(find(v.render(), 'workflow-root'));
+  assert.match(v.error, /two different connected agents/);
+  assert.equal(fake.execs.length, 0);
   v.close();
 });
 

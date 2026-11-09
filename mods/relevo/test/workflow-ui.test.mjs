@@ -33,7 +33,9 @@ test('shows activity and evidence actions only on selection and handles Escape',
   fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [{ id: 'task-1', goalId: 'g', title: 'Build', state: 'running', evidence: [{ id: 'e1', kind: 'report', path: '/tmp/report.md', label: 'Report' }] }], events: [{ goalId: 'g', taskId: 'task-1', type: 'started', detail: 'Started' }] });
   const { v, cx } = await setup(); v.selected = 'task-1'; v.tab = 'Activity';
   assert.match(text(v.render()), /Started/);
-  v.tab = 'Evidence'; let tree = v.render(); assert.ok(find(tree, 'workflow-remove-e1')); assert.ok(find(tree, 'workflow-open-e1')); assert.ok(find(tree, 'workflow-attach-report'));
+  v.tab = 'Evidence'; let tree = v.render(); assert.ok(find(tree, 'workflow-remove-e1')); assert.ok(find(tree, 'workflow-open-e1'));
+  assert.equal(find(tree, 'workflow-path'), null, 'evidence is readable before opening the attachment form');
+  click(find(tree, 'workflow-evidence-add'), cx); tree = v.render(); assert.ok(find(tree, 'workflow-attach-report'));
   click(find(tree, 'workflow-new-task'), cx); tree = v.render(); assert.ok(find(tree, 'workflow-title'));
   v.selected = 'task-1'; v.h.is_focused = () => false; tree = v.render();
   const escape = find(tree, 'workflow-dialog').handlers['on_key_down'];
@@ -92,8 +94,8 @@ test('the first screen explains the decision and keeps sessions and messaging se
     executor: { address: 'builder' }, reviewer: { address: 'reviewer' }, revision: 'current',
     checksResult: [{ code: 0 }], attempts: [{ role: 'executor', report: { summary: 'Search implemented' } }] }];
   v.selected = 'result'; let tree = v.render();
-  assert.match(text(tree), /Ready for your review/); assert.match(text(tree), /Search implemented/);
-  assert.match(text(tree), /Recorded checks: 1\/1 passed/);
+  assert.match(text(tree), /READY FOR YOUR REVIEW/); assert.match(text(tree), /Search implemented/);
+  assert.match(text(tree), /CHECKS 1\/1 passed/);
   assert.ok(find(tree, 'workflow-decide-accept')); assert.ok(find(tree, 'workflow-inspect-result'));
   assert.equal(find(tree, 'workflow-message'), null); assert.equal(find(tree, 'workflow-focus-executor'), null);
   assert.equal(find(tree, 'workflow-decision'), null);
@@ -144,6 +146,25 @@ test('decision drafts cannot leak from one task into another task', async () => 
   v.editDecisionNote(a, false, cx); v.form.decision.set_value('Only for A');
   v.editDecisionNote(b, true, cx); assert.equal(v.form.decision.value(), '');
   v.editDecisionNote(a, false, cx); assert.equal(v.form.decision.value(), 'Only for A'); v.close();
+});
+
+test('compact review preserves full context on demand without dispatching or implying missing evidence passed', async () => {
+  const { v, cx } = await setup();
+  const title = 'Review the complete result '.repeat(12);
+  const reviewerSummary = 'A detailed independent report that belongs in Result.';
+  v.tasks = [{ id: 'result', goalId: 'g', title, state: 'needs_you', attempts: [
+    { id: 'review', role: 'reviewer', report: { status: 'blocked', summary: reviewerSummary } },
+  ] }]; v.selected = 'result'; v.engine = { enabled: true };
+  let tree = v.render();
+  assert.match(text(tree), /CHECKS Not recorded INDEPENDENT REVIEW Blocked EVIDENCE 0 attached/);
+  assert.ok(!text(tree).includes(reviewerSummary));
+  assert.ok(!text(find(tree, 'workflow-outcome-header')).includes(title), 'long assignments are disclosed instead of dominating the first screen');
+  assert.equal(find(tree, 'workflow-engine-stop'), null);
+  click(find(tree, 'workflow-tools-toggle'), cx); tree = v.render();
+  assert.ok(find(tree, 'workflow-engine-stop')); assert.ok(find(tree, 'workflow-tab-Preferences'));
+  click(find(tree, 'workflow-details-toggle'), cx); assert.ok(text(v.render()).includes(title));
+  click(find(v.render(), 'workflow-inspect-result'), cx); assert.ok(text(v.render()).includes(reviewerSummary));
+  assert.equal(fake.execs.length, 0); v.close();
 });
 
 test('acceptance from reports immediately advances to the next decision without a navigation click', async () => {
