@@ -85,3 +85,63 @@ test('every task state produces native-compatible children, including absent opt
   }
   v.close();
 });
+
+test('the first screen explains the decision and keeps sessions and messaging secondary', async () => {
+  const { v, cx } = await setup();
+  v.tasks = [{ id: 'result', goalId: 'g', title: 'Search', state: 'needs_you', round: 1, maxRounds: 2,
+    executor: { address: 'builder' }, reviewer: { address: 'reviewer' }, revision: 'current',
+    checksResult: [{ code: 0 }], attempts: [{ role: 'executor', report: { summary: 'Search implemented' } }] }];
+  v.selected = 'result'; let tree = v.render();
+  assert.match(text(tree), /Your next step/); assert.match(text(tree), /Search implemented/);
+  assert.match(text(tree), /Recorded checks: 1\/1 passed/);
+  assert.ok(find(tree, 'workflow-decide-accept')); assert.ok(find(tree, 'workflow-inspect-result'));
+  assert.equal(find(tree, 'workflow-message'), null); assert.equal(find(tree, 'workflow-focus-executor'), null);
+  assert.equal(find(tree, 'workflow-decision'), null);
+  click(find(tree, 'workflow-details-toggle'), cx); tree = v.render();
+  assert.ok(find(tree, 'workflow-message')); assert.ok(find(tree, 'workflow-focus-executor'));
+  click(find(tree, 'workflow-inspect-result'), cx); assert.equal(v.tab, 'Changes');
+  assert.ok(find(v.render(), 'workflow-decide-accept'), 'decision remains reachable after reading reports');
+  assert.equal(fake.execs.length, 0); v.close();
+});
+
+test('requesting changes previews the next effect and requires explicit feedback submission', async () => {
+  const { v, cx } = await setup();
+  v.tasks = [{ id: 'result', goalId: 'g', title: 'Search', state: 'needs_you', round: 1, maxRounds: 2, revision: 'current' }];
+  v.selected = 'result'; click(find(v.render(), 'workflow-decide-changes'), cx);
+  let tree = v.render(); assert.equal(fake.execs.length, 0);
+  assert.match(text(tree), /another implementation and review round/);
+  assert.equal(find(tree, 'workflow-send-changes').isDisabled, true);
+  assert.equal(find(tree, 'workflow-decide-accept').isDisabled, true);
+  v.form.decision.set_value('Handle empty results');
+  fake.exec = async (_command, args) => {
+    assert.deepEqual(JSON.parse(args.at(-1)), { action: 'decide', taskId: 'result', outcome: 'changes', text: 'Handle empty results', revision: 'current' });
+    return { stdout: '{}' };
+  };
+  click(find(v.render(), 'workflow-send-changes'), cx); await flush();
+  assert.equal(fake.execs.length, 1); assert.equal(v.form.decision.value(), '');
+  assert.equal(v.requestChangesFor, null); v.close();
+});
+
+test('optional notes cancel without sending and an exhausted task prepares an explicit follow-up', async () => {
+  const { v, cx } = await setup();
+  v.tasks = [{ id: 'result', goalId: 'g', title: 'Search', state: 'needs_you', round: 2, maxRounds: 2 }]; v.selected = 'result';
+  assert.equal(find(v.render(), 'workflow-decide-changes').isDisabled, false);
+  click(find(v.render(), 'workflow-decision-note-toggle'), cx); v.form.decision.set_value('Unsent thought');
+  click(find(v.render(), 'workflow-decision-note-cancel'), cx);
+  assert.equal(v.form.decision.value(), ''); assert.equal(find(v.render(), 'workflow-decision'), null);
+  click(find(v.render(), 'workflow-decide-changes'), cx); v.form.decision.set_value('Add an empty state');
+  assert.match(text(v.render()), /Nothing runs until you create and start it/);
+  click(find(v.render(), 'workflow-send-changes'), cx);
+  assert.equal(v.selected, null); assert.equal(v.explicitNew, true);
+  assert.match(v.form.criteria.value(), /Requested changes: Add an empty state/);
+  assert.equal(v.tasks[0].state, 'needs_you');
+  assert.equal(fake.execs.length, 0); v.close();
+});
+
+test('decision drafts cannot leak from one task into another task', async () => {
+  const { v, cx } = await setup();
+  const a = { id: 'a' }, b = { id: 'b' };
+  v.editDecisionNote(a, false, cx); v.form.decision.set_value('Only for A');
+  v.editDecisionNote(b, true, cx); assert.equal(v.form.decision.value(), '');
+  v.editDecisionNote(a, false, cx); assert.equal(v.form.decision.value(), 'Only for A'); v.close();
+});

@@ -2,6 +2,10 @@
 
 Open **Workflow** from an existing goal in Inbox. Goals still group the original PR, CI, review, account and worktree controls. A workflow task adds an explicit expected outcome, local checkout, executor and independent reviewer. It links existing agent sessions; it does not create accounts or infer that a terminal's idle state means its task succeeded.
 
+Start in **Next step**: it explains what needs your attention and summarizes the result, recorded checks and independent review. Review changes and evidence as needed, then choose **Accept result**, **Request changes** or **Decide later**. Sessions, messages, skills and limits live under **Task details & controls**. Reading reports does not require opening an agent session. Decision controls also appear after the detailed reports so you can act where you finish reviewing.
+
+Request changes opens a feedback draft before anything is sent. If the round limit is exhausted, **Prepare follow-up** prefills a separate task for you to review, create and start explicitly; the existing result remains pending. Optional decision notes can be discarded without sending, and drafts stay separate between tasks.
+
 ## Execution and decisions
 
 Create records a planned task. Start enables a local coordinator process under `hc`. The coordinator sends the executor a bounded assignment, observes the configured checks, sends the matching revision to the reviewer, and returns the result for human review. Reviewer findings can trigger another implementation attempt within the configured round limit. Dependent tasks wait for explicit acceptance. One active attempt owns a checkout at a time; at most two tasks run concurrently.

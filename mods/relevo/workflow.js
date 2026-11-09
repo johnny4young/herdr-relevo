@@ -164,7 +164,7 @@ export class Workflow {
       .child(div().font_semibold().child("Queue"))
       .child(h_flex().gap(4).children(["Needs you", "In progress", "Completed"].map((filter) => button(t, `workflow-filter-${filter}`, filter,
         (context) => { this.filter = filter; this.h.focus(); context.notify(); }, { kind: this.filter === filter ? "solid" : "outline" }))))
-      .child(button(t, "workflow-new-task", "+ New task", (context) => { this.explicitNew = true; this.selected = null; this.h.focus(); context.notify(); }, { tip: "Clear selection and create a goal task" }))
+      .child(button(t, "workflow-new-task", "+ New task", (context) => { this.explicitNew = true; this.selected = null; this.tab = "Overview"; this.h.focus(); context.notify(); }, { tip: "Clear selection and create a goal task" }))
       .child(v_flex().w_full().min_w(0).flex_1().min_h(0).overflow_y_scrollbar().gap(5).children(visible.map((task) => button(t, `workflow-task-${task.id}`,
         [v_flex().w_full().min_w(0).gap(3).text_left().child(div().w_full().min_w(0).truncate().child(task.title))
           .child(div().text_size(11).child(taskState(task.state)))],
@@ -267,27 +267,108 @@ export class Workflow {
     return h_flex().gap(5).children(actions);
   }
 
+  editDecisionNote(task, changes, cx) {
+    this.decisionDrafts ??= {};
+    if (this.decisionNoteFor) this.decisionDrafts[this.decisionNoteFor] = this.form.decision.value();
+    this.form.decision.set_value(this.decisionDrafts[task.id] ?? "");
+    this.decisionNoteFor = task.id; this.requestChangesFor = changes ? task.id : null; cx.notify();
+  }
+
+  prepareFollowUp(task, cx) {
+    this.form.title.set_value(`Follow up: ${task.title}`.slice(0, 240));
+    this.form.root.set_value(task.root ?? "");
+    this.form.criteria.set_value(`${task.criteria ?? ""}\nRequested changes: ${this.form.decision.value().trim()}`);
+    this.form.checks.set_value(JSON.stringify(task.checks ?? []));
+    this.form.maxRounds.set_value(String(task.maxRounds ?? 2));
+    this.form.maxMinutes.set_value(String(task.maxMinutes ?? 20));
+    this.executor = task.executor?.address ?? ""; this.reviewer = task.reviewer?.address ?? "";
+    this.dependsOn = []; this.selected = null; this.explicitNew = true; this.tab = "Overview";
+    this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null;
+    cx.notify();
+  }
+
   decisions(t, task) {
     if (task.state !== "needs_you") return null;
-    return v_flex().gap(5).child(this.field(t, "decision", "Decision note", true))
-      .child(row(t, "Accept: record this revision and allow dependent tasks to proceed."))
-      .child(row(t, task.round >= task.maxRounds ? "Correction budget exhausted. Create a new bounded task for further changes." : `Request changes: send feedback to ${task.executor?.address ?? "the executor"} and use another bounded round.`))
-      .child(row(t, "Defer: keep this task paused until you decide later."))
-      .child(h_flex().gap(5).children([["accept", "Accept"], ["changes", "Request changes"], ["defer", "Defer"]].map(([outcome, label]) =>
-        button(t, `workflow-decide-${outcome}`, label, (cx) => this.command({ action: "decide", taskId: task.id,
-          outcome, text: this.form.decision.value(), revision: task.revision ?? "" }, cx), { disabled: this.busy || (outcome === "changes" && task.round >= task.maxRounds), tip: outcome === "changes" && task.round >= task.maxRounds ? "Create a new bounded task to request further changes" : `${label} this revision` }))));
+    const editing = this.decisionNoteFor === task.id;
+    const changes = this.requestChangesFor === task.id;
+    const submit = (outcome, cx) => this.command({ action: "decide", taskId: task.id,
+      outcome, text: editing ? this.form.decision.value() : "", revision: task.revision ?? "" }, cx, () => {
+      if (this.decisionDrafts) delete this.decisionDrafts[task.id];
+      this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null;
+    });
+    return v_flex().gap(6).pt(5)
+      .child(div().font_semibold().child("Your decision"))
+      .child(row(t, "Accept the result if it meets your expectations. This does not approve or merge a PR."))
+      .child(h_flex().gap(5)
+        .child(button(t, "workflow-decide-accept", "Accept result", (cx) => submit("accept", cx),
+          { kind: "solid", disabled: this.busy || changes, tip: "Accept this revision and allow dependent tasks to proceed" }))
+        .child(button(t, "workflow-decide-changes", "Request changes", (cx) => this.editDecisionNote(task, true, cx),
+          { disabled: this.busy, tip: "Describe what needs to change before sending it to the executor" }))
+        .child(button(t, "workflow-decide-defer", "Decide later", (cx) => submit("defer", cx),
+          { disabled: this.busy, tip: "Keep the result pending and pause further work" })))
+      .when(!editing, (el) => el.child(button(t, "workflow-decision-note-toggle", "Add a note (optional)", (cx) => this.editDecisionNote(task, false, cx),
+        { size: "sm", tip: "Record your reasoning with your decision" })))
+      .when(editing, (el) => el.child(this.field(t, "decision", changes ? "What should change?" : "Optional decision note", true))
+        .when(changes, (panel) => panel.child(row(t, task.round >= task.maxRounds
+          ? "This task reached its round limit. Prepare a follow-up with your feedback and review its settings. Nothing runs until you create and start it. The current result stays pending."
+          : "Sending feedback starts another implementation and review round. The result will return here for your decision.")))
+        .child(h_flex().gap(5).children([
+          changes ? button(t, "workflow-send-changes", task.round >= task.maxRounds ? "Prepare follow-up" : "Send feedback",
+            (cx) => task.round >= task.maxRounds ? this.prepareFollowUp(task, cx) : submit("changes", cx),
+            { kind: "solid", disabled: this.busy || !this.form.decision.value().trim(), tip: task.round >= task.maxRounds ? "Prefill a new task without starting or sending anything" : "Send these changes to the assigned executor" }) : null,
+          button(t, "workflow-decision-note-cancel", changes ? "Cancel request" : "Remove note", (cx) => {
+            if (this.decisionDrafts) delete this.decisionDrafts[task.id];
+            this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null; cx.notify();
+          }, { disabled: this.busy, tip: "Discard this unsent note" }),
+        ].filter(Boolean))));
+  }
+
+  nextStep(task) {
+    if (task.state === "needs_you") return "The agents have finished. Review the result below, then accept it or request changes. You do not need to open their sessions.";
+    if (task.state === "accepted") return "You accepted this result. Return to the goal to validate any remaining plan steps, or create the next task.";
+    if (task.state === "cancelled") return "This task was cancelled. No more work will be assigned. Create a new task if you want to continue.";
+    if (task.state === "blocked" || task.state === "failed") return "This task needs attention. Read the issue below, inspect the activity if needed, then retry when it is resolved.";
+    if (task.paused) return "This task is paused. Choose Resume when you want the coordinator to continue.";
+    if (task.state === "planned" || task.state === "ready") return "Choose Start to assign this task. The coordinator will run checks, request independent review and bring the result back here.";
+    if (task.state === "needs_review") return "Independent review is in progress. You can leave this screen; the result will appear in Needs you when it is ready.";
+    return "Work is in progress. You can leave this screen; checks and independent review will follow automatically.";
   }
 
   overview(t, task, cx) {
-    const focusAgent = (role, person) => person?.address ? button(t, `workflow-focus-${role}`, `Focus ${role}`,
-      () => { const overlay = props()?.overlay; run("agent.focus", { terminal: person.address }); closeOverlay(overlay); }, { tip: `Focus the existing ${role} session` }) : null;
-    return v_flex().w_full().min_w(0).gap(8).child(div().font_semibold().w_full().min_w(0).child(task.title))
-      .child(row(t, `${taskState(task.state)} · executor ${task.executor?.label ?? task.executor?.address ?? "Unknown"} · reviewer ${task.reviewer?.label ?? task.reviewer?.address ?? "Unknown"}`))
-      .child(row(t, `Rounds ${task.round ?? 0}/${task.maxRounds ?? 2} · time limit ${task.maxMinutes ?? 20} minutes · spend unavailable`))
-      .child(row(t, task.criteria || "No acceptance criteria recorded"))
+    const focusAgent = (role, person) => person?.address ? button(t, `workflow-focus-${role}`, `Open ${role} session`,
+      () => { const overlay = props()?.overlay; run("agent.focus", { terminal: person.address }); closeOverlay(overlay); }, { tip: `Optional: inspect the existing ${role} session` }) : null;
+    const latest = (role) => [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === role && attempt.report)?.report;
+    const implementation = latest("executor"), review = latest("reviewer");
+    const checks = task.checksResult ?? [];
+    const details = this.detailsFor === task.id;
+    return v_flex().w_full().min_w(0).gap(8)
+      .child(div().font_semibold().w_full().min_w(0).child(task.title))
+      .child(div().p(9).rounded(6).border_1().border_color(t.border).child(v_flex().gap(5)
+        .child(div().font_semibold().child("Your next step"))
+        .child(row(t, this.nextStep(task)))))
       .when(Boolean(task.error), (el) => el.child(div().role("alert").text_color(t.blocked).child(task.error)))
-      .child(h_flex().gap(5).children([focusAgent("executor", task.executor), focusAgent("reviewer", task.reviewer)].filter(Boolean)))
-      .child(this.taskActions(t, task, cx)).children([this.decisions(t, task), this.uncertainAttempt(t, task)].filter(Boolean));
+      .when(this.decisionNoteFor !== task.id && Boolean(implementation || review || checks.length), (el) => el.child(v_flex().gap(5)
+        .child(div().font_semibold().child("Result at a glance"))
+        .when(Boolean(implementation), (panel) => panel.child(row(t, caption(implementation.summary ?? "Implementation report available", 220))))
+        .child(row(t, checks.length ? `Recorded checks: ${checks.filter((check) => check.code === 0).length}/${checks.length} passed` : "No checks recorded"))
+        .child(row(t, review ? `Independent review: ${review.status}. ${caption(review.summary ?? "", 160)}` : "Independent review has not reported yet"))))
+      .child(h_flex().gap(5)
+        .child(button(t, "workflow-inspect-result", "Review changes & reports", (context) => { this.tab = "Changes"; this.h.focus(); context.notify(); },
+          { tip: "Inspect the diff, recorded checks and agent reports before deciding" }))
+        .child(button(t, "workflow-inspect-evidence", `Evidence (${task.evidence?.length ?? 0})`, (context) => { this.tab = "Evidence"; this.h.focus(); context.notify(); },
+          { tip: "Inspect attached screenshots, videos and reports" })))
+      .children([this.decisions(t, task), this.uncertainAttempt(t, task)].filter(Boolean))
+      .when(!["needs_you", "accepted", "cancelled"].includes(task.state), (el) => el.child(this.taskActions(t, task, cx)))
+      .child(button(t, "workflow-details-toggle", details ? "Hide task details & controls" : "Task details & controls", (context) => {
+        this.detailsFor = details ? null : task.id; context.notify();
+      }, { size: "sm", tip: "Optional: expected outcome, sessions, limits, messages and skills" }))
+      .when(details, (el) => el.child(v_flex().gap(8)
+        .child(row(t, task.criteria || "No acceptance criteria recorded"))
+        .child(row(t, `Executor: ${task.executor?.label ?? task.executor?.address ?? "Unknown"} · Reviewer: ${task.reviewer?.label ?? task.reviewer?.address ?? "Unknown"}`))
+        .child(row(t, `Rounds ${task.round ?? 0}/${task.maxRounds ?? 2} · time limit ${task.maxMinutes ?? 20} minutes · spend unavailable`))
+        .child(h_flex().gap(5).children([focusAgent("executor", task.executor), focusAgent("reviewer", task.reviewer)].filter(Boolean)))
+        .when(["needs_you", "accepted", "cancelled"].includes(task.state), (panel) => panel.child(this.taskActions(t, task, cx)))
+        .child(this.messages(t, task, cx)).child(this.skillActions(t, task))));
   }
 
   activity(t, task) {
@@ -324,7 +405,8 @@ export class Workflow {
         .child(div().font_semibold().child((attempt.role === "reviewer" ? "Independent review" : "Implementation report") + " · " + attempt.report.status))
         .child(row(t, this.expandedReports?.[attempt.id] ? attempt.report.summary : caption(attempt.report.summary, 260)))
         .child(button(t, "workflow-report-" + attempt.id, this.expandedReports?.[attempt.id] ? "Show less" : "Read full report", (cx) => { this.expandedReports ??= {}; this.expandedReports[attempt.id] = !this.expandedReports[attempt.id]; cx.notify(); }, { tip: "Read the agent's complete report and stated limitations" }))))
-      .child(row(t, "Agent reports do not establish human acceptance. Earlier attempts remain in Activity."));
+      .child(row(t, "Agent reports do not establish human acceptance. Earlier attempts remain in Activity."))
+      .children([this.decisions(t, task)].filter(Boolean));
   }
 
   evidence(t, task, cx) {
@@ -427,7 +509,7 @@ export class Workflow {
       : task ? this.tab === "Activity" ? this.activity(t, task)
       : this.tab === "Changes" ? this.changes(t, task)
         : this.tab === "Evidence" ? this.evidence(t, task)
-          : v_flex().gap(8).child(this.overview(t, task)).child(this.messages(t, task)).child(this.skillActions(t, task))
+          : this.overview(t, task)
       : v_flex().gap(8).child(div().font_semibold().child("Select a task or create one"))
         .child(row(t, "Creating records the assignment. It does not launch an agent until you choose Start."));
     return v_flex().id("workflow-dialog").role("dialog").accessibility_label("Goal workflow").track_focus(this.h)
@@ -451,7 +533,7 @@ export class Workflow {
           .child(button(t, "workflow-engine-stop", "Stop coordinator (all goals)", (cx) => this.command({ action: "stop" }, cx), { disabled: this.busy || !this.engine?.enabled, tip: "Stop future dispatches across every goal; current agent sessions keep running" }))
           .child(button(t, "workflow-close", "Close", () => closeOverlay(overlay), { tip: "Close workflow" }))))
       .child(h_flex().gap(6).children(["Overview", "Activity", "Changes", "Evidence", "Preferences"].map((tab) => button(t,
-        `workflow-tab-${tab}`, tab, (cx) => { this.tab = tab; this.h.focus(); cx.notify(); }, { kind: this.tab === tab ? "solid" : "outline" }))))
+        `workflow-tab-${tab}`, tab === "Overview" ? "Next step" : tab, (cx) => { this.tab = tab; this.h.focus(); cx.notify(); }, { kind: this.tab === tab ? "solid" : "outline" }))))
       .when(Boolean(this.error), (el) => el.child(div().id("workflow-error").role("alert").text_color(t.blocked).child(this.error)))
       .when(this.showHelp, (el) => el.child(row(t, "Keyboard: 1–5 switch tabs · ↑/↓ select tasks · N new task · ? help · Esc close. Shortcuts are disabled while an input has focus.")))
       .child(h_flex().items_start().h_full().flex_1().min_h(0).min_w(0).gap(12).child(this.taskList(t))
