@@ -16,3 +16,10 @@ test('reference images, reference links, definitions and multi-line tags are neu
   assert.equal(agentMarkdown('Go to [docs][1]\n[1]: https://evil.test').trim(), 'Go to docs');
   assert.equal(agentMarkdown('<img\n src="https://evil.test/p">done'), 'done');
 });
+
+test('no image syntax survives nesting or tags that rebuild it', () => {
+  for (const input of ['![a[b]](https://evil.test/x.png)', '!<b></b>[x](https://evil.test/y.png)', '!<<b>i>[x](https://evil.test/z.png)', '! [x](https://evil.test/w.png)']) {
+    assert.doesNotMatch(agentMarkdown(input), /!\s*\[/, input);
+    assert.doesNotMatch(agentMarkdown(input), /<|>/, input);
+  }
+});
