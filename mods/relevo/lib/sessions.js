@@ -24,7 +24,7 @@ function fieldOf(pair) {
   return null;
 }
 
-// "id\t<json field>" lines from the end of each session file; the last of each field wins.
+// "account/id\t<json field>" lines from the end of each session file; the last of each field wins.
 export function parseDetails(text) {
   const out = {};
   for (const line of text.split("\n")) {
