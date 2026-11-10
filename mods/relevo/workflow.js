@@ -629,7 +629,7 @@ export class Workflow extends WorkflowDraftView {
       .child(div().text_size(11).text_color(t.muted).child(label))
       .child(div().text_size(13).font_semibold().text_color(color ?? t.foreground).child(value));
     return v_flex().w_full().min_w(0).gap(16)
-      .child(v_flex().id("workflow-outcome-header").w_full().min_w(0).gap(8).pl(12).border_l(3).border_color(task.state === "needs_you" ? t.accent : t.border)
+      .child(v_flex().id("workflow-outcome-header").w_full().min_w(0).gap(8).p(12).rounded(8).bg(task.state === "needs_you" ? t.selected : t.raised)
         .child(div().text_size(11).text_color(t.accent).font_semibold().child(task.state === "needs_you" ? "READY FOR YOUR REVIEW" : taskState(task.state).toUpperCase()))
         .child(div().font_semibold().w_full().min_w(0).tooltip(task.title).accessibility_label(task.title).child(caption(task.title, 115)))
         .when(task.state !== "needs_you", (el) => el.child(row(t, this.nextStep(task))))
