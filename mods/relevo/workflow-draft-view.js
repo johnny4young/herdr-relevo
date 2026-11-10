@@ -65,7 +65,7 @@ export class WorkflowDraftView extends WorkflowSetup {
   draftRecovery(t) {
     const draft = this.pendingDraft;
     return v_flex().w_full().min_w(0).gap(5).p(8).rounded(6).bg(t.raised)
-      .child(div().text_size(12).child(`Unsent draft · ${draft.title || "Untitled task"}`))
+      .child(div().text_size(13).child(`Unsent draft · ${draft.title || "Untitled task"}`))
       .child(div().text_size(11).text_color(t.muted).child(draft.root || "Repository not selected"))
       .child(h_flex().gap(6).flex_wrap()
         .child(button(t, "workflow-resume-draft", "Resume draft", (cx) => this.resumeDraft(cx),

@@ -225,7 +225,7 @@ export class GoalViews {
             .child(button(t, `goal-edit-${goal.id}`, "Edit", () => openGoal(goal.id), { size: "sm", tip: "Edit plan, ownership or recorded context" })))
           .child(v_flex().gap(4).p(6).rounded(6).bg(t.raised)
             .child(div().text_size(11).font_semibold().text_color(["Needs attention", "Status unavailable"].includes(next.status) ? t.blocked : t.accent).child(next.status))
-            .child(div().text_size(12).child(next.detail))
+            .child(div().text_size(13).child(next.detail))
             .child(h_flex().gap(5).flex_wrap()
               .child(button(t, next.action === 'review' ? `goal-review-next-${goal.id}` : next.action === 'decision' ? `goal-decision-next-${goal.id}` : `goal-workflow-${goal.id}`, next.label, () => this.openMissionAction(goal),
                 { kind: "solid", tip: "Enter on this mission: open the next action. Opening does not send work or accept a result." }))

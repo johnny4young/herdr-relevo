@@ -59,7 +59,7 @@ export class ShortcutHelp {
         .child(div().px(2).pt(4).text_size(11).text_color(t.dim).child(section))
         .children(rows.filter((row) => row.section === section).map((row) => h_flex().id(`shortcut-help-${row.id}`)
           .min_h(28).px(4).gap(8).items_center()
-          .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.foreground).child(row.label))
+          .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground).child(row.label))
           .child(div().flex_none().text_size(11).text_color(row.assigned ? t.muted : t.dim)
             .child(row.assigned ? row.shortcut : "Unassigned"))))));
   }

@@ -6,7 +6,7 @@ import { WorkflowPlan } from "./workflow-plan.js";
 
 export const SETUPS_KEY = "relevo.workflow.setups.v1";
 const LIMIT = 20;
-const row = (t, value) => div().w_full().min_w(0).text_size(12).text_color(t.muted).child(value);
+const row = (t, value) => div().w_full().min_w(0).text_size(11).text_color(t.muted).child(value);
 
 export function validSetup(value) {
   return value && typeof value.id === "string" && typeof value.name === "string" && value.name.trim() && value.name.length <= 60 &&
