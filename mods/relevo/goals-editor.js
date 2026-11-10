@@ -270,7 +270,8 @@ export class GoalEditor {
     const isNewRun = this.loadContext.mode === "run";
     return v_flex().id("goal-editor").role("dialog").accessibility_label(isNewRun ? "New run" : "Run details").track_focus(this.h)
       .on_key_down((e, cx) => {
-        if (e.key === "s" && e.modifiers?.platform && !e.modifiers?.alt && !e.modifiers?.control) { cx.stop_propagation(); this.save(cx); }
+        const platformChord = e.modifiers?.platform && !e.modifiers?.alt && !e.modifiers?.control;
+        if (platformChord && (e.key === "s" || e.key === "enter")) { cx.stop_propagation(); this.save(cx); }
       })
       .w_full().h(overlayHeight(isNewRun ? 320 : p?.goalId ? 620 : 440)).max_h_full().min_h(0).p(14).gap(10).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
       .child(h_flex().gap(8).items_center().child(div().flex_1().font_semibold().child(isNewRun ? "New run" : "Run details"))
@@ -350,7 +351,7 @@ export class GoalEditor {
             }, "Assign this connected agent as the goal's lead"))))))
       .child(h_flex().flex_none().gap(8).flex_wrap()
         .child(button(t, "goal-save", this.loading ? "Loading…" : this.busy ? "Saving…" : isNewRun ? "Choose agents →" : "Save", (cx) => this.save(cx),
-          { kind: "solid", disabled: this.busy || !goal, tip: isNewRun ? "Save the prompt; no agents are dispatched until Start." : "⌘S saves all sections. This does not send messages, approve or merge changes." }))
+          { kind: "solid", disabled: this.busy || !goal, tip: isNewRun ? "⌘Enter saves the prompt and opens agent setup; no work starts until Start." : "⌘Enter or ⌘S saves all sections. Enter alone keeps editing this field." }))
         .when(this.panel === "plan" && goalState(goal) !== "completed", (el) => el.child(button(t, "goal-finish", "Finish run", (cx) => {
           if (this.closed || this.busy || !this.goal) return;
           this.goal = { ...this.goal, state: "completed" }; this.save(cx);
