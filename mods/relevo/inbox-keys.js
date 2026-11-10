@@ -97,6 +97,12 @@ export class KeyNav {
   }
 
   navKey(e, cx) {
+    // Help search owns keyboard input while open, including Escape when focus
+    // has moved to another Inbox control.
+    if (this.goalHelp) {
+      if (e.key === "escape") this.shortcutHelp?.key(e, cx);
+      return;
+    }
     // While a reply is typed, the field owns the keys; Esc drops the reply.
     if (this.replying) {
       if (e.key !== "escape") return;

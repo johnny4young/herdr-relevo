@@ -240,14 +240,14 @@ test('decision-only goals are keyboard reachable and completed goals never hide 
   view.prsAt = Date.now() / 1000; fake.stored[GOAL_MODE] = true;
   let tree = view.render(cx);
   assert.doesNotMatch(text(tree), /Nothing waiting/);
-  assert.match(text(tree), /DECISION NEEDED/);
+  assert.match(text(tree), /Decision needed/);
   assert.match(text(tree), /Keep existing flow\?/);
   view.nav.find((n) => n.id === 'goal-g1').go();
   assert.equal(fake.overlays.at(-1).props.goalId, 'g1');
   view.goalDoc = commit({ ...goal(), state: 'completed' }); view.mine = [samplePR(1, { hot: true })];
   tree = view.render(cx);
   assert.ok(find(tree, `pr-${key.slice(3)}`));
-  assert.match(text(tree), /MISSION COMPLETED/);
+  assert.match(text(tree), /Mission completed/);
 });
 
 test('observed executors exclude child shells that do not report agent status', async () => {
@@ -272,12 +272,14 @@ test('mission details fold saved context and evidence while manual decisions and
   assert.ok(fold); assert.equal(fold.kind, 'button'); assert.match(fold.accessibleLabel, /Expand/);
   assert.match(text(fold), /Mission details · 1 evidence/);
   assert.equal(find(tree, 'goal-context-detail-g1'), null);
+  assert.ok(find(tree, 'goal-edit-g1'));
   assert.ok(!text(tree).includes(detail.criteria)); assert.ok(!text(tree).includes(detail.decisions[0].text));
   assert.ok(text(tree).includes(detail.decision)); assert.ok(!text(tree).includes(detail.recommendation));
   assert.equal(find(tree, 'goal-evidence-g1-0'), null); assert.ok(find(tree, `review-pr-${pr.url}`));
   const nav = view.nav.map((n) => n.id), execs = [...fake.execs];
   click(fold, cx); tree = view.render(cx);
   assert.ok(find(tree, 'goal-evidence-g1-0')); assert.ok(text(tree).includes(detail.recommendation));
+  assert.equal(find(tree, 'goal-record-g1'), null, 'mission details use the existing Edit action instead of duplicating it');
   assert.ok(text(find(tree, 'goal-context-detail-g1')).includes(detail.criteria));
   assert.ok(text(tree).includes(detail.decisions[0].text));
   assert.match(find(tree, 'goal-context-g1').accessibleLabel, /Collapse/);

@@ -10,7 +10,7 @@ The application column records our design inference. Implementation status belon
 | --- | --- | --- |
 | [T3 Code: thread sidebar](https://github.com/pingdotgg/t3code/blob/main/docs/user/thread-sidebar.md) | Parent context, agent threads, active versus settled work | Explain who assigned work, to whom, and what remains pending inside Activity. |
 | [Omnigent: built-in agents](https://omnigent.ai/docs/use/builtin-agents) | Decomposition and cross-agent review | Explicit executor/reviewer roles and bounded correction rounds; no automatic human acceptance. |
-| [Paseo](https://github.com/getpaseo/paseo) | Contextual review, profiles, truthful status, drafts and keyboard discovery | [Focused follow-up](paseo-research.md) compares pinned source and published previews; adopts failure-first check summaries and prioritizes useful setup/shortcut improvements. |
+| [Paseo](https://github.com/getpaseo/paseo) | Contextual review, profiles, truthful status, drafts and keyboard discovery | [Focused follow-up](paseo-research.md) compares pinned source and published previews; adopts failure-first check summaries, local draft recovery, repository-scoped setup reuse and searchable shortcut help. |
 | [OnOrca: orchestration](https://www.onorca.dev/docs/cli/orchestration) | Runs, tasks, dispatches and messages | Correlate every report with its attempt; reject late or mismatched reports. The focused follow-up below includes directly inspected source and availability limits. |
 | [Agent Orchestrator](https://orchestrator.inc/) | Agent supervision alongside branches, reviews and CI | Keep intervention, PR and CI context connected to work. |
 | [CodexHost](https://github.com/BytePioneer-AI/codex-host) | Harness collaboration within an existing interface | Preserve the host shell and actions; do not adopt patches to another application's internals. |
@@ -57,13 +57,13 @@ The target is a better fit for outcome-driven, batch-reviewed work. Superiority 
 | Objective | Observable acceptance criterion | Current boundary |
 | --- | --- | --- |
 | Know what needs attention | On opening a mission, identify its result, current state and next action without opening an agent chat. | Live primary action and ready-review ordering are implemented; comprehension must be checked with real use. |
-| Delegate without repeated setup | Enter an outcome, select the repository and roles, then explicitly start. Advanced controls stay optional. | Brief, searchable agents, check presets and explicit reuse of a successful setup are implemented; named execution profiles remain proposed. |
+| Delegate without repeated setup | Enter an outcome, select the repository and roles, then explicitly start. Advanced controls stay optional. | Brief, searchable agents, check presets and local repository-scoped setup profiles are implemented. Applying a setup fills the form only; the user reviews and explicitly creates/starts work. No model/provider routing is included. |
 | Review a complete result | Reach changes, checks, independent review and evidence from the same task; distinguish missing evidence from success. | Result/Evidence and revision guards exist; automatic screenshot/video capture remains proposed. |
 | Continue without manual handoffs | An accepted result releases eligible already-started work, while stops and human review boundaries remain intact. | Supported for local connected sessions; automatic goal decomposition is not implemented. |
 | Preserve familiar development work | Reach existing GitHub, PR, diff, review and terminal actions without duplicate workflow controls. | Existing surfaces are retained; accepting a mission result never implies PR approval or merge. |
-| Work efficiently by keyboard | Discover shortcuts, navigate the common path and cancel editing without losing unrelated work. | Keyboard paths and the Mission overlay exposure workaround exist; native input names and full screen-reader acceptance remain open. |
+| Work efficiently by keyboard | Discover shortcuts, navigate the common path and cancel editing without losing unrelated work. | Searchable fixed-window shortcut help shows effective bindings, modifier aliases and Inbox actions; native input names and full screen-reader acceptance remain open. |
 
-Compare repeated, equivalent tasks using time to understand the next action, manual handoffs, chat switches, corrections and cost per accepted outcome. Keep traces and results local. Isolated worktrees and named execution profiles are explicit opportunities; do not add them as untested options or claim that they already work.
+Compare repeated, equivalent tasks using time to understand the next action, manual handoffs, chat switches, corrections and cost per accepted outcome. Keep traces and results local. Automatic worktree creation, dedicated voice/mobile workflows and model/provider routing are not implemented; do not imply that saved setup profiles perform those functions.
 
 ## Herdr + OMP + Magpie references
 

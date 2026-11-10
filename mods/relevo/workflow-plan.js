@@ -173,6 +173,9 @@ export class WorkflowPlan {
           this.planConfigOpen = !this.planConfigOpen; cx.notify();
         }, { accessibleLabel: `${this.planConfigOpen ? "Hide" : "Show"} repository, agent and limit settings` }))
         .when(this.planConfigOpen, (config) => config
+          .child(this.setupLibrary(t))
+          .when(Boolean(this.setupReuseNotice), (el) => el.child(row(t, this.setupReuseNotice)))
+          .when(Boolean(this.setupReuseWarning), (el) => el.child(row(t, this.setupReuseWarning)))
           .child(this.field(t, "root", "Repository path"))
           .child(this.repositoryPicker(t))
           .child(this.agentPicker(t, "executor", "Executor"))

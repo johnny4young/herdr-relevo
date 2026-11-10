@@ -16,6 +16,7 @@ import { projectGoalPlan } from "./lib/goal-plan.js";
 export const GOAL_MODE = "relevo.goals.mode";
 export const GOAL_SCOPE = "relevo.goals.scope";
 const line = (s, t, attention = false) => div().text_size(11).text_color(attention ? t.blocked : t.muted).child(s);
+const missionFold = (view, t, id, key, label) => foldRow(view, t, id, key, label).w_full().justify_start().text_left();
 
 export class GoalViews {
   startGoals(cx) {
@@ -94,7 +95,12 @@ export class GoalViews {
   goalAction(key, cx) {
     if (shared(GOAL_MODE) !== true) return false;
     if (key === "g") { this.nextGoal(cx); return true; }
-    if (key === "?") { this.goalHelp = !this.goalHelp; return true; }
+    if (key === "?") {
+      this.goalHelp = !this.goalHelp;
+      if (this.goalHelp) this.shortcutHelp?.focus();
+      else this.h.focus();
+      return true;
+    }
     const group = this.goalProjection?.groups.find((g) => `goal-${g.goal.id}` === this.sel);
     if (key === "f" && (group || this.goalProjection?.scope)) {
       this.focusGoal(this.goalProjection.scope ? null : group.goal.id, cx); return true;
@@ -136,12 +142,12 @@ export class GoalViews {
 
   goalToolbar(t, cx) {
     if (this.goalChange !== shared(GOALS_CHANGED)) this.loadGoals(cx);
-    return h_flex().px(8).py(6).gap(6).flex_none().items_center()
-      .children([[false, "Reviews"], [true, "Missions"]].map(([on, label]) => button(t, `inbox-mode-${on}`, label, (cx) => {
+    return (this.narrowInbox ? v_flex() : h_flex()).w_full().min_w(0).px(8).py(6).gap(6).flex_none()
+      .child(h_flex().gap(6).items_center().children([[false, "Reviews"], [true, "Missions"]].map(([on, label]) => button(t, `inbox-mode-${on}`, label, (cx) => {
         setShared(GOAL_MODE, on); this.sel = null; this.keyboard = false; this.loadGoals(cx); cx.notify();
       }, { kind: (shared(GOAL_MODE) === true) === on ? "solid" : "outline", selected: (shared(GOAL_MODE) === true) === on,
-        tip: on ? "Direct agent work toward an outcome and review its results" : "Review PRs, local changes and agent requests" })))
-      .child(div().flex_1())
+        tip: on ? "Direct agent work toward an outcome and review its results" : "Review PRs, local changes and agent requests" }))))
+      .when(!this.narrowInbox, (el) => el.child(div().flex_1()))
       .when(shared(GOAL_MODE) === true, (el) => el
         .child(button(t, "goal-new", "+ Mission", () => openGoal(), { size: "sm", tip: "Define an outcome first; agents start only when you start planned work" })));
   }
@@ -175,9 +181,9 @@ export class GoalViews {
     const drafts = items.filter((s) => s.draft && !s.addressed), done = items.filter((s) => s.addressed);
     return [
       ...items.filter((s) => !s.draft && !s.addressed && visible(s)).map((s) => this.sourceCard(t, s, goal)),
-      ...(drafts.length ? [foldRow(this, t, `goal-drafts-${id}`, `goal-${id}-drafts`, `${drafts.length} draft(s)`),
+      ...(drafts.length ? [missionFold(this, t, `goal-drafts-${id}`, `goal-${id}-drafts`, `${drafts.length} draft(s)`),
         ...(this.expanded[`goal-${id}-drafts`] ? drafts.filter(visible).map((s) => this.sourceCard(t, s, goal)) : [])] : []),
-      ...(done.length ? [foldRow(this, t, `goal-addressed-${id}`, `goal-${id}-done`, `${done.length} addressed · not necessarily completed`),
+      ...(done.length ? [missionFold(this, t, `goal-addressed-${id}`, `goal-${id}-done`, `${done.length} addressed · not necessarily completed`),
         ...(this.expanded[`goal-${id}-done`] ? done.filter(visible).map((s) => this.sourceCard(t, s, goal)) : [])] : []),
     ];
   }
@@ -193,10 +199,10 @@ export class GoalViews {
     const visible = (s) => !this.hiddenIds.has(s.kind === "pr" ? `pr-${s.pr.url}` : `in-${s.item.agent.address}`);
     const fresh = Boolean(this.prsAt && !this.error && Date.now() / 1000 - this.prsAt < 180);
     return [
-      ...(scope ? [h_flex().gap(5).items_center()
+      ...(scope ? [(this.narrowInbox ? v_flex() : h_flex()).w_full().min_w(0).gap(5)
         .child(button(t, "goal-all-work", "← All missions", (cx) => this.focusGoal(null, cx), { size: "sm", tip: "F: show all missions and unlinked work" }))
-        .child(div().flex_1())
-        .child(line(this.prsAt ? `${outsideCount} other items${outsideBlockers ? ` · ${outsideBlockers} blocked` : ''}` : "Loading other work…", t, outsideBlockers > 0))]
+        .when(!this.narrowInbox, (el) => el.child(div().flex_1()))
+        .child(line(this.prsAt ? `${outsideCount} other items${outsideBlockers ? ` · ${outsideBlockers} blocked` : ''}` : "Loading other work…", t, outsideBlockers > 0).min_w(0))]
         : [line("An outcome, your agents, one place to decide.", t)]),
       ...(this.goalsError ? [div().text_size(11).text_color(t.blocked).child(this.goalsError)] : []),
       ...(waiting.length ? [sectionHeader(t, "UNLINKED BLOCKERS", waiting.length), ...waiting.filter(visible).map((s) => this.sourceCard(t, s))] : []),
@@ -213,20 +219,20 @@ export class GoalViews {
         const reviewable = reviewableWork(items, this.clones);
         const next = missionNextAction(goal, tasks, this.workflowEngine, this.workflowError, reviewable.length);
         const detailsOpen = Boolean(this.expanded[`goal-${goal.id}-context`]);
-        return v_flex().id(`goal-${goal.id}`).p(8).gap(7).rounded(8).bg(t.background).border_1().border_color(this.selected(`goal-${goal.id}`) ? t.accent : urgency === 0 ? t.blocked : t.border)
+        return v_flex().id(`goal-${goal.id}`).w_full().min_w(0).p(6).gap(4).rounded(8).bg(t.background).border_1().border_color(this.selected(`goal-${goal.id}`) ? t.accent : urgency === 0 ? t.blocked : t.border)
           .child(h_flex().gap(5).items_center().child(div().flex_1().min_w(0).text_size(13).font_semibold().child(goal.title))
             .when(!scope, (el) => el.child(button(t, `goal-focus-view-${goal.id}`, "Focus", (cx) => this.focusGoal(goal.id, cx), { size: "sm", tip: "F on this goal: focus its linked work; other blockers remain counted" })))
             .child(button(t, `goal-edit-${goal.id}`, "Edit", () => openGoal(goal.id), { size: "sm", tip: "Edit plan, ownership or recorded context" })))
-          .child(v_flex().gap(8).p(10).rounded(6).bg(t.raised)
-            .child(div().text_size(11).font_semibold().text_color(next.attention ? t.blocked : t.accent).child(next.status.toUpperCase()))
-            .child(div().text_size(13).child(next.detail))
+          .child(v_flex().gap(4).p(6).rounded(6).bg(t.raised)
+            .child(div().text_size(11).font_semibold().text_color(["Needs attention", "Status unavailable"].includes(next.status) ? t.blocked : t.accent).child(next.status))
+            .child(div().text_size(12).child(next.detail))
             .child(h_flex().gap(5).flex_wrap()
               .child(button(t, next.action === 'review' ? `goal-review-next-${goal.id}` : next.action === 'decision' ? `goal-decision-next-${goal.id}` : `goal-workflow-${goal.id}`, next.label, () => this.openMissionAction(goal),
                 { kind: "solid", tip: "Enter on this mission: open the next action. Opening does not send work or accept a result." }))
               .when(next.action !== 'workflow', (el) => el.child(button(t, `goal-workflow-${goal.id}`, "Plan agent work", () => openWorkflow(goal.id), { tip: "W: assign and coordinate tasks for this mission" })))
               .when(next.action !== 'review' && Boolean(reviewable.length), (el) => el.child(button(t, `goal-review-next-${goal.id}`, "Changes", () => this.reviewGoal(items), { tip: "R: inspect linked changes" })))))
-          .child(line(`${["Urgent", "High", "Normal", "Low"][goal.priority]}${goal.owner ? ` · ${goal.owner}` : ''} · ${activeTasks.length} open ${activeTasks.length === 1 ? 'task' : 'tasks'}${goalState(goal) !== 'active' ? ` · Mission ${GOAL_STATES[goalState(goal)].toLowerCase()}` : ''}`, t))
-          .when(Boolean(steps.length), (el) => el.child(foldRow(this, t, `goal-plan-${goal.id}`, `goal-${goal.id}-plan`,
+          .child(div().text_size(11).text_color(t.muted).child(`${["Urgent", "High", "Normal", "Low"][goal.priority]}${goal.owner ? ` · ${goal.owner}` : ''} · ${activeTasks.length} open ${activeTasks.length === 1 ? 'task' : 'tasks'}${goalState(goal) !== 'active' ? ` · Mission ${GOAL_STATES[goalState(goal)].toLowerCase()}` : ''}`))
+          .when(Boolean(steps.length), (el) => el.child(missionFold(this, t, `goal-plan-${goal.id}`, `goal-${goal.id}-plan`,
             `Outcomes · ${completedSteps}/${steps.length} complete${planIssues ? ` · ${planIssues} need attention` : ''}`)))
           .when(Boolean(this.expanded[`goal-${goal.id}-plan`]), (el) => el.child(button(t, `goal-validate-${goal.id}`, "Review outcomes", () => openGoal(goal.id, null, "plan"),
             { size: "sm", tip: "Review and validate outcomes; only you can finish the mission" })))
@@ -236,12 +242,11 @@ export class GoalViews {
             return line(`${label} · ${step.title} · ${source === "workflow" ? "workflow" : "manual"}${issue ? ` · ${issue}` : ""}`,
               t, Boolean(issue || state === "blocked"));
           }) : [])
-          .child(foldRow(this, t, `goal-context-${goal.id}`, `goal-${goal.id}-context`, `Mission details${goal.evidence.length ? ` · ${goal.evidence.length} evidence` : ''}`))
+          .child(missionFold(this, t, `goal-context-${goal.id}`, `goal-${goal.id}-context`, `Mission details${goal.evidence.length ? ` · ${goal.evidence.length} evidence` : ''}`))
           .when(detailsOpen, (el) => el.child(v_flex().id(`goal-context-detail-${goal.id}`).gap(6)
             .child(line(`${GOAL_STATES[goalState(goal)]} · ${tasks.filter((task) => task.state === "accepted").length} accepted tasks`, t))
             .child(line(`Criteria: ${goal.criteria || "Not set"}`, t))
             .when(Boolean(goal.decision), (detail) => detail.child(line(`Saved question: ${goal.decision}`, t)))
-            .child(button(t, `goal-record-${goal.id}`, "Notes & decisions", () => openGoal(goal.id), { size: "sm", tip: "Edit saved context; notes do not send work or accept results" }))
             .child(line(`Lead: ${lead ? lead.tab_name || lead.address : goal.lead ? `${goal.lead} · not connected` : "Unassigned"}${lead ? ` · ${children.length} observed child agents` : ""}`, t))
             .when(Boolean(lead), (detail) => detail.child(h_flex().gap(5)
             .child(button(t, `goal-focus-${goal.id}`, "Focus lead", () => run("agent.focus", { terminal: lead.address }), { size: "sm" }))

@@ -6,7 +6,7 @@ Read this first when continuing [PR #40](https://github.com/johnny4young/herdr-r
 
 Make Herdr's existing Inbox the place to direct and review work: understand the outcome, priority, owner, executor, review evidence, decision and what happens next without visiting every agent chat. Reduce corrections and context switching while retaining human judgment and existing security/review checks.
 
-Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, drafts, addressed work, handoffs, worktrees and the original review Inbox. Reorganize these capabilities where helpful; do not create a competing Inbox or replace the host shell. Product UI and documentation are English. Voice input should remain editable before an action is sent.
+Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, drafts, addressed work, handoffs, worktrees and the original review Inbox. Reorganize these capabilities where helpful; do not create a competing Inbox or replace the host shell. Product UI and documentation are English. The OS may provide editable dictation, but this workflow has no dedicated voice surface or mobile workflow.
 
 ## Working agreements
 
@@ -38,7 +38,7 @@ Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, dr
 
 The [research record](workflow-research.md) explains the source ideas and their limits. Do not treat every proposal there as implemented.
 
-The [Paseo follow-up](paseo-research.md) adds a pinned source comparison and adoption priorities. Mission check summaries now distinguish no checks, unrun checks, partial evidence and explicit failures, including timeouts. Prior results are suppressed while a fresh executor attempt runs or reports that implementation did not complete; cancellation stays incomplete. Searchable shortcut help, context-scoped draft recovery and named setup profiles are proposed follow-ups, not available options.
+The [Paseo follow-up](paseo-research.md) adds a pinned source comparison and adoption priorities. Mission check summaries now distinguish no checks, unrun checks, partial evidence and explicit failures, including timeouts. Prior results are suppressed while a fresh executor attempt runs or reports that implementation did not complete; cancellation stays incomplete. Searchable shortcut help uses current effective bindings and modifier aliases. Unsent task briefs can be resumed or discarded per mission; resume rechecks live agent/root availability and does not dispatch. Saved setups are local and repository-scoped; applying one fills the form for review and never starts work or routes to a model/provider.
 
 ## Normal user journey
 
@@ -52,7 +52,7 @@ The guiding UX question is: can the user understand what to do here and what wil
 
 Task setup can explicitly reuse the latest successful setup in the same mission while retaining the new title, criteria and dependencies. Unavailable or incompatible sessions are not restored. Compact Mission control switches between Tasks and the selected work, and batch review selects entries in the existing queue rather than creating a second list. Missions without predefined outcomes show Work from brief and their actual task states instead of a misleading 0/0 counter. Finish mission is the sole closure action; accepting a task does not close the mission.
 
-The current usability iteration derives the card's primary action from live tasks, keeps saved prose in Mission details, folds outcome progress, and offers a bounded follow-up when a settled blocked attempt has exhausted its budget. File search now exposes its result list and loading/error/empty states. Continue validating these native interactions before broadening the feature set; a render-unit test cannot prove popup sizing or screen-reader exposure.
+The current usability iteration derives the card's primary action from live tasks, keeps saved prose in Mission details, folds outcome progress, and offers a bounded follow-up when a settled blocked attempt has exhausted its budget. Mission cards use a compact, aligned layout for the primary action, metadata and disclosure rows; Mission details has one Notes route. File search now exposes its result list and loading/error/empty states. Worktree creation remains explicit; there is no automatic per-task worktree creation. Continue validating these native interactions before broadening the feature set; a render-unit test cannot prove popup sizing or screen-reader exposure.
 
 ## Resume engineering work
 

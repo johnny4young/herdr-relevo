@@ -6,7 +6,8 @@ import { openReview } from "./review.js";
 import { SKILLS as CONFIGURED_SKILLS } from "./config.js";
 import { workflowBucket, workflowItems, acceptanceEffect, queueSummary, workflowCheckSummary } from "./lib/workflow-navigation.js";
 import { readGoals } from "./goals-store.js";
-import { WorkflowPlan } from "./workflow-plan.js";
+import { WorkflowDraftView } from "./workflow-draft-view.js";
+import { ShortcutHelp } from "./shortcut-help.js";
 
 export function openWorkflow(goalId) {
   // Herdr dialogs consume Escape before mod handlers. A keyed window lets
@@ -22,8 +23,13 @@ const taskState = (state) => STATES[state] ?? state ?? "Unknown";
 const reportState = (state) => ({ completed: "Completed", changes_requested: "Changes requested", blocked: "Blocked" }[state] ?? taskState(state));
 const caption = (value, limit = 42) => value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 const TABS = ["Overview", "Changes", "Evidence", "Activity", "Preferences"];
+const WINDOW_SHORTCUTS = [
+  ...TABS.map((tab, index) => ({ id: `view-${tab}`, label: ["Decision / summary", "Result / findings", "Evidence", "Activity", "Preferences"][index], fixedShortcut: String(index + 1), section: "Mission window" })),
+  ...[["new", "New task", "n"], ["plan", "Plan work", "p"], ["tools", "Task actions and skills", "t"], ["next", "Next task", "down"], ["previous", "Previous task", "up"], ["help", "Keyboard help", "?"], ["close", "Return to queue focus, then close window", "escape"]]
+    .map(([id, label, fixedShortcut]) => ({ id, label, fixedShortcut, section: "Mission window" })),
+];
 
-export class Workflow extends WorkflowPlan {
+export class Workflow extends WorkflowDraftView {
   init(_props, cx) {
     this.closed = false;
     this.busy = false;
@@ -43,6 +49,7 @@ export class Workflow extends WorkflowPlan {
       toolSearch: InputState.new({ value: "", placeholder: "Find an action or skill…" }),
       executorSearch: InputState.new({ value: "", placeholder: "Find an executor…" }),
       reviewerSearch: InputState.new({ value: "", placeholder: "Find a reviewer…" }),
+      setupName: InputState.new({ value: "" }), setupPurpose: InputState.new({ value: "" }),
     };
     this.form.toolSearch.on("change", (_event, cx) => cx.notify());
     this.form.executorSearch.on("change", (_event, cx) => cx.notify());
@@ -57,6 +64,7 @@ export class Workflow extends WorkflowPlan {
     this.checkPreset = "none";
     this.reconcileConfirmed = null;
     this.preferenceEditId = null;
+    this.initDrafts();
     this.load(cx);
     cx.timer.every(3000, (cx) => this.load(cx));
     cx.timer.after(30, (cx) => {
@@ -68,7 +76,9 @@ export class Workflow extends WorkflowPlan {
 
   close() {
     if (this.closed) return;
+    this.persistDraft();
     this.closed = true;
+    this.shortcutHelp?.close();
     this.h.release();
     Object.values(this.form).forEach((field) => field.release());
   }
@@ -136,6 +146,7 @@ export class Workflow extends WorkflowPlan {
   command(payload, sourceCx, afterSuccess = null) {
     const cx = sourceCx;
     if (this.closed || this.busy) return;
+    const submittedDraft = payload.action === "create" ? this.taskDraftSnapshot() : null;
     this.busy = true;
     this.error = null;
     cx.notify();
@@ -150,6 +161,7 @@ export class Workflow extends WorkflowPlan {
       }
       if (response.error) throw Error(response.error);
       if (result.code !== 0) throw Error(result.stderr || "Workflow command failed");
+      this.clearSubmittedDraft(submittedDraft);
       if (this.closed) return;
       const accepted = payload.outcome === "accept" && (payload.action === "decide" || (payload.action === "batch" && payload.preview === false));
       const changed = payload.action === "decide" && payload.outcome === "changes";
@@ -175,6 +187,8 @@ export class Workflow extends WorkflowPlan {
   }
 
   create(cx) {
+    if (this.pendingDraft) { this.error = "Resume or discard the saved draft before creating another task."; cx.notify(); return; }
+    const submittedFields = JSON.stringify(this.taskDraftSnapshot());
     const title = this.form.title.value().trim();
     const root = this.form.root.value().trim();
     const executor = agents().find((agent) => agent.address === this.executor);
@@ -209,12 +223,18 @@ export class Workflow extends WorkflowPlan {
       reviewer: { address: reviewer.address, label: reviewer.title || reviewer.address },
       checks, dependsOn, maxRounds, maxMinutes,
     } }, cx, (response) => {
+      if (JSON.stringify(this.taskDraftSnapshot()) !== submittedFields) {
+        this.explicitNew = true; this.selected = null;
+        this.notice = "Task created. Your newer draft edits are still here.";
+        return;
+      }
       for (const key of ["title", "root", "criteria", "checks"]) this.form[key].set_value("");
       this.checkPreset = "none";
       this.form.maxRounds.set_value("2"); this.form.maxMinutes.set_value("20"); this.dependsOn = [];
       this.setupReuseNotice = null; this.setupReuseWarning = null;
       this.executor = "";
       this.reviewer = "";
+      this.draftSnapshot = JSON.stringify(this.taskDraftSnapshot()); this.draftSaved = false;
       this.explicitNew = false;
       this.selected = response.result?.taskId ?? null;
       this.filter = "In progress";
@@ -235,6 +255,10 @@ export class Workflow extends WorkflowPlan {
 
   usePreviousSetup(cx) {
     const task = this.previousSuccessfulSetup();
+    this.applySetup(task, cx);
+  }
+
+  applySetup(task, cx) {
     if (!task || this.closed || this.busy) return;
     const root = task.root ?? "";
     this.form.root.set_value(root);
@@ -290,6 +314,17 @@ export class Workflow extends WorkflowPlan {
         this.batchMode = !selecting; this.batchIds = []; this.batchSnapshot = null; this.batchPreview = null; cx.notify();
       }, { size: "sm", selected: Boolean(selecting), tip: "Select ready results in this list and preview their acceptance together" })))
       .when(selecting, (el) => el.child(this.batchPanel(t, batchable)));
+  }
+
+  toggleHelp(cx) {
+    if (this.showHelp) { this.showHelp = false; this.h.focus(); cx.notify(); return; }
+    if (!this.shortcutHelp) {
+      this.shortcutHelp = new ShortcutHelp();
+      this.shortcutHelp.init({ actions: WINDOW_SHORTCUTS, onClose: (context) => {
+        this.showHelp = false; this.h.focus(); context.notify();
+      } }, cx);
+    }
+    this.showHelp = true; this.shortcutHelp.focus(); cx.notify();
   }
 
   batchPanel(t, tasks) {
@@ -350,6 +385,7 @@ export class Workflow extends WorkflowPlan {
   }
 
   taskForm(t, cx) {
+    if (this.pendingDraft) return row(t, "Resume or discard the saved draft above to continue.");
     const chosen = [this.executor, this.reviewer].filter(Boolean).length;
     const previousSetup = this.previousSuccessfulSetup();
     const previousChecks = previousSetup?.checks ?? [];
@@ -361,6 +397,10 @@ export class Workflow extends WorkflowPlan {
       .child(row(t, "After Start, agents implement, check and review. The result comes back for your decision."))
       .child(this.field(t, "title", "What needs to get done?"))
       .child(this.field(t, "criteria", "What does a good result look like?", true))
+      .when(this.draftSaved, (el) => el.child(h_flex().gap(6).items_center()
+        .child(row(t, "Draft saved on this device"))
+        .child(button(t, "workflow-discard-draft", "Discard draft", (context) => this.discardDraft(context), { size: "sm", disabled: this.busy, tip: "Clear this unsent task draft without changing existing work" }))))
+      .when(Boolean(this.draftError), (el) => el.child(div().role("alert").text_color(t.blocked).child(`Draft not saved: ${this.draftError}`)))
       .when(Boolean(previousSetup), (el) => el.child(v_flex().gap(4).id("workflow-previous-setup")
         .child(row(t, `Previous setup · ${previousRootName} · ${previousSetup.executor?.label ?? previousSetup.executor?.address ?? "Implementer unavailable"} + ${previousSetup.reviewer?.label ?? previousSetup.reviewer?.address ?? "Reviewer unavailable"}`))
         .child(button(t, "workflow-use-previous-setup", "Use previous setup", (context) => this.usePreviousSetup(context),
@@ -371,6 +411,7 @@ export class Workflow extends WorkflowPlan {
         this.taskSetupOpen = !this.taskSetupOpen; context.notify();
       }, { selected: Boolean(this.taskSetupOpen), tip: "Choose a repository and two different connected agents. No session starts here." }))
       .when(this.taskSetupOpen, (el) => el.child(v_flex().gap(8).p(10).rounded(6).bg(t.raised)
+        .child(this.setupLibrary(t))
         .child(this.field(t, "root", "Repository path"))
         .child(this.repositoryPicker(t))
         .child(this.agentPicker(t, "executor", "Implementer"))
@@ -795,6 +836,7 @@ export class Workflow extends WorkflowPlan {
   }
 
   render() {
+    this.persistDraft();
     const t = theme();
     const overlay = props()?.overlay;
     const task = this.tasks?.find((item) => item.id === this.selected);
@@ -812,6 +854,7 @@ export class Workflow extends WorkflowPlan {
       .on_mouse_down("left", (_event, cx) => cx.stop_propagation())
       .on_key_down((event, cx) => {
         if (event.key === "escape") {
+          if (this.showHelp && this.shortcutHelp) { this.shortcutHelp.key(event, cx); return; }
           cx.stop_propagation();
           if (this.compact && this.compactQueueOpen) { this.compactQueueOpen = false; this.h.focus(); cx.notify(); return; }
           if (this.tab === "Tools") { this.tab = this.toolsReturnTab ?? "Overview"; this.toolPreview = null; this.h.focus(); cx.notify(); return; }
@@ -822,7 +865,7 @@ export class Workflow extends WorkflowPlan {
         }
         if (!this.h.is_focused() || event.modifiers?.platform || event.modifiers?.alt || event.modifiers?.control) return;
         if (["?", "n", "p", "t", "1", "2", "3", "4", "5", "down", "up"].includes(event.key)) cx.stop_propagation();
-        if (event.key === "?") { this.showHelp = !this.showHelp; cx.notify(); }
+        if (event.key === "?") this.toggleHelp(cx);
         else if (event.key === "n") { this.compactQueueOpen = false; this.selected = null; this.explicitNew = true; this.tab = "Overview"; this.showHelp = false; cx.notify(); }
         else if (event.key === "p") { this.compactQueueOpen = false; this.openPlan(cx); }
         else if (event.key === "t" && task) { this.compactQueueOpen = false; this.openTools(cx); }
@@ -840,7 +883,7 @@ export class Workflow extends WorkflowPlan {
           .child(div().font_semibold().child("Mission control"))
           .child(div().text_size(11).text_color(t.muted).truncate().child(this.goal?.title ?? "Work for this goal")))
         .child(h_flex().gap(5).flex_wrap()
-          .child(button(t, "workflow-focus-queue", "?", (cx) => { this.showHelp = !this.showHelp; this.h.focus(); cx.notify(); }, { tip: "Keyboard help: show shortcuts and focus the queue", accessibleLabel: "Keyboard help" }))
+          .child(button(t, "workflow-focus-queue", "?", (cx) => this.toggleHelp(cx), { tip: "Search keyboard shortcuts for this window", accessibleLabel: "Keyboard help" }))
           .when(Boolean(task), (el) => el.child(button(t, "workflow-task-tools", "Tools", (cx) => this.openTools(cx), { selected: this.tab === "Tools", tip: "T: find a skill, session or task action" })))
           .child(button(t, "workflow-tools-toggle", this.showTools ? "Hide settings" : "Settings", (cx) => { this.showTools = !this.showTools; cx.notify(); }, { tip: "Automation controls and saved preferences", selected: Boolean(this.showTools) }))
           .child(button(t, "workflow-close", "Close", () => closeOverlay(overlay), { tip: "Close workflow" }))))
@@ -849,7 +892,8 @@ export class Workflow extends WorkflowPlan {
         .when(Boolean(this.engine?.enabled), (controls) => controls.child(button(t, "workflow-engine-stop", "Pause automation", (cx) => this.command({ action: "stop" }, cx), { disabled: this.busy, tip: "Stop future dispatches across every goal; current agent sessions keep running" })))))
       .when(Boolean(this.notice), (el) => el.child(div().role("status").child(row(t, this.notice))))
       .when(Boolean(this.error), (el) => el.child(div().id("workflow-error").role("alert").text_color(t.blocked).child(this.error)))
-      .when(this.showHelp, (el) => el.child(row(t, "Keyboard: 1 decision · 2 result · 3 evidence · 4 activity · 5 preferences · T tools · P plan · ↑/↓ tasks · N new · Esc returns focus to the queue; Esc again closes. Typing never triggers shortcuts.")))
+      .when(Boolean(this.pendingDraft), (el) => el.child(this.draftRecovery(t)))
+      .when(this.showHelp && Boolean(this.shortcutHelp), (el) => el.child(this.shortcutHelp.render(t)))
       .when(this.compact, (el) => el.child(button(t, "workflow-queue-toggle", this.compactQueueOpen ? "Back to work" : `Tasks · ${this.filter === "Completed" ? "History" : this.filter} (${workflowItems(this.tasks ?? [], this.filter).length})`, (cx) => {
         this.compactQueueOpen = !this.compactQueueOpen; this.h.focus(); cx.notify();
       }, { tip: "Switch between the task list and the current work. Drafts stay in place.", selected: Boolean(this.compactQueueOpen) })))

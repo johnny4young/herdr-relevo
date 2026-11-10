@@ -11,7 +11,9 @@ import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { openHandoff } from "./handoff.js";
 import { openReplies } from "./replies.js";
-import { button, sectionHeader, spinner, withKey, foldRow, FOLDS, saveFolds } from "./ui.js";
+import { button, sectionHeader, spinner, withKey, foldRow, FOLDS, saveFolds, shortcutBindings } from "./ui.js";
+import { ShortcutHelp } from "./shortcut-help.js";
+import { INBOX_SHORTCUT_ACTIONS } from "./lib/shortcut-help.js";
 import { agentPRs, seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
 import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
@@ -67,6 +69,11 @@ export class Inbox {
     }
     this.local = [];
     this.h = cx.focus_handle();
+    this.shortcutHelp = new ShortcutHelp();
+    this.shortcutHelp.init({
+      actions: INBOX_SHORTCUT_ACTIONS,
+      onClose: (cx) => { this.goalHelp = false; this.h.focus(); cx.notify(); },
+    }, cx);
     this.sel = null;
     // An old request must not steal the keyboard when this copy starts.
     this.focusAt = shared(INBOX_FOCUS)?.at ?? null;
@@ -380,6 +387,7 @@ export class Inbox {
   close() {
     if (this.preview) return this.preview.close();
     this.reply.release();
+    this.shortcutHelp?.close();
     this.wanted.clear();
   }
 
@@ -699,7 +707,11 @@ export class Inbox {
     this.hiddenIds = view.hidden;
     const part = (key, els) => (view.sections.has(key) ? [] : els.filter(Boolean));
     const total = v.local.length + v.desktop.length + v.mine.length + v.requested.length;
-    return v_flex().id("relevo-inbox").size_full().min_h(0).rounded(10).overflow_hidden()
+    return v_flex().id("relevo-inbox").size_full().min_w(0).min_h(0).rounded(10).overflow_hidden()
+      .on_size_change((size, context) => {
+        const narrow = size.width < 350;
+        if (this.narrowInbox !== narrow) { this.narrowInbox = narrow; context.notify(); }
+      })
       .bg(t.surface ?? t.chrome).border_1().border_color(this.keyboard ? t.accent : t.border).text_color(t.foreground)
       .track_focus(this.h)
       .tab_index(0).role("group").accessibility_label("Inbox. Arrow keys select work; Enter opens its primary action. Tab moves through controls.")
@@ -720,11 +732,18 @@ export class Inbox {
           })
           .child("↻")))
       .child(this.goalToolbar(t, cx))
-      .when(goalMode, (el) => el.child(h_flex().px(10).pb(5).gap(5).items_center()
-        .child(div().flex_1().text_size(11).text_color(t.muted).child("Enter Open · ↑↓ Select · ? Shortcuts"))
-        .child(button(t, "goal-key-help", "?", (cx) => { this.goalHelp = !this.goalHelp; cx.notify(); }, { size: "sm", tip: "Show keyboard shortcuts for the focused queue", accessibleLabel: "Keyboard help" }))))
-      .when(goalMode && this.goalHelp, (el) => el.child(div().px(10).pb(7).text_size(13).text_color(t.foreground)
-        .child("Focus Inbox first. ↑↓ select; Home/End first/last; Enter primary action; G next mission; F focus/all missions; W mission control; E context; S skills and account; R review; 1–9 answer a waiting agent; Esc return. Tab/Shift-Tab reach buttons and folds. Shortcuts do not run while typing.")))
+      .when(goalMode, (el) => el.child(h_flex().w_full().min_w(0).px(10).pb(5).gap(5).items_center()
+        .child(div().flex_1().min_w(0).text_size(11).text_color(t.muted).child(this.narrowInbox ? "Enter Open · ↑↓ Select" : "Enter Open · ↑↓ Select · ? Shortcuts"))
+        .child(button(t, "goal-key-help", "?", (cx) => {
+          this.goalHelp = !this.goalHelp;
+          if (this.goalHelp) this.shortcutHelp.focus();
+          else this.h.focus();
+          cx.notify();
+        }, { size: "sm", tip: "Search keyboard shortcuts for the focused queue", accessibleLabel: "Keyboard help" }))))
+      .when(goalMode && this.goalHelp, (el) => {
+        this.shortcutHelp.setData(INBOX_SHORTCUT_ACTIONS, shortcutBindings());
+        return el.child(this.shortcutHelp.render(t, cx));
+      })
       .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().p(8).gap(6)
         .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
         .when(Boolean(this.localError), (el) => el.child(div().id("local-error").p(8).text_size(11).text_color(t.blocked).child(this.localError)))

@@ -60,6 +60,9 @@ export async function loadKeys() {
 
 export const shortcut = (action) => formatShortcut(keys[action]);
 
+// Searchable help uses the same merged map as badges and tooltips.
+export const shortcutBindings = () => ({ ...keys });
+
 export const withKey = (tip, action) => (shortcut(action) ? `${tip} · ${shortcut(action)}` : tip);
 
 // Native rotation: no timer, no redraws.

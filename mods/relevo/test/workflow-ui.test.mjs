@@ -150,7 +150,20 @@ test('blocked and review states remain reachable and shortcuts do not steal inpu
   v.selected = 'review'; v.h.is_focused = () => false;
   find(v.render(), 'workflow-dialog').handlers.on_key_down({ key: 'n' }, cx); assert.equal(v.selected, 'review');
   v.h.is_focused = () => true; find(v.render(), 'workflow-dialog').handlers.on_key_down({ key: '?' }, cx);
-  assert.match(text(v.render()), /Keyboard:/); v.close();
+  assert.ok(find(v.render(), 'shortcut-help-search')); v.close();
+});
+
+test('Mission shortcut search filters actual window actions and Escape clears then closes help', async () => {
+  const { v, cx } = await setup();
+  click(find(v.render(), 'workflow-focus-queue'), cx);
+  v.shortcutHelp.input.type('evidence', cx);
+  let help = find(v.render(), 'shortcut-help');
+  assert.match(text(help), /Evidence 3/); assert.ok(!text(help).includes('New task'));
+  find(v.render(), 'workflow-dialog').handlers.on_key_down({ key: 'escape' }, cx);
+  assert.equal(v.showHelp, true); assert.equal(v.shortcutHelp.query, '');
+  find(v.render(), 'workflow-dialog').handlers.on_key_down({ key: 'escape' }, cx);
+  assert.equal(v.showHelp, false); assert.equal(fake.closedOverlays.length, 0);
+  assert.equal(fake.execs.length, 0); v.close();
 });
 
 test('exhausted blocked work offers a review and a follow-up draft without retry or resume commands', async () => {
