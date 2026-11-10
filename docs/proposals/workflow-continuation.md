@@ -2,6 +2,8 @@
 
 Read this first when continuing [PR #40](https://github.com/johnny4young/herdr-relevo/pull/40), then inspect the actual checkout, current PR head and local runtime state. Every code or documentation commit changes the checkout fingerprint; old evidence must not silently become evidence for a new revision.
 
+The current UI is **Reviews + Runs**, with a prompt-first start and compact account usage in the status bar. Read [Runs UX](runs-ux.md) for the latest changes and follow-up ideas; older research uses Goals/Missions for the same stored goal records.
+
 ## Product goal
 
 Make Herdr's existing Inbox the place to direct and review work: understand the outcome, priority, owner, executor, review evidence, decision and what happens next without visiting every agent chat. Reduce corrections and context switching while retaining human judgment and existing security/review checks.
@@ -23,7 +25,7 @@ Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, dr
 
 | Area | Implemented in this branch | Still needs work or explicit acceptance |
 | --- | --- | --- |
-| One Inbox | Reviews/Missions, focus/All missions, linked PR/local work and existing actions | Keep everyday comprehension and density part of native validation. |
+| One Inbox | Reviews/Runs, focus/All runs, linked PR/local work and existing actions | Keep everyday comprehension and density part of native validation. |
 | Goal progress | Owner, priority, optional lead, criteria, manual steps, workflow-derived outcomes | Goal closure remains human; assigning a lead does not create a chief of staff. |
 | Coordination | Durable local `hc` executor → checks → independent reviewer → human flow; bounded corrections | Automatic decomposition, global orchestration and remote checkout execution are out of scope. |
 | Continuation | Acceptance advances the queue and releases already-started eligible dependents | Never start a planned task or override a stop merely because an earlier result was accepted. |
@@ -42,7 +44,7 @@ The [Paseo follow-up](paseo-research.md) adds a pinned source comparison and ado
 
 ## Normal user journey
 
-1. Inbox → Missions → select a mission → its primary action opens Mission control. Start with Needs you. Reviews is the original queue; these UI names replace Goals/Classic without changing stored records.
+1. Open Reviews for existing changes, or Runs → + Run to enter a prompt. Choose agents saves the brief and opens setup; create a task, then explicitly Start. Existing runs open their current result or recovery action. Stored records remain compatible.
 2. Read Result and inspect changes/Evidence as necessary. Activity answers who assigned what; Tools contains secondary actions and configured skills.
 3. Accept result, Request changes or Decide later. Acceptance records the current revision and explains the next effect. It is not GitHub approval, merge, or goal closure.
 4. Already-started eligible work proceeds through an enabled coordinator. If work is stopped, blocked, missing evidence or out of budget, explain that state and the specific recovery action.
@@ -52,7 +54,7 @@ The guiding UX question is: can the user understand what to do here and what wil
 
 Task setup can explicitly reuse the latest successful setup in the same mission while retaining the new title, criteria and dependencies. Unavailable or incompatible sessions are not restored. Compact Mission control switches between Tasks and the selected work, and batch review selects entries in the existing queue rather than creating a second list. Missions without predefined outcomes show Work from brief and their actual task states instead of a misleading 0/0 counter. Finish mission is the sole closure action; accepting a task does not close the mission.
 
-The current usability iteration derives the card's primary action from live tasks, keeps saved prose in Mission details, folds outcome progress, and offers a bounded follow-up when a settled blocked attempt has exhausted its budget. Mission cards use a compact, aligned layout for the primary action, metadata and disclosure rows; Mission details has one Notes route. File search now exposes its result list and loading/error/empty states. Worktree creation remains explicit; there is no automatic per-task worktree creation. Continue validating these native interactions before broadening the feature set; a render-unit test cannot prove popup sizing or screen-reader exposure.
+The current usability iteration derives the card's primary action from live tasks, keeps saved prose and outcome progress behind Edit, and offers a bounded follow-up when a settled blocked attempt has exhausted its budget. Run cards show a compact current-action row; Edit retains the full plan and context. File search now exposes its result list and loading/error/empty states. Worktree creation remains explicit; there is no automatic per-task worktree creation. Continue validating these native interactions before broadening the feature set; a render-unit test cannot prove popup sizing or screen-reader exposure.
 
 ## Resume engineering work
 
@@ -77,7 +79,8 @@ The PR is the portable product/engineering handoff. Private task state, agent re
 | Check execution, fingerprint and evidence | `mods/relevo/runtime/evidence.mjs`, `process.mjs` |
 | Preferences | `mods/relevo/lib/workflow-preferences.js` |
 | Diff/comment interaction | `mods/relevo/review.js` and its tests |
-| Reversible deployment | `scripts/live-relevo.mjs`, `scripts/tests/live-relevo.test.mjs` |
+| Reversible deployment | `scripts/live-relevo.mjs`, `scripts/relevo-layout.mjs` and their script tests |
+| Status-bar accounts | `mods/relevo/account-status.js`, `lib/account-status.js` |
 
 Paths after the first filename in each row share that row's module directory. Consult [runtime behavior](workflow-runtime.md), [goal interaction](goal-ux.md), [installation](decision-inbox.md) and [preview distinctions](../previews/native-decision-inbox.md).
 

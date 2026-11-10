@@ -479,3 +479,30 @@ test('message drafts remain bound to the selected task and clear only after succ
   fake.exec = async () => ({ stdout: '{}' });
   click(find(v.render(), 'workflow-message-queue'), cx); await flush(); assert.equal(v.form.message.value(), ''); v.close();
 });
+
+test('a new prompt-only run opens agent setup directly without a plan or dispatch', async () => {
+  const { newGoal, saveGoal, emptyGoals } = await import('../lib/goals.js');
+  const goal = { ...newGoal('g', 'Add keyboard search'), criteria: 'Add keyboard search\nKeep the existing filters.' };
+  fake.focused = { cwd: '/work/app' };
+  fake.panes = [{ cwd: '/work/app' }, { cwd: '/work/other' }];
+  fake.files['/home/test/.config/herdr-app/relevo-goals.json'] = JSON.stringify(saveGoal(emptyGoals(), goal, 0));
+  const { v, cx } = await setup();
+  assert.equal(v.tab, 'Overview'); assert.equal(v.taskSetupOpen, true);
+  assert.equal(v.form.title.value(), goal.title); assert.equal(v.form.criteria.value(), goal.criteria);
+  assert.equal(fake.execs.length, 0);
+  assert.match(text(v.render()), /Choose agents/);
+  assert.doesNotMatch(text(v.render()), /WORK QUEUE/);
+  assert.equal(v.form.root.value(), '/work/app');
+  assert.ok(find(v.render(), 'workflow-change-repository'));
+  click(find(v.render(), 'workflow-change-repository'), cx);
+  click(find(v.render(), 'workflow-repository-1'), cx);
+  assert.equal(v.form.root.value(), '/work/other');
+  assert.ok(find(v.render(), 'workflow-change-repository'));
+  assert.equal(find(v.render(), 'workflow-criteria'), null, 'the saved prompt is summarized without asking for it twice');
+  click(find(v.render(), 'workflow-edit-prompt'), cx);
+  assert.ok(find(v.render(), 'workflow-criteria'));
+  v.form.criteria.set_value('Edited prompt');
+  v.load(cx); await flush();
+  assert.equal(v.form.criteria.value(), 'Edited prompt', 'refresh never reseeds an edited draft');
+  v.close();
+});

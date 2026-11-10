@@ -3,6 +3,7 @@ import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui
 import { agents, panes, props, theme, openOverlay, closeOverlay, exec, appHome, readTextFile, run } from "herdr";
 import { button, overlayHeight } from "./ui.js";
 import { openReview } from "./review.js";
+import { focusedCwd } from "./panelbar.js";
 import { SKILLS as CONFIGURED_SKILLS } from "./config.js";
 import { workflowBucket, workflowItems, acceptanceEffect, queueSummary, workflowCheckSummary } from "./lib/workflow-navigation.js";
 import { readGoals } from "./goals-store.js";
@@ -24,9 +25,9 @@ const reportState = (state) => ({ completed: "Completed", changes_requested: "Ch
 const caption = (value, limit = 42) => value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 const TABS = ["Overview", "Changes", "Evidence", "Activity", "Preferences"];
 const WINDOW_SHORTCUTS = [
-  ...TABS.map((tab, index) => ({ id: `view-${tab}`, label: ["Decision / summary", "Result / findings", "Evidence", "Activity", "Preferences"][index], fixedShortcut: String(index + 1), section: "Mission window" })),
+  ...TABS.map((tab, index) => ({ id: `view-${tab}`, label: ["Decision / summary", "Result / findings", "Evidence", "Activity", "Preferences"][index], fixedShortcut: String(index + 1), section: "Run window" })),
   ...[["new", "New task", "n"], ["plan", "Plan work", "p"], ["tools", "Task actions and skills", "t"], ["next", "Next task", "down"], ["previous", "Previous task", "up"], ["help", "Keyboard help", "?"], ["close", "Return to queue focus, then close window", "escape"]]
-    .map(([id, label, fixedShortcut]) => ({ id, label, fixedShortcut, section: "Mission window" })),
+    .map(([id, label, fixedShortcut]) => ({ id, label, fixedShortcut, section: "Run window" })),
 ];
 
 export class Workflow extends WorkflowDraftView {
@@ -102,7 +103,15 @@ export class Workflow extends WorkflowDraftView {
         const initial = !this.loadedOnce;
         this.loadedOnce = true; this.lastLoadedRaw = raw;
         this.applyState(state);
-        if (initial && this.goal && !this.tasks.length) this.openPlan(cx);
+        if (initial && this.goal && !this.tasks.length) {
+          if (this.goal.steps?.length) this.openPlan(cx);
+          else if (!this.pendingDraft) {
+            this.form.title.set_value(this.goal.title);
+            this.form.criteria.set_value(this.goal.criteria ?? "");
+            this.form.root.set_value(focusedCwd() ?? "");
+            this.explicitNew = true; this.taskSetupOpen = true; this.tab = "Overview";
+          }
+        }
         if (this.error?.startsWith("Could not load workflow:")) this.error = null;
       } catch (error) {
         if (!this.closed && request === this.loadVersion) this.error = `Could not load workflow: ${error.message ?? error}`;
@@ -376,27 +385,33 @@ export class Workflow extends WorkflowDraftView {
   repositoryPicker(t) {
     const roots = [...new Set(panes().map((pane) => pane.cwd).filter((cwd) => typeof cwd === "string" && cwd.startsWith("/")))];
     if (!roots.length) return v_flex().child(row(t, "No connected pane has a repository path. Enter one above."));
+    if (this.form.root.value().trim() && !this.chooseRepository) return button(t, "workflow-change-repository", "Change repository…", (cx) => { this.chooseRepository = true; cx.notify(); }, { size: "sm", tip: "Choose another connected repository; changing it clears the selected agents" });
     return v_flex().gap(4).child(row(t, "Choose a connected repository path"))
       .child(v_flex().max_h(120).overflow_y_scrollbar().gap(4).children(roots.map((root, index) => button(t, `workflow-repository-${index}`, `Use ${caption(root.split("/").filter(Boolean).slice(-2).join("/") || root, 42)}`,
         (cx) => { this.form.root.set_value(root); this.executor = ""; this.reviewer = "";
           this.form.executorSearch.set_value(""); this.form.reviewerSearch.set_value("");
-          this.setupReuseNotice = null; this.setupReuseWarning = null; cx.notify(); },
+          this.setupReuseNotice = null; this.setupReuseWarning = null; this.chooseRepository = false; cx.notify(); },
         { kind: this.form.root.value().trim() === root ? "solid" : "outline", tip: `Set repository path to ${root}` }))));
   }
 
   taskForm(t, cx) {
     if (this.pendingDraft) return row(t, "Resume or discard the saved draft above to continue.");
     const chosen = [this.executor, this.reviewer].filter(Boolean).length;
+    const fromPrompt = Boolean(this.goal && !this.goal.steps?.length && !this.tasks?.length && this.form.criteria.value().trim());
     const previousSetup = this.previousSuccessfulSetup();
     const previousChecks = previousSetup?.checks ?? [];
     const previousCheckLabel = !previousChecks.length ? "No automated checks"
       : previousChecks.length === 1 && previousChecks[0]?.length === 2 && previousChecks[0][0] === "npm" && previousChecks[0][1] === "test" ? "npm test" : "Custom checks";
     const previousRootName = previousSetup?.root?.split("/").filter(Boolean).at(-1) || "Unknown repository";
     return v_flex().w_full().min_w(0).gap(12)
-      .child(div().font_semibold().child("Create task"))
+      .child(div().font_semibold().child(fromPrompt ? "Choose agents" : "Create task"))
       .child(row(t, "After Start, agents implement, check and review. The result comes back for your decision."))
-      .child(this.field(t, "title", "What needs to get done?"))
-      .child(this.field(t, "criteria", "What does a good result look like?", true))
+      .when(fromPrompt && !this.editRunPrompt, (el) => el.child(h_flex().gap(8).items_center()
+        .child(div().flex_1().min_w(0).truncate().text_size(13).tooltip(this.form.criteria.value()).child(this.form.criteria.value().split("\n")[0]))
+        .child(button(t, "workflow-edit-prompt", "Edit prompt", (context) => { this.editRunPrompt = true; context.notify(); }, { size: "sm", tip: "Edit the prompt before creating this task" }))))
+      .when(!fromPrompt || this.editRunPrompt, (el) => el
+        .child(this.field(t, "title", "Task name"))
+        .child(this.field(t, "criteria", "Prompt", true)))
       .when(this.draftSaved, (el) => el.child(h_flex().gap(6).items_center()
         .child(row(t, "Draft saved on this device"))
         .child(button(t, "workflow-discard-draft", "Discard draft", (context) => this.discardDraft(context), { size: "sm", disabled: this.busy, tip: "Clear this unsent task draft without changing existing work" }))))
@@ -846,7 +861,7 @@ export class Workflow extends WorkflowDraftView {
         : this.tab === "Evidence" ? this.evidence(t, task)
           : this.overview(t, task)
       : this.emptyQueue(t);
-    return v_flex().id("workflow-dialog").role("dialog").accessibility_label("Mission control").track_focus(this.h)
+    return v_flex().id("workflow-dialog").role("dialog").accessibility_label("Run details").track_focus(this.h)
       .on_size_change((size, cx) => {
         const compact = size.width < 700;
         if (this.compact !== compact) { this.compact = compact; cx.notify(); }
@@ -880,7 +895,7 @@ export class Workflow extends WorkflowDraftView {
       .w_full().h(overlayHeight(720, 0.88)).max_h_full().min_h(0).p(16).gap(14).bg(t.popover ?? t.surface).text_color(t.foreground)
       .child((this.compact ? v_flex().items_start().gap(8) : h_flex().justify_between().items_center()).w_full().min_w(0)
         .child(v_flex().flex_1().min_w(0).gap(3)
-          .child(div().font_semibold().child("Mission control"))
+          .child(div().font_semibold().child("Run details"))
           .child(div().text_size(11).text_color(t.muted).truncate().child(this.goal?.title ?? "Work for this goal")))
         .child(h_flex().gap(5).flex_wrap()
           .child(button(t, "workflow-focus-queue", "?", (cx) => this.toggleHelp(cx), { tip: "Search keyboard shortcuts for this window", accessibleLabel: "Keyboard help" }))
@@ -894,11 +909,11 @@ export class Workflow extends WorkflowDraftView {
       .when(Boolean(this.error), (el) => el.child(div().id("workflow-error").role("alert").text_color(t.blocked).child(this.error)))
       .when(Boolean(this.pendingDraft), (el) => el.child(this.draftRecovery(t)))
       .when(this.showHelp && Boolean(this.shortcutHelp), (el) => el.child(this.shortcutHelp.render(t)))
-      .when(this.compact, (el) => el.child(button(t, "workflow-queue-toggle", this.compactQueueOpen ? "Back to work" : `Tasks · ${this.filter === "Completed" ? "History" : this.filter} (${workflowItems(this.tasks ?? [], this.filter).length})`, (cx) => {
+      .when(this.compact && Boolean(this.tasks?.length || this.goal?.steps?.length), (el) => el.child(button(t, "workflow-queue-toggle", this.compactQueueOpen ? "Back to work" : `Tasks · ${this.filter === "Completed" ? "History" : this.filter} (${workflowItems(this.tasks ?? [], this.filter).length})`, (cx) => {
         this.compactQueueOpen = !this.compactQueueOpen; this.h.focus(); cx.notify();
       }, { tip: "Switch between the task list and the current work. Drafts stay in place.", selected: Boolean(this.compactQueueOpen) })))
       .child(h_flex().items_start().h_full().flex_1().min_h(0).min_w(0).gap(20)
-        .when(!this.compact || this.compactQueueOpen, (el) => el.child(this.taskList(t)))
+        .when((!this.compact || this.compactQueueOpen) && Boolean(this.tasks?.length || this.goal?.steps?.length), (el) => el.child(this.taskList(t)))
         .when(!this.compact || !this.compactQueueOpen, (el) => el.child(v_flex().flex_1().h_full().min_h(0).min_w(0).gap(16)
           .when(Boolean(task) && !["Plan", "Preferences", "Tools"].includes(this.tab), (el) => el.child(h_flex().gap(6).flex_wrap().children(TABS.slice(0, 4).map((tab, index) => button(t,
             `workflow-tab-${tab}`, tab === "Overview" ? (task.state === "needs_you" ? "Decision" : "Summary") : tab === "Changes" ? (["blocked", "failed"].includes(task.state) ? "Findings" : "Result") : tab,

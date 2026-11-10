@@ -695,6 +695,7 @@ export class Inbox {
     const t = theme(), v = this.shown();
     this.publish(v);
     this.takeFocus(cx);
+    this.refreshGoals(cx);
     const goalMode = shared(GOAL_MODE) === true;
     if (goalMode) this.goalProjection = this.projectGoals(v);
     const scoped = goalMode && Boolean(this.goalProjection.scope);
@@ -714,33 +715,22 @@ export class Inbox {
       })
       .bg(t.surface ?? t.chrome).border_1().border_color(this.keyboard ? t.accent : t.border).text_color(t.foreground)
       .track_focus(this.h)
-      .tab_index(0).role("group").accessibility_label("Inbox. Arrow keys select work; Enter opens its primary action. Tab moves through controls.")
+      .tab_index(0).role("group").accessibility_label(`${goalMode ? "Runs" : "Reviews"}. Arrow keys select work; Enter opens its primary action. Tab moves through controls.`)
       .on_key_down((e, cx) => this.navKey(e, cx))
-      .child(h_flex().h(36).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
-        .child(button(t, "inbox-focus-list", "Inbox", () => this.h.focus(), { tip: "Focus the queue to navigate with arrow keys" }))
-        .child(h_flex().gap(5).items_center().text_size(11).text_color(t.dim)
-          .when(!this.prsAt && this.scanningPRs, (el) => el.child(spinner(t.dim, 10)))
-          .when(Boolean(this.error), (el) => el.text_color(t.blocked).id("prs-state").tooltip(this.error))
-          .child(this.error && this.prsAt ? `PRs ${ago(this.prsAt)} · last read failed` : this.prsAt ? `PRs ${ago(this.prsAt)}` : this.scanningPRs ? "loading" : "PRs unavailable"))
+      .child(h_flex().h(38).flex_none().px(8).gap(6).items_center()
+        .when(goalMode, (el) => el.child(this.goalNewButton(t)))
         .child(div().flex_1())
-        .child(div().id("inbox-refresh").px(6).rounded(5).cursor_pointer().text_color(t.muted)
-          .hover((s) => s.bg(t.hover)).tooltip("Refresh")
-          .on_click((_e, cx) => {
-            this.scanLocal(cx);
-            this.scanPRs(cx);
-            this.scanTrees(cx, true);
-          })
-          .child("↻")))
-      .child(this.goalToolbar(t, cx))
-      .when(goalMode, (el) => el.child(h_flex().w_full().min_w(0).px(10).pb(5).gap(5).items_center()
-        .child(div().flex_1().min_w(0).text_size(11).text_color(t.muted).child(this.narrowInbox ? "Enter Open · ↑↓ Select" : "Enter Open · ↑↓ Select · ? Shortcuts"))
+        .child(button(t, "inbox-focus-list", "↕", () => this.h.focus(), { size: "sm", accessibleLabel: "Focus work queue", tip: "Focus the queue: arrow keys select, Enter opens" }))
         .child(button(t, "goal-key-help", "?", (cx) => {
           this.goalHelp = !this.goalHelp;
           if (this.goalHelp) this.shortcutHelp.focus();
           else this.h.focus();
           cx.notify();
-        }, { size: "sm", tip: "Search keyboard shortcuts for the focused queue", accessibleLabel: "Keyboard help" }))))
-      .when(goalMode && this.goalHelp, (el) => {
+        }, { size: "sm", tip: "Search keyboard shortcuts", accessibleLabel: "Keyboard help" }))
+        .child(button(t, "inbox-refresh", !this.prsAt && this.scanningPRs ? [spinner(t.dim, 10)] : "↻", (cx) => {
+          this.scanLocal(cx); this.scanPRs(cx); this.scanTrees(cx, true); this.loadGoals(cx);
+        }, { size: "sm", accessibleLabel: "Refresh work", tip: `Refresh · ${this.prsAt ? `PRs ${ago(this.prsAt)}` : this.scanningPRs ? "PRs loading" : "PRs unavailable"}${this.error ? ` · ${this.error}` : ""}` })))
+      .when(this.goalHelp, (el) => {
         this.shortcutHelp.setData(INBOX_SHORTCUT_ACTIONS, shortcutBindings());
         return el.child(this.shortcutHelp.render(t, cx));
       })
@@ -749,7 +739,7 @@ export class Inbox {
         .when(Boolean(this.localError), (el) => el.child(div().id("local-error").p(8).text_size(11).text_color(t.blocked).child(this.localError)))
         .when(!total && !this.error && Boolean(this.prsAt) && (!goalMode || (!this.goalProjection.groups.length && !this.goalProjection.sources.length)), (el) => el.child(
           div().p(12).text_size(13).text_color(t.dim).child("Nothing waiting")))
-        .when(view.above === 0 && !scoped, (el) => el.child(this.summary(t, v, cx)))
+        .when(view.above === 0 && !scoped && !goalMode, (el) => el.child(this.summary(t, v, cx)))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
         .children(scoped ? [] : part("away", this.awayGroup(t)))
         .children(goalMode ? [] : part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))

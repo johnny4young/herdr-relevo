@@ -246,9 +246,12 @@ test("preview preserves the native shell and terminal instead of replacing them 
   const original = JSON.parse(readFileSync(new URL("../../../layouts/relevo.json", import.meta.url), "utf8"));
   const nodes = (node) => [node, ...(node.children ?? []).flatMap(nodes)];
   const byId = (tree, id) => nodes(tree).find((node) => node.id === id);
-  for (const id of ["brand", "tabs", "agents", "main", "files", "changes", "sidebar-footer", "status"]) {
+  for (const id of ["brand", "tabs", "agents", "main", "files", "changes", "sidebar-footer"]) {
     assert.deepEqual(byId(layout, id), byId(original, id), `${id} must preserve the original native shell`);
   }
+  assert.deepEqual(byId(layout, "status").content, byId(original, "workspace-status").content, "the native status control remains intact inside the new status row");
+  assert.deepEqual(byId(layout, "status").size, byId(original, "status").size);
+  assert.equal(byId(original, "account-status").content.props.role, "account-status");
   assert.equal(byId(layout, "spaces").content.mod, "spaces");
   assert.equal(byId(layout, "main").content.tab, "active");
   assert.deepEqual(byId(layout, "sidebar").size, byId(original, "sidebar").size);

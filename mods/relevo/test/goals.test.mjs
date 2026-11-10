@@ -5,8 +5,9 @@ import { fake, resetFake, calls } from './fake/herdr.mjs';
 import { fakeCx, flush, find, text, click } from './fake/ui.mjs';
 const { emptyGoals, newGoal, saveGoal, parseGoals, groupSources, evidenceState } = await import('../lib/goals.js');
 const { goalsPath, writeGoal, readGoals } = await import('../goals-store.js');
-const { GoalEditor } = await import('../goals-editor.js');
+const { GoalEditor, openGoal } = await import('../goals-editor.js');
 const { Inbox } = await import('../inbox.js');
+const { InboxButton } = await import('../toolbar.js');
 const { GOAL_MODE } = await import('../inbox-goals.js');
 
 const a = 'a'.repeat(40), b = 'b'.repeat(40);
@@ -63,12 +64,62 @@ test('evidence requires the same source and exact revision, with explicit freshn
 test('saving intent never sends messages, approves or merges', async () => {
   fake.props = { source: { key, title: 'PR 1', revision: a } };
   const editor = new GoalEditor(), cx = fakeCx(); editor.init({}, cx); await flush();
-  editor.fields.title.set_value('Better search'); editor.response.set_value('Keep the query visible');
+  editor.fields.title.set_value('Better search'); editor.fields.criteria.set_value('Keep the search usable'); editor.response.set_value('Keep the query visible');
   editor.save(cx); editor.save(cx); await flush();
   const doc = (await readGoals()).doc;
   assert.equal(doc.goals.length, 1); assert.equal(doc.goals[0].decisions.length, 1);
   assert.deepEqual(doc.goals[0].decisions[0].revisions, [{ source: key, revision: a }]);
   assert.deepEqual(fake.execs, []);
+});
+
+test('new run saves one prompt-backed record then opens planned task setup without dispatch', async () => {
+  openGoal(); fake.props = { ...fake.overlays.at(-1).props, overlay: 'new-run' };
+  const editor = new GoalEditor(), cx = fakeCx(); editor.init({}, cx); await flush();
+  let promptFocus = 0; editor.fields.criteria.focus = () => { promptFocus++; };
+  cx.timers.at(-1).fn(cx); assert.equal(promptFocus, 1);
+  let tree = editor.render();
+  assert.ok(find(tree, 'goal-field-criteria')); assert.equal(find(tree, 'goal-field-title'), null);
+  assert.match(text(tree), /Save this prompt, then choose who runs it\./);
+  click(find(tree, 'new-run-title-toggle'), cx); tree = editor.render();
+  assert.ok(find(tree, 'goal-field-title'));
+  click(find(tree, 'new-run-title-toggle'), cx); tree = editor.render();
+  assert.equal(find(tree, 'goal-field-title'), null);
+  editor.fields.criteria.set_value('Improve search\nKeep keyboard navigation intact.');
+  click(find(tree, 'goal-save'), cx); await flush();
+  const saved = (await readGoals()).doc.goals[0];
+  assert.equal(saved.title, 'Improve search'); assert.equal(saved.criteria, 'Improve search\nKeep keyboard navigation intact.');
+  assert.deepEqual(saved.steps, []); assert.equal(saved.state, 'active');
+  assert.deepEqual(fake.closedOverlays, ['new-run']);
+  assert.equal(fake.overlays.at(-1).kind, 'window');
+  assert.equal(fake.overlays.at(-1).props.role, 'workflow');
+  assert.equal(fake.overlays.at(-1).props.goalId, saved.id);
+  assert.deepEqual(fake.execs, []);
+  assert.match(text(editor.render()), /New run/);
+  editor.close();
+});
+
+test('new run accepts an optional title and requires the prompt before writing', async () => {
+  fake.props = { mode: 'run', overlay: 'new-run' };
+  const editor = new GoalEditor(), cx = fakeCx(); editor.init({}, cx); await flush();
+  editor.fields.title.set_value('Search cleanup'); editor.fields.criteria.set_value('Keep the original review flow.');
+  editor.save(cx); await flush();
+  assert.equal((await readGoals()).doc.goals[0].title, 'Search cleanup');
+  assert.equal((await readGoals()).doc.goals[0].criteria, 'Keep the original review flow.');
+
+  resetFake(); fake.props = { mode: 'run', overlay: 'new-run' };
+  const empty = new GoalEditor(), emptyCx = fakeCx(); empty.init({}, emptyCx); await flush();
+  empty.fields.title.set_value('Title without prompt'); empty.save(emptyCx); await flush();
+  assert.match(empty.error, /Enter a prompt/); assert.equal(fake.files[goalsPath()], undefined);
+  assert.deepEqual(fake.overlays, []); empty.close(); editor.close();
+});
+
+test('a failed new run write keeps the prompt open and does not open task setup', async () => {
+  fake.props = { overlay: 'new-run', mode: 'run' }; fake.write = async () => { throw Error('disk full'); };
+  const editor = new GoalEditor(), cx = fakeCx(); editor.init({}, cx); await flush();
+  editor.fields.criteria.set_value('Fix the search results'); editor.save(cx); await flush();
+  assert.match(editor.error, /disk full/); assert.deepEqual(fake.overlays, []);
+  assert.deepEqual(fake.closedOverlays, []); assert.equal(editor.fields.criteria.value(), 'Fix the search results');
+  editor.close();
 });
 
 test('attaching evidence rechecks HEAD and a changed PR never receives that evidence', async () => {
@@ -95,6 +146,9 @@ async function inbox() {
 
 test('objectives use original PR review/actions and classic mode restores its section', async () => {
   const { view, cx } = await inbox();
+  fake.layout = { id: 'root', children: [
+    { id: 'panel', hidden: false }, { id: 'panel-body', active: 'inbox' }, { id: 'panel-bar', hidden: true },
+  ] };
   view.mine = [{ url: key.slice(3), repo: 'acme/app', number: 1, title: 'Search', reasons: ['CI failing'], skills: [], hot: true, updatedAt: new Date().toISOString(), headRefOid: a }];
   view.clones['acme/app'] = '/work/app';
   fake.stored[GOAL_MODE] = true;
@@ -102,7 +156,7 @@ test('objectives use original PR review/actions and classic mode restores its se
   assert.ok(find(tree, `pr-${key.slice(3)}`));
   assert.ok(find(tree, `review-pr-${key.slice(3)}`));
   assert.ok(find(tree, `source-link-${key}`));
-  click(find(tree, 'inbox-mode-false'), cx);
+  click(find(new InboxButton().render(), 'reviews-toggle'), cx);
   tree = view.render(cx);
   assert.match(text(tree), /YOUR PRS/);
   assert.equal(find(tree, `source-link-${key}`), null);
@@ -129,16 +183,16 @@ test('goal keyboard order follows visible priority and hides previous cards as s
   assert.ok(find(tree, 'pr-https://github.com/acme/app/pull/4'));
 });
 
-test('linked quiet PR stays visible but evidence cannot look current after a failed refresh', async () => {
+test('linked quiet PR stays visible while saved evidence details stay out of its queue card', async () => {
   const { view, cx } = await inbox();
   view.goalDoc = commit({ ...goal(), evidence: [{ source: key, revision: a, kind: "video", label: "Demo", url: "https://example.com/demo" }] });
   view.prsAt = Date.now() / 1000; view.error = "offline";
   view.openPRs = [{ url: key.slice(3), repo: 'acme/app', number: 1, title: 'Quiet PR', headRefOid: a, updatedAt: new Date().toISOString() }];
   fake.stored[GOAL_MODE] = true;
-  view.expanded['goal-g1-context'] = true;
   const tree = view.render(cx);
   assert.ok(find(tree, `pr-${key.slice(3)}`));
-  assert.match(text(tree), /Unverified/);
+  assert.doesNotMatch(text(tree), /Unverified|Demo|Criteria:/);
+  assert.ok(find(tree, 'goal-edit-g1'));
   assert.equal(view.goalProjection.groups[0].items.length, 1);
 });
 
@@ -247,19 +301,21 @@ test('decision-only goals are keyboard reachable and completed goals never hide 
   view.goalDoc = commit({ ...goal(), state: 'completed' }); view.mine = [samplePR(1, { hot: true })];
   tree = view.render(cx);
   assert.ok(find(tree, `pr-${key.slice(3)}`));
-  assert.match(text(tree), /Mission completed/);
+  assert.match(text(tree), /Run completed/);
 });
 
-test('observed executors exclude child shells that do not report agent status', async () => {
+test('run cards keep the next action and editor while hiding lead provenance', async () => {
   const { view, cx } = await inbox();
   fake.agents = [{ address: 't1', status: 'working' }, { address: 't2', status: 'working' }];
   fake.terminals = [{ address: 't1' }, { address: 't2', parent: 't1' }, { address: 't3', parent: 't1' }];
   view.goalDoc = commit({ ...goal(), lead: 't1' }); fake.stored[GOAL_MODE] = true;
-  view.expanded['goal-g1-context'] = true;
-  assert.match(text(view.render(cx)), /1 observed child agents/);
+  const tree = view.render(cx);
+  assert.ok(find(tree, 'goal-edit-g1'));
+  assert.ok(find(tree, 'goal-workflow-g1'));
+  assert.doesNotMatch(text(tree), /observed child agents|Focus lead|Message lead|Criteria:|Outcomes/);
 });
 
-test('mission details fold saved context and evidence while manual decisions and PR actions remain reachable', async () => {
+test('compact run card keeps current action, source review, and Edit without repeating saved metadata', async () => {
   const { view, cx } = await inbox(), pr = samplePR(1);
   const detail = { ...goal(), decision: 'Approve the search layout?', recommendation: 'Keep the filter visible.',
     criteria: 'Keyboard navigation and every original review control remain available.',
@@ -268,35 +324,27 @@ test('mission details fold saved context and evidence while manual decisions and
   view.goalDoc = commit(detail); view.mine = [pr]; view.clones[pr.repo] = '/work/app';
   fake.stored[GOAL_MODE] = true; view.prsAt = Date.now() / 1000;
   const original = JSON.stringify(view.goalDoc);
-  let tree = view.render(cx), fold = find(tree, 'goal-context-g1');
-  assert.ok(fold); assert.equal(fold.kind, 'button'); assert.match(fold.accessibleLabel, /Expand/);
-  assert.match(text(fold), /Mission details · 1 evidence/);
-  assert.equal(find(tree, 'goal-context-detail-g1'), null);
+  const tree = view.render(cx);
   assert.ok(find(tree, 'goal-edit-g1'));
-  assert.ok(!text(tree).includes(detail.criteria)); assert.ok(!text(tree).includes(detail.decisions[0].text));
-  assert.ok(text(tree).includes(detail.decision)); assert.ok(!text(tree).includes(detail.recommendation));
-  assert.equal(find(tree, 'goal-evidence-g1-0'), null); assert.ok(find(tree, `review-pr-${pr.url}`));
-  const nav = view.nav.map((n) => n.id), execs = [...fake.execs];
-  click(fold, cx); tree = view.render(cx);
-  assert.ok(find(tree, 'goal-evidence-g1-0')); assert.ok(text(tree).includes(detail.recommendation));
-  assert.equal(find(tree, 'goal-record-g1'), null, 'mission details use the existing Edit action instead of duplicating it');
-  assert.ok(text(find(tree, 'goal-context-detail-g1')).includes(detail.criteria));
-  assert.ok(text(tree).includes(detail.decisions[0].text));
-  assert.match(find(tree, 'goal-context-g1').accessibleLabel, /Collapse/);
-  assert.equal(fake.stored['relevo.inbox.folds']['goal-g1-context'], true);
-  assert.deepEqual(view.nav.map((n) => n.id), nav);
-  click(find(tree, 'goal-context-g1'), cx); tree = view.render(cx);
-  assert.equal(find(tree, 'goal-context-detail-g1'), null);
-  assert.deepEqual(fake.execs, execs); assert.equal(JSON.stringify(view.goalDoc), original);
+  assert.ok(find(tree, `pr-${pr.url}`));
+  const nextAction = find(tree, 'goal-review-next-g1') || find(tree, 'goal-workflow-g1') || find(tree, 'goal-decision-next-g1');
+  assert.ok(nextAction);
+  assert.ok(text(nextAction).length > 0);
+  assert.doesNotMatch(text(tree), /Mission details|Criteria:|Saved question:|Saved recommendation:|Latest note:|QA report|Earlier feedback/);
+  assert.ok(!text(tree).includes(detail.criteria));
+  assert.ok(!text(tree).includes(detail.decisions[0].text));
+  assert.ok(!text(tree).includes(detail.recommendation));
+  assert.equal(find(tree, 'goal-evidence-g1-0'), null);
+  assert.equal(find(tree, 'goal-context-g1'), null);
+  assert.equal(JSON.stringify(view.goalDoc), original);
 });
 
-test('empty goal context remains discoverable and fold state is independent for each goal', async () => {
+test('empty run context stays in Edit and does not add an empty details fold', async () => {
   const { view, cx } = await inbox();
   view.goalDoc = saveGoal(commit(), goal('g2', []), 0); fake.stored[GOAL_MODE] = true;
   let tree = view.render(cx);
-  assert.match(text(find(tree, 'goal-context-g1')), /Mission details/);
-  assert.doesNotMatch(text(find(tree, 'goal-context-g1')), /recorded/);
-  click(find(tree, 'goal-context-g1'), cx); tree = view.render(cx);
-  assert.match(text(find(tree, 'goal-context-detail-g1')), /Criteria: Not set/);
-  assert.equal(find(tree, 'goal-context-detail-g2'), null);
+  assert.ok(find(tree, 'goal-edit-g1'));
+  assert.ok(find(tree, 'goal-edit-g2'));
+  assert.equal(find(tree, 'goal-context-g1'), null);
+  assert.doesNotMatch(text(tree), /Criteria: Not set|Mission details/);
 });

@@ -5,6 +5,7 @@ import { button, overlayHeight } from "./ui.js";
 import { newGoal, webLink, GOAL_STATES, STEP_STATES, goalState } from "./lib/goals.js";
 import { readGoals, writeGoal } from "./goals-store.js";
 import { projectGoalPlan } from "./lib/goal-plan.js";
+import { openWorkflow } from "./workflow.js";
 
 async function workflowTasks() {
   const raw = await readTextFile(`${appHome()}/relevo-workflow/state.json`);
@@ -14,9 +15,9 @@ async function workflowTasks() {
 export function openGoal(id = null, source = null, panel = "decision") {
   // Keep the native subtree uncached; size the content in render instead.
   openOverlay({ mod: "relevo", kind: "dialog", width: 620,
-    props: { role: "goal-editor", goalId: id, source, panel } });
+    props: { role: "goal-editor", goalId: id, source, panel, mode: id || source ? undefined : "run" } });
 }
-const labels = { title: "Mission title", owner: "Human owner", decision: "Pending decision", recommendation: "Saved recommendation", criteria: "Acceptance criteria" };
+const labels = { title: "Run title", owner: "Human owner", decision: "Pending decision", recommendation: "Saved recommendation", criteria: "Acceptance criteria" };
 const multiline = new Set(["decision", "recommendation", "criteria", "response"]);
 const row = (value, t) => div().text_size(13).text_color(t.muted).child(value);
 
@@ -29,7 +30,11 @@ export class GoalEditor {
     this.resolvePending = false;
     this.reviewNotesOpen = false;
     this.planFocusRequest = 0;
-    this.fields = Object.fromEntries(Object.keys(labels).map((k) => [k, (multiline.has(k) ? TextareaState : InputState).new({ value: "", placeholder: labels[k] })]));
+    const newRun = props()?.mode === "run";
+    this.newRunTitleOpen = false;
+    this.fields = Object.fromEntries(Object.keys(labels).map((k) => [k, (multiline.has(k) ? TextareaState : InputState).new({
+      value: "", placeholder: newRun && k === "criteria" ? "What would you like the agents to do?" : labels[k],
+    })]));
     this.fields.decision.on("change", (_event, cx) => cx.notify());
     this.response = TextareaState.new({ value: "", placeholder: "Decision or feedback (recorded, not sent automatically)" });
     this.link = InputState.new({ value: "", placeholder: "HTTPS link to a screenshot or video of this commit" });
@@ -37,7 +42,7 @@ export class GoalEditor {
     this.steps = [];
     this.busy = false;
     const { goalId, source } = props() ?? {};
-    this.loadContext = { goalId, sourceKey: source?.key };
+    this.loadContext = { goalId, sourceKey: source?.key, mode: props()?.mode };
     this.load(cx);
   }
 
@@ -68,8 +73,9 @@ export class GoalEditor {
       }
       this.loading = false;
       this.busy = false;
+      const focusField = this.loadContext.mode === "run" ? this.fields.criteria : this.fields.title;
       cx.timer.after(30, () => {
-        if (!this.closed && !this.busy && this.panel === "decision" && this.goal) this.fields.title.focus();
+        if (!this.closed && !this.busy && this.panel === "decision" && this.goal) focusField.focus();
       });
       cx.notify();
     });
@@ -120,8 +126,18 @@ export class GoalEditor {
     if (this.closed || this.busy || !this.goal) return;
     this.planFocusRequest++;
     // Capture exactly what was submitted; callbacks never consume a later edit.
+    const isNewRun = this.loadContext.mode === "run";
+    const prompt = this.fields.criteria.value().trim();
+    const submittedTitle = this.fields.title.value().trim();
+    const derivedTitle = prompt.split(/\r?\n/).find((line) => line.trim())?.trim().slice(0, 240) ?? "";
     const goal = { ...this.goal, ...Object.fromEntries(Object.entries(this.fields).map(([k, f]) => [k, f.value().trim()])),
       steps: this.steps.map(({ id, state, input }) => ({ id, state, title: input.value().trim() })) };
+    if (isNewRun) {
+      if (!prompt) { this.error = "Enter a prompt before saving this run."; cx.notify(); return; }
+      goal.title = submittedTitle || derivedTitle;
+      goal.criteria = prompt;
+      goal.steps = [];
+    }
     const accepted = this.projectedSteps().filter((item) => item.source === "workflow" && item.state === "done").map((item) => item.step.id);
     goal.steps = goal.steps.map((step) => accepted.includes(step.id) ? { ...step, state: "done" } : step);
     const response = this.response.value().trim(), url = this.link.value().trim(), kind = this.kind, source = props()?.source, overlay = props()?.overlay;
@@ -130,7 +146,7 @@ export class GoalEditor {
     // Validate the editable draft before any read, evidence lookup or write.
     // The store remains authoritative for versions and document invariants.
     const checks = [
-      { input: this.fields.title, value: goal.title, panel: "decision", label: "the goal title", limit: 240, required: "Enter a goal title before saving." },
+      { input: this.fields.title, value: goal.title, panel: "decision", label: "the run title", limit: 240, required: "Enter a run title before saving." },
       ...["owner", "decision", "recommendation", "criteria"].map((key) => ({ input: this.fields[key], value: goal[key],
         panel: key === "owner" ? "ownership" : "decision", label: labels[key], limit: 2000 })),
       ...goal.steps.map((step, index) => ({ input: this.steps[index].input, value: step.title, panel: "plan",
@@ -182,7 +198,10 @@ export class GoalEditor {
         const record = (text, extra = {}) => ({ text, ...extra, at: new Date().toISOString(), revisions: source?.revision ? [{ source: source.key, revision: source.revision }] : [] });
         goal.decisions = [...goal.decisions, ...(resolved ? [record(resolved, { resolved: true })] : []), ...(response ? [record(response)] : [])];
         await writeGoal(goal, this.version);
-        if (!this.closed) closeOverlay(overlay);
+        if (!this.closed) {
+          closeOverlay(overlay);
+          if (isNewRun) openWorkflow(goal.id);
+        }
       } catch (e) { if (!this.closed) this.error = `Not saved: ${e.message ?? e}`; }
       if (this.closed) return;
       this.busy = false;
@@ -216,16 +235,17 @@ export class GoalEditor {
         .h(multiline.has(key) ? 76 : 32).px(8).rounded(5).border(1).border_color(t.border).bg(t.background)));
     const choice = (id, label, selected, action, tip) => button(t, id, label, action,
       { kind: selected ? "solid" : "outline", selected, disabled: this.busy, tip });
-    return v_flex().id("goal-editor").role("dialog").accessibility_label("Mission details").track_focus(this.h)
+    const isNewRun = this.loadContext.mode === "run";
+    return v_flex().id("goal-editor").role("dialog").accessibility_label(isNewRun ? "New run" : "Run details").track_focus(this.h)
       .on_key_down((e, cx) => {
         if (e.key === "s" && e.modifiers?.platform && !e.modifiers?.alt && !e.modifiers?.control) { cx.stop_propagation(); this.save(cx); }
       })
-      .w_full().h(overlayHeight(p?.goalId ? 620 : 440)).max_h_full().min_h(0).p(14).gap(10).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
-      .child(h_flex().gap(8).items_center().child(div().flex_1().font_semibold().child(p?.goalId ? "Mission details" : "New mission"))
+      .w_full().h(overlayHeight(isNewRun ? 320 : p?.goalId ? 620 : 440)).max_h_full().min_h(0).p(14).gap(10).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
+      .child(h_flex().gap(8).items_center().child(div().flex_1().font_semibold().child(isNewRun ? "New run" : "Run details"))
         .child(button(t, "goal-cancel", "Close", () => closeOverlay(p?.overlay), { tip: this.busy && !this.loading ? "Close this editor. A save already started may still complete." : "Close without saving these edits" })))
-      .child(h_flex().gap(6).children([["decision", "Brief"], ["plan", "Outcomes"], ["ownership", "Ownership"]].map(([panel, label]) =>
+      .when(!isNewRun, (el) => el.child(h_flex().gap(6).children([["decision", "Brief"], ["plan", "Outcomes"], ["ownership", "Ownership"]].map(([panel, label]) =>
         choice(`goal-panel-${panel}`, label, this.panel === panel, (cx) => { this.planFocusRequest++; this.panel = panel; cx.notify(); },
-          panel === "decision" ? "Outcome, evidence and your feedback" : panel === "plan" ? "Acceptance criteria, progress and completion" : "Human owner, priority and an existing lead agent"))))
+          panel === "decision" ? "Prompt, evidence and your feedback" : panel === "plan" ? "Acceptance criteria, progress and completion" : "Human owner, priority and an existing lead agent")))))
       .child(v_flex().id(`goal-editor-scroll-${this.panel}`).flex_1().min_h(0).overflow_y_scrollbar().gap(10)
         .when(this.loading, (el) => el.child(row("Loading goal context…", t).id("goal-loading").role("status")))
         .when(Boolean(this.error), (el) => el.child(div().id("goal-save-error").role("alert").text_color(t.blocked).child(this.error)))
@@ -238,20 +258,26 @@ export class GoalEditor {
           .child(row("Link to an existing goal", t))
           .children((this.options ?? []).map((g) => button(t, `goal-link-${g.id}`, g.title, (cx) => this.linkExisting(g, cx), { disabled: this.busy, tip: "Link this work; existing goal details stay unchanged" }))))
         .when(this.panel === "decision", (el) => el
-          .child(field("title", this.fields.title, labels.title))
-          .child(field("criteria", this.fields.criteria, labels.criteria))
-          .child(choice("goal-review-notes-toggle", this.reviewNotesOpen ? "Hide decision and review notes" : "Optional decision and review notes", this.reviewNotesOpen,
-            (cx) => { this.reviewNotesOpen = !this.reviewNotesOpen; cx.notify(); }, "Expand to record a pending decision, saved recommendation or review note"))
-          .when(this.reviewNotesOpen, (el) => el.children(["decision", "recommendation"].map((k) => field(k, this.fields[k], labels[k])))
+          .when(isNewRun, (content) => content
+            .child(field("criteria", this.fields.criteria, "Prompt"))
+            .child(row("Save this prompt, then choose who runs it.", t))
+            .child(button(t, "new-run-title-toggle", this.newRunTitleOpen ? "Hide title" : this.fields.title.value().trim() ? "Edit title" : "Add a title", (cx) => {
+              this.newRunTitleOpen = !this.newRunTitleOpen; cx.notify();
+            }, { size: "sm", tip: "Optional title; by default the first prompt line names this run" }))
+            .when(this.newRunTitleOpen, (content) => content.child(field("title", this.fields.title, "Run title (optional)"))))
+          .when(!isNewRun, (content) => content.child(field("title", this.fields.title, labels.title)).child(field("criteria", this.fields.criteria, labels.criteria)))
+          .when(!isNewRun, (content) => content.child(choice("goal-review-notes-toggle", this.reviewNotesOpen ? "Hide decision and review notes" : "Optional decision and review notes", this.reviewNotesOpen,
+            (cx) => { this.reviewNotesOpen = !this.reviewNotesOpen; cx.notify(); }, "Expand to record a pending decision, saved recommendation or review note")))
+          .when(!isNewRun && this.reviewNotesOpen, (el) => el.children(["decision", "recommendation"].map((k) => field(k, this.fields[k], labels[k])))
             .child(field("response", this.response, "Review note · saved with this goal"))
             .child(row("Notes stay local; they do not send instructions or validate outcomes.", t)))
-          .when(Boolean(p?.source?.revision) || Boolean(this.link.value()), (el) => el.child(field("evidence", this.link, "Evidence URL · exact PR commit"))
+          .when(!isNewRun && (Boolean(p?.source?.revision) || Boolean(this.link.value())), (el) => el.child(field("evidence", this.link, "Evidence URL · exact PR commit"))
             .child(h_flex().gap(5).children([["screenshot", "Screenshot"], ["video", "Video"]].map(([kind, label]) =>
               choice(`goal-kind-${kind}`, label, this.kind === kind, (cx) => { this.kind = kind; cx.notify(); }, "The PR commit is checked again before attaching this link")))))
           .when(Boolean(this.fields.decision.value().trim()), (el) => el.child(choice("goal-resolve-decision", this.resolvePending ? "Decision resolved on save ✓" : "Resolve pending decision", this.resolvePending,
             (cx) => { if (!this.closed && !this.busy && this.goal) { this.resolvePending = !this.resolvePending; cx.notify(); } },
             "Save clears the pending decision and keeps its text in the history. Click again to leave it pending.")))
-          .when(this.reviewNotesOpen, (el) => el.children((goal?.decisions ?? []).slice(-5).map((d) => row(`${d.at} · ${d.resolved ? "Resolved decision" : "Review note"}: ${d.text}`, t)))
+          .when(!isNewRun && this.reviewNotesOpen, (el) => el.children((goal?.decisions ?? []).slice(-5).map((d) => row(`${d.at} · ${d.resolved ? "Resolved decision" : "Review note"}: ${d.text}`, t)))
             .child(row("To request changes, use Send to agent in Review or Message lead in Inbox.", t))))
         .when(this.panel === "plan", (el) => el
           .child(row(`${projected.filter((step) => step.state === "done").length}/${this.steps.length} steps validated · save to apply`, t))
@@ -271,7 +297,7 @@ export class GoalEditor {
                 { disabled: this.busy, tip: "Remove this plan step when you save" })))))
           .child(button(t, "goal-add-step", "+ Outcome", (cx) => this.addStep(cx),
             { disabled: this.busy || this.steps.length >= 20, tip: "Add a concrete result to validate; up to 20 steps" }))
-          .child(row(`Mission status · ${GOAL_STATES[goalState(goal)]} · closing does not approve or merge PRs`, t))
+          .child(row(`Run status · ${GOAL_STATES[goalState(goal)]} · closing does not approve or merge PRs`, t))
           .child(h_flex().gap(5).children(Object.entries(GOAL_STATES).filter(([state]) => state !== "completed").map(([state, label]) =>
             choice(`goal-state-${state}`, label, goal && goalState(goal) === state, (cx) => { if (this.goal) this.goal = { ...this.goal, state }; cx.notify(); },
               "Update or reopen the goal state without starting or stopping agents")))))
@@ -288,9 +314,9 @@ export class GoalEditor {
               if (this.goal) this.goal = { ...this.goal, lead: a.address }; cx.notify();
             }, "Assign this connected agent as the goal's lead"))))))
       .child(h_flex().flex_none().gap(8).flex_wrap()
-        .child(button(t, "goal-save", this.loading ? "Loading…" : this.busy ? "Saving…" : "Save", (cx) => this.save(cx),
-          { kind: "solid", disabled: this.busy || !goal, tip: "⌘S saves all sections. This does not send messages, approve or merge changes." }))
-        .when(this.panel === "plan" && goalState(goal) !== "completed", (el) => el.child(button(t, "goal-finish", "Finish mission", (cx) => {
+        .child(button(t, "goal-save", this.loading ? "Loading…" : this.busy ? "Saving…" : isNewRun ? "Choose agents →" : "Save", (cx) => this.save(cx),
+          { kind: "solid", disabled: this.busy || !goal, tip: isNewRun ? "Save the prompt; no agents are dispatched until Start." : "⌘S saves all sections. This does not send messages, approve or merge changes." }))
+        .when(this.panel === "plan" && goalState(goal) !== "completed", (el) => el.child(button(t, "goal-finish", "Finish run", (cx) => {
           if (this.closed || this.busy || !this.goal) return;
           this.goal = { ...this.goal, state: "completed" }; this.save(cx);
         }, { disabled: this.busy || !goal || this.steps.some((step) => step.state !== "done") || (Boolean(this.fields.decision.value().trim()) && !this.resolvePending),

@@ -203,12 +203,12 @@ test('a failed load after dismissal stays silent and close releases handles only
   assert.equal(released, 1); assert.equal(cx.notified, notified); assert.equal(e.error, undefined);
 });
 
-test('missing goal title returns to Decision with a useful error and no persistence attempt', async () => {
+test('missing run title returns to Decision with a useful error and no persistence attempt', async () => {
   const e = new GoalEditor(), cx = fakeCx(); e.init({}, cx); await flush();
   e.panel = 'ownership'; e.fields.owner.set_value('Draft owner'); e.fields.criteria.set_value('Keep this draft');
   let reads = 0; fake.read = async () => { reads++; return null; };
   e.save(cx); await flush();
-  assert.equal(e.panel, 'decision'); assert.equal(e.error, 'Enter a goal title before saving.');
+  assert.equal(e.panel, 'decision'); assert.equal(e.error, 'Enter a run title before saving.');
   assert.equal(e.busy, false); assert.equal(reads, 0); assert.deepEqual(fake.execs, []);
   assert.equal(e.fields.owner.value(), 'Draft owner'); assert.equal(e.fields.criteria.value(), 'Keep this draft');
   assert.equal(find(e.render(), 'goal-save-error').items[0], e.error);
@@ -230,7 +230,7 @@ test('blank plan step returns to Plan, preserves every draft and focuses the exa
 test('editable text limits explain the field and section before any save', async () => {
   const e = new GoalEditor(), cx = fakeCx(); e.init({}, cx); await flush();
   e.fields.title.set_value('x'.repeat(241)); e.save(cx); await flush();
-  assert.equal(e.error, 'Keep the goal title to 240 characters or fewer.');
+  assert.equal(e.error, 'Keep the run title to 240 characters or fewer.');
   e.fields.title.set_value('Within limit'); e.fields.owner.set_value('x'.repeat(2001)); e.save(cx); await flush();
   assert.equal(e.panel, 'ownership'); assert.equal(e.error, 'Keep Human owner to 2000 characters or fewer.');
   e.fields.owner.set_value('Owner'); e.response.set_value('x'.repeat(2001)); e.save(cx); await flush();

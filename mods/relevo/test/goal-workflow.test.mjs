@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { fake, resetFake } from './fake/herdr.mjs';
 import { fakeCx, flush, find, click, text } from './fake/ui.mjs';
 import { reviewableWork, scopeGoals } from '../lib/goal-workflow.js';
+import { projectGoalPlan } from '../lib/goal-plan.js';
 const { Inbox } = await import('../inbox.js');
+const { InboxButton } = await import('../toolbar.js');
 const { GOAL_MODE, GOAL_SCOPE } = await import('../inbox-goals.js');
 import { newGoal, saveGoal, emptyGoals } from '../lib/goals.js';
 
@@ -49,6 +51,8 @@ test('Focus and All work preserve work and restore the complete keyboard queue',
   click(find(v.render(cx), 'goal-focus-view-g'), cx); let tree = v.render(cx);
   assert.equal(fake.stored[GOAL_SCOPE], 'g'); assert.equal(v.goalProjection.outsideBlockers, 1);
   assert.deepEqual(v.nav.map((n) => n.id), ['goal-g', `pr-${pr.url}`]);
+  assert.match(text(tree), /1 need attention elsewhere/);
+  assert.doesNotMatch(text(tree), /2 other items/);
   assert.ok(find(tree, 'goal-all-work')); assert.equal(find(tree, `source-pr:${pr.url}2`), null);
   click(find(tree, 'goal-all-work'), cx); tree = v.render(cx);
   assert.deepEqual(v.nav.map((n) => n.id), before); assert.ok(find(tree, `source-pr:${pr.url}2`));
@@ -64,9 +68,8 @@ test('goal review opens the existing review route without launching a skill or c
   assert.equal(JSON.stringify(v.goalDoc), doc);
 });
 
-test('the single Edit action opens saved context without accepting work', async () => {
+test('the single Edit action opens saved run context without accepting work', async () => {
   const { v, cx } = await inbox(); const doc = JSON.stringify(v.goalDoc), before = fake.execs.length;
-  click(find(v.render(cx), 'goal-context-g'), cx);
   click(find(v.render(cx), 'goal-edit-g'), cx);
   assert.equal(fake.overlays.at(-1).props.goalId, 'g');
   assert.equal(JSON.stringify(v.goalDoc), doc); assert.equal(fake.execs.length, before);
@@ -80,15 +83,17 @@ test('focus shortcut respects descendant text focus and can exit from a linked c
   v.navKey({ key: 'f' }, cx); v.render(cx); assert.equal(v.goalProjection.scope, null);
 });
 
-test('no available diff offers agent planning instead of a dead review button; notes remain in details', async () => {
+test('no available diff offers agent planning instead of a dead review button; Edit remains available', async () => {
   const { v, cx } = await inbox(); delete v.clones[pr.repo]; const tree = v.render(cx);
   assert.equal(find(tree, 'goal-review-next-g'), null);
   assert.equal(text(find(tree, 'goal-workflow-g')), 'Plan agent work');
-  click(find(tree, 'goal-context-g'), cx);
-  assert.equal(find(v.render(cx), 'goal-edit-g').isDisabled, false);
+  const edit = find(tree, 'goal-edit-g');
+  assert.equal(edit.isDisabled, false);
+  click(edit, cx);
+  assert.equal(fake.overlays.at(-1).props.goalId, 'g');
 });
 
-test('goal card projects matching workflow progress and exposes failures without changing saved intent', async () => {
+test('workflow projection retains progress and duplicate diagnostics while the queue card stays compact', async () => {
   const { v, cx } = await inbox();
   const goal = v.goalDoc.goals[0];
   goal.criteria = 'Expected behavior';
@@ -97,7 +102,7 @@ test('goal card projects matching workflow progress and exposes failures without
     { id: 's2', title: 'Handle errors', state: 'working' },
     { id: 's3', title: 'Keep keyboard access', state: 'done' },
   ];
-  const task = (id, stepId, title, state) => ({ id, goalId: goal.id, goalStep: { id: stepId, title, criteria: goal.criteria }, state });
+  const task = (id, stepId, title, state) => ({ id, goalId: goal.id, title, goalStep: { id: stepId, title, criteria: goal.criteria }, state });
   v.workflowTasks = [
     task('accepted', 's1', 'Implement search', 'accepted'),
     task('failed', 's2', 'Handle errors', 'failed'),
@@ -106,21 +111,29 @@ test('goal card projects matching workflow progress and exposes failures without
     { ...task('stale', 's1', 'Old title', 'accepted') },
   ];
   const before = JSON.stringify(v.goalDoc);
-  let tree = v.render(cx);
-  assert.match(text(find(tree, 'goal-g')), /2\/3 complete/);
-  assert.match(text(find(tree, 'goal-g')), /need attention/);
-  assert.match(text(find(tree, 'goal-g')), /3 open tasks/);
-  v.expanded['goal-g-plan'] = true;
-  tree = v.render(cx);
-  const card = text(find(tree, 'goal-g'));
-  assert.match(card, /Accepted in Workflow · Implement search/);
-  assert.match(card, /Blocked · Handle errors · workflow/);
-  assert.match(card, /Validated by you · Keep keyboard access · manual/);
-  assert.match(card, /Multiple active workflow tasks/);
+  const plan = projectGoalPlan(goal, v.workflowTasks);
+  assert.equal(plan.filter((row) => row.state === 'done').length, 2);
+  assert.equal(plan.filter((row) => row.state === 'blocked').length, 1);
+  assert.match(plan[2].issue, /Multiple active workflow tasks/);
+  const card = text(find(v.render(cx), 'goal-g'));
+  const tree = v.render(cx), actionRow = find(tree, 'goal-next-row-g'), copy = find(tree, 'goal-next-copy-g');
+  const status = copy.items[0], detail = copy.items[1];
+  assert.equal(actionRow.kind, 'h_flex');
+  assert.equal(copy.kind, 'v_flex');
+  assert.equal(copy.items.length, 2);
+  assert.equal(status.key, 'goal-next-status-g');
+  assert.equal(status.tip, text(status));
+  assert.equal(detail.key, 'goal-next-detail-g');
+  assert.equal(detail.tip, text(detail));
+  assert.ok(actionRow.items.some((child) => child.key === 'goal-next-copy-g'));
+  assert.ok(actionRow.items.some((child) => child.key === 'goal-workflow-g'));
+  assert.match(card, /Needs attention|Status unavailable/);
+  assert.match(card, /Plan agent work|Resolve blocker/);
+  assert.doesNotMatch(card, /2\/3 complete|need attention|3 open tasks|Accepted in Workflow|Blocked · Handle errors|Validated by you|Multiple active workflow tasks|Outcomes/);
   assert.equal(JSON.stringify(v.goalDoc), before);
 });
 
-test('mission card uses live blocker state instead of a stale saved acceptance request', async () => {
+test('Run card uses live blocker state and keeps saved acceptance details in Edit', async () => {
   const { v, cx } = await inbox();
   const goal = v.goalDoc.goals[0]; goal.decision = 'Accept the old result'; goal.recommendation = 'Old recommendation';
   v.workflowTasks = [
@@ -137,8 +150,9 @@ test('mission card uses live blocker state instead of a stale saved acceptance r
   v.navKey({ key: 'enter' }, cx);
   assert.equal(fake.overlays.at(-1).props.role, 'workflow');
   assert.equal(fake.execs.length, sent);
-  click(find(tree, 'goal-context-g'), cx);
-  assert.match(text(find(v.render(cx), 'goal-g')), /Saved question: Accept the old result/);
+  click(find(tree, 'goal-edit-g'), cx);
+  assert.equal(fake.overlays.at(-1).props.goalId, 'g');
+  assert.equal(v.goalDoc.goals[0].decision, 'Accept the old result');
   assert.equal(JSON.stringify(v.goalDoc), before);
 });
 
@@ -149,11 +163,12 @@ test('unavailable workflow state never renders stale results as actionable accep
   const card = find(v.render(cx), 'goal-g');
   assert.match(text(card), /Status unavailable/);
   assert.doesNotMatch(text(card), /Ready for your review|Old result/);
-  assert.equal(text(find(card, 'goal-workflow-g')), 'Open mission');
+  assert.equal(text(find(card, 'goal-workflow-g')), 'Open run');
 });
 
-test('paused work and pending review have distinct primary actions without changing stored mode or data', async () => {
+test('paused work and pending review have distinct actions; the topbar switches Runs and Reviews', async () => {
   const { v, cx } = await inbox();
+  const data = JSON.stringify(v.goalDoc);
   v.workflowTasks = [{ id: 'task', goalId: 'g', title: 'Implement search', state: 'running', paused: true }];
   v.workflowEngine = { enabled: false };
   let tree = v.render(cx);
@@ -162,7 +177,17 @@ test('paused work and pending review have distinct primary actions without chang
   v.workflowTasks[0].state = 'needs_you';
   tree = v.render(cx);
   assert.equal(text(find(tree, 'goal-workflow-g')), 'Review result');
-  assert.equal(text(find(tree, 'inbox-mode-false')), 'Reviews');
-  assert.equal(text(find(tree, 'inbox-mode-true')), 'Missions');
-  assert.equal(fake.stored[GOAL_MODE], true);
+  assert.equal(fake.stored[GOAL_MODE], true, 'opening a queue action keeps the Runs mode');
+  assert.equal(JSON.stringify(v.goalDoc), data, 'opening a queue action preserves run data');
+
+  fake.layout = { id: 'root', children: [
+    { id: 'panel', hidden: false }, { id: 'panel-body', active: 'inbox' }, { id: 'panel-bar', hidden: true },
+  ] };
+  const bar = new InboxButton();
+  const tabs = bar.render();
+  assert.match(text(find(tabs, 'reviews-toggle')), /^Reviews/);
+  assert.equal(text(find(tabs, 'runs-toggle')), 'Runs');
+  click(find(tabs, 'reviews-toggle'), cx);
+  assert.equal(fake.stored[GOAL_MODE], false);
+  assert.equal(JSON.stringify(v.goalDoc), data);
 });
