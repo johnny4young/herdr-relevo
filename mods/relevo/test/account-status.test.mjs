@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { fake, resetFake } from './fake/herdr.mjs';
 import { fakeCx, find, click, text } from './fake/ui.mjs';
 const { AccountStatus, openAccountStatus } = await import('../account-status.js');
-const { quotaFreshness, quotaRingDots } = await import('../lib/account-status.js');
+const { quotaFreshness, quotaRingDots, quotaStatusText, tightestWindow } = await import('../lib/account-status.js');
 const { ACCOUNTS, CODEX } = await import('../accounts.js');
 
 beforeEach(() => {
@@ -71,4 +71,30 @@ test('status popup omits fixed height and explains unknown usage in its tooltip'
   const view = new AccountStatus(); view.detail = false; view.quota = {};
   const trigger = find(view.render(), `account-status-${ACCOUNTS[0].key}`);
   assert.match(trigger.tip, /usage unavailable/);
+});
+
+test('the tightest window drives the status, and a weekly-only reading is not unavailable', () => {
+  const now = Date.now() / 1000;
+  const team = { updated: now, h5: { pct: 30, resets: now + 3600 }, d7: { pct: 82, resets: now + 86400 } };
+  assert.equal(tightestWindow(team).name, 'd7');
+  assert.match(quotaStatusText(team), /^7d 82% used/);
+  const weeklyOnly = { updated: now, h5: null, d7: { pct: 11, resets: now + 86400 } };
+  assert.equal(quotaFreshness(weeklyOnly), 'fresh');
+  assert.match(quotaStatusText({ ...weeklyOnly, updated: now - 4 * 86400 }), /7d 11% used \(stale\)/);
+});
+
+test('status bar names only the focused account, shows stale readings and flags 80% with its value', () => {
+  const now = Date.now() / 1000, [focused, other] = ACCOUNTS;
+  const view = new AccountStatus(); view.detail = false;
+  view.quota = {
+    [focused.key]: { updated: now - 4 * 86400, h5: { pct: 0, resets: null }, d7: { pct: 11, resets: now + 86400 } },
+    [other.key]: { updated: now, h5: { pct: 30, resets: now + 3600 }, d7: { pct: 82, resets: now + 86400 } },
+  };
+  const tree = view.render();
+  assert.match(text(find(tree, `account-status-${focused.key}`)), new RegExp(focused.label));
+  assert.doesNotMatch(text(find(tree, `account-status-${other.key}`)), new RegExp(other.label));
+  assert.match(find(tree, `account-status-${other.key}`).accessibleLabel, new RegExp(`${other.label}.*7d 82% used`));
+  assert.match(text(find(tree, `account-status-${other.key}`)), /82%/);
+  assert.equal(find(tree, `account-status-ring-${focused.key}-marker`), null, 'a stale reading stays visible');
+  assert.match(find(tree, `account-status-${focused.key}`).tip, /stale.*read 4d ago/);
 });

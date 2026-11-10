@@ -7,7 +7,7 @@ import { accountFor } from './context.js';
 import { openSettings } from './settings.js';
 import { button, overlayHeight } from './ui.js';
 import { ago, resetText } from './lib/time.js';
-import { quotaFreshness, quotaRingDots, quotaStatusText } from './lib/account-status.js';
+import { QUOTA_WARN, quotaFreshness, quotaRingDots, quotaStatusText, tightestWindow } from './lib/account-status.js';
 
 const ACCOUNTS_ALL = [...ACCOUNTS, CODEX];
 
@@ -32,21 +32,25 @@ export class AccountStatus extends Sidebar {
 
   freshnessText(account, quota) {
     const freshness = quotaFreshness(quota);
-    if (freshness === 'unknown') return `${account.label} · 5h usage unavailable`;
-    const updated = Number.isFinite(quota.updated) ? ` · last updated ${ago(quota.updated)}` : '';
+    if (freshness === 'unknown') return `${account.label} · usage unavailable`;
+    const updated = freshness === 'stale' && Number.isFinite(quota.updated) ? ` · read ${ago(quota.updated)}` : '';
     return `${account.label} · ${quotaStatusText(quota, freshness)}${updated}`;
   }
 
+  level(t, quota) {
+    const freshness = quotaFreshness(quota), pct = tightestWindow(quota)?.pct;
+    if (freshness === 'unknown') return t.dim;
+    const color = pct >= QUOTA_WARN ? t.blocked : pct >= 50 ? t.ansi3 : t.accent;
+    return freshness === 'stale' && pct < QUOTA_WARN ? t.dim : color;
+  }
+
   ring(t, account, quota, id) {
-    const freshness = quotaFreshness(quota);
-    const pct = quota?.h5?.pct;
-    const color = freshness !== 'fresh' ? t.dim : pct >= 80 ? t.blocked : pct >= 50 ? t.ansi3 : t.accent;
-    const info = this.freshnessText(account, quota);
-    return div().id(id).relative().size(18).flex_none().tooltip(`${info}. Click to view weekly usage and account controls.`)
+    const freshness = quotaFreshness(quota), pct = tightestWindow(quota)?.pct, color = this.level(t, quota);
+    return div().id(id).relative().size(18).flex_none()
       .children(quotaRingDots(pct).map((dot) => div().id(`${id}-dot-${dot.index}`).absolute().left(dot.x).top(dot.y).size(2).rounded(1)
         .bg(dot.active ? color : t.raised)))
-      .when(freshness !== 'fresh', (el) => el.child(div().id(`${id}-marker`).absolute().left(0).top(0).size(18).flex().items_center().justify_center()
-        .text_size(11).font_semibold().text_color(t.foreground).child(freshness === 'stale' ? '!' : '?')));
+      .when(freshness === 'unknown', (el) => el.child(div().id(`${id}-marker`).absolute().left(0).top(0).size(18).flex().items_center().justify_center()
+        .text_size(11).text_color(t.dim).child('?')));
   }
 
   statusLeaf(t) {
@@ -55,10 +59,14 @@ export class AccountStatus extends Sidebar {
       .children(ACCOUNTS_ALL.map((account) => {
         const quota = this.quota?.[account.key], status = quotaFreshness(quota);
         const detail = this.freshnessText(account, quota);
+        const pct = tightestWindow(quota)?.pct, warn = status !== 'unknown' && pct >= QUOTA_WARN, focusedAccount = account.key === current.key;
         return button(t, `account-status-${account.key}`,
-          [chip(div, account, 14), div().w(52).min_w(0).truncate().text_size(11).text_color(account.key === current.key ? t.foreground : t.muted).child(account.label), this.ring(t, account, quota, `account-status-ring-${account.key}`)],
-          () => openAccountStatus(), { tip: `${detail}. Open detailed account usage and controls.`, accessibleLabel: `${account.label}. ${detail}. Open account usage details` })
-          .h(28).px(4).gap(5).rounded(6).when(status === 'fresh', (el) => el.hover((s) => s.bg(t.hover)));
+          [chip(div, account, 14),
+            focusedAccount ? div().max_w(80).min_w(0).truncate().text_size(11).text_color(t.foreground).child(account.label) : null,
+            this.ring(t, account, quota, `account-status-ring-${account.key}`),
+            warn ? div().text_size(11).font_semibold().text_color(this.level(t, quota)).child(`${Math.round(pct)}%`) : null].filter(Boolean),
+          () => openAccountStatus(), { tip: detail, accessibleLabel: `${detail}. Open account usage` })
+          .h(28).px(4).gap(5).rounded(6).hover((s) => s.bg(t.hover));
       }));
   }
 
@@ -96,8 +104,7 @@ export class AccountStatus extends Sidebar {
             this.usageWindow(t, account, 'h5', quota?.h5, stale),
             this.usageWindow(t, account, 'd7', quota?.d7, stale),
           ]));
-      })))
-      .child(div().role('status').text_size(11).text_color(t.dim).child('Quota is an estimate from the latest available account snapshot. Stale or unavailable values are shown as such.'));
+      })));
   }
 
   render() {
