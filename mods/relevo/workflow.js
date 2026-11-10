@@ -39,10 +39,19 @@ export class Workflow extends WorkflowPlan {
       message: TextareaState.new({ value: "" }), decision: TextareaState.new({ value: "" }),
       preference: TextareaState.new({ value: "" }), preferenceScope: InputState.new({ value: "goal" }),
       toolSearch: InputState.new({ value: "", placeholder: "Find an action or skill…" }),
+      executorSearch: InputState.new({ value: "", placeholder: "Find an executor…" }),
+      reviewerSearch: InputState.new({ value: "", placeholder: "Find a reviewer…" }),
     };
     this.form.toolSearch.on("change", (_event, cx) => cx.notify());
+    this.form.executorSearch.on("change", (_event, cx) => cx.notify());
+    this.form.reviewerSearch.on("change", (_event, cx) => cx.notify());
+    this.form.root.on("change", (_event, cx) => {
+      this.executor = ""; this.reviewer = "";
+      this.form.executorSearch.set_value(""); this.form.reviewerSearch.set_value(""); cx.notify();
+    });
     this.executor = "";
     this.reviewer = "";
+    this.checkPreset = "none";
     this.reconcileConfirmed = null;
     this.preferenceEditId = null;
     this.load(cx);
@@ -178,7 +187,8 @@ export class Workflow extends WorkflowPlan {
     }
     let checks = [];
     try {
-      checks = this.form.checks.value().trim() ? JSON.parse(this.form.checks.value()) : [];
+      checks = this.checkPreset === "npm-test" ? [["npm", "test"]]
+        : this.checkPreset === "custom" ? (this.form.checks.value().trim() ? JSON.parse(this.form.checks.value()) : []) : [];
       if (!Array.isArray(checks) || checks.some((args) => !Array.isArray(args) || !args.length || args.some((arg) => typeof arg !== "string"))) throw Error();
     } catch {
       this.taskAdvancedOpen = true;
@@ -193,6 +203,7 @@ export class Workflow extends WorkflowPlan {
       checks, dependsOn, maxRounds, maxMinutes,
     } }, cx, (response) => {
       for (const key of ["title", "root", "criteria", "checks"]) this.form[key].set_value("");
+      this.checkPreset = "none";
       this.form.maxRounds.set_value("2"); this.form.maxMinutes.set_value("20"); this.dependsOn = [];
       this.executor = "";
       this.reviewer = "";
@@ -251,6 +262,8 @@ export class Workflow extends WorkflowPlan {
   agentPicker(t, key, label) {
     const byPane = new Map(panes().map((pane) => [pane.pane, pane]));
     const selectedRoot = this.form.root.value().trim();
+    const search = this.form[`${key}Search`], query = search.value().trim().toLowerCase();
+    const other = this[key === "executor" ? "reviewer" : "executor"];
     const options = agents().map((agent) => {
       const pane = byPane.get(agent.pane);
       const cwd = agent.cwd ?? pane?.cwd;
@@ -259,19 +272,24 @@ export class Workflow extends WorkflowPlan {
       const detail = `${agent.title || agent.address} · ${agent.address}${agent.tab_name ? ` · ${agent.tab_name}` : ""}${cwd ? ` · ${cwd}` : " · cwd unknown; server will check"}`;
       const fullCaption = `${agent.title || agent.address} · ${agent.address}${agent.tab_name ? ` · ${agent.tab_name}` : ""}${cwdLabel}`;
       return { agent, cwd, caption: caption(fullCaption), detail };
-    }).filter(({ cwd }) => !selectedRoot || !cwd || cwd === selectedRoot);
-    return v_flex().w_full().min_w(0).gap(4).child(row(t, label)).children(options.map(({ agent, caption, detail }) => button(t,
+    }).filter(({ cwd, detail }) => (!selectedRoot || !cwd || cwd === selectedRoot) && (!query || detail.toLowerCase().includes(query)));
+    return v_flex().w_full().min_w(0).gap(4).child(row(t, label))
+      .child(Input.new(search).id(`workflow-${key}-search`).accessibility_label(`Find ${label.toLowerCase()}`).w_full().h(30).px(7).rounded(5).border_1().border_color(t.border).bg(t.background))
+      .when(options.length === 0, (el) => el.child(row(t, query ? "No matching agents. Try another search." : "No connected agents in this repository. Open an agent there, then return here.")))
+      .child(v_flex().w_full().max_h(140).overflow_y_scrollbar().gap(4).children(options.map(({ agent, caption, detail }) => button(t,
       `workflow-${key}-${agent.address}`, caption, (cx) => { this[key] = agent.address; cx.notify(); },
-      { kind: this[key] === agent.address ? "solid" : "outline", tip: `Choose connected agent · ${detail}` })));
+      { kind: this[key] === agent.address ? "solid" : "outline", disabled: agent.address === other,
+        tip: agent.address === other ? `Already selected for the other role. Choose a different agent. ${detail}` : `Choose connected agent · ${detail}` }))));
   }
 
   repositoryPicker(t) {
     const roots = [...new Set(panes().map((pane) => pane.cwd).filter((cwd) => typeof cwd === "string" && cwd.startsWith("/")))];
     if (!roots.length) return v_flex().child(row(t, "No connected pane has a repository path. Enter one above."));
     return v_flex().gap(4).child(row(t, "Choose a connected repository path"))
-      .children(roots.map((root, index) => button(t, `workflow-repository-${index}`, `Use ${caption(root.split("/").filter(Boolean).at(-1) || root, 32)}`,
-        (cx) => { this.form.root.set_value(root); this.executor = ""; this.reviewer = ""; cx.notify(); },
-        { kind: this.form.root.value().trim() === root ? "solid" : "outline", tip: `Set repository path to ${root}` })));
+      .child(v_flex().max_h(120).overflow_y_scrollbar().gap(4).children(roots.map((root, index) => button(t, `workflow-repository-${index}`, `Use ${caption(root.split("/").filter(Boolean).slice(-2).join("/") || root, 42)}`,
+        (cx) => { this.form.root.set_value(root); this.executor = ""; this.reviewer = "";
+          this.form.executorSearch.set_value(""); this.form.reviewerSearch.set_value(""); cx.notify(); },
+        { kind: this.form.root.value().trim() === root ? "solid" : "outline", tip: `Set repository path to ${root}` }))));
   }
 
   taskForm(t, cx) {
@@ -295,8 +313,11 @@ export class Workflow extends WorkflowPlan {
       .when(this.taskAdvancedOpen, (el) => el.child(v_flex().gap(8).p(10).rounded(6).bg(t.raised)
         .child(h_flex().gap(6).child(this.field(t, "maxRounds", "Maximum rounds (1–5)"))
           .child(this.field(t, "maxMinutes", "Minutes per round (1–120)")))
-        .child(row(t, "Optional checks as JSON argument lists, for example [[\"npm\",\"test\"]]. Empty means no checks."))
-        .child(this.field(t, "checks", "Checks JSON"))
+        .child(row(t, "Choose checks to run after implementation. Nothing runs until you start the task."))
+        .children([["none", "No automated checks"], ["npm-test", "npm test"], ["custom", "Custom"]].map(([value, label]) => button(t, `workflow-check-preset-${value}`, label,
+          (context) => { this.checkPreset = value; context.notify(); }, { selected: this.checkPreset === value, tip: value === "custom" ? "Enter custom checks as JSON argv lists" : `Use ${label}` })))
+        .when(this.checkPreset === "custom", (el) => el.child(row(t, "Advanced: enter JSON argument lists, for example [[\"npm\",\"test\"]]."))
+          .child(this.field(t, "checks", "Custom checks JSON")))
         .child(div().font_semibold().child("Wait for earlier tasks"))
         .child(row(t, "Only selected prerequisites must be accepted before this task can start."))
         .children((this.tasks ?? []).filter((task) => task.goalId === this.goalId && !["cancelled", "failed"].includes(task.state))
@@ -315,7 +336,6 @@ export class Workflow extends WorkflowPlan {
     const actions = [];
     const planDraft = task.planId && (this.plans ?? []).some((plan) => plan.id === task.planId && plan.state === "planned");
     const cancelledDependency = (task.dependsOn ?? []).some((id) => this.tasks?.find((item) => item.id === id)?.state === "cancelled");
-    if (planDraft) actions.push(button(t, "workflow-action-plan", "View plan", (context) => this.openPlan(context), { tip: "Start all planned tasks together from Goal plan" }));
     if (!planDraft && !cancelledDependency && (task.state === "planned" || (task.state === "ready" && !this.engine?.enabled)) && !task.paused) actions.push(action("Start", "start", "Start the chosen existing sessions"));
     const last = task.attempts?.at(-1);
     // The coordinator validates task.revision against the live checkout fingerprint.
@@ -353,6 +373,7 @@ export class Workflow extends WorkflowPlan {
     this.form.root.set_value(task.root ?? "");
     this.form.criteria.set_value(`${task.criteria ?? ""}\nRequested changes: ${this.form.decision.value().trim()}`);
     this.form.checks.set_value(JSON.stringify(task.checks ?? []));
+    this.checkPreset = task.checks?.length ? "custom" : "none";
     this.form.maxRounds.set_value(String(task.maxRounds ?? 2));
     this.form.maxMinutes.set_value(String(task.maxMinutes ?? 20));
     this.executor = task.executor?.address ?? ""; this.reviewer = task.reviewer?.address ?? "";
@@ -368,6 +389,7 @@ export class Workflow extends WorkflowPlan {
     this.form.root.set_value(task.root ?? "");
     this.form.criteria.set_value([task.criteria, findings ? `Latest reviewer findings: ${findings}` : "Latest reviewer findings: none recorded."].filter(Boolean).join("\n\n"));
     this.form.checks.set_value(JSON.stringify(task.checks ?? []));
+    this.checkPreset = task.checks?.length ? "custom" : "none";
     this.form.maxRounds.set_value(String(task.maxRounds ?? 2));
     this.form.maxMinutes.set_value(String(task.maxMinutes ?? 20));
     this.executor = task.executor?.address ?? ""; this.reviewer = task.reviewer?.address ?? "";
@@ -469,11 +491,6 @@ export class Workflow extends WorkflowPlan {
       .when(followUpAvailable, (el) => el
         .child(button(t, "workflow-prepare-follow-up", "Prepare follow-up", (context) => this.prepareBlockedFollowUp(task, context),
           { kind: "solid", tip: "Prefill a new task with current findings and bounded settings; nothing is sent until you create and start it" })))
-      .child(h_flex().gap(5)
-        .child(button(t, "workflow-inspect-result", followUpAvailable ? "Review findings" : "Review result", (context) => { this.tab = "Changes"; this.h.focus(); context.notify(); },
-          { size: "lg", tip: "2: inspect the diff, recorded checks and full agent reports before deciding" }))
-        .child(button(t, "workflow-inspect-evidence", "Open evidence", (context) => { this.tab = "Evidence"; this.h.focus(); context.notify(); },
-          { tip: "3: inspect attached screenshots, videos and reports" })))
       .children([this.decisions(t, task), this.uncertainAttempt(t, task)].filter(Boolean))
       .when(!["needs_you", "accepted", "cancelled"].includes(task.state), (el) => el.child(this.taskActions(t, task, cx)))
       .child(button(t, "workflow-details-toggle", details ? "Hide task details" : "Task details", (context) => {
@@ -483,8 +500,7 @@ export class Workflow extends WorkflowPlan {
         .child(div().font_semibold().child(task.title))
         .child(row(t, task.criteria || "No acceptance criteria recorded"))
         .child(row(t, `Executor: ${task.executor?.label ?? task.executor?.address ?? "Unknown"} · Reviewer: ${task.reviewer?.label ?? task.reviewer?.address ?? "Unknown"}`))
-        .child(row(t, `Rounds ${task.round ?? 0}/${task.maxRounds ?? 2} · time limit ${task.maxMinutes ?? 20} minutes · spend unavailable`))
-        .child(button(t, "workflow-details-tools", "Open tools", (context) => this.openTools(context), { tip: "T: skills, sessions, messages and task controls" }))));
+        .child(row(t, `Rounds ${task.round ?? 0}/${task.maxRounds ?? 2} · time limit ${task.maxMinutes ?? 20} minutes · spend unavailable`))));
   }
 
   activity(t, task) {
@@ -706,7 +722,6 @@ export class Workflow extends WorkflowPlan {
         .children(active.slice(0, 4).map((task) => row(t, `${task.title} · ${task.paused ? "Paused" : taskState(task.state)}`)))
         .child(button(t, "workflow-view-active", "View ongoing work", (cx) => this.selectFilter("In progress", cx), { tip: "Inspect progress without starting anything" })))
       .when(Boolean(this.goal?.steps?.some((step) => step.state !== "done")), (el) => el.child(button(t, "workflow-continue-goal", "Continue goal plan", (cx) => this.openPlan(cx), { kind: "solid", tip: "Review remaining outcomes and prepare their execution together" })))
-      .child(button(t, "workflow-back-goal", "Back to goal", () => closeOverlay(props()?.overlay), { kind: this.goal?.steps?.some((step) => step.state !== "done") ? "outline" : "solid", tip: "Return to Inbox; your acceptance is already saved" }))
       .when(history.length > 0, (el) => el.child(button(t, "workflow-view-history", "View accepted results & history", (cx) => this.selectFilter("Completed", cx), { tip: "Inspect previous results without changing their decisions" })))
       .child(row(t, "Goal criteria and GitHub reviews remain available in Inbox."));
   }
@@ -721,7 +736,7 @@ export class Workflow extends WorkflowPlan {
         : this.tab === "Evidence" ? this.evidence(t, task)
           : this.overview(t, task)
       : this.emptyQueue(t);
-    return v_flex().id("workflow-dialog").role("dialog").accessibility_label("Goal workflow").track_focus(this.h)
+    return v_flex().id("workflow-dialog").role("dialog").accessibility_label("Mission control").track_focus(this.h)
       .on_mouse_down("left", (_event, cx) => cx.stop_propagation())
       .on_key_down((event, cx) => {
         if (event.key === "escape") {
@@ -764,7 +779,7 @@ export class Workflow extends WorkflowPlan {
       .child(h_flex().items_start().h_full().flex_1().min_h(0).min_w(0).gap(20).child(this.taskList(t))
         .child(v_flex().flex_1().h_full().min_h(0).min_w(0).gap(16)
           .when(Boolean(task) && !["Plan", "Preferences", "Tools"].includes(this.tab), (el) => el.child(h_flex().gap(6).children(TABS.slice(0, 4).map((tab, index) => button(t,
-            `workflow-tab-${tab}`, tab === "Overview" ? (task.state === "needs_you" ? "Decision" : "Summary") : tab === "Changes" ? "Result" : tab,
+            `workflow-tab-${tab}`, tab === "Overview" ? (task.state === "needs_you" ? "Decision" : "Summary") : tab === "Changes" ? (["blocked", "failed"].includes(task.state) ? "Findings" : "Result") : tab,
             (cx) => { this.tab = tab; this.h.focus(); cx.notify(); }, { size: "sm", selected: this.tab === tab, tip: `${index + 1}: open ${tab.toLowerCase()}` })
             .when(this.tab === tab, (item) => item.border_color(t.accent).text_color(t.accent))))))
           .child(v_flex().id(`workflow-panel-${this.tab}-${this.selected ?? "queue"}`).flex_1().w_full().min_h(0).min_w(0).overflow_y_scrollbar().gap(10)

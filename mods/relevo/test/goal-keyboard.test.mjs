@@ -2,7 +2,7 @@ import './fake/register.mjs';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { fake, resetFake } from './fake/herdr.mjs';
-import { fakeCx, flush, find, click } from './fake/ui.mjs';
+import { fakeCx, flush, find, click, text } from './fake/ui.mjs';
 const { Inbox } = await import('../inbox.js');
 const { GoalEditor } = await import('../goals-editor.js');
 const { AccountMenu } = await import('../account-menu.js');
@@ -62,8 +62,12 @@ test('folds and skill launchers are native keyboard controls', async () => {
 test('editor sections retain all edits; long text wraps; Command-S saves without executing work', async () => {
   const e = new GoalEditor(), cx = fakeCx(); e.init({}, cx); await flush();
   e.fields.title.set_value('Keyboard review'); e.fields.criteria.set_value('All controls work without a pointer.');
-  let tree = e.render(); assert.equal(find(tree, 'goal-field-decision').kind, 'textarea');
+  let tree = e.render(); assert.equal(find(tree, 'goal-field-title').kind, 'input');
+  assert.equal(find(tree, 'goal-field-criteria').kind, 'textarea');
+  assert.equal(find(tree, 'goal-field-decision'), null);
   assert.equal(find(tree, 'goal-field-owner'), null);
+  click(find(tree, 'goal-review-notes-toggle'), cx); tree = e.render();
+  assert.equal(find(tree, 'goal-field-decision').kind, 'textarea');
   click(find(tree, 'goal-panel-ownership'), cx); e.fields.owner.set_value('Johnny');
   tree = e.render(); assert.equal(find(tree, 'goal-field-owner').accessibleLabel, 'Human owner');
   assert.equal(find(tree, 'goal-field-group-owner').accessibleLabel, 'Human owner');
@@ -71,6 +75,41 @@ test('editor sections retain all edits; long text wraps; Command-S saves without
   const saved = (await readGoals()).doc.goals[0];
   assert.equal(saved.owner, 'Johnny'); assert.equal(saved.criteria, 'All controls work without a pointer.');
   assert.deepEqual(fake.execs, []); assert.ok(fake.files[goalsPath()]); e.close();
+});
+
+test('new mission leads with its title and acceptance criteria while saved decisions remain editable', async () => {
+  const fresh = new GoalEditor(), freshCx = fakeCx(); fresh.init({}, freshCx); await flush();
+  let tree = fresh.render();
+  assert.match(text(tree), /Brief/); assert.match(text(tree), /Outcomes/);
+  assert.ok(find(tree, 'goal-field-title')); assert.ok(find(tree, 'goal-field-criteria'));
+  assert.equal(find(tree, 'goal-field-decision'), null); assert.equal(find(tree, 'goal-field-recommendation'), null);
+  assert.equal(find(tree, 'goal-resolve-decision'), null); assert.equal(find(tree, 'goal-review-steps'), null);
+  fresh.close();
+
+  const existing = { ...newGoal('g-saved', 'Saved mission'), decision: 'Accept the current result?',
+    recommendation: 'Keep the change focused.', criteria: 'Search returns matching items.' };
+  fake.files[goalsPath()] = JSON.stringify(saveGoal(emptyGoals(), existing, 0));
+  fake.props = { goalId: existing.id, panel: 'decision', overlay: 'goal-editor' };
+  const e = new GoalEditor(), cx = fakeCx(); e.init({}, cx); await flush();
+  tree = e.render();
+  assert.ok(find(tree, 'goal-field-decision')); assert.ok(find(tree, 'goal-field-recommendation'));
+  e.fields.decision.set_value('Accept after checking the empty state.');
+  e.save(cx); await flush();
+  const saved = (await readGoals()).doc.goals[0];
+  assert.equal(saved.decision, 'Accept after checking the empty state.');
+  assert.equal(saved.recommendation, 'Keep the change focused.');
+  assert.equal(saved.criteria, 'Search returns matching items.');
+  e.close();
+});
+
+test('validation of a folded decision opens the notes panel before focusing the field', async () => {
+  const e = new GoalEditor(), cx = fakeCx(); e.init({}, cx); await flush();
+  e.fields.title.set_value('A mission'); e.fields.decision.set_value('x'.repeat(2001));
+  let focused = 0; e.fields.decision.focus = () => { focused++; };
+  e.save(cx);
+  assert.equal(e.panel, 'decision'); assert.equal(e.reviewNotesOpen, true);
+  assert.ok(find(e.render(), 'goal-field-decision'));
+  cx.timers.at(-1).fn(cx); assert.equal(focused, 1); assert.deepEqual(fake.execs, []); e.close();
 });
 
 test('account picker preserves native selection and rejects duplicate skill launches', async () => {
@@ -96,7 +135,8 @@ test('goal editor distinguishes loading from saving and locks fields until data 
   resolveRead(null); await flush(); tree = e.render();
   assert.equal(find(tree, 'goal-save').items[0], 'Save');
   assert.equal(find(tree, 'goal-field-title').isDisabled, false);
-  assert.ok(find(tree, 'goal-field-decision'));
+  assert.equal(find(tree, 'goal-field-criteria').kind, 'textarea');
+  assert.equal(find(tree, 'goal-field-decision'), null);
   assert.equal(find(tree, 'goal-loading'), null);
   e.close();
 });

@@ -24,6 +24,48 @@ test('create validates two connected agents and sends the explicit task contract
   v.create(cx); await flush(); assert.equal(fake.execs.length, 1); assert.equal(v.error, null); assert.equal(v.selected, 'created-task'); assert.equal(v.form.title.value(), ''); v.close();
 });
 
+test('agent setup searches the selected repository and prevents choosing one agent for both roles', async () => {
+  const { v, cx } = await setup();
+  fake.agents = [
+    { ...agent('builder', 'Build session'), cwd: '/work/app' },
+    { ...agent('reviewer', 'Independent review'), cwd: '/work/app' },
+    { ...agent('foreign', 'Other project'), cwd: '/work/elsewhere' },
+  ];
+  v.taskSetupOpen = true; v.form.root.set_value('/work/app'); v.executor = 'builder';
+  let tree = v.render();
+  assert.equal(find(tree, 'workflow-reviewer-builder').isDisabled, true);
+  assert.equal(find(tree, 'workflow-reviewer-foreign'), null);
+  v.form.reviewerSearch.type('independent', cx);
+  tree = v.render();
+  assert.ok(find(tree, 'workflow-reviewer-reviewer'));
+  assert.equal(find(tree, 'workflow-reviewer-builder'), null);
+  click(find(tree, 'workflow-reviewer-reviewer'), cx);
+  assert.equal(v.reviewer, 'reviewer');
+  v.form.root.type('/work/elsewhere', cx);
+  assert.equal(v.executor, ''); assert.equal(v.reviewer, '');
+  assert.equal(fake.execs.length, 0, 'selecting and searching never dispatches work');
+  v.close();
+});
+
+test('task check presets send explicit argv and preserve custom JSON while switching presets', async () => {
+  const { v, cx } = await setup(); fake.agents = [agent('agent:one', 'One'), agent('agent:two', 'Two')];
+  v.form.title.set_value('Add coverage'); v.form.root.set_value('/work/app'); v.form.criteria.set_value('Coverage works'); v.executor = 'agent:one'; v.reviewer = 'agent:two';
+  const sent = [];
+  fake.exec = async (_cmd, args) => { sent.push(JSON.parse(args.at(-1)).task.checks); return { stdout: '{"doc":{},"result":{"taskId":"created"}}' }; };
+  v.checkPreset = 'npm-test'; v.create(cx); await flush();
+  assert.deepEqual(sent.at(-1), [['npm', 'test']]);
+  v.close();
+  const next = await setup(); const w = next.v;
+  fake.agents = [agent('agent:one', 'One'), agent('agent:two', 'Two')];
+  w.form.title.set_value('Custom task'); w.form.root.set_value('/work/app'); w.form.criteria.set_value('Coverage works'); w.executor = 'agent:one'; w.reviewer = 'agent:two';
+  w.checkPreset = 'custom'; w.form.checks.set_value('[["pnpm","lint"],["pnpm","test"]]');
+  w.checkPreset = 'none'; assert.equal(w.form.checks.value(), '[["pnpm","lint"],["pnpm","test"]]');
+  w.checkPreset = 'custom';
+  w.create(next.cx); await flush();
+  assert.deepEqual(sent.at(-1), [['pnpm', 'lint'], ['pnpm', 'test']]);
+  w.close();
+});
+
 test('keeps validation and command failures visible and closed views ignore late errors', async () => {
   const { v, cx } = await setup(); v.create(cx); assert.match(v.error, /two different connected agents/);
   fake.agents = [agent('a', 'A'), agent('b', 'B')]; v.form.title.set_value('T'); v.form.root.set_value('/repo'); v.form.criteria.set_value('Expected outcome'); v.executor = 'a'; v.reviewer = 'b'; fake.exec = async () => ({ code: 1, stderr: 'offline' });
@@ -84,7 +126,7 @@ test('exhausted blocked work offers a review and a follow-up draft without retry
   assert.equal(find(tree, 'workflow-action-resume'), null);
   assert.ok(find(tree, 'workflow-prepare-follow-up'));
   assert.equal(find(tree, 'workflow-review-findings'), null, 'findings use the existing result navigation action');
-  assert.equal((text(tree).match(/Review findings/g) ?? []).length, 1);
+  assert.equal((text(tree).match(/Findings/g) ?? []).length, 1);
   assert.ok(!text(tree).includes('Added search behavior.'), 'executor success does not obscure blocked reviewer findings on the overview');
   assert.match(text(tree), /Changes requested/);
   assert.match(text(tree), /Latest finding: preserve the query/);
@@ -162,16 +204,18 @@ test('the first screen explains the decision and keeps sessions and messaging se
   v.selected = 'result'; let tree = v.render();
   assert.match(text(tree), /READY FOR YOUR REVIEW/); assert.match(text(tree), /Search implemented/);
   assert.match(text(tree), /CHECKS 1\/1 passed/);
-  assert.ok(find(tree, 'workflow-decide-accept')); assert.ok(find(tree, 'workflow-inspect-result'));
+  assert.ok(find(tree, 'workflow-decide-accept')); assert.ok(find(tree, 'workflow-tab-Changes'));
+  assert.equal(find(tree, 'workflow-inspect-result'), null); assert.equal(find(tree, 'workflow-inspect-evidence'), null);
+  assert.ok(find(tree, 'workflow-tab-Evidence'));
   assert.equal(find(tree, 'workflow-message'), null); assert.equal(find(tree, 'workflow-focus-executor'), null);
   assert.equal(find(tree, 'workflow-decision'), null);
   click(find(tree, 'workflow-details-toggle'), cx); tree = v.render();
   assert.equal(find(tree, 'workflow-message'), null);
-  click(find(tree, 'workflow-details-tools'), cx); tree = v.render();
+  click(find(tree, 'workflow-task-tools'), cx); tree = v.render();
   assert.ok(find(tree, 'workflow-tool-executor'));
   click(find(tree, 'workflow-tool-message'), cx); assert.ok(find(v.render(), 'workflow-message'));
   click(find(v.render(), 'workflow-tools-back'), cx); tree = v.render();
-  click(find(tree, 'workflow-inspect-result'), cx); assert.equal(v.tab, 'Changes');
+  click(find(tree, 'workflow-tab-Changes'), cx); assert.equal(v.tab, 'Changes');
   assert.ok(find(v.render(), 'workflow-decide-accept'), 'decision remains reachable after reading reports');
   assert.equal(fake.execs.length, 0); v.close();
 });
@@ -249,7 +293,7 @@ test('compact review preserves full context on demand without dispatching or imp
   click(find(tree, 'workflow-tools-toggle'), cx); tree = v.render();
   assert.ok(find(tree, 'workflow-engine-stop')); assert.ok(find(tree, 'workflow-tab-Preferences'));
   click(find(tree, 'workflow-details-toggle'), cx); assert.ok(text(v.render()).includes(title));
-  click(find(v.render(), 'workflow-inspect-result'), cx); assert.ok(text(v.render()).includes(reviewerSummary));
+  click(find(v.render(), 'workflow-tab-Changes'), cx); assert.ok(text(v.render()).includes(reviewerSummary));
   assert.equal(fake.execs.length, 0); v.close();
 });
 
@@ -296,7 +340,7 @@ test('task creation discloses setup only when needed and keeps the draft through
   assert.ok(find(v.render(), 'workflow-root')); assert.equal(v.form.title.value(), 'Add search');
   assert.equal(fake.execs.length, 0);
   fake.agents = [agent('a', 'A'), agent('b', 'B')];
-  v.form.root.set_value('/work'); v.executor = 'a'; v.reviewer = 'b'; v.form.checks.set_value('invalid json');
+  v.form.root.set_value('/work'); v.executor = 'a'; v.reviewer = 'b'; v.checkPreset = 'custom'; v.form.checks.set_value('invalid json');
   v.create(cx); assert.ok(find(v.render(), 'workflow-checks'));
   assert.equal(v.form.criteria.value(), 'Find matching items'); assert.equal(fake.execs.length, 0); v.close();
 });

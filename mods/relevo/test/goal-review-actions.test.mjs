@@ -11,6 +11,7 @@ beforeEach(resetFake);
 async function editor() {
   fake.props = { panel: 'plan' }; const v = new GoalEditor(), cx = fakeCx(); v.init({}, cx); await flush();
   v.fields.title.set_value('Synthetic goal'); v.fields.decision.set_value('Accept the result?');
+  v.reviewNotesOpen = true;
   v.goal.decisions = [{ text: 'Existing reasoning', at: '2026-01-01T00:00:00.000Z', revisions: [] }];
   v.steps = ['review', 'todo', 'done'].map((state, i) => ({ id: `s${i}`, state, input: InputState.new({ value: `Outcome ${i}` }) }));
   return { v, cx };
@@ -41,7 +42,7 @@ test('direct plan entry and bulk validation remain a draft until Save', async ()
 test('resolve, validate and finish preserves prior notes and records the resolved question', async () => {
   const { v, cx } = await editor(); click(find(v.render(), 'goal-validate-all'), cx);
   click(find(v.render(), 'goal-plan-decision'), cx); v.response.set_value('Reviewed the result');
-  click(find(v.render(), 'goal-resolve-decision'), cx); click(find(v.render(), 'goal-review-steps'), cx);
+  click(find(v.render(), 'goal-resolve-decision'), cx); click(find(v.render(), 'goal-panel-plan'), cx);
   assert.equal(find(v.render(), 'goal-finish').isDisabled, false); click(find(v.render(), 'goal-finish'), cx); await flush();
   const saved = (await readGoals()).doc.goals[0]; assert.equal(saved.state, 'completed'); assert.equal(saved.decision, '');
   assert.equal(saved.decisions[0].text, 'Existing reasoning'); assert.equal(saved.decisions[1].text, 'Accept the result?');

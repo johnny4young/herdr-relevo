@@ -1,6 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptanceEffect, queueSummary } from '../lib/workflow-navigation.js';
+import { acceptanceEffect, queueSummary, workflowItems } from '../lib/workflow-navigation.js';
+import { missionNextAction } from '../lib/goal-workflow.js';
+
+test('ready decisions appear before historical blockers without hiding or mutating either', () => {
+  const tasks = [
+    { id: 'blocked', goalId: 'g', state: 'blocked', title: 'Earlier blocked attempt' },
+    { id: 'review', goalId: 'g', state: 'needs_you', title: 'Current result' },
+    { id: 'failed', goalId: 'g', state: 'failed', title: 'Another blocker' },
+    { id: 'review2', goalId: 'g', state: 'needs_you', title: 'Second result' },
+  ];
+  assert.deepEqual(workflowItems(tasks, 'Needs you').map(task => task.id), ['review', 'review2', 'blocked', 'failed']);
+  assert.equal(missionNextAction({ id: 'g' }, tasks, { enabled: true }).detail, 'Current result');
+  assert.deepEqual(tasks.map(task => task.id), ['blocked', 'review', 'failed', 'review2']);
+});
 
 test('acceptance previews real continuation and never promises to resume paused or unstarted work', () => {
   const parent = { id: 'p', state: 'needs_you' }, next = { id: 'n', state: 'ready', dependsOn: ['p'], paused: false };

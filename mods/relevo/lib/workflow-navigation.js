@@ -2,7 +2,11 @@
 export const workflowBucket = (task) => ["needs_you", "blocked", "failed"].includes(task.state) ? "Needs you"
   : ["accepted", "cancelled"].includes(task.state) ? "Completed" : "In progress";
 
-export const workflowItems = (tasks, bucket) => tasks.filter((task) => workflowBucket(task) === bucket);
+export const workflowItems = (tasks, bucket) => {
+  const items = tasks.filter((task) => workflowBucket(task) === bucket);
+  // Ready decisions stay reachable even when an older failed attempt needs recovery.
+  return bucket === "Needs you" ? items.sort((a, b) => Number(b.state === "needs_you") - Number(a.state === "needs_you")) : items;
+};
 
 export function acceptanceEffect(task, tasks, engine) {
   const next = tasks.filter((item) => item.dependsOn?.includes(task.id) && !["accepted", "cancelled"].includes(item.state));

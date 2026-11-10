@@ -1,6 +1,6 @@
 # PR #40: goal and continuation guide
 
-Updated 2026-11-10. Read this first when continuing [PR #40](https://github.com/johnny4young/herdr-relevo/pull/40), then inspect the actual checkout, PR head and local runtime state. Runtime baseline at this handoff: `16bff6e3efaf6f0837b91857c45a8dcb8ec6adeb`. Later documentation commits also change the checkout fingerprint; old evidence must not silently become evidence for a new revision.
+Read this first when continuing [PR #40](https://github.com/johnny4young/herdr-relevo/pull/40), then inspect the actual checkout, current PR head and local runtime state. Every code or documentation commit changes the checkout fingerprint; old evidence must not silently become evidence for a new revision.
 
 ## Product goal
 
@@ -11,6 +11,7 @@ Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, dr
 ## Working agreements
 
 - Continue in branch `feat/review-command-center` and the same draft PR. No merge or release is authorized by this handoff.
+- Work through implementation, integration, bug fixes and validation continuously. Intermediate milestones are internal checks; present the integrated PR for one complete human review instead of asking the user to approve each iteration.
 - Keep public research, design rationale, generic code and regression tests in the PR. Keep local project/session names, captures, reports, workflow state and exercise results outside Git and PR text.
 - Inspect existing worktrees and instructions before editing. Do not assume an older preview checkout is authoritative or overwrite unrelated work.
 - Preserve the original pre-PR version as a rollback destination, not only the preceding iteration. Never reset accounts, keys, layouts, sessions or goal records to install a mod.
@@ -22,13 +23,13 @@ Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, dr
 
 | Area | Implemented in this branch | Still needs work or explicit acceptance |
 | --- | --- | --- |
-| One Inbox | Classic/Goals, focus/All work, linked PR/local work and existing actions | Validate everyday comprehension and density across real use. |
+| One Inbox | Reviews/Missions, focus/All missions, linked PR/local work and existing actions | Keep everyday comprehension and density part of native validation. |
 | Goal progress | Owner, priority, optional lead, criteria, manual steps, workflow-derived outcomes | Goal closure remains human; assigning a lead does not create a chief of staff. |
 | Coordination | Durable local `hc` executor → checks → independent reviewer → human flow; bounded corrections | Automatic decomposition, global orchestration and remote checkout execution are out of scope. |
 | Continuation | Acceptance advances the queue and releases already-started eligible dependents | Never start a planned task or override a stop merely because an earlier result was accepted. |
 | Controls/recovery | Pause/resume/stop/cancel, attempt correlation, uncertain-send reconciliation, revision checks | Fresh independent validation of the latest pause/stop fixes is the next engineering step. |
 | Review | Existing diff; explicit comment Save/Cancel/Delete; selected/all viewed controls; separate checkpoint | Verify keyboard/focus behavior through the native app, not only render tests. |
-| Tools and skills | Searchable Tools, recipient/command preview, explicit Queue skill, task-specific message drafts | Searchable repository/agent pickers are a useful next refinement; no automatic provider switching. |
+| Tools and skills | Searchable Tools and agent pickers, recipient/command preview, explicit Queue skill, task-specific message drafts | No automatic provider switching or model selection. |
 | Activity | Actual assignment, delivery and report provenance; expandable prompts/logs | Do not call model routing or external-chat coordination autonomous agent delegation. |
 | Evidence | Revision-bound local artifacts with hashes and quota; PR evidence references | Automatic screenshot/video production and richer archival are not implemented. |
 | Preferences/input | Pending scoped preference proposals, explicit acceptance, editable system dictation, decision batches | No built-in speech capture; reduced corrections must be measured, not asserted. |

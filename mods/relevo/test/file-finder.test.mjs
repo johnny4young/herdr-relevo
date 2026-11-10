@@ -42,6 +42,8 @@ test('finder loads NUL-delimited paths, removes duplicates and opens the selecte
   const finder = new FileFinder(), cx = fakeCx(); finder.init({}, cx); await flush();
   const tree = finder.render();
   assert.match(text(find(tree, 'find-file-status')), /2 files/);
+  assert.equal(find(tree, 'find-file-input').accessibleLabel, 'Find a file by name or path');
+  assert.equal(find(tree, 'ff-src/hello world.js').accessibleLabel, 'src/hello world.js');
   assert.ok(find(tree, 'ff-src/hello world.js'));
   finder.open('src/hello world.js');
   assert.deepEqual(fake.closedOverlays, ['finder-overlay']);

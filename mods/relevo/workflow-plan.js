@@ -39,7 +39,8 @@ export class WorkflowPlan {
     }
     let checks;
     try {
-      checks = this.form.checks.value().trim() ? JSON.parse(this.form.checks.value()) : [];
+      checks = this.checkPreset === "npm-test" ? [["npm", "test"]]
+        : this.checkPreset === "custom" ? (this.form.checks.value().trim() ? JSON.parse(this.form.checks.value()) : []) : [];
       if (!Array.isArray(checks) || checks.some((args) => !Array.isArray(args) || !args.length || args.some((arg) => typeof arg !== "string"))) throw Error();
     } catch { this.planMoreOpen = true; this.planConfigOpen = true; this.error = 'Checks must be JSON argv lists, such as [["npm","test"]].'; cx.notify(); return; }
     const payload = { action: "create-plan", goalId: goal.id, goalVersion: goal.version,
@@ -78,7 +79,7 @@ export class WorkflowPlan {
         const cancelled = tasks.some((task) => task.state === "cancelled");
         const first = tasks[0];
         const accepted = tasks.filter((task) => task.state === "accepted").length;
-        const needsYou = tasks.find((task) => ["needs_you", "blocked", "failed"].includes(task.state));
+        const needsYou = tasks.find((task) => task.state === "needs_you") ?? tasks.find((task) => ["blocked", "failed"].includes(task.state));
         const pausedTask = tasks.find((task) => task.paused && task.state !== "accepted");
         const cancelledTask = tasks.find((task) => task.state === "cancelled");
         const next = tasks.find((task) => !terminal(task));
@@ -98,7 +99,7 @@ export class WorkflowPlan {
           .child(div().font_semibold().child(`${accepted}/${tasks.length} tasks accepted`))
           .child(row(t, nextAction))
           .when(Boolean(needsYou), (el) => el.child(button(t, `workflow-plan-next-${plan.id}`, needsYou.state === "needs_you" ? "Review result" : "Resolve issue", (cx) => openTask(needsYou, cx), { tip: "Open this task in Workflow without dispatching work" })))
-          .when(!needsYou && Boolean(next) && !cancelledTask, (el) => el.child(button(t, `workflow-plan-next-${plan.id}`, "View progress", (cx) => openTask(next, cx), { tip: "Open this task's progress in Workflow without dispatching work" })))
+          .when(plan.state !== "planned" && !needsYou && Boolean(next) && !cancelledTask, (el) => el.child(button(t, `workflow-plan-next-${plan.id}`, "View progress", (cx) => openTask(next, cx), { tip: "Open this task's progress in Workflow without dispatching work" })))
           .child(button(t, `workflow-plan-details-${plan.id}`, detailsOpen ? "Hide plan details" : "Plan details", (cx) => {
             this.planDetailsOpen ??= {}; this.planDetailsOpen[plan.id] = !detailsOpen; cx.notify();
           }, { accessibleLabel: `${detailsOpen ? "Hide" : "Show"} details for saved plan` }))
@@ -121,6 +122,13 @@ export class WorkflowPlan {
       .when(showBuilder, (el) => el
       .child(div().font_semibold().pt(8).child("Choose outcomes"))
       .child(row(t, "Select the work to include. Existing tasks and validated outcomes are already excluded."))
+      .when(!draftRows.length, (empty) => empty.child(row(t, "This mission has no outcomes. Create a task from its title and criteria, or add outcomes in the mission editor."))
+        .child(button(t, "workflow-plan-create-first-task", this.tasks.length ? "Create task" : "Create first task", (cx) => {
+          this.form.title.set_value(goal.title);
+          this.form.criteria.set_value(goal.criteria ?? "");
+          this.dependsOn = []; this.explicitNew = true; this.selected = null; this.tab = "Overview";
+          this.taskSetupOpen = true; this.h.focus(); cx.notify();
+        }, { disabled: this.busy || stale || !active, tip: "Open the task form with this mission's title and criteria prefilled; nothing starts automatically" })))
       .when(stale, (el) => el.child(row(t, "The goal changed while you were planning. Refresh before saving.")))
       .child(button(t, "workflow-plan-refresh", "Refresh plan selection", (cx) => this.openPlan(cx, true), { disabled: this.busy, tip: "Reload current outcomes and default selection; keep your repository and agent choices" }))
       .children(draftRows.map((item) => {
@@ -159,7 +167,12 @@ export class WorkflowPlan {
           .child(this.agentPicker(t, "reviewer", "Independent reviewer"))
           .child(h_flex().gap(6).child(this.field(t, "maxRounds", "Rounds per task (1–5)"))
             .child(this.field(t, "maxMinutes", "Minutes per round (1–120)")))
-          .child(this.field(t, "checks", "Optional checks JSON"))
+          .child(row(t, "Automated checks run after implementation. Nothing runs until you start the plan."))
+          .children([["none", "No automated checks"], ["npm-test", "npm test"], ["custom", "Custom"]].map(([value, label]) => button(t, `workflow-plan-check-${value}`, label,
+            (cx) => { this.checkPreset = value; cx.notify(); }, { selected: (this.checkPreset ?? "none") === value,
+              tip: value === "custom" ? "Enter custom checks as JSON argv lists" : `Use ${label}` })))
+          .when(this.checkPreset === "custom", (el) => el.child(row(t, 'Advanced: JSON argument lists, for example [["npm","test"]].'))
+            .child(this.field(t, "checks", "Custom checks JSON")))
           .child(row(t, "Limits apply to each task. Saving creates a preview; Start plan is what authorizes agents to begin.")))
         .child(button(t, "workflow-create-plan", "Save plan preview", (cx) => this.createPlan(cx), { kind: "solid", disabled: this.busy || stale || !active || !goal.criteria?.trim(), tip: "Atomically create all selected tasks and their dependencies without running agents" })))
       .when(!active, (el) => el.child(row(t, "This goal is not active. Its history remains available; reopen the goal before planning new work."))));

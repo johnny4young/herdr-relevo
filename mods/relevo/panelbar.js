@@ -192,22 +192,23 @@ export class FileFinder {
   render() {
     const t = theme(), rows = this.shown();
     const matches = this.memo?.query === this.query && this.memo.files === this.files ? this.memo.matches : rows.length;
-    return v_flex().id("find-file-popup").size_full().p(12).gap(8)
+    return v_flex().id("find-file-popup").role("dialog").accessibility_label("Find file").size_full().p(12).gap(8)
       .bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
       .on_key_down((e, cx) => this.key(e, cx))
-      .child(Input.new(this.input).h(32).px(10).items_center().rounded(6).border(1).border_color(t.accent).bg(t.background))
-      .child(h_flex().id("find-file-status").h(20).flex_none().items_center().px(2).text_size(11).text_color(t.dim)
+      .child(Input.new(this.input).id("find-file-input").accessibility_label("Find a file by name or path").h(32).px(10).items_center().rounded(6).border(1).border_color(t.accent).bg(t.background))
+      .child(h_flex().id("find-file-status").role("status").h(20).flex_none().items_center().px(2).text_size(11).text_color(t.dim)
         .child(this.loadState === "loading" ? "Loading files…"
           : this.loadState === "error" ? this.loadError
             : this.query ? `${rows.length} shown · ${matches} matches · ↑↓ move, Enter open, Esc close`
               : `${rows.length} shown · ${this.files.length}${this.files.length === MAX_FILES ? "+" : ""} files · ↑↓ move, Enter open, Esc close`))
-      .child(v_flex().id("find-file-list").h(320).flex_none().overflow_y_scrollbar()
+      .child(v_flex().id("find-file-list").role("list_box").accessibility_label("Matching files").h(320).flex_none().overflow_y_scrollbar()
         .when(this.loadState === "error", (el) => el.child(div().p(8).text_color(t.ansi1).child(this.loadError)))
         .when(this.loadState === "ready" && !this.files.length, (el) => el.child(div().p(8).text_color(t.dim).child("No files found in this repository")))
         .when(this.loadState === "ready" && this.files.length > 0 && !rows.length, (el) => el.child(div().p(8).text_color(t.dim).child("No matching files")))
         .children(rows.map((f, i) => {
           const cut = f.lastIndexOf("/") + 1;
-          return h_flex().id(`ff-${f}`).h(28).px(8).gap(8).flex_none().items_center().rounded(6).cursor_pointer()
+          return h_flex().id(`ff-${f}`).role("list_box_option").accessibility_label(f).aria_selected(i === this.at)
+            .h(28).px(8).gap(8).flex_none().items_center().rounded(6).cursor_pointer()
             .when(i === this.at, (el) => el.bg(t.selected))
             .when(i !== this.at, (el) => el.hover((s) => s.bg(t.hover)))
             .on_click(() => this.open(f))

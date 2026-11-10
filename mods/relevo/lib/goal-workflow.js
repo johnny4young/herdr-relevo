@@ -18,7 +18,7 @@ export function scopeGoals(projection, id) {
 export function missionNextAction(goal, tasks, engine, error, reviewCount = 0) {
   const current = tasks.filter((task) => task.goalId === goal.id && !['accepted', 'cancelled'].includes(task.state));
   if (error) return { status: 'Status unavailable', detail: 'Open mission control to reload task status.', label: 'Open mission', action: 'workflow', attention: true };
-  const attention = current.find((task) => ['needs_you', 'blocked', 'failed'].includes(task.state));
+  const attention = current.find((task) => task.state === 'needs_you') ?? current.find((task) => ['blocked', 'failed'].includes(task.state));
   if (attention) return { status: attention.state === 'needs_you' ? 'Ready for your review' : 'Needs attention', detail: attention.title,
     label: attention.state === 'needs_you' ? 'Review result' : 'Resolve blocker', action: 'workflow', attention: true };
   if (current.length) {

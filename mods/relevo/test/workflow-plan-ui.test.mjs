@@ -50,6 +50,47 @@ test('plan creation sends one ordered snapshot and stable retries without launch
   v.close();
 });
 
+test('plan checks use a simple preset and reveal JSON only for custom checks', async () => {
+  const { v, cx } = await setup(); configure(v); v.planConfigOpen = true;
+  v.planStepIds = ['a'];
+  v.checkPreset = "custom"; v.form.checks.set_value('[["git","status"]]');
+  let tree = v.render();
+  assert.ok(find(tree, 'workflow-plan-check-none'));
+  assert.ok(find(tree, 'workflow-plan-check-npm-test'));
+  assert.ok(find(tree, 'workflow-checks'));
+  click(find(tree, 'workflow-plan-check-npm-test'), cx);
+  const payloads = [];
+  fake.exec = async (_cmd, args) => { payloads.push(JSON.parse(args.at(-1))); return { code: 1, stdout: '{"error":"transport interrupted"}' }; };
+  v.createPlan(cx); await flush();
+  assert.deepEqual(payloads[0].checks, [['npm', 'test']]);
+  click(find(v.render(), 'workflow-plan-check-none'), cx);
+  v.createPlan(cx); await flush();
+  assert.deepEqual(payloads[1].checks, []);
+  click(find(v.render(), 'workflow-plan-check-custom'), cx);
+  tree = v.render();
+  assert.ok(find(tree, 'workflow-checks'));
+  v.createPlan(cx); await flush();
+  assert.deepEqual(payloads[2].checks, [['git', 'status']]);
+  v.close();
+});
+
+test('a mission without outcomes can open one prefilled task without dispatching', async () => {
+  const { v, cx } = await setup();
+  v.goal = { ...v.goal, steps: [] }; v.planDraftGoal = v.goal; v.planStepIds = [];
+  let tree = v.render();
+  assert.match(text(tree), /This mission has no outcomes/);
+  click(find(tree, 'workflow-plan-create-first-task'), cx);
+  tree = v.render();
+  assert.equal(v.tab, 'Overview');
+  assert.equal(v.explicitNew, true);
+  assert.equal(v.form.title.value(), v.goal.title);
+  assert.equal(v.form.criteria.value(), v.goal.criteria);
+  assert.equal(v.taskSetupOpen, true);
+  assert.ok(find(tree, 'workflow-create'));
+  assert.equal(fake.execs.length, 0);
+  v.close();
+});
+
 test('polling retains a plan draft and rejects a changed goal until explicit refresh', async () => {
   const { v, cx } = await setup(); configure(v); v.planStepIds = ['b'];
   const doc = JSON.parse(fake.files[goalFile]); doc.goals[0].version++; doc.goals[0].steps[1].title = 'Verify recovery states';
@@ -84,7 +125,7 @@ test('a saved plan starts once and paused drafts require explicit resume', async
   assert.ok(find(tree, 'workflow-plan-details-p'));
   assert.doesNotMatch(text(tree), /Repository:/); // setup detail stays folded by default
   v.selected = 'a'; v.tab = 'Overview'; assert.equal(find(v.render(), 'workflow-action-start'), null);
-  click(find(v.render(), 'workflow-action-plan'), cx);
+  click(find(v.render(), 'workflow-goal-plan'), cx);
   tree = v.render();
   assert.equal(find(tree, 'workflow-plan-select-a'), null);
   click(find(tree, 'workflow-plan-more'), cx);
