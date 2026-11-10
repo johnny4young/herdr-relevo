@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { agents, props, theme, openOverlay, closeOverlay, exec, readTextFile, appHome } from "herdr";
-import { button } from "./ui.js";
+import { button, overlayHeight } from "./ui.js";
 import { newGoal, webLink, GOAL_STATES, STEP_STATES, goalState } from "./lib/goals.js";
 import { readGoals, writeGoal } from "./goals-store.js";
 import { projectGoalPlan } from "./lib/goal-plan.js";
@@ -12,7 +12,8 @@ async function workflowTasks() {
 }
 
 export function openGoal(id = null, source = null, panel = "decision") {
-  openOverlay({ mod: "relevo", kind: "dialog", width: 620, height: id ? 620 : 440,
+  // Keep the native subtree uncached; size the content in render instead.
+  openOverlay({ mod: "relevo", kind: "dialog", width: 620,
     props: { role: "goal-editor", goalId: id, source, panel } });
 }
 const labels = { title: "Mission title", owner: "Human owner", decision: "Pending decision", recommendation: "Saved recommendation", criteria: "Acceptance criteria" };
@@ -219,7 +220,7 @@ export class GoalEditor {
       .on_key_down((e, cx) => {
         if (e.key === "s" && e.modifiers?.platform && !e.modifiers?.alt && !e.modifiers?.control) { cx.stop_propagation(); this.save(cx); }
       })
-      .size_full().min_h(0).p(14).gap(10).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
+      .w_full().h(overlayHeight(p?.goalId ? 620 : 440)).max_h_full().min_h(0).p(14).gap(10).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
       .child(h_flex().gap(8).items_center().child(div().flex_1().font_semibold().child(p?.goalId ? "Mission details" : "New mission"))
         .child(button(t, "goal-cancel", "Close", () => closeOverlay(p?.overlay), { tip: this.busy && !this.loading ? "Close this editor. A save already started may still complete." : "Close without saving these edits" })))
       .child(h_flex().gap(6).children([["decision", "Brief"], ["plan", "Outcomes"], ["ownership", "Ownership"]].map(([panel, label]) =>

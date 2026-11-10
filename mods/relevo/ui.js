@@ -9,6 +9,17 @@ const SIZES = {
   lg: { h: 32, px: 12, text: 13, radius: 6 },
 };
 
+export function overlayHeight(preferred, fraction = 0.85) {
+  if (!Number.isFinite(preferred) || preferred <= 0 || !Number.isFinite(fraction) || fraction <= 0 || fraction > 1) return preferred;
+  try {
+    const height = globalThis.window?.viewport_size?.().height;
+    if (!Number.isFinite(height) || height <= 0) return preferred;
+    return Math.min(preferred, height * fraction);
+  } catch {
+    return preferred;
+  }
+}
+
 // kind: "outline" (default), "solid" or "danger". A disabled button keeps its place and ignores clicks.
 export function button(t, id, label, onClick, { kind = "outline", size = "md", tip = null, disabled = false, selected = false, accessibleLabel = null } = {}) {
   const s = SIZES[size];

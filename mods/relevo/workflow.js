@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { agents, panes, props, theme, openOverlay, closeOverlay, exec, appHome, readTextFile, run } from "herdr";
-import { button } from "./ui.js";
+import { button, overlayHeight } from "./ui.js";
 import { openReview } from "./review.js";
 import { SKILLS as CONFIGURED_SKILLS } from "./config.js";
 import { workflowBucket, workflowItems, acceptanceEffect, queueSummary } from "./lib/workflow-navigation.js";
@@ -11,7 +11,9 @@ import { WorkflowPlan } from "./workflow-plan.js";
 export function openWorkflow(goalId) {
   // Herdr dialogs consume Escape before mod handlers. A keyed window lets
   // Workflow return focus from an input without discarding its draft.
-  openOverlay({ mod: "relevo", kind: "window", key: `relevo-workflow-${goalId}`, width: 0.6, height: 0.88, props: { role: "workflow", goalId } });
+  // Fit content to avoid the host's fixed-height cache path omitting AX nodes.
+  // The rendered root supplies a viewport-bounded height instead.
+  openOverlay({ mod: "relevo", kind: "window", key: `relevo-workflow-${goalId}`, width: 0.6, props: { role: "workflow", goalId } });
 }
 
 const STATES = { planned: "Planned", ready: "Ready", running: "In progress", needs_review: "Needs review", needs_you: "Needs you", accepted: "Completed", completed: "Completed", blocked: "Blocked", failed: "Failed", cancelled: "Cancelled" };
@@ -832,7 +834,7 @@ export class Workflow extends WorkflowPlan {
           if (tasks.length) { this.compactQueueOpen = false; this.explicitNew = false; this.selected = tasks[next].id; this.tab = "Overview"; cx.notify(); }
         }
       })
-      .size_full().min_h(0).p(16).gap(14).bg(t.popover ?? t.surface).text_color(t.foreground)
+      .w_full().h(overlayHeight(720, 0.88)).max_h_full().min_h(0).p(16).gap(14).bg(t.popover ?? t.surface).text_color(t.foreground)
       .child((this.compact ? v_flex().items_start().gap(8) : h_flex().justify_between().items_center()).w_full().min_w(0)
         .child(v_flex().flex_1().min_w(0).gap(3)
           .child(div().font_semibold().child("Mission control"))

@@ -12,6 +12,7 @@ test('opens a native workflow overlay and renders task creation without sending 
   openWorkflow('g'); assert.deepEqual(fake.overlays.at(-1).props, { role: 'workflow', goalId: 'g' });
   assert.equal(fake.overlays.at(-1).kind, 'window', 'host dialogs dismiss on Escape before mod input handlers');
   assert.equal(fake.overlays.at(-1).key, 'relevo-workflow-g', 'opening this goal reuses its workflow window');
+  assert.equal(fake.overlays.at(-1).height, undefined, 'fit-content host path preserves the native accessibility subtree');
   const { v } = await setup(); const tree = v.render();
   assert.match(text(tree), /Create task/); assert.match(text(tree), /After Start/); assert.equal(fake.execs.length, 0);
   assert.ok(find(tree, 'workflow-dialog')); v.close();

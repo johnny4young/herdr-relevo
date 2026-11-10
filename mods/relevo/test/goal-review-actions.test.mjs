@@ -34,6 +34,7 @@ async function editorWithStep(tasks = [], readWorkflow = null) {
 
 test('direct plan entry and bulk validation remain a draft until Save', async () => {
   openGoal('synthetic', null, 'plan'); assert.equal(fake.overlays[0].props.panel, 'plan');
+  assert.equal(fake.overlays[0].height, undefined, 'fit-content host path preserves the native accessibility subtree');
   const { v, cx } = await editor(); assert.equal(v.panel, 'plan');
   click(find(v.render(), 'goal-validate-all'), cx); assert.deepEqual(v.steps.map((s) => s.state), ['done', 'done', 'done']);
   assert.deepEqual(fake.files, {}); assert.equal(find(v.render(), 'goal-finish').isDisabled, true);

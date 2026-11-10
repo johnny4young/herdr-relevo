@@ -33,7 +33,7 @@ Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, dr
 | Activity | Actual assignment, delivery and report provenance; expandable prompts/logs | Do not call model routing or external-chat coordination autonomous agent delegation. |
 | Evidence | Revision-bound local artifacts with hashes and quota; PR evidence references | Automatic screenshot/video production and richer archival are not implemented. |
 | Preferences/input | Pending scoped preference proposals, explicit acceptance, editable system dictation, decision batches | No built-in speech capture; reduced corrections must be measured, not asserted. |
-| Accessibility | Native keyboard controls, visible help/tooltips, focus-aware shortcuts | Full screen-reader acceptance remains open; native overlay accessibility needs further verification. |
+| Accessibility | Native keyboard controls, visible help/tooltips, focus-aware shortcuts; content-sized Mission overlays with viewport-bounded roots avoid the host's fixed-height cache path | Full screen-reader acceptance remains open, including native input names and noninteractive content. |
 | Rollback | Checksummed installer and standalone rollback launcher | Verify the selected backup really restores the original version and preserve later local edits. |
 
 The [research record](workflow-research.md) explains the source ideas and their limits. Do not treat every proposal there as implemented.
