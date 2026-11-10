@@ -204,8 +204,7 @@ export class GoalViews {
     const source = this.goalSources(this.shown()).find((source) => source.key === key);
     if (!source) return null;
     const goal = this.goalDoc?.goals.find((goal) => goal.sources.includes(key));
-    return button(t, `source-link-${key}`, goal ? "Run context" : "Link run", () => openGoal(goal?.id ?? null, source),
-      { size: "sm", tip: "Link this work to a run or edit its context and evidence" });
+    return button(t, `source-link-${key}`, goal ? "Open run" : "Link run", () => openGoal(goal?.id ?? null, source), { size: "sm" });
   }
 
   goalNewButton(t) {
@@ -234,7 +233,7 @@ export class GoalViews {
         .when(!this.narrowInbox, (el) => el.child(div().flex_1()))
         .when(outsideBlockers > 0, (el) => el.child(line(`${outsideBlockers} need attention elsewhere`, t, true)
           .min_w(0).tooltip(`${outsideCount} other items outside this run`)))]
-        : [line("Give agents a task. Follow progress here.", t)]),
+        : []),
       ...(this.goalsError ? [div().text_size(11).text_color(t.blocked).child(this.goalsError)] : []),
       ...groups.filter((g) => !this.hiddenIds.has(`goal-${g.goal.id}`)).map(({ goal, items, urgency }) => {
         const tasks = (this.workflowTasks ?? []).filter((task) => task.goalId === goal.id);
@@ -246,18 +245,17 @@ export class GoalViews {
         const actionLabel = inReviews ? "View in Reviews" : next.label.replace(/\bmission\b/gi, "run");
         return v_flex().id(`goal-${goal.id}`).w_full().min_w(0).p(6).gap(4).rounded(8).bg(t.background).border_1().border_color(this.selected(`goal-${goal.id}`) ? t.accent : urgency === 0 ? t.blocked : t.border)
           .child(h_flex().gap(5).items_center().child(div().flex_1().min_w(0).text_size(13).font_semibold().child(goal.title))
-            .when(!scope, (el) => el.child(button(t, `goal-focus-view-${goal.id}`, "Focus", (cx) => this.focusGoal(goal.id, cx), { size: "sm", tip: "F on this goal: focus its linked work; other blockers remain counted" })))
-            .child(button(t, `goal-edit-${goal.id}`, "Edit", () => openGoal(goal.id), { size: "sm", tip: "Edit plan, ownership or recorded context" })))
+            .child(button(t, `goal-edit-${goal.id}`, "Edit", () => openGoal(goal.id), { size: "sm", tip: "E · F focuses this run" })))
           .child(h_flex().id(`goal-next-row-${goal.id}`).min_w(0).gap(8).p(6).items_center().rounded(6).bg(t.raised)
             .child(v_flex().id(`goal-next-copy-${goal.id}`).flex_1().min_w(0).gap(2)
               .child(div().id(`goal-next-status-${goal.id}`).min_w(0).text_size(11).font_semibold().text_color(["Needs attention", "Status unavailable"].includes(next.status) ? t.blocked : t.accent).truncate().tooltip(status).child(status))
               .child(div().id(`goal-next-detail-${goal.id}`).min_w(0).text_size(13).truncate().tooltip(next.detail).child(next.detail)))
             .child(button(t, next.action === 'review' ? `goal-review-next-${goal.id}` : next.action === 'decision' ? `goal-decision-next-${goal.id}` : `goal-workflow-${goal.id}`, actionLabel, () => this.openMissionAction(goal),
-              { kind: "solid", tip: "Open the next step. This does not send work or accept a result." })))
+              { kind: "solid" })))
           .when(Boolean(progress), (el) => el.child(div().id(`goal-progress-${goal.id}`).text_size(11).text_color(t.muted)
             .child(progress)));
       }),
-      ...(!groups.length ? [line("Start with a prompt. Results will appear in Reviews when ready.", t)] : []),
+      ...(!groups.length ? [line("No runs yet", t)] : []),
     ];
   }
 }

@@ -54,7 +54,7 @@ export function queueSummary(tasks, engine) {
     ? `${accepted} ${accepted === 1 ? "task" : "tasks"} accepted. No further work is scheduled for this goal.` : "No decisions are waiting for you." };
   if (active.every((task) => task.state === "planned")) return { title: "No decisions waiting", detail: `${active.length} ${active.length === 1 ? "task is" : "tasks are"} planned but not started.` };
   if (!engine?.enabled || active.every((task) => task.paused)) return { title: "No decisions waiting", detail: "Work is paused. Your decisions are saved; resume a task when you want to continue." };
-  return { title: "Work continues", detail: "The coordinator will bring the next result here. You can leave this screen." };
+  return { title: "Work continues", detail: "The next result will come back here." };
 }
 
 const VERDICT = { completed: 'review approved', changes_requested: 'changes requested', blocked: 'review blocked' };

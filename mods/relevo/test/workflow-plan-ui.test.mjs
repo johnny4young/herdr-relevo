@@ -235,7 +235,7 @@ test('started plan tasks never ask for another Start and explain acceptance depe
   assert.match(text(v.render()), /Waiting for your acceptance of First result/);
   assert.equal(find(v.render(), 'workflow-action-start'), null);
   v.tasks[0].state = 'accepted';
-  assert.match(text(v.render()), /already started; no further action is needed/);
+  assert.match(text(v.render()), /Queued\. Starts when its agent is free/);
   v.tasks[0].state = 'blocked'; assert.match(text(v.render()), /to be resolved and accepted/);
   v.tasks[0].state = 'cancelled'; assert.match(text(v.render()), /cannot start automatically/);
   v.engine.enabled = false; assert.match(text(v.render()), /cannot start automatically/);

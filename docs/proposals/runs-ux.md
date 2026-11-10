@@ -6,7 +6,7 @@ This document records the implemented simplification for starting and following 
 
 **Reviews** and **Runs** are direct top-level destinations. Runs does not add another Inbox header or nested navigation layer. Starting a run begins with one prompt. The focused repository is suggested, with an explicit change control. Connected executor/reviewer choices are then shown explicitly, with a clear preview before the person creates or starts work. Existing plans remain available behind a detail view instead of competing with the prompt on the first screen. The queue stays compact and shows each run's current action; opening it reveals its details.
 
-**Accounts** keeps status at a glance: an icon, account name and a five-hour usage circle in five-percentage-point segments, with the exact percentage in its tooltip. Clicking an account opens its popup with weekly usage details. Unknown or stale usage is labeled as unknown or stale rather than appearing current.
+**Accounts** keeps status at a glance: an icon and a usage circle in five-percentage-point segments for the account's tightest window, five-hour or weekly, with the value next to it from 80% and the exact reading in its tooltip. Clicking an account opens its popup with weekly usage details. Unknown or stale usage is labeled as unknown or stale rather than appearing current.
 
 Reusable setups are already available for the same mission/repository. Applying one fills the form but preserves the new prompt; it does not start a run, and the repository and connected agents remain reviewable before creation.
 

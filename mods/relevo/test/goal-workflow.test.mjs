@@ -48,7 +48,7 @@ test('review readiness excludes drafts, addressed work, missing clones and block
 
 test('Focus and All work preserve work and restore the complete keyboard queue', async () => {
   const { v, cx } = await inbox(); const before = v.nav.map((n) => n.id), doc = JSON.stringify(v.goalDoc);
-  click(find(v.render(cx), 'goal-focus-view-g'), cx); let tree = v.render(cx);
+  v.sel = 'goal-g'; v.goalAction('f', cx); let tree = v.render(cx);
   assert.equal(fake.stored[GOAL_SCOPE], 'g'); assert.equal(v.goalProjection.outsideBlockers, 1);
   assert.deepEqual(v.nav.map((n) => n.id), ['goal-g']);
   assert.match(text(tree), /1 need attention elsewhere/);

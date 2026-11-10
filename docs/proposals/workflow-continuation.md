@@ -44,7 +44,7 @@ The [Paseo follow-up](paseo-research.md) adds a pinned source comparison and ado
 
 ## Normal user journey
 
-1. Open Reviews for existing changes, or Runs → + Run to enter a prompt. Choose agents saves the brief and opens setup; create a task, then explicitly Start. Existing runs open their current result or recovery action. Stored records remain compatible.
+1. Open Reviews for existing changes, or Runs → + Run to enter a prompt. Choose agents saves the brief and opens setup with the repository's last agents filled in; Start creates and starts the task. Existing runs open their current result or recovery action. Stored records remain compatible.
 2. Read Result and inspect changes/Evidence as necessary. Activity answers who assigned what; Tools contains secondary actions and configured skills.
 3. Accept result, Request changes or Decide later. Acceptance records the current revision and explains the next effect. It is not GitHub approval, merge, or goal closure.
 4. Already-started eligible work proceeds through an enabled coordinator. If work is stopped, blocked, missing evidence or out of budget, explain that state and the specific recovery action.

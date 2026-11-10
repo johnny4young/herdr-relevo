@@ -591,9 +591,9 @@ export class Workflow extends WorkflowDraftView {
 
   nextStep(task) {
     if (task.state === "needs_you") return "The agents have finished. Review the result below, then accept it or request changes. You do not need to open their sessions.";
-    if (task.state === "accepted") return "Accepted and saved in History. This task no longer needs your attention.";
-    if (task.state === "cancelled") return "This task was cancelled. No more work will be assigned. Create a new task if you want to continue.";
-    if (task.state === "blocked" || task.state === "failed") return "This task is blocked. Review the findings and prepare a follow-up if needed.";
+    if (task.state === "accepted") return "Accepted and saved in History.";
+    if (task.state === "cancelled") return "Cancelled. Create a new task to continue.";
+    if (task.state === "blocked" || task.state === "failed") return "Blocked. Review the findings, then prepare a follow-up.";
     if (task.state === "ready") {
       const pending = (task.dependsOn ?? []).map((id) => this.tasks?.find((item) => item.id === id)).filter((item) => !item || item.state !== "accepted");
       const continuation = this.engine?.enabled && !task.paused ? "This task continues automatically once its prerequisite is accepted." : "After the prerequisite is accepted, resume this task or start automation to continue.";
@@ -605,10 +605,10 @@ export class Workflow extends WorkflowDraftView {
     }
     if (task.paused) return "This task is paused.";
     if (task.state === "planned" && task.planId) return "This task belongs to a saved plan. Open Goal plan and choose Start plan once for the whole sequence.";
-    if (task.state === "ready" && this.engine?.enabled) return "Queued for an available agent. The plan is already started; no further action is needed. Checks and independent review will follow automatically.";
-    if (task.state === "planned" || task.state === "ready") return "Choose Start to assign this task. The coordinator will run checks, request independent review and bring the result back here.";
-    if (task.state === "needs_review") return "Independent review is in progress. You can leave this screen; the result will appear in Needs you when it is ready.";
-    return "Work is in progress. You can leave this screen; checks and independent review will follow automatically.";
+    if (task.state === "ready" && this.engine?.enabled) return "Queued. Starts when its agent is free.";
+    if (task.state === "planned" || task.state === "ready") return "Choose Start to assign this task.";
+    if (task.state === "needs_review") return "Independent review in progress.";
+    return "In progress. Checks and independent review follow.";
   }
 
   overview(t, task, cx) {
@@ -633,7 +633,7 @@ export class Workflow extends WorkflowDraftView {
         .child(div().text_size(11).text_color(t.accent).font_semibold().child(task.state === "needs_you" ? "READY FOR YOUR REVIEW" : taskState(task.state).toUpperCase()))
         .child(div().font_semibold().w_full().min_w(0).tooltip(task.title).accessibility_label(task.title).child(caption(task.title, 115)))
         .when(task.state !== "needs_you", (el) => el.child(row(t, this.nextStep(task))))
-        .when(task.state === "needs_you", (el) => el.child(row(t, "Review the evidence, then decide."))))
+)
       .when(Boolean(task.error), (el) => el.child(div().role("alert").text_color(t.blocked).child(task.error)))
       .child(h_flex().w_full().gap(8).items_start().children([
         metric("CHECKS", checkSummary.label,
@@ -667,7 +667,6 @@ export class Workflow extends WorkflowDraftView {
     const attempts = task.attempts ?? [];
     return v_flex().gap(12)
       .child(div().font_semibold().child("Who did what"))
-      .child(row(t, "The coordinator sends assignments through hc. Each agent returns a report; your acceptance is a separate step."))
       .when(!attempts.length, (el) => el.child(row(t, "No agent assignment recorded yet.")))
       .children(attempts.map((attempt, index) => {
         const expanded = this.expandedPrompts?.includes(attempt.id);
@@ -711,7 +710,6 @@ export class Workflow extends WorkflowDraftView {
         .child(div().font_semibold().child((attempt.role === "reviewer" ? "Independent review" : "Implementation report") + " · " + reportState(attempt.report.status)))
         .child(row(t, this.expandedReports?.[attempt.id] ? attempt.report.summary : caption(attempt.report.summary, 260)))
         .child(button(t, "workflow-report-" + attempt.id, this.expandedReports?.[attempt.id] ? "Show less" : "Read full report", (cx) => { this.expandedReports ??= {}; this.expandedReports[attempt.id] = !this.expandedReports[attempt.id]; cx.notify(); }, { tip: "Read the agent's complete report and stated limitations" }))))
-      .child(row(t, "Agent reports do not establish human acceptance. Earlier attempts remain in Activity."))
       .children([this.decisions(t, task)].filter(Boolean));
   }
 
