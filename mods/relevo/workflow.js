@@ -7,6 +7,7 @@ import { focusedCwd } from "./panelbar.js";
 import { SKILLS as CONFIGURED_SKILLS } from "./config.js";
 import { workflowBucket, workflowItems, acceptanceEffect, queueSummary, workflowCheckSummary } from "./lib/workflow-navigation.js";
 import { linkedDecision } from "./lib/goal-workflow.js";
+import { agentMarkdown } from "./lib/agent-markdown.js";
 import { readGoals } from "./goals-store.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { ShortcutHelp } from "./shortcut-help.js";
@@ -685,9 +686,9 @@ export class Workflow extends WorkflowDraftView {
       .when(Boolean(task.error), (el) => el.child(div().role("alert").text_color(t.blocked).child(task.error)))
       .when(Boolean(primaryReport), (el) => el.child(v_flex().id("workflow-summary").w_full().min_w(0).gap(6)
         .child(div().text_size(11).text_color(t.muted).child(blocked && review ? "Latest review findings" : "Summary"))
-        .child(TextView.markdown(`workflow-summary-${primaryId}`, longSummary && !summaryOpen ? caption(summary, SUMMARY_PREVIEW) : summary).selectable(true))
+        .child(TextView.markdown(`workflow-summary-${primaryId}`, agentMarkdown(longSummary && !summaryOpen ? caption(summary, SUMMARY_PREVIEW) : summary)).selectable(true).on_link_click(() => {}).w_full().text_size(13).text_color(t.foreground))
         .when(longSummary, (el) => el.child(button(t, "workflow-summary-toggle", summaryOpen ? "Show less" : "Read full report",
-          (cx) => { this.expandedReports ??= {}; this.expandedReports[primaryId] = !summaryOpen; cx.notify(); }, { kind: "ghost", size: "sm" })))))
+          (cx) => { this.expandedReports ??= {}; this.expandedReports[primaryId] = !summaryOpen; cx.notify(); }, { kind: "ghost", size: "sm" }).self_start()))))
       .when(followUpAvailable, (el) => el
         .child(button(t, "workflow-prepare-follow-up", "Prepare follow-up", (context) => this.prepareBlockedFollowUp(task, context),
           { kind: "solid", tip: "Prefills a new task with the findings; nothing is sent until you start it" })))
@@ -695,7 +696,7 @@ export class Workflow extends WorkflowDraftView {
       .when(!["needs_you", "accepted", "cancelled"].includes(task.state), (el) => el.child(this.taskActions(t, task, cx)))
       .child(button(t, "workflow-details-toggle", details ? "Hide details" : "Details", (context) => {
         this.detailsFor = details ? null : task.id; context.notify();
-      }, { kind: "ghost", size: "sm" }))
+      }, { kind: "ghost", size: "sm" }).self_start())
       .when(details, (el) => el.child(v_flex().gap(8)
         .child(row(t, task.criteria || "No acceptance criteria recorded"))
         .child(row(t, `Executor: ${task.executor?.label ?? task.executor?.address ?? "Unknown"} · Reviewer: ${task.reviewer?.label ?? task.reviewer?.address ?? "Unknown"}`))
@@ -997,7 +998,7 @@ export class Workflow extends WorkflowDraftView {
         .when(this.showHelp && Boolean(this.shortcutHelp), (el) => el.child(this.shortcutHelp.render(t)))
         .when(this.compact && Boolean(this.tasks?.length || this.goal?.steps?.length), (el) => el.child(button(t, "workflow-queue-toggle", this.compactQueueOpen ? "← Back to work" : `Tasks · ${this.filter === "Completed" ? "History" : this.filter} ${workflowItems(this.tasks ?? [], this.filter).length}`, (cx) => {
           this.compactQueueOpen = !this.compactQueueOpen; this.h.focus(); cx.notify();
-        }, { kind: "ghost", size: "sm", selected: Boolean(this.compactQueueOpen) }))))
+        }, { kind: "ghost", size: "sm", selected: Boolean(this.compactQueueOpen) }).self_start())))
       .child(h_flex().items_start().flex_1().min_h(0).min_w(0)
         .when((!this.compact || this.compactQueueOpen) && Boolean(this.tasks?.length || this.goal?.steps?.length), (el) => el.child(this.taskList(t)))
         .when(!this.compact || !this.compactQueueOpen, (el) => el.child(v_flex().flex_1().h_full().min_h(0).min_w(0)
