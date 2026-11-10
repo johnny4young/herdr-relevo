@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
-import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
+import { h_flex, v_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
 import { agents, panes, props, theme, exec, appHome, readTextFile, run, focused, shared, setShared, closeOverlay } from "herdr";
-import { button, onSubmitChord } from "./ui.js";
+import { button, onSubmitChord, pill, tabButton } from "./ui.js";
 import { openReview } from "./review.js";
 import { focusedCwd } from "./panelbar.js";
 import { SKILLS as CONFIGURED_SKILLS } from "./config.js";
@@ -43,7 +43,7 @@ export class Workflow extends WorkflowDraftView {
     this.h = cx.focus_handle();
     this.goalId = props()?.goalId;
     this.requestedTaskId = props()?.taskId;
-    this.lastRequest = Date.now();
+    this.lastRequest = shared(RUN_REQUEST)?.at ?? 0;
     // The split focuses the new pane, which is how this view learns its own id.
     cx.timer.after(300, () => {
       const pane = focused()?.pane;
@@ -341,27 +341,25 @@ export class Workflow extends WorkflowDraftView {
     const visible = workflowItems(this.tasks ?? [], this.filter);
     const batchable = visible.filter((task) => task.state === "needs_you");
     const selecting = this.batchMode && this.filter === "Needs you" && batchable.length > 1;
-    return v_flex().when(!this.compact, (el) => el.w(190).flex_none()).when(this.compact, (el) => el.w_full().flex_1()).h_full().min_h(0).min_w(0).gap(8).p(10).rounded(8).bg(t.chrome)
-      .child(div().text_size(11).text_color(t.muted).child("WORK QUEUE"))
-      .child(v_flex().gap(4).children(["Needs you", "In progress", "Completed"].map((filter) => button(t, `workflow-filter-${filter}`,
-        `${filter === "Completed" ? "History" : filter} (${workflowItems(this.tasks ?? [], filter).length})`,
-        (context) => this.selectFilter(filter, context), { selected: this.tab !== "Plan" && this.filter === filter })
-        .when(this.tab !== "Plan" && this.filter === filter, (el) => el.bg(t.selected).border_color(t.accent).text_color(t.foreground)))))
+    return v_flex().id("workflow-queue").when(!this.compact, (el) => el.w(200).flex_none().border_r(1).border_color(t.border)).when(this.compact, (el) => el.w_full().flex_1()).h_full().min_h(0).min_w(0).gap(2).p(8).bg(t.chrome)
+      .children(["Needs you", "In progress", "Completed"].map((filter) => button(t, `workflow-filter-${filter}`,
+        [div().flex_1().child(filter === "Completed" ? "History" : filter), div().text_color(t.dim).child(String(workflowItems(this.tasks ?? [], filter).length))],
+        (context) => this.selectFilter(filter, context), { kind: "ghost", size: "sm", selected: this.tab !== "Plan" && this.filter === filter }).w_full()))
+      .child(div().h(1).my(6).bg(t.border))
       .child(v_flex().w_full().min_w(0).flex_1().min_h(0).overflow_y_scrollbar().gap(5).children((selecting ? batchable : visible).map((task) => selecting ? button(t,
         `workflow-batch-select-${task.id}`, `${this.batchIds?.includes(task.id) ? "☑" : "☐"} ${caption(task.title, 36)}`,
         (cx) => { this.batchIds ??= []; this.batchIds = this.batchIds.includes(task.id) ? this.batchIds.filter((id) => id !== task.id) : [...this.batchIds, task.id]; this.batchPreview = null; this.batchSnapshot = null; cx.notify(); },
         { selected: Boolean(this.batchIds?.includes(task.id)), tip: `Select ${task.title} for a same-project batch` }).w_full().min_w(0).h(56).overflow_hidden()
         : button(t, `workflow-task-${task.id}`,
-        [v_flex().w_full().min_w(0).gap(3).text_left().child(div().w_full().min_w(0).truncate().child(task.title))
-          .child(div().text_size(11).child(taskState(task.state)))],
+        [v_flex().w_full().min_w(0).gap(2).text_left().child(div().w_full().min_w(0).truncate().text_color(t.foreground).child(task.title))
+          .child(div().text_size(11).text_color(task.state === "needs_you" ? t.accent : ["blocked", "failed"].includes(task.state) ? t.blocked : t.muted).child(taskState(task.state)))],
         (context) => { this.compactQueueOpen = false; this.explicitNew = false; this.selected = task.id; this.tab = "Overview"; this.h.focus(); context.notify(); },
-        { selected: this.selected === task.id, tip: task.title, accessibleLabel: `${task.title}. ${taskState(task.state)}` }).w_full().min_w(0).h(56).overflow_hidden()
-        .when(this.selected === task.id && this.tab !== "Plan", (el) => el.bg(t.selected).border_color(t.accent)))))
-      .child(button(t, "workflow-goal-plan", "Plan work", (context) => { this.compactQueueOpen = false; this.openPlan(context); }, { selected: this.tab === "Plan", tip: "P: connect goal outcomes to one executable plan and track accepted results" }))
-      .child(button(t, "workflow-new-task", "+ New task", (context) => { this.compactQueueOpen = false; this.explicitNew = true; this.selected = null; this.tab = "Overview"; this.h.focus(); context.notify(); }, { size: "sm", tip: "Clear selection and create a goal task" }))
+        { kind: "ghost", selected: this.selected === task.id && this.tab !== "Plan", tip: task.title, accessibleLabel: `${task.title}. ${taskState(task.state)}` }).w_full().min_w(0).h(46).overflow_hidden())))
+      .child(button(t, "workflow-new-task", "+ New task", (context) => { this.compactQueueOpen = false; this.explicitNew = true; this.selected = null; this.tab = "Overview"; this.h.focus(); context.notify(); }, { kind: "ghost", size: "sm", tip: "N" }).w_full())
+      .child(button(t, "workflow-goal-plan", "Plan work", (context) => { this.compactQueueOpen = false; this.openPlan(context); }, { kind: "ghost", size: "sm", selected: this.tab === "Plan", tip: "P" }).w_full())
       .when(this.filter === "Needs you" && batchable.length > 1, (el) => el.child(button(t, "workflow-batch-toggle", selecting ? "Cancel selection" : "Review a batch", (cx) => {
         this.batchMode = !selecting; this.batchIds = []; this.batchSnapshot = null; this.batchPreview = null; cx.notify();
-      }, { size: "sm", selected: Boolean(selecting), tip: "Select ready results in this list and preview their acceptance together" })))
+      }, { kind: "ghost", size: "sm", selected: Boolean(selecting) }).w_full()))
       .when(selecting, (el) => el.child(this.batchPanel(t, batchable)));
   }
 
@@ -578,44 +576,44 @@ export class Workflow extends WorkflowDraftView {
     });
   }
 
+  // The decision stays fixed under the content, so it never scrolls out of reach.
   decisions(t, task) {
     if (task.state !== "needs_you") return null;
     const editing = this.decisionNoteFor === task.id;
     const changes = this.requestChangesFor === task.id;
     const submit = (outcome, cx) => this.submitDecision(task, outcome, cx);
-    return v_flex().id("workflow-decision-card").w_full().min_w(0).gap(10).p(14).rounded(8).bg(t.raised)
-      .child(div().text_size(11).text_color(t.muted).child("YOUR DECISION"))
+    const confirming = this.acceptIntent?.id === task.id && this.acceptIntent?.revision === task.revision;
+    const effect = acceptanceEffect(task, this.tasks ?? [], this.engine);
+    return v_flex().id("workflow-decision-card").w_full().min_w(0).flex_none().gap(8).px(14).py(10).border_t(1).border_color(t.border).bg(t.chrome)
       .when(Boolean(this.goal && linkedDecision(this.goal, this.tasks ?? []).task?.id === task.id), (el) => el.child(row(t, `Also resolves: ${this.goal.decision}`)))
-      .child(h_flex().gap(5).flex_wrap()
-        .child(button(t, "workflow-decide-accept", this.acceptIntent?.id === task.id && this.acceptIntent?.revision === task.revision ? "Confirm acceptance ↵" : "Accept result", (cx) => submit("accept", cx),
-          { kind: "solid", size: "lg", disabled: this.busy || changes, tip: "A then Enter: accept this revision and allow eligible dependent tasks to proceed. Does not approve or merge a PR." })
-          .when(!this.busy && !changes, (el) => el.bg(t.accent).text_color(t.accent_foreground)))
-        .child(button(t, "workflow-decide-changes", "Request changes", (cx) => this.editDecisionNote(task, true, cx),
-          { size: "lg", disabled: this.busy, tip: "R: describe what needs to change. Command/Ctrl+Enter sends the feedback." }))
-        .child(button(t, "workflow-decision-diff", "Open diff", (cx) => this.openDiff(task, cx), { size: "sm", disabled: this.busy || !task.root }))
-        .child(button(t, "workflow-decide-defer", "Decide later", (cx) => submit("defer", cx),
-          { size: "sm", disabled: this.busy, tip: "Keep the result pending and pause further work" })))
-      .child(div().text_size(11).text_color(t.muted).child(acceptanceEffect(task, this.tasks ?? [], this.engine)))
-      .when(!editing, (el) => el.child(button(t, "workflow-decision-note-toggle", "Add a note (optional)", (cx) => this.editDecisionNote(task, false, cx),
-        { size: "sm", tip: "Record your reasoning with your decision" })))
-      .when(editing, (el) => el.child(this.field(t, "decision", changes ? "What should change?" : "Optional decision note", true).id("workflow-decision-editor")
+      .when(editing, (el) => el.child(this.field(t, "decision", changes ? "What should change?" : "Decision note", true).id("workflow-decision-editor")
         .on_key_down((event, cx) => {
           if (event.key !== "enter" || !(event.modifiers?.platform || event.modifiers?.control) || event.modifiers?.alt || !changes) return;
           cx.stop_propagation();
           this.sendChanges(task, cx);
         }))
         .when(changes, (panel) => panel.child(row(t, task.round >= task.maxRounds
-          ? "This task reached its round limit. Prepare a follow-up with your feedback and review its settings. Nothing runs until you create and start it. The current result stays pending."
-          : "Sending feedback starts another implementation and review round. The result will return here for your decision.")))
-        .child(h_flex().gap(5).children([
+          ? "Round limit reached: this prepares a follow-up task for you to start."
+          : "Sends another implementation and review round."))))
+      .child(h_flex().w_full().min_w(0).gap(6).items_center().flex_wrap()
+        .when(!editing, (bar) => bar
+          .child(button(t, "workflow-decide-accept", confirming ? "Confirm ↵" : "Accept", (cx) => submit("accept", cx),
+            { kind: "solid", disabled: this.busy || changes, tip: "A, then Enter" })
+            .when(!this.busy && !changes, (el) => el.bg(t.accent).text_color(t.accent_foreground)))
+          .child(button(t, "workflow-decide-changes", "Request changes", (cx) => this.editDecisionNote(task, true, cx), { disabled: this.busy, tip: "R" }))
+          .child(button(t, "workflow-decision-diff", "Diff", (cx) => this.openDiff(task, cx), { kind: "ghost", size: "sm", disabled: this.busy || !task.root }))
+          .child(button(t, "workflow-decide-defer", "Later", (cx) => submit("defer", cx), { kind: "ghost", size: "sm", disabled: this.busy, tip: "Keep it pending and pause further work" }))
+          .child(button(t, "workflow-decision-note-toggle", "Note", (cx) => this.editDecisionNote(task, false, cx), { kind: "ghost", size: "sm" })))
+        .when(editing, (bar) => bar.children([
           changes ? button(t, "workflow-send-changes", task.round >= task.maxRounds ? "Prepare follow-up" : "Send feedback",
             (cx) => task.round >= task.maxRounds ? this.prepareFollowUp(task, cx) : submit("changes", cx),
-            { kind: "solid", disabled: this.busy || !this.form.decision.value().trim(), tip: task.round >= task.maxRounds ? "Prefill a new task without starting or sending anything" : "Send these changes to the assigned executor" }) : null,
-          button(t, "workflow-decision-note-cancel", changes ? "Cancel request" : "Remove note", (cx) => {
+            { kind: "solid", disabled: this.busy || !this.form.decision.value().trim(), tip: "⌘Enter" }) : null,
+          button(t, "workflow-decision-note-cancel", changes ? "Cancel" : "Remove note", (cx) => {
             if (this.decisionDrafts) delete this.decisionDrafts[task.id];
             this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null; this.h.focus(); cx.notify();
-          }, { disabled: this.busy, tip: "Discard this unsent note" }),
-        ].filter(Boolean))));
+          }, { kind: "ghost", disabled: this.busy }),
+        ].filter(Boolean))))
+      .when(!editing, (el) => el.child(div().w_full().min_w(0).truncate().text_size(11).text_color(t.muted).tooltip(effect).child(effect)));
   }
 
   sendChanges(task, cx) {
@@ -650,6 +648,20 @@ export class Workflow extends WorkflowDraftView {
     return "In progress. Checks and independent review follow.";
   }
 
+  statusChips(t, task, review) {
+    const checks = workflowCheckSummary(task);
+    const checkText = checks.tone === "normal" ? `✓ Checks ${checks.label}` : checks.tone === "failure" ? `✗ Checks ${checks.label}` : `Checks · ${checks.label.toLowerCase()}`;
+    const reviewText = !review ? "Review pending" : review.status === "completed" ? "✓ Review approved" : review.status === "changes_requested" ? "Changes requested" : "✗ Review blocked";
+    const agents = [task.executor?.label ?? task.executor?.address, task.reviewer?.label ?? task.reviewer?.address].filter(Boolean).join(" → ");
+    const evidence = task.evidence?.length ?? 0;
+    return h_flex().id("workflow-status-chips").w_full().min_w(0).flex_wrap().gap(5).children([
+      pill(t, "workflow-chip-checks", checkText, checks.tone === "normal" ? t.done : checks.tone === "failure" ? t.blocked : t.muted),
+      pill(t, "workflow-chip-review", reviewText, !review ? t.muted : review.status === "completed" ? t.done : t.blocked),
+      agents ? pill(t, "workflow-chip-agents", `${agents} · round ${task.round ?? 0}/${task.maxRounds ?? 2}`) : null,
+      evidence ? pill(t, "workflow-chip-evidence", `${evidence} evidence`) : null,
+    ].filter(Boolean));
+  }
+
   overview(t, task, cx) {
     const reportedAttempt = (role) => [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === role && attempt.report);
     const implementationAttempt = reportedAttempt("executor"), reviewAttempt = reportedAttempt("reviewer");
@@ -662,43 +674,32 @@ export class Workflow extends WorkflowDraftView {
     const unresolvedAttempt = latestAttempt?.state === "running" || ["uncertain", "sending"].includes(latestAttempt?.delivery);
     const followUpAvailable = blocked && !unresolvedAttempt && ((task.round ?? 0) >= (task.maxRounds ?? 2) ||
       (task.attempts ?? []).filter((attempt) => attempt.role === "reviewer").length >= (task.maxRounds ?? 2) + 1);
-    const checkSummary = workflowCheckSummary(task);
     const details = this.detailsFor === task.id;
-    const metric = (label, value, color) => v_flex().flex_1().min_w(0).gap(5).p(10).rounded(6).bg(t.raised)
-      .child(div().text_size(11).text_color(t.muted).child(label))
-      .child(div().text_size(13).font_semibold().text_color(color ?? t.foreground).child(value));
-    return v_flex().w_full().min_w(0).gap(16)
-      .child(v_flex().id("workflow-outcome-header").w_full().min_w(0).gap(8).p(12).rounded(8).bg(task.state === "needs_you" ? t.selected : t.raised)
-        .child(div().text_size(11).text_color(t.accent).font_semibold().child(task.state === "needs_you" ? "READY FOR YOUR REVIEW" : taskState(task.state).toUpperCase()))
-        .child(div().font_semibold().w_full().min_w(0).tooltip(task.title).accessibility_label(task.title).child(caption(task.title, 115)))
-        .when(task.state !== "needs_you", (el) => el.child(row(t, this.nextStep(task))))
-)
+    const statusColor = task.state === "needs_you" ? t.accent : blocked ? t.blocked : task.state === "accepted" ? t.done : t.muted;
+    return v_flex().w_full().min_w(0).gap(14)
+      .child(v_flex().id("workflow-outcome-header").w_full().min_w(0).gap(6)
+        .child(div().text_size(11).font_semibold().text_color(statusColor).child(task.state === "needs_you" ? "Ready for your review" : taskState(task.state)))
+        .child(div().text_size(13).font_semibold().w_full().min_w(0).tooltip(task.title).accessibility_label(task.title).child(caption(task.title, 115)))
+        .child(this.statusChips(t, task, review))
+        .when(task.state !== "needs_you", (el) => el.child(row(t, this.nextStep(task)))))
       .when(Boolean(task.error), (el) => el.child(div().role("alert").text_color(t.blocked).child(task.error)))
-      .child(h_flex().w_full().gap(8).items_start().children([
-        metric("CHECKS", checkSummary.label,
-          checkSummary.tone === "failure" ? t.blocked : checkSummary.tone === "muted" ? t.muted : t.foreground),
-        metric("INDEPENDENT REVIEW", review ? reportState(review.status) : "Not reported",
-          review && review.status !== "completed" ? t.blocked : t.foreground),
-        metric("EVIDENCE", `${task.evidence?.length ?? 0} attached`),
-      ]))
-      .when(this.decisionNoteFor !== task.id && Boolean(primaryReport), (el) => el.child(v_flex().gap(5)
-        .child(div().text_size(11).text_color(t.muted).child(blocked && review ? "LATEST REVIEW FINDINGS" : "AGENT SUMMARY"))
-        .child(row(t, longSummary && !summaryOpen ? caption(summary, SUMMARY_PREVIEW) : summary))
+      .when(Boolean(primaryReport), (el) => el.child(v_flex().id("workflow-summary").w_full().min_w(0).gap(6)
+        .child(div().text_size(11).text_color(t.muted).child(blocked && review ? "Latest review findings" : "Summary"))
+        .child(TextView.markdown(`workflow-summary-${primaryId}`, longSummary && !summaryOpen ? caption(summary, SUMMARY_PREVIEW) : summary).selectable(true))
         .when(longSummary, (el) => el.child(button(t, "workflow-summary-toggle", summaryOpen ? "Show less" : "Read full report",
-          (cx) => { this.expandedReports ??= {}; this.expandedReports[primaryId] = !summaryOpen; cx.notify(); }, { size: "sm" })))))
+          (cx) => { this.expandedReports ??= {}; this.expandedReports[primaryId] = !summaryOpen; cx.notify(); }, { kind: "ghost", size: "sm" })))))
       .when(followUpAvailable, (el) => el
         .child(button(t, "workflow-prepare-follow-up", "Prepare follow-up", (context) => this.prepareBlockedFollowUp(task, context),
-          { kind: "solid", tip: "Prefill a new task with current findings and bounded settings; nothing is sent until you create and start it" })))
-      .children([this.decisions(t, task), this.uncertainAttempt(t, task)].filter(Boolean))
+          { kind: "solid", tip: "Prefills a new task with the findings; nothing is sent until you start it" })))
+      .children([this.uncertainAttempt(t, task)].filter(Boolean))
       .when(!["needs_you", "accepted", "cancelled"].includes(task.state), (el) => el.child(this.taskActions(t, task, cx)))
-      .child(button(t, "workflow-details-toggle", details ? "Hide task details" : "Task details", (context) => {
+      .child(button(t, "workflow-details-toggle", details ? "Hide details" : "Details", (context) => {
         this.detailsFor = details ? null : task.id; context.notify();
-      }, { size: "sm", tip: "Expected outcome, assigned agents and limits. Actions are available in Tools." }))
+      }, { kind: "ghost", size: "sm" }))
       .when(details, (el) => el.child(v_flex().gap(8)
-        .child(div().font_semibold().child(task.title))
         .child(row(t, task.criteria || "No acceptance criteria recorded"))
         .child(row(t, `Executor: ${task.executor?.label ?? task.executor?.address ?? "Unknown"} · Reviewer: ${task.reviewer?.label ?? task.reviewer?.address ?? "Unknown"}`))
-        .child(row(t, `Rounds ${task.round ?? 0}/${task.maxRounds ?? 2} · time limit ${task.maxMinutes ?? 20} minutes · spend unavailable`))));
+        .child(row(t, `Rounds ${task.round ?? 0}/${task.maxRounds ?? 2} · ${task.maxMinutes ?? 20} minutes per round`))));
   }
 
   activity(t, task) {
@@ -749,7 +750,7 @@ export class Workflow extends WorkflowDraftView {
         .child(div().font_semibold().child((attempt.role === "reviewer" ? "Independent review" : "Implementation report") + " · " + reportState(attempt.report.status)))
         .child(row(t, this.expandedReports?.[attempt.id] ? attempt.report.summary : caption(attempt.report.summary, 260)))
         .child(button(t, "workflow-report-" + attempt.id, this.expandedReports?.[attempt.id] ? "Show less" : "Read full report", (cx) => { this.expandedReports ??= {}; this.expandedReports[attempt.id] = !this.expandedReports[attempt.id]; cx.notify(); }, { tip: "Read the agent's complete report and stated limitations" }))))
-      .children([this.decisions(t, task)].filter(Boolean));
+;
   }
 
   evidence(t, task, cx) {
@@ -979,34 +980,33 @@ export class Workflow extends WorkflowDraftView {
           if (tasks.length) { this.compactQueueOpen = false; this.explicitNew = false; this.selected = tasks[next].id; this.tab = "Overview"; cx.notify(); }
         }
       })
-      .size_full().min_h(0).p(16).gap(14).bg(t.background).text_color(t.foreground)
-      .child((this.compact ? v_flex().items_start().gap(8) : h_flex().justify_between().items_center()).w_full().min_w(0)
-        .child(v_flex().flex_1().min_w(0).gap(3)
-          .child(div().font_semibold().child("Run details"))
-          .child(div().text_size(11).text_color(t.muted).truncate().child(this.goal?.title ?? "Work for this goal")))
-        .child(h_flex().gap(5).flex_wrap()
-          .child(button(t, "workflow-focus-queue", "?", (cx) => this.toggleHelp(cx), { tip: "Search keyboard shortcuts for this window", accessibleLabel: "Keyboard help" }))
-          .when(Boolean(task), (el) => el.child(button(t, "workflow-task-tools", "Tools", (cx) => this.openTools(cx), { selected: this.tab === "Tools", tip: "T: find a skill, session or task action" })))
-          .child(button(t, "workflow-tools-toggle", this.showTools ? "Hide settings" : "Settings", (cx) => { this.showTools = !this.showTools; cx.notify(); }, { tip: "Automation controls and saved preferences", selected: Boolean(this.showTools) }))
-          .when(Boolean(this.pane || props()?.overlay), (el) => el.child(button(t, "workflow-close", "Close", () => this.pane ? run("pane.close", { pane: this.pane }) : closeOverlay(props().overlay))))))
-      .when(this.showTools, (el) => el.child(h_flex().gap(6)
-        .child(button(t, "workflow-tab-Preferences", "Preferences", (cx) => { this.tab = "Preferences"; this.h.focus(); cx.notify(); }, { tip: "5: manage guidance for future work" }))
-        .when(Boolean(this.engine?.enabled), (controls) => controls.child(button(t, "workflow-engine-stop", "Pause automation", (cx) => this.command({ action: "stop" }, cx), { disabled: this.busy, tip: "Stop future dispatches across every goal; current agent sessions keep running" })))))
-      .when(Boolean(this.notice), (el) => el.child(div().role("status").child(row(t, this.notice))))
-      .when(Boolean(this.error), (el) => el.child(div().id("workflow-error").role("alert").text_color(t.blocked).child(this.error)))
-      .when(Boolean(this.pendingDraft), (el) => el.child(this.draftRecovery(t)))
-      .when(this.showHelp && Boolean(this.shortcutHelp), (el) => el.child(this.shortcutHelp.render(t)))
-      .when(this.compact && Boolean(this.tasks?.length || this.goal?.steps?.length), (el) => el.child(button(t, "workflow-queue-toggle", this.compactQueueOpen ? "Back to work" : `Tasks · ${this.filter === "Completed" ? "History" : this.filter} (${workflowItems(this.tasks ?? [], this.filter).length})`, (cx) => {
-        this.compactQueueOpen = !this.compactQueueOpen; this.h.focus(); cx.notify();
-      }, { tip: "Switch between the task list and the current work. Drafts stay in place.", selected: Boolean(this.compactQueueOpen) })))
-      .child(h_flex().items_start().h_full().flex_1().min_h(0).min_w(0).gap(20)
+      .size_full().min_h(0).bg(t.background).text_color(t.foreground)
+      .child(h_flex().id("workflow-header").w_full().min_w(0).flex_none().gap(2).items_center().px(10).pt(8).pb(4)
+        .child(div().flex_1().min_w(0).px(4).truncate().text_size(11).text_color(t.muted).tooltip(this.goal?.title ?? "Run").child(this.goal?.title ?? "Run"))
+        .child(button(t, "workflow-focus-queue", "?", (cx) => this.toggleHelp(cx), { kind: "ghost", size: "sm", tip: "Keyboard shortcuts", accessibleLabel: "Keyboard help" }))
+        .when(Boolean(task), (el) => el.child(button(t, "workflow-task-tools", "Tools", (cx) => this.openTools(cx), { kind: "ghost", size: "sm", selected: this.tab === "Tools", tip: "T" })))
+        .child(button(t, "workflow-tools-toggle", "Settings", (cx) => { this.showTools = !this.showTools; cx.notify(); }, { kind: "ghost", size: "sm", selected: Boolean(this.showTools) }))
+        .when(Boolean(this.pane || props()?.overlay), (el) => el.child(button(t, "workflow-close", "Close", () => this.pane ? run("pane.close", { pane: this.pane }) : closeOverlay(props().overlay), { kind: "ghost", size: "sm" }))))
+      .child(v_flex().w_full().min_w(0).flex_none().px(14).gap(6)
+        .when(this.showTools, (el) => el.child(h_flex().gap(6).pb(4)
+          .child(button(t, "workflow-tab-Preferences", "Preferences", (cx) => { this.tab = "Preferences"; this.h.focus(); cx.notify(); }, { kind: "ghost", size: "sm", tip: "5" }))
+          .when(Boolean(this.engine?.enabled), (controls) => controls.child(button(t, "workflow-engine-stop", "Pause automation", (cx) => this.command({ action: "stop" }, cx), { kind: "ghost", size: "sm", disabled: this.busy, tip: "Stops new dispatches; running sessions continue" })))))
+        .when(Boolean(this.notice), (el) => el.child(div().role("status").child(row(t, this.notice))))
+        .when(Boolean(this.error), (el) => el.child(div().id("workflow-error").role("alert").text_color(t.blocked).child(this.error)))
+        .when(Boolean(this.pendingDraft), (el) => el.child(this.draftRecovery(t)))
+        .when(this.showHelp && Boolean(this.shortcutHelp), (el) => el.child(this.shortcutHelp.render(t)))
+        .when(this.compact && Boolean(this.tasks?.length || this.goal?.steps?.length), (el) => el.child(button(t, "workflow-queue-toggle", this.compactQueueOpen ? "← Back to work" : `Tasks · ${this.filter === "Completed" ? "History" : this.filter} ${workflowItems(this.tasks ?? [], this.filter).length}`, (cx) => {
+          this.compactQueueOpen = !this.compactQueueOpen; this.h.focus(); cx.notify();
+        }, { kind: "ghost", size: "sm", selected: Boolean(this.compactQueueOpen) }))))
+      .child(h_flex().items_start().flex_1().min_h(0).min_w(0)
         .when((!this.compact || this.compactQueueOpen) && Boolean(this.tasks?.length || this.goal?.steps?.length), (el) => el.child(this.taskList(t)))
-        .when(!this.compact || !this.compactQueueOpen, (el) => el.child(v_flex().flex_1().h_full().min_h(0).min_w(0).gap(16)
-          .when(Boolean(task) && !["Plan", "Preferences", "Tools"].includes(this.tab), (el) => el.child(h_flex().gap(6).flex_wrap().children(TABS.slice(0, 4).map((tab, index) => button(t,
-            `workflow-tab-${tab}`, tab === "Overview" ? (task.state === "needs_you" ? "Decision" : "Summary") : tab === "Changes" ? (["blocked", "failed"].includes(task.state) ? "Findings" : "Result") : tab,
-            (cx) => { this.tab = tab; this.h.focus(); cx.notify(); }, { size: "sm", selected: this.tab === tab, tip: `${index + 1}: open ${tab.toLowerCase()}` })
-            .when(this.tab === tab, (item) => item.border_color(t.accent).text_color(t.accent))))))
-          .child(v_flex().id(`workflow-panel-${this.tab}-${this.selected ?? "queue"}`).flex_1().w_full().min_h(0).min_w(0).overflow_y_scrollbar().gap(10)
-            .child(panel).when(!this.selected && !["Preferences", "Plan"].includes(this.tab) && (this.explicitNew || !(this.tasks ?? []).length), (el) => el.child(this.taskForm(t)))))));
+        .when(!this.compact || !this.compactQueueOpen, (el) => el.child(v_flex().flex_1().h_full().min_h(0).min_w(0)
+          .when(Boolean(task) && !["Plan", "Preferences", "Tools"].includes(this.tab), (el) => el.child(h_flex().id("workflow-tabs").w_full().flex_none().px(10).gap(2).border_b(1).border_color(t.border)
+            .children(TABS.slice(0, 4).map((tab, index) => tabButton(t, `workflow-tab-${tab}`,
+              tab === "Overview" ? "Summary" : tab === "Changes" ? (["blocked", "failed"].includes(task.state) ? "Findings" : "Result") : tab,
+              this.tab === tab, (cx) => { this.tab = tab; this.h.focus(); cx.notify(); }, String(index + 1))))))
+          .child(v_flex().id(`workflow-panel-${this.tab}-${this.selected ?? "queue"}`).flex_1().w_full().min_h(0).min_w(0).overflow_y_scrollbar().px(14).py(12).gap(10)
+            .child(panel).when(!this.selected && !["Preferences", "Plan"].includes(this.tab) && (this.explicitNew || !(this.tasks ?? []).length), (el) => el.child(this.taskForm(t))))
+          .when(Boolean(task) && !["Plan", "Preferences", "Tools"].includes(this.tab), (el) => el.children([this.decisions(t, task)].filter(Boolean))))));
   }
 }

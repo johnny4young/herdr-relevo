@@ -1,4 +1,4 @@
-import { svg } from "gpui-kit";
+import { div, svg } from "gpui-kit";
 import { h_flex, Button } from "gpui-base";
 import { appHome, readTextFile, shared, setShared } from "herdr";
 import { relevoKeys, formatShortcut } from "./lib/keys.js";
@@ -20,7 +20,7 @@ export function overlayHeight(preferred, fraction = 0.85) {
   }
 }
 
-// kind: "outline" (default), "solid" or "danger". A disabled button keeps its place and ignores clicks.
+// kind: "outline" (default), "solid", "ghost" (no frame until hovered or selected) or "danger". A disabled button keeps its place and ignores clicks.
 export function button(t, id, label, onClick, { kind = "outline", size = "md", tip = null, disabled = false, selected = false, accessibleLabel = null } = {}) {
   const s = SIZES[size];
   const quiet = size === "sm" ? t.muted : t.foreground;
@@ -33,6 +33,8 @@ export function button(t, id, label, onClick, { kind = "outline", size = "md", t
     .when(!disabled && kind === "outline", (el) => el.border_1().border_color(t.border).text_color(quiet).cursor_pointer()
       .hover((st) => st.bg(t.hover).text_color(t.foreground)))
     .when(!disabled && kind === "outline" && selected, (el) => el.bg(t.selected).border_color(t.accent).text_color(t.foreground))
+    .when(!disabled && kind === "ghost", (el) => el.text_color(selected ? t.foreground : quiet).cursor_pointer()
+      .when(selected, (g) => g.bg(t.selected)).hover((st) => st.bg(t.hover).text_color(t.foreground)))
     .when(!disabled && kind === "danger", (el) => el.border_1().border_color(t.blocked).text_color(t.blocked).cursor_pointer()
       .hover((st) => st.bg(t.hover)))
     .when(Boolean(tip), (el) => el.tooltip(tip))
@@ -42,6 +44,16 @@ export function button(t, id, label, onClick, { kind = "outline", size = "md", t
     }))
     .children(Array.isArray(label) ? label : [label]);
 }
+
+// A small status label; tone colors the text, the surface stays neutral.
+export const pill = (t, id, label, tone = t.muted) =>
+  div().id(id).h(20).px(8).flex().flex_none().items_center().rounded(10).bg(t.raised).text_size(11).text_color(tone).child(label);
+
+// Tabs read as text with an underline on the open one, not as a row of buttons.
+export const tabButton = (t, id, label, selected, onClick, tip = null) =>
+  button(t, id, label, onClick, { kind: "ghost", size: "sm", tip })
+    .rounded(0).border_b(2).border_color(selected ? t.accent : t.background).text_color(selected ? t.foreground : t.muted)
+    .when(selected, (el) => el.bg(t.background));
 
 // A list section's title with its count or total on the right.
 export const sectionHeader = (t, label, right) =>

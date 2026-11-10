@@ -20,3 +20,4 @@ export const EditorState = { new: field };
 export const Input = { new: () => element("input") };
 export const Textarea = { new: () => element("textarea") };
 export const Editor = { new: () => element("editor") };
+export const TextView = { markdown: (id, text) => element("textview").id(id).child(text), html: (id, text) => element("textview").id(id).child(text) };

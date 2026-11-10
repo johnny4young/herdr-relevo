@@ -259,8 +259,8 @@ test('the first screen explains the decision and keeps sessions and messaging se
     executor: { address: 'builder' }, reviewer: { address: 'reviewer' }, revision: 'current',
     checksResult: [{ code: 0 }], attempts: [{ role: 'executor', report: { summary: 'Search implemented' } }] }];
   v.selected = 'result'; let tree = v.render();
-  assert.match(text(tree), /READY FOR YOUR REVIEW/); assert.match(text(tree), /Search implemented/);
-  assert.match(text(tree), /CHECKS 1\/1 passed/);
+  assert.match(text(tree), /Ready for your review/); assert.match(text(tree), /Search implemented/);
+  assert.match(text(tree), /✓ Checks 1\/1 passed/);
   assert.ok(find(tree, 'workflow-decide-accept')); assert.ok(find(tree, 'workflow-tab-Changes'));
   assert.equal(find(tree, 'workflow-inspect-result'), null); assert.equal(find(tree, 'workflow-inspect-evidence'), null);
   assert.ok(find(tree, 'workflow-tab-Evidence'));
@@ -282,11 +282,11 @@ test('check summary distinguishes partial evidence, failure and a fresh implemen
   const task = { id: 'checks', goalId: 'g', title: 'Verify result', state: 'blocked',
     checks: [['node', '--test'], ['npm', 'run', 'lint']], checksResult: [{ code: 0 }], attempts: [] };
   v.tasks = [task]; v.selected = task.id;
-  assert.match(text(v.render()), /CHECKS 1\/2 passed · incomplete/);
+  assert.match(text(v.render()), /Checks · 1\/2 passed · incomplete/);
   task.checksResult.push({ code: 1 });
-  assert.match(text(v.render()), /CHECKS 1 failed · 1\/2 passed/);
+  assert.match(text(v.render()), /✗ Checks 1 failed · 1\/2 passed/);
   task.state = 'running'; task.attempts = [{ role: 'executor', state: 'running' }];
-  assert.match(text(v.render()), /CHECKS Awaiting checks/);
+  assert.match(text(v.render()), /Checks · awaiting checks/);
   assert.equal(fake.execs.length, 0, 'summarizing evidence never starts work');
   v.close();
 });
@@ -298,7 +298,7 @@ test('requesting changes previews the next effect and requires explicit feedback
   let tree = v.render(); assert.equal(fake.execs.length, 0);
   assert.match(text(tree), /another implementation and review round/);
   assert.equal(find(tree, 'workflow-send-changes').isDisabled, true);
-  assert.equal(find(tree, 'workflow-decide-accept').isDisabled, true);
+  assert.equal(find(tree, 'workflow-decide-accept'), null, 'the change request replaces the decision buttons');
   v.form.decision.set_value('Handle empty results');
   fake.exec = async (_command, args) => {
     assert.deepEqual(JSON.parse(args.at(-1)), { action: 'decide', taskId: 'result', outcome: 'changes', text: 'Handle empty results', revision: 'current' });
@@ -317,7 +317,7 @@ test('optional notes cancel without sending and an exhausted task prepares an ex
   click(find(v.render(), 'workflow-decision-note-cancel'), cx);
   assert.equal(v.form.decision.value(), ''); assert.equal(find(v.render(), 'workflow-decision'), null);
   click(find(v.render(), 'workflow-decide-changes'), cx); v.form.decision.set_value('Add an empty state');
-  assert.match(text(v.render()), /Nothing runs until you create and start it/);
+  assert.match(text(v.render()), /prepares a follow-up task for you to start/);
   click(find(v.render(), 'workflow-send-changes'), cx);
   assert.equal(v.selected, null); assert.equal(v.explicitNew, true);
   assert.match(v.form.criteria.value(), /Requested changes: Add an empty state/);
@@ -357,7 +357,7 @@ test('compact review preserves full context on demand without dispatching or imp
     { id: 'review', role: 'reviewer', report: { status: 'blocked', summary: reviewerSummary } },
   ] }]; v.selected = 'result'; v.engine = { enabled: true };
   let tree = v.render();
-  assert.match(text(tree), /CHECKS Not configured INDEPENDENT REVIEW Blocked EVIDENCE 0 attached/);
+  assert.match(text(tree), /Checks · not configured ✗ Review blocked/);
   assert.ok(!text(tree).includes(reviewerSummary));
   assert.ok(!text(find(tree, 'workflow-outcome-header')).includes(title), 'long assignments are disclosed instead of dominating the first screen');
   assert.equal(find(tree, 'workflow-engine-stop'), null);
@@ -626,4 +626,17 @@ test('a run window left open from an earlier version can still be closed', async
   const v = new Workflow(), cx = fakeCx(); v.init({}, cx); await flush();
   click(find(v.render(), 'workflow-close'), cx);
   assert.deepEqual(fake.closedOverlays, ['old-window']); v.close();
+});
+
+test('the decision bar sits outside the scrolling content and the summary renders as markdown', async () => {
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [{ id: 't', goalId: 'g', title: 'Result', state: 'needs_you', revision: 'r1', root: '/work/app',
+    executor: { address: 'a', label: 'Codex' }, reviewer: { address: 'b', label: 'Claude' }, checks: [], checksResult: [], evidence: [], round: 1, maxRounds: 2,
+    attempts: [{ id: 'x', role: 'executor', state: 'reported', report: { status: 'completed', summary: 'Uses `workflowItems`.' } }] }], events: [], preferences: [], engine: { enabled: false } });
+  const { v } = await setup(); const tree = v.render();
+  const scroll = find(tree, 'workflow-panel-Overview-t');
+  assert.ok(find(tree, 'workflow-decision-card'));
+  assert.equal(find(scroll, 'workflow-decision-card'), null);
+  assert.equal(find(tree, 'workflow-summary-x').kind, 'textview');
+  assert.match(text(find(tree, 'workflow-status-chips')), /Codex → Claude · round 1\/2/);
+  v.close();
 });

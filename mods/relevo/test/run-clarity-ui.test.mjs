@@ -78,7 +78,7 @@ test('keyboard acceptance requires A then Enter and advances to the next pending
   const key = (key) => find(view.render(), 'workflow-dialog').handlers.on_key_down({ key }, cx);
   assert.match(text(view.render()), /Also resolves: Accept search/);
   key('enter'); assert.equal(fake.execs.length, 0);
-  key('a'); assert.match(text(find(view.render(), 'workflow-decide-accept')), /Confirm acceptance/);
+  key('a'); assert.match(text(find(view.render(), 'workflow-decide-accept')), /Confirm/);
   assert.equal(fake.execs.length, 0);
   fake.exec = async (_cmd, args) => {
     const payload = JSON.parse(args.at(-1));
@@ -88,7 +88,7 @@ test('keyboard acceptance requires A then Enter and advances to the next pending
   };
   key('enter'); await flush();
   assert.equal(fake.execs.length, 1); assert.equal(view.selected, 'next');
-  assert.equal(text(find(view.render(), 'workflow-decide-accept')), 'Accept result'); view.close();
+  assert.equal(text(find(view.render(), 'workflow-decide-accept')), 'Accept'); view.close();
 });
 
 test('a stale revision or descendant input cannot confirm keyboard acceptance', async () => {
