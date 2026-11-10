@@ -351,3 +351,14 @@ test('empty run context stays in Edit and does not add an empty details fold', a
   assert.equal(find(tree, 'goal-context-g1'), null);
   assert.doesNotMatch(text(tree), /Criteria: Not set|Mission details/);
 });
+
+test('Command-Enter inside the prompt saves the run once and drops the line break the textarea inserted', async () => {
+  openGoal(); fake.props = { ...fake.overlays.at(-1).props, overlay: 'new-run' };
+  const editor = new GoalEditor(), cx = fakeCx(); editor.init({}, cx); await flush();
+  editor.fields.criteria.set_value('Read the README\n');
+  editor.fields.criteria.submit({ secondary: false }, cx); await flush();
+  assert.equal((await readGoals()).doc.goals.length, 0, 'plain Enter only adds a line');
+  editor.fields.criteria.submit({ secondary: true }, cx); await flush();
+  const doc = (await readGoals()).doc;
+  assert.equal(doc.goals.length, 1); assert.equal(doc.goals[0].criteria, 'Read the README');
+});

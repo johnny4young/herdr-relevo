@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { agents, panes, props, theme, closeOverlay, exec, appHome, readTextFile, run } from "herdr";
-import { button, overlayHeight } from "./ui.js";
+import { button, onSubmitChord, overlayHeight } from "./ui.js";
 import { openReview } from "./review.js";
 import { focusedCwd } from "./panelbar.js";
 import { SKILLS as CONFIGURED_SKILLS } from "./config.js";
@@ -56,6 +56,8 @@ export class Workflow extends WorkflowDraftView {
       this.form.executorSearch.set_value(""); this.form.reviewerSearch.set_value("");
       this.setupReuseNotice = null; this.setupReuseWarning = null; cx.notify();
     });
+    for (const key of ["title", "criteria"]) onSubmitChord(this.form[key], (cx) => { if (this.composing() && !this.busy) this.create(cx, { start: true }); });
+    onSubmitChord(this.form.decision, (cx) => { const task = this.tasks?.find((item) => item.id === this.requestChangesFor); if (task) this.sendChanges(task, cx); });
     this.executor = "";
     this.reviewer = "";
     this.checkPreset = "none";
@@ -571,9 +573,7 @@ export class Workflow extends WorkflowDraftView {
         .on_key_down((event, cx) => {
           if (event.key !== "enter" || !(event.modifiers?.platform || event.modifiers?.control) || event.modifiers?.alt || !changes) return;
           cx.stop_propagation();
-          if (this.busy || !this.form.decision.value().trim()) return;
-          if (task.round >= task.maxRounds) this.prepareFollowUp(task, cx);
-          else this.submitDecision(task, "changes", cx);
+          this.sendChanges(task, cx);
         }))
         .when(changes, (panel) => panel.child(row(t, task.round >= task.maxRounds
           ? "This task reached its round limit. Prepare a follow-up with your feedback and review its settings. Nothing runs until you create and start it. The current result stays pending."
@@ -587,6 +587,16 @@ export class Workflow extends WorkflowDraftView {
             this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null; this.h.focus(); cx.notify();
           }, { disabled: this.busy, tip: "Discard this unsent note" }),
         ].filter(Boolean))));
+  }
+
+  sendChanges(task, cx) {
+    if (this.busy || !this.form.decision.value().trim()) return;
+    if (task.round >= task.maxRounds) this.prepareFollowUp(task, cx);
+    else this.submitDecision(task, "changes", cx);
+  }
+
+  composing() {
+    return !this.selected && !this.pendingDraft && !["Preferences", "Plan", "Tools"].includes(this.tab) && (this.explicitNew || !(this.tasks ?? []).length);
   }
 
   nextStep(task) {
@@ -917,8 +927,7 @@ export class Workflow extends WorkflowDraftView {
           }
           closeOverlay(overlay); return;
         }
-        const composing = !this.selected && !this.pendingDraft && !["Preferences", "Plan", "Tools"].includes(this.tab) && (this.explicitNew || !(this.tasks ?? []).length);
-        if (composing && !this.busy && event.key === "enter" && event.modifiers?.platform && !event.modifiers?.alt && !event.modifiers?.control) {
+        if (this.composing() && !this.busy && event.key === "enter" && event.modifiers?.platform && !event.modifiers?.alt && !event.modifiers?.control) {
           cx.stop_propagation(); this.create(cx, { start: true }); return;
         }
         if (!this.h.is_focused() || event.modifiers?.platform || event.modifiers?.alt || event.modifiers?.control) return;

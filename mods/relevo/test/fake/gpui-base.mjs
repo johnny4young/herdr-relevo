@@ -9,8 +9,9 @@ const field = (options = {}) => {
   let value = options.value ?? "";
   const listeners = [];
   return {
-    value: () => value, set_value(next) { value = next; }, on(_name, fn) { listeners.push(fn); }, focus() {}, release() {},
-    type(next, cx) { value = next; listeners.forEach((fn) => fn({}, cx)); },
+    value: () => value, set_value(next) { value = next; }, on(name, fn) { listeners.push([name, fn]); }, focus() {}, release() {},
+    type(next, cx) { value = next; listeners.filter(([name]) => name === "change").forEach(([, fn]) => fn({}, cx)); },
+    submit(event, cx) { listeners.filter(([name]) => name === "submit").forEach(([, fn]) => fn(event, cx)); },
   };
 };
 export const InputState = { new: field };

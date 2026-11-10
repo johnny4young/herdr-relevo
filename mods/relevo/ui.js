@@ -93,3 +93,13 @@ export function foldRow(view, t, id, key, label, { gap = false, onOpen = null, a
     .child(`${open ? "▾" : "▸"} ${label}`)
     .when(Boolean(after), (el) => el.child(after));
 }
+
+// A text field keeps ⌘Enter from the window: a textarea inserts the line break, then emits submit.
+export function onSubmitChord(state, run) {
+  state.on("submit", (event, cx) => {
+    if (!event?.secondary) return;
+    const value = state.value();
+    if (value.endsWith("\n")) state.set_value(value.slice(0, -1));
+    run(cx);
+  });
+}

@@ -570,3 +570,22 @@ test('the decision shows the whole agent summary behind one toggle and opens the
   assert.deepEqual(split[1].props.back, { goalId: 'g', taskId: 't' });
   v.close();
 });
+
+test('Command-Enter from the prompt or the change request field acts like the shortcut on the window', async () => {
+  const { v, cx } = await setup(); fake.agents = [agent('agent:one', 'One'), agent('agent:two', 'Two')];
+  v.form.title.set_value('Search'); v.form.root.set_value('/work/app'); v.form.criteria.set_value('Works\n'); v.executor = 'agent:one'; v.reviewer = 'agent:two';
+  const payloads = [];
+  fake.exec = async (_cmd, args) => { payloads.push(JSON.parse(args.at(-1))); return { stdout: '{"doc":{},"result":{"taskId":"new"}}' }; };
+  v.form.criteria.submit({ secondary: true }, cx); await flush();
+  assert.equal(payloads[0].action, 'create'); assert.equal(payloads[0].start, true); assert.equal(payloads[0].task.criteria, 'Works');
+  v.close();
+
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [{ id: 't', goalId: 'g', title: 'Result', state: 'needs_you', revision: 'r1', root: '/work/app',
+    executor: { address: 'agent:one' }, reviewer: { address: 'agent:two' }, checks: [], checksResult: [], evidence: [], round: 1, maxRounds: 3, attempts: [] }], events: [], preferences: [], engine: { enabled: false } });
+  const second = await setup();
+  second.v.editDecisionNote(second.v.tasks[0], true, second.cx);
+  second.v.form.decision.set_value('Handle empty input\n');
+  second.v.form.decision.submit({ secondary: true }, second.cx); await flush();
+  assert.equal(payloads.at(-1).action, 'decide'); assert.equal(payloads.at(-1).outcome, 'changes');
+  second.v.close();
+});

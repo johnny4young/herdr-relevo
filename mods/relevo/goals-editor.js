@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { agents, props, theme, openOverlay, closeOverlay, exec, readTextFile, appHome } from "herdr";
-import { button, overlayHeight } from "./ui.js";
+import { button, overlayHeight, onSubmitChord } from "./ui.js";
 import { newGoal, webLink, GOAL_STATES, STEP_STATES, goalState } from "./lib/goals.js";
 import { readGoals, writeGoal } from "./goals-store.js";
 import { linkedDecision } from "./lib/goal-workflow.js";
@@ -40,6 +40,7 @@ export class GoalEditor {
       this.decisionTaskId = null; this.linkedResolution = null; this.resolvePending = false; cx.notify();
     });
     this.response = TextareaState.new({ value: "", placeholder: "Decision or feedback (recorded, not sent automatically)" });
+    for (const state of [...Object.values(this.fields), this.response]) onSubmitChord(state, (cx) => this.save(cx));
     this.link = InputState.new({ value: "", placeholder: "HTTPS link to a screenshot or video of this commit" });
     this.kind = "screenshot";
     this.steps = [];
