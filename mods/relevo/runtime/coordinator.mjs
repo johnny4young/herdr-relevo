@@ -96,7 +96,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       const task = validateTask(payload.task, readState(home));
       await fingerprintImpl(task.root);
       await getActor(task.executor, task.root); await getActor(task.reviewer, task.root);
-      return update((doc) => { validateTask(payload.task, doc); doc.tasks.push(task); log(doc, task, 'Task created', 'Existing agents linked; no message sent', 'Human'); return { taskId: task.id }; });
+      return update((doc) => {
+        validateTask(payload.task, doc); doc.tasks.push(task); log(doc, task, 'Task created', 'Existing agents linked; no message sent', 'Human');
+        if (payload.start === true) { task.state = 'ready'; task.nextRole = 'executor'; doc.engine.enabled = true; log(doc, task, 'Task started', 'Ready work runs when dependencies and agents are available', 'Human'); }
+        return { taskId: task.id };
+      });
     }
     if (action === 'create-plan') {
       const planId = payload.planId;

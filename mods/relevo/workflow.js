@@ -114,8 +114,11 @@ export class Workflow extends WorkflowDraftView {
           else if (!this.pendingDraft) {
             this.form.title.set_value(this.goal.title);
             this.form.criteria.set_value(this.goal.criteria ?? "");
-            this.form.root.set_value(focusedCwd() ?? "");
+            const root = focusedCwd() ?? "";
+            this.form.root.set_value(root);
             this.explicitNew = true; this.taskSetupOpen = true; this.tab = "Overview";
+            const setup = this.lastSetupFor(root);
+            if (setup) this.applySetup(setup, cx, { quiet: true });
           }
         }
         if (this.error?.startsWith("Could not load workflow:")) this.error = null;
@@ -128,7 +131,8 @@ export class Workflow extends WorkflowDraftView {
 
   applyState(state, advance = false) {
     const previous = this.tasks?.find((task) => task.id === this.selected);
-    this.tasks = (state.tasks ?? []).filter((task) => task.goalId === this.goalId);
+    this.allTasks = state.tasks ?? [];
+    this.tasks = this.allTasks.filter((task) => task.goalId === this.goalId);
     this.plans = (state.plans ?? []).filter((plan) => plan.goalId === this.goalId);
     this.events = (state.events ?? []).filter((event) => event.goalId === this.goalId);
     this.prefsData = state.preferences ?? [];
@@ -201,7 +205,7 @@ export class Workflow extends WorkflowDraftView {
     });
   }
 
-  create(cx) {
+  create(cx, { start = false } = {}) {
     if (this.pendingDraft) { this.error = "Resume or discard the saved draft before creating another task."; cx.notify(); return; }
     const submittedFields = JSON.stringify(this.taskDraftSnapshot());
     const title = this.form.title.value().trim();
@@ -237,7 +241,7 @@ export class Workflow extends WorkflowDraftView {
       executor: { address: executor.address, label: executor.title || executor.address },
       reviewer: { address: reviewer.address, label: reviewer.title || reviewer.address },
       checks, dependsOn, maxRounds, maxMinutes,
-    } }, cx, (response) => {
+    }, ...(start ? { start: true } : {}) }, cx, (response) => {
       if (JSON.stringify(this.taskDraftSnapshot()) !== submittedFields) {
         this.explicitNew = true; this.selected = null;
         this.notice = "Task created. Your newer draft edits are still here.";
@@ -273,7 +277,12 @@ export class Workflow extends WorkflowDraftView {
     this.applySetup(task, cx);
   }
 
-  applySetup(task, cx) {
+  // The run's own last success first, else the latest task in the same repository from any run.
+  lastSetupFor(root) {
+    return this.previousSuccessfulSetup() ?? [...(this.allTasks ?? [])].reverse().find((task) => task.root === root && task.state !== "cancelled") ?? null;
+  }
+
+  applySetup(task, cx, { quiet = false } = {}) {
     if (!task || this.closed || this.busy) return;
     const root = task.root ?? "";
     this.form.root.set_value(root);
@@ -298,8 +307,8 @@ export class Workflow extends WorkflowDraftView {
     if (!checks.length) { this.checkPreset = "none"; this.form.checks.set_value(""); }
     else if (checks.length === 1 && checks[0]?.length === 2 && checks[0][0] === "npm" && checks[0][1] === "test") { this.checkPreset = "npm-test"; this.form.checks.set_value(""); }
     else { this.checkPreset = "custom"; this.form.checks.set_value(JSON.stringify(checks)); }
-    this.taskSetupOpen = true; this.taskAdvancedOpen = this.checkPreset === "custom";
-    this.setupReuseNotice = "Previous setup applied. Review repository and agents before creating.";
+    this.taskSetupOpen = !quiet || !this.executor || !this.reviewer; this.taskAdvancedOpen = this.checkPreset === "custom";
+    this.setupReuseNotice = quiet ? null : "Previous setup applied. Review repository and agents before creating.";
     cx.notify();
   }
 
@@ -409,9 +418,11 @@ export class Workflow extends WorkflowDraftView {
     const previousCheckLabel = !previousChecks.length ? "No automated checks"
       : previousChecks.length === 1 && previousChecks[0]?.length === 2 && previousChecks[0][0] === "npm" && previousChecks[0][1] === "test" ? "npm test" : "Custom checks";
     const previousRootName = previousSetup?.root?.split("/").filter(Boolean).at(-1) || "Unknown repository";
+    const agentName = (address) => { const agent = agents().find((item) => item.address === address); return agent ? agent.title || agent.address : null; };
+    const rootName = this.form.root.value().trim().split("/").filter(Boolean).at(-1);
+    const setupLabel = chosen === 2 ? [rootName, `${agentName(this.executor)} → ${agentName(this.reviewer)}`].filter(Boolean).join(" · ") : `Repository & agents · ${chosen}/2 selected`;
     return v_flex().w_full().min_w(0).gap(12)
-      .child(div().font_semibold().child(fromPrompt ? "Choose agents" : "Create task"))
-      .child(row(t, "After Start, agents implement, check and review. The result comes back for your decision."))
+      .child(div().font_semibold().child(fromPrompt ? "Start run" : "New task"))
       .when(fromPrompt && !this.editRunPrompt, (el) => el.child(h_flex().gap(8).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(13).tooltip(this.form.criteria.value()).child(this.form.criteria.value().split("\n")[0]))
         .child(button(t, "workflow-edit-prompt", "Edit prompt", (context) => { this.editRunPrompt = true; context.notify(); }, { size: "sm", tip: "Edit the prompt before creating this task" }))))
@@ -428,9 +439,9 @@ export class Workflow extends WorkflowDraftView {
           { disabled: this.busy, tip: `Copy setup from ${previousSetup.title} in this mission: ${previousSetup.root}; ${previousSetup.maxRounds ?? 2} rounds; ${previousSetup.maxMinutes ?? 20} minutes; ${previousCheckLabel} (${JSON.stringify(previousChecks)}). Title and outcome stay as drafted; nothing starts.` }))))
       .when(Boolean(this.setupReuseNotice), (el) => el.child(row(t, this.setupReuseNotice)))
       .when(Boolean(this.setupReuseWarning), (el) => el.child(row(t, this.setupReuseWarning)))
-      .child(button(t, "workflow-task-setup", `Repository & agents · ${chosen}/2 selected`, (context) => {
+      .child(button(t, "workflow-task-setup", setupLabel, (context) => {
         this.taskSetupOpen = !this.taskSetupOpen; context.notify();
-      }, { selected: Boolean(this.taskSetupOpen), tip: "Choose a repository and two different connected agents. No session starts here." }))
+      }, { selected: Boolean(this.taskSetupOpen), tip: "Repository, implementer and independent reviewer" }))
       .when(this.taskSetupOpen, (el) => el.child(v_flex().gap(8).p(10).rounded(6).bg(t.raised)
         .child(this.setupLibrary(t))
         .child(this.field(t, "root", "Repository path"))
@@ -443,7 +454,6 @@ export class Workflow extends WorkflowDraftView {
       .when(this.taskAdvancedOpen, (el) => el.child(v_flex().gap(8).p(10).rounded(6).bg(t.raised)
         .child(h_flex().gap(6).child(this.field(t, "maxRounds", "Maximum rounds (1–5)"))
           .child(this.field(t, "maxMinutes", "Minutes per round (1–120)")))
-        .child(row(t, "Choose checks to run after implementation. Nothing runs until you start the task."))
         .children([["none", "No automated checks"], ["npm-test", "npm test"], ["custom", "Custom"]].map(([value, label]) => button(t, `workflow-check-preset-${value}`, label,
           (context) => { this.checkPreset = value; context.notify(); }, { selected: this.checkPreset === value, tip: value === "custom" ? "Enter custom checks as JSON argv lists" : `Use ${label}` })))
         .when(this.checkPreset === "custom", (el) => el.child(row(t, "Advanced: enter JSON argument lists, for example [[\"npm\",\"test\"]]."))
@@ -454,10 +464,10 @@ export class Workflow extends WorkflowDraftView {
           .map((task) => button(t, `workflow-dependency-${task.id}`, `${this.dependsOn?.includes(task.id) ? "☑" : "☐"} ${caption(task.title, 50)}`,
             (context) => { this.dependsOn ??= []; this.dependsOn = this.dependsOn.includes(task.id) ? this.dependsOn.filter((id) => id !== task.id) : [...this.dependsOn, task.id]; context.notify(); },
             { tip: `Wait for acceptance of ${task.title}` })))))
-      .child(button(t, "workflow-create", this.busy ? "Creating…" : "Create task", (context) => this.create(context), {
-        kind: "solid", disabled: this.busy, tip: "Save a planned task. Start it when you are ready; no agent runs yet.",
-      }))
-      .child(row(t, "Creates a draft. You choose when to start."));
+      .child(h_flex().gap(6)
+        .child(button(t, "workflow-start-new", this.busy ? "Starting…" : "Start", (context) => this.create(context, { start: true }),
+          { kind: "solid", disabled: this.busy, tip: "⌘Enter" }))
+        .child(button(t, "workflow-create", "Save for later", (context) => this.create(context), { disabled: this.busy })));
   }
 
   taskActions(t, task, cx) {
@@ -903,6 +913,10 @@ export class Workflow extends WorkflowDraftView {
             this.h.focus(); cx.notify(); return;
           }
           closeOverlay(overlay); return;
+        }
+        const composing = !this.selected && !this.pendingDraft && !["Preferences", "Plan", "Tools"].includes(this.tab) && (this.explicitNew || !(this.tasks ?? []).length);
+        if (composing && !this.busy && event.key === "enter" && event.modifiers?.platform && !event.modifiers?.alt && !event.modifiers?.control) {
+          cx.stop_propagation(); this.create(cx, { start: true }); return;
         }
         if (!this.h.is_focused() || event.modifiers?.platform || event.modifiers?.alt || event.modifiers?.control) return;
         if (task?.state === "needs_you" && !this.busy && this.tab === "Overview" && !this.showHelp) {

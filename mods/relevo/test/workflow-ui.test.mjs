@@ -14,7 +14,7 @@ test('opens a native workflow overlay and renders task creation without sending 
   assert.equal(fake.overlays.at(-1).key, 'relevo-workflow-g', 'opening this goal reuses its workflow window');
   assert.equal(fake.overlays.at(-1).height, undefined, 'fit-content host path preserves the native accessibility subtree');
   const { v } = await setup(); const tree = v.render();
-  assert.match(text(tree), /Create task/); assert.match(text(tree), /After Start/); assert.equal(fake.execs.length, 0);
+  assert.match(text(tree), /New task/); assert.ok(find(tree, 'workflow-start-new')); assert.equal(fake.execs.length, 0);
   assert.ok(find(tree, 'workflow-dialog')); v.close();
 });
 
@@ -490,7 +490,7 @@ test('a new prompt-only run opens agent setup directly without a plan or dispatc
   assert.equal(v.tab, 'Overview'); assert.equal(v.taskSetupOpen, true);
   assert.equal(v.form.title.value(), goal.title); assert.equal(v.form.criteria.value(), goal.criteria);
   assert.equal(fake.execs.length, 0);
-  assert.match(text(v.render()), /Choose agents/);
+  assert.match(text(v.render()), /Start run/);
   assert.doesNotMatch(text(v.render()), /WORK QUEUE/);
   assert.equal(v.form.root.value(), '/work/app');
   assert.ok(find(v.render(), 'workflow-change-repository'));
@@ -523,4 +523,34 @@ test('a result link selects its exact task once and cannot select a task from an
   fake.props = { goalId: 'g', taskId: 'foreign' };
   const other = new Workflow(); other.init({}, cx); await flush();
   assert.equal(other.selected, 'first'); assert.equal(fake.execs.length, 0); other.close();
+});
+
+test('a new run reuses the agents of the last task in its repository and Start creates and starts at once', async () => {
+  const { newGoal, saveGoal, emptyGoals } = await import('../lib/goals.js');
+  const goal = { ...newGoal('g', 'Add keyboard search'), criteria: 'Add keyboard search' };
+  fake.focused = { cwd: '/work/app' }; fake.panes = [{ cwd: '/work/app' }];
+  fake.agents = [{ ...agent('agent:one', 'Codex'), cwd: '/work/app' }, { ...agent('agent:two', 'Claude'), cwd: '/work/app' }];
+  fake.files['/home/test/.config/herdr-app/relevo-goals.json'] = JSON.stringify(saveGoal(emptyGoals(), goal, 0));
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [{ id: 'old', goalId: 'other', title: 'Earlier', state: 'accepted', root: '/work/app',
+    executor: { address: 'agent:one' }, reviewer: { address: 'agent:two' }, checks: [], maxRounds: 3, maxMinutes: 15 }], events: [], preferences: [], engine: { enabled: false } });
+  const { v, cx } = await setup();
+  assert.equal(v.executor, 'agent:one'); assert.equal(v.reviewer, 'agent:two');
+  assert.equal(v.taskSetupOpen, false, 'resolved setup stays folded');
+  assert.match(text(find(v.render(), 'workflow-task-setup')), /app · Codex → Claude/);
+  let payload;
+  fake.exec = async (_cmd, args) => { payload = JSON.parse(args.at(-1)); return { stdout: '{"doc":{},"result":{"taskId":"new"}}' }; };
+  v.render().handlers.on_key_down({ key: 'enter', modifiers: { platform: true } }, cx); await flush();
+  assert.equal(payload.action, 'create'); assert.equal(payload.start, true);
+  assert.equal(payload.task.maxRounds, 3); assert.equal(payload.task.maxMinutes, 15);
+  v.close();
+});
+
+test('Save for later creates without starting', async () => {
+  const { v, cx } = await setup(); fake.agents = [agent('agent:one', 'One'), agent('agent:two', 'Two')];
+  v.form.title.set_value('Later'); v.form.root.set_value('/work/app'); v.form.criteria.set_value('Works'); v.executor = 'agent:one'; v.reviewer = 'agent:two';
+  let payload;
+  fake.exec = async (_cmd, args) => { payload = JSON.parse(args.at(-1)); return { stdout: '{"doc":{},"result":{"taskId":"new"}}' }; };
+  click(find(v.render(), 'workflow-create'), cx); await flush();
+  assert.equal(payload.action, 'create'); assert.equal(payload.start, undefined);
+  v.close();
 });

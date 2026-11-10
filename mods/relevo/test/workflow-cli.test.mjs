@@ -49,6 +49,8 @@ test('only explicit work starts attach an engine, and start failures report the 
   let ensured = 0;
   const retry = await main(['--home', home, 'command', '{"action":"retry-review","taskId":"task-1"}'], { runtimeFactory, ensureEngine: async () => { ensured++; } });
   assert.equal(retry.code, 0); assert.equal(ensured, 1);
+  const started = await main(['--home', home, 'command', '{"action":"create","start":true}'], { runtimeFactory, ensureEngine: async () => { ensured++; } });
+  assert.equal(started.code, 0); assert.equal(ensured, 2, 'create with start attaches the engine');
 }));
 
 test('engine launch uses hc background name and does not duplicate a live lock owner', async () => fixture(async (home) => {

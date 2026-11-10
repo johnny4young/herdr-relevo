@@ -475,3 +475,13 @@ test("a busy store during a tick never stops the coordinator", async (t) => {
   await f.runtime.tick();
   assert.equal(f.runtime.read().tasks[0].state, "blocked");
 });
+
+test("create with start makes the task ready and enables automation in one write", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const created = await f.runtime.command({ action: "create", start: true, task: { goalId: "g1", title: "Started at once", criteria: "Works", root: f.root,
+    executor: { address: "exec-2" }, reviewer: { address: "review-2" } } });
+  const doc = f.runtime.read(), task = doc.tasks.find((item) => item.id === created.result.taskId);
+  assert.equal(task.state, "ready"); assert.equal(doc.engine.enabled, true);
+  await f.runtime.tick();
+  assert.equal(f.sends.at(-1)[f.sends.at(-1).indexOf("--") + 1], "exec-2");
+});
