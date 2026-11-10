@@ -6,7 +6,7 @@ Read this first when continuing [PR #40](https://github.com/johnny4young/herdr-r
 
 Make Herdr's existing Inbox the place to direct and review work: understand the outcome, priority, owner, executor, review evidence, decision and what happens next without visiting every agent chat. Reduce corrections and context switching while retaining human judgment and existing security/review checks.
 
-Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, drafts, addressed work, handoffs, worktrees and Classic Inbox. Reorganize these capabilities where helpful; do not create a competing Inbox or replace the host shell. Product UI and documentation are English. Voice input should remain editable before an action is sent.
+Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, drafts, addressed work, handoffs, worktrees and the original review Inbox. Reorganize these capabilities where helpful; do not create a competing Inbox or replace the host shell. Product UI and documentation are English. Voice input should remain editable before an action is sent.
 
 ## Working agreements
 
@@ -29,7 +29,7 @@ Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, dr
 | Continuation | Acceptance advances the queue and releases already-started eligible dependents | Never start a planned task or override a stop merely because an earlier result was accepted. |
 | Controls/recovery | Pause/resume/stop/cancel, attempt correlation, uncertain-send reconciliation, revision checks | Keep pause/stop regression coverage and distinguish independent source review from native end-to-end verification. |
 | Review | Existing diff; explicit comment Save/Cancel/Delete; selected/all viewed controls; separate checkpoint | Verify keyboard/focus behavior through the native app, not only render tests. |
-| Tools and skills | Searchable Tools and agent pickers, recipient/command preview, explicit Queue skill, task-specific message drafts | No automatic provider switching or model selection. |
+| Tools and skills | Searchable Tools and agent pickers, explicit previous-setup reuse, recipient/command preview, explicit Queue skill, task-specific message drafts | No automatic provider switching or model selection. |
 | Activity | Actual assignment, delivery and report provenance; expandable prompts/logs | Do not call model routing or external-chat coordination autonomous agent delegation. |
 | Evidence | Revision-bound local artifacts with hashes and quota; PR evidence references | Automatic screenshot/video production and richer archival are not implemented. |
 | Preferences/input | Pending scoped preference proposals, explicit acceptance, editable system dictation, decision batches | No built-in speech capture; reduced corrections must be measured, not asserted. |
@@ -47,6 +47,8 @@ The [research record](workflow-research.md) explains the source ideas and their 
 5. Accepted work stays in History. Close the goal only after its actual outcomes and outstanding decisions have been reviewed by the user.
 
 The guiding UX question is: can the user understand what to do here and what will happen after one action? Do not solve confusion by adding more counters, explanatory paragraphs or duplicate buttons to the main card. Derive status from current records; manually written next-decision/recommendation text can become stale after acceptance and needs attention.
+
+Task setup can explicitly reuse the latest successful setup in the same mission while retaining the new title, criteria and dependencies. Unavailable or incompatible sessions are not restored. Compact Mission control switches between Tasks and the selected work, and batch review selects entries in the existing queue rather than creating a second list. Missions without predefined outcomes show Work from brief and their actual task states instead of a misleading 0/0 counter. Finish mission is the sole closure action; accepting a task does not close the mission.
 
 The current usability iteration derives the card's primary action from live tasks, keeps saved prose in Mission details, folds outcome progress, and offers a bounded follow-up when a settled blocked attempt has exhausted its budget. File search now exposes its result list and loading/error/empty states. Continue validating these native interactions before broadening the feature set; a render-unit test cannot prove popup sizing or screen-reader exposure.
 

@@ -21,6 +21,7 @@ export function button(t, id, label, onClick, { kind = "outline", size = "md", t
     .when(!disabled && kind === "solid", (el) => el.bg(t.solid).text_color(t.solid_foreground).cursor_pointer())
     .when(!disabled && kind === "outline", (el) => el.border_1().border_color(t.border).text_color(quiet).cursor_pointer()
       .hover((st) => st.bg(t.hover).text_color(t.foreground)))
+    .when(!disabled && kind === "outline" && selected, (el) => el.bg(t.selected).border_color(t.accent).text_color(t.foreground))
     .when(!disabled && kind === "danger", (el) => el.border_1().border_color(t.blocked).text_color(t.blocked).cursor_pointer()
       .hover((st) => st.bg(t.hover)))
     .when(Boolean(tip), (el) => el.tooltip(tip))

@@ -39,6 +39,24 @@ test('direct plan entry and bulk validation remain a draft until Save', async ()
   assert.deepEqual(fake.files, {}); assert.equal(find(v.render(), 'goal-finish').isDisabled, true);
   assert.equal(v.fields.decision.value(), 'Accept the result?'); v.close();
 });
+
+test('finish is the sole close action and a closed goal can be reopened', async () => {
+  const { v } = await editor();
+  let tree = v.render();
+  assert.ok(find(tree, 'goal-finish'));
+  assert.equal(find(tree, 'goal-state-completed'), null);
+  assert.ok(find(tree, 'goal-state-active'));
+  assert.ok(find(tree, 'goal-state-paused'));
+  v.goal = { ...v.goal, state: 'completed' };
+  tree = v.render();
+  assert.equal(find(tree, 'goal-finish'), null);
+  assert.equal(find(tree, 'goal-state-completed'), null);
+  assert.ok(find(tree, 'goal-state-active'));
+  assert.ok(find(tree, 'goal-state-paused'));
+  assert.match(text(tree), /Closed by you/);
+  v.close();
+});
+
 test('resolve, validate and finish preserves prior notes and records the resolved question', async () => {
   const { v, cx } = await editor(); click(find(v.render(), 'goal-validate-all'), cx);
   click(find(v.render(), 'goal-plan-decision'), cx); v.response.set_value('Reviewed the result');

@@ -57,13 +57,13 @@ The target is a better fit for outcome-driven, batch-reviewed work. Superiority 
 | Objective | Observable acceptance criterion | Current boundary |
 | --- | --- | --- |
 | Know what needs attention | On opening a mission, identify its result, current state and next action without opening an agent chat. | Live primary action and ready-review ordering are implemented; comprehension must be checked with real use. |
-| Delegate without repeated setup | Enter an outcome, select the repository and roles, then explicitly start. Advanced controls stay optional. | Brief, searchable agents and check presets are implemented; reusable execution profiles remain proposed. |
+| Delegate without repeated setup | Enter an outcome, select the repository and roles, then explicitly start. Advanced controls stay optional. | Brief, searchable agents, check presets and explicit reuse of a successful setup are implemented; named execution profiles remain proposed. |
 | Review a complete result | Reach changes, checks, independent review and evidence from the same task; distinguish missing evidence from success. | Result/Evidence and revision guards exist; automatic screenshot/video capture remains proposed. |
 | Continue without manual handoffs | An accepted result releases eligible already-started work, while stops and human review boundaries remain intact. | Supported for local connected sessions; automatic goal decomposition is not implemented. |
 | Preserve familiar development work | Reach existing GitHub, PR, diff, review and terminal actions without duplicate workflow controls. | Existing surfaces are retained; accepting a mission result never implies PR approval or merge. |
 | Work efficiently by keyboard | Discover shortcuts, navigate the common path and cancel editing without losing unrelated work. | Keyboard paths exist; native overlay screen-reader exposure remains an unresolved host limitation. |
 
-Compare repeated, equivalent tasks using time to understand the next action, manual handoffs, chat switches, corrections and cost per accepted outcome. Keep traces and results local. Isolated worktrees and reusable execution profiles are explicit opportunities; do not add them as untested options or claim that they already work.
+Compare repeated, equivalent tasks using time to understand the next action, manual handoffs, chat switches, corrections and cost per accepted outcome. Keep traces and results local. Isolated worktrees and named execution profiles are explicit opportunities; do not add them as untested options or claim that they already work.
 
 ## Herdr + OMP + Magpie references
 

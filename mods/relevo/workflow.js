@@ -11,7 +11,7 @@ import { WorkflowPlan } from "./workflow-plan.js";
 export function openWorkflow(goalId) {
   // Herdr dialogs consume Escape before mod handlers. A keyed window lets
   // Workflow return focus from an input without discarding its draft.
-  openOverlay({ mod: "relevo", kind: "window", key: `relevo-workflow-${goalId}`, width: 850, height: 720, props: { role: "workflow", goalId } });
+  openOverlay({ mod: "relevo", kind: "window", key: `relevo-workflow-${goalId}`, width: 0.6, height: 0.88, props: { role: "workflow", goalId } });
 }
 
 const STATES = { planned: "Planned", ready: "Ready", running: "In progress", needs_review: "Needs review", needs_you: "Needs you", accepted: "Completed", completed: "Completed", blocked: "Blocked", failed: "Failed", cancelled: "Cancelled" };
@@ -47,7 +47,8 @@ export class Workflow extends WorkflowPlan {
     this.form.reviewerSearch.on("change", (_event, cx) => cx.notify());
     this.form.root.on("change", (_event, cx) => {
       this.executor = ""; this.reviewer = "";
-      this.form.executorSearch.set_value(""); this.form.reviewerSearch.set_value(""); cx.notify();
+      this.form.executorSearch.set_value(""); this.form.reviewerSearch.set_value("");
+      this.setupReuseNotice = null; this.setupReuseWarning = null; cx.notify();
     });
     this.executor = "";
     this.reviewer = "";
@@ -105,6 +106,9 @@ export class Workflow extends WorkflowPlan {
     this.events = (state.events ?? []).filter((event) => event.goalId === this.goalId);
     this.prefsData = state.preferences ?? [];
     this.engine = state.engine ?? { enabled: false };
+    if (this.batchMode && this.tasks.filter((task) => task.state === "needs_you").length < 2) {
+      this.batchMode = false; this.batchIds = []; this.batchSnapshot = null; this.batchPreview = null;
+    }
     if (this.explicitNew) return;
     const selected = this.tasks.find((task) => task.id === this.selected);
     const finished = selected?.state === "accepted" && previous && previous.state !== "accepted";
@@ -121,6 +125,7 @@ export class Workflow extends WorkflowPlan {
   }
 
   selectFilter(filter, cx) {
+    this.batchMode = false;
     this.filter = filter; this.explicitNew = false; this.tab = "Overview";
     this.selected = workflowItems(this.tasks ?? [], filter)[0]?.id ?? null;
     this.h.focus(); cx.notify();
@@ -205,6 +210,7 @@ export class Workflow extends WorkflowPlan {
       for (const key of ["title", "root", "criteria", "checks"]) this.form[key].set_value("");
       this.checkPreset = "none";
       this.form.maxRounds.set_value("2"); this.form.maxMinutes.set_value("20"); this.dependsOn = [];
+      this.setupReuseNotice = null; this.setupReuseWarning = null;
       this.executor = "";
       this.reviewer = "";
       this.explicitNew = false;
@@ -213,32 +219,80 @@ export class Workflow extends WorkflowPlan {
     });
   }
 
-  taskList(t, cx) {
+  previousSuccessfulSetup() {
+    const isSuccessful = (task) => {
+      if (task.state === "accepted") return true;
+      if (task.state !== "needs_you") return false;
+      const reviewer = [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === "reviewer");
+      const checks = task.checks ?? [], results = task.checksResult ?? [];
+      return reviewer?.state === "reported" && reviewer.report?.status === "completed" &&
+        reviewer.revision === task.revision && (!checks.length || (results.length === checks.length && results.every((check) => check.code === 0)));
+    };
+    return [...(this.tasks ?? [])].reverse().find((task) => task.goalId === this.goalId && isSuccessful(task)) ?? null;
+  }
+
+  usePreviousSetup(cx) {
+    const task = this.previousSuccessfulSetup();
+    if (!task || this.closed || this.busy) return;
+    const root = task.root ?? "";
+    this.form.root.set_value(root);
+    this.form.executorSearch.set_value(""); this.form.reviewerSearch.set_value("");
+    const available = (address) => {
+      const agent = agents().find((item) => item.address === address);
+      if (!agent) return null;
+      const pane = panes().find((item) => item.pane === agent.pane);
+      const cwd = agent.cwd ?? pane?.cwd;
+      return !cwd || cwd === root ? { agent, verifyRoot: !cwd } : null;
+    };
+    const executorChoice = available(task.executor?.address), reviewerChoice = available(task.reviewer?.address);
+    const executor = executorChoice?.agent, reviewer = reviewerChoice?.agent;
+    this.executor = executor?.address ?? "";
+    this.reviewer = reviewer && reviewer.address !== this.executor ? reviewer.address : "";
+    this.setupReuseWarning = [!executor ? `Implementer “${task.executor?.label ?? task.executor?.address ?? "unknown"}” is unavailable` : executorChoice.verifyRoot ? `Verify implementer repository for ${executor.title || executor.address}` : null,
+      !reviewer || reviewer.address === this.executor ? `Reviewer “${task.reviewer?.label ?? task.reviewer?.address ?? "unknown"}” is unavailable` : reviewerChoice.verifyRoot ? `Verify reviewer repository for ${reviewer.title || reviewer.address}` : null]
+      .filter(Boolean).join(". ");
+    this.form.maxRounds.set_value(String(task.maxRounds ?? 2));
+    this.form.maxMinutes.set_value(String(task.maxMinutes ?? 20));
+    const checks = task.checks ?? [];
+    if (!checks.length) { this.checkPreset = "none"; this.form.checks.set_value(""); }
+    else if (checks.length === 1 && checks[0]?.length === 2 && checks[0][0] === "npm" && checks[0][1] === "test") { this.checkPreset = "npm-test"; this.form.checks.set_value(""); }
+    else { this.checkPreset = "custom"; this.form.checks.set_value(JSON.stringify(checks)); }
+    this.taskSetupOpen = true; this.taskAdvancedOpen = this.checkPreset === "custom";
+    this.setupReuseNotice = "Previous setup applied. Review repository and agents before creating.";
+    cx.notify();
+  }
+
+  taskList(t) {
     const visible = workflowItems(this.tasks ?? [], this.filter);
     const batchable = visible.filter((task) => task.state === "needs_you");
-    return v_flex().w(190).flex_none().h_full().min_h(0).min_w(0).gap(8).p(10).rounded(8).bg(t.chrome)
+    const selecting = this.batchMode && this.filter === "Needs you" && batchable.length > 1;
+    return v_flex().when(!this.compact, (el) => el.w(190).flex_none()).when(this.compact, (el) => el.w_full().flex_1()).h_full().min_h(0).min_w(0).gap(8).p(10).rounded(8).bg(t.chrome)
       .child(div().text_size(11).text_color(t.muted).child("WORK QUEUE"))
       .child(v_flex().gap(4).children(["Needs you", "In progress", "Completed"].map((filter) => button(t, `workflow-filter-${filter}`,
         `${filter === "Completed" ? "History" : filter} (${workflowItems(this.tasks ?? [], filter).length})`,
         (context) => this.selectFilter(filter, context), { selected: this.tab !== "Plan" && this.filter === filter })
         .when(this.tab !== "Plan" && this.filter === filter, (el) => el.bg(t.selected).border_color(t.accent).text_color(t.foreground)))))
-      .child(v_flex().w_full().min_w(0).flex_1().min_h(0).overflow_y_scrollbar().gap(5).children(visible.map((task) => button(t, `workflow-task-${task.id}`,
+      .child(v_flex().w_full().min_w(0).flex_1().min_h(0).overflow_y_scrollbar().gap(5).children((selecting ? batchable : visible).map((task) => selecting ? button(t,
+        `workflow-batch-select-${task.id}`, `${this.batchIds?.includes(task.id) ? "☑" : "☐"} ${caption(task.title, 36)}`,
+        (cx) => { this.batchIds ??= []; this.batchIds = this.batchIds.includes(task.id) ? this.batchIds.filter((id) => id !== task.id) : [...this.batchIds, task.id]; this.batchPreview = null; this.batchSnapshot = null; cx.notify(); },
+        { selected: Boolean(this.batchIds?.includes(task.id)), tip: `Select ${task.title} for a same-project batch` }).w_full().min_w(0).h(56).overflow_hidden()
+        : button(t, `workflow-task-${task.id}`,
         [v_flex().w_full().min_w(0).gap(3).text_left().child(div().w_full().min_w(0).truncate().child(task.title))
           .child(div().text_size(11).child(taskState(task.state)))],
-        (context) => { this.explicitNew = false; this.selected = task.id; this.tab = "Overview"; this.h.focus(); context.notify(); },
+        (context) => { this.compactQueueOpen = false; this.explicitNew = false; this.selected = task.id; this.tab = "Overview"; this.h.focus(); context.notify(); },
         { selected: this.selected === task.id, tip: task.title, accessibleLabel: `${task.title}. ${taskState(task.state)}` }).w_full().min_w(0).h(56).overflow_hidden()
         .when(this.selected === task.id && this.tab !== "Plan", (el) => el.bg(t.selected).border_color(t.accent)))))
-      .child(button(t, "workflow-goal-plan", "Plan work", (context) => this.openPlan(context), { selected: this.tab === "Plan", tip: "P: connect goal outcomes to one executable plan and track accepted results" }))
-      .child(button(t, "workflow-new-task", "+ New task", (context) => { this.explicitNew = true; this.selected = null; this.tab = "Overview"; this.h.focus(); context.notify(); }, { size: "sm", tip: "Clear selection and create a goal task" }))
-      .when(this.filter === "Needs you" && batchable.length > 1, (el) => el.child(this.batchPanel(t, batchable)));
+      .child(button(t, "workflow-goal-plan", "Plan work", (context) => { this.compactQueueOpen = false; this.openPlan(context); }, { selected: this.tab === "Plan", tip: "P: connect goal outcomes to one executable plan and track accepted results" }))
+      .child(button(t, "workflow-new-task", "+ New task", (context) => { this.compactQueueOpen = false; this.explicitNew = true; this.selected = null; this.tab = "Overview"; this.h.focus(); context.notify(); }, { size: "sm", tip: "Clear selection and create a goal task" }))
+      .when(this.filter === "Needs you" && batchable.length > 1, (el) => el.child(button(t, "workflow-batch-toggle", selecting ? "Cancel selection" : "Review a batch", (cx) => {
+        this.batchMode = !selecting; this.batchIds = []; this.batchSnapshot = null; this.batchPreview = null; cx.notify();
+      }, { size: "sm", selected: Boolean(selecting), tip: "Select ready results in this list and preview their acceptance together" })))
+      .when(selecting, (el) => el.child(this.batchPanel(t, batchable)));
   }
 
   batchPanel(t, tasks) {
     const picked = tasks.filter((task) => this.batchIds?.includes(task.id));
-    return v_flex().gap(4).child(div().font_semibold().child("Bulk accept"))
-      .children(tasks.map((task) => button(t, `workflow-batch-select-${task.id}`, `${this.batchIds?.includes(task.id) ? "☑" : "☐"} ${caption(task.title, 36)}`,
-        (cx) => { this.batchIds ??= []; this.batchIds = this.batchIds.includes(task.id) ? this.batchIds.filter((id) => id !== task.id) : [...this.batchIds, task.id]; this.batchPreview = null; this.batchSnapshot = null; cx.notify(); },
-        { tip: "Select this task for a same-project batch" })))
+    return v_flex().max_h(160).overflow_y_scrollbar().gap(4).child(row(t, `${picked.length} selected`))
       .child(button(t, "workflow-batch-preview", "Preview acceptance", (cx) => {
         const ids = picked.map((task) => task.id), revisions = Object.fromEntries(picked.map((task) => [task.id, task.revision]));
         this.command({ action: "batch", ids, outcome: "accept", revisions, preview: true }, cx, (response) => {
@@ -249,7 +303,7 @@ export class Workflow extends WorkflowPlan {
       .when(Boolean(this.batchSnapshot?.preview.length), (el) => el.child(v_flex().gap(3)
         .children(this.batchSnapshot.preview.map((item) => row(t, `${item.title}: ${item.nextEffect}`)))
         .child(button(t, "workflow-batch-confirm", "Apply bulk acceptance", (cx) => this.command({ action: "batch", ids: this.batchSnapshot.ids, outcome: "accept", revisions: this.batchSnapshot.revisions, preview: false }, cx,
-          () => { this.batchSnapshot = null; this.batchIds = []; }),
+          () => { this.batchSnapshot = null; this.batchIds = []; this.batchMode = false; }),
           { kind: "solid", disabled: this.busy, tip: "Record acceptance for only the previewed tasks" }))));
   }
 
@@ -288,17 +342,29 @@ export class Workflow extends WorkflowPlan {
     return v_flex().gap(4).child(row(t, "Choose a connected repository path"))
       .child(v_flex().max_h(120).overflow_y_scrollbar().gap(4).children(roots.map((root, index) => button(t, `workflow-repository-${index}`, `Use ${caption(root.split("/").filter(Boolean).slice(-2).join("/") || root, 42)}`,
         (cx) => { this.form.root.set_value(root); this.executor = ""; this.reviewer = "";
-          this.form.executorSearch.set_value(""); this.form.reviewerSearch.set_value(""); cx.notify(); },
+          this.form.executorSearch.set_value(""); this.form.reviewerSearch.set_value("");
+          this.setupReuseNotice = null; this.setupReuseWarning = null; cx.notify(); },
         { kind: this.form.root.value().trim() === root ? "solid" : "outline", tip: `Set repository path to ${root}` }))));
   }
 
   taskForm(t, cx) {
     const chosen = [this.executor, this.reviewer].filter(Boolean).length;
+    const previousSetup = this.previousSuccessfulSetup();
+    const previousChecks = previousSetup?.checks ?? [];
+    const previousCheckLabel = !previousChecks.length ? "No automated checks"
+      : previousChecks.length === 1 && previousChecks[0]?.length === 2 && previousChecks[0][0] === "npm" && previousChecks[0][1] === "test" ? "npm test" : "Custom checks";
+    const previousRootName = previousSetup?.root?.split("/").filter(Boolean).at(-1) || "Unknown repository";
     return v_flex().w_full().min_w(0).gap(12)
       .child(div().font_semibold().child("Create task"))
       .child(row(t, "After Start, agents implement, check and review. The result comes back for your decision."))
       .child(this.field(t, "title", "What needs to get done?"))
       .child(this.field(t, "criteria", "What does a good result look like?", true))
+      .when(Boolean(previousSetup), (el) => el.child(v_flex().gap(4).id("workflow-previous-setup")
+        .child(row(t, `Previous setup · ${previousRootName} · ${previousSetup.executor?.label ?? previousSetup.executor?.address ?? "Implementer unavailable"} + ${previousSetup.reviewer?.label ?? previousSetup.reviewer?.address ?? "Reviewer unavailable"}`))
+        .child(button(t, "workflow-use-previous-setup", "Use previous setup", (context) => this.usePreviousSetup(context),
+          { disabled: this.busy, tip: `Copy setup from ${previousSetup.title} in this mission: ${previousSetup.root}; ${previousSetup.maxRounds ?? 2} rounds; ${previousSetup.maxMinutes ?? 20} minutes; ${previousCheckLabel} (${JSON.stringify(previousChecks)}). Title and outcome stay as drafted; nothing starts.` }))))
+      .when(Boolean(this.setupReuseNotice), (el) => el.child(row(t, this.setupReuseNotice)))
+      .when(Boolean(this.setupReuseWarning), (el) => el.child(row(t, this.setupReuseWarning)))
       .child(button(t, "workflow-task-setup", `Repository & agents · ${chosen}/2 selected`, (context) => {
         this.taskSetupOpen = !this.taskSetupOpen; context.notify();
       }, { selected: Boolean(this.taskSetupOpen), tip: "Choose a repository and two different connected agents. No session starts here." }))
@@ -409,7 +475,7 @@ export class Workflow extends WorkflowPlan {
     });
     return v_flex().id("workflow-decision-card").w_full().min_w(0).gap(10).p(14).rounded(8).bg(t.raised)
       .child(div().text_size(11).text_color(t.muted).child("YOUR DECISION"))
-      .child(h_flex().gap(5)
+      .child(h_flex().gap(5).flex_wrap()
         .child(button(t, "workflow-decide-accept", "Accept result", (cx) => submit("accept", cx),
           { kind: "solid", size: "lg", disabled: this.busy || changes, tip: "Accept this revision and allow dependent tasks to proceed. Does not approve or merge a PR." })
           .when(!this.busy && !changes, (el) => el.bg(t.accent).text_color(t.accent_foreground)))
@@ -737,10 +803,15 @@ export class Workflow extends WorkflowPlan {
           : this.overview(t, task)
       : this.emptyQueue(t);
     return v_flex().id("workflow-dialog").role("dialog").accessibility_label("Mission control").track_focus(this.h)
+      .on_size_change((size, cx) => {
+        const compact = size.width < 700;
+        if (this.compact !== compact) { this.compact = compact; cx.notify(); }
+      })
       .on_mouse_down("left", (_event, cx) => cx.stop_propagation())
       .on_key_down((event, cx) => {
         if (event.key === "escape") {
           cx.stop_propagation();
+          if (this.compact && this.compactQueueOpen) { this.compactQueueOpen = false; this.h.focus(); cx.notify(); return; }
           if (this.tab === "Tools") { this.tab = this.toolsReturnTab ?? "Overview"; this.toolPreview = null; this.h.focus(); cx.notify(); return; }
           if (!this.h.is_focused()) {
             this.h.focus(); cx.notify(); return;
@@ -748,24 +819,25 @@ export class Workflow extends WorkflowPlan {
           closeOverlay(overlay); return;
         }
         if (!this.h.is_focused() || event.modifiers?.platform || event.modifiers?.alt || event.modifiers?.control) return;
+        if (["?", "n", "p", "t", "1", "2", "3", "4", "5", "down", "up"].includes(event.key)) cx.stop_propagation();
         if (event.key === "?") { this.showHelp = !this.showHelp; cx.notify(); }
-        else if (event.key === "n") { this.selected = null; this.explicitNew = true; this.tab = "Overview"; this.showHelp = false; cx.notify(); }
-        else if (event.key === "p") { this.openPlan(cx); }
-        else if (event.key === "t" && task) { this.openTools(cx); }
-        else if (["1", "2", "3", "4", "5"].includes(event.key)) { this.tab = TABS[Number(event.key) - 1]; cx.notify(); }
-        else if (["arrowdown", "arrowup"].includes(event.key)) {
+        else if (event.key === "n") { this.compactQueueOpen = false; this.selected = null; this.explicitNew = true; this.tab = "Overview"; this.showHelp = false; cx.notify(); }
+        else if (event.key === "p") { this.compactQueueOpen = false; this.openPlan(cx); }
+        else if (event.key === "t" && task) { this.compactQueueOpen = false; this.openTools(cx); }
+        else if (["1", "2", "3", "4", "5"].includes(event.key)) { this.compactQueueOpen = false; this.tab = TABS[Number(event.key) - 1]; cx.notify(); }
+        else if (["down", "up"].includes(event.key)) {
           const tasks = workflowItems(this.tasks ?? [], this.filter);
           const index = tasks.findIndex((item) => item.id === this.selected);
-          const next = Math.max(0, Math.min(tasks.length - 1, index + (event.key === "arrowdown" ? 1 : -1)));
-          if (tasks.length) { this.selected = tasks[next].id; cx.notify(); }
+          const next = Math.max(0, Math.min(tasks.length - 1, index + (event.key === "down" ? 1 : -1)));
+          if (tasks.length) { this.compactQueueOpen = false; this.explicitNew = false; this.selected = tasks[next].id; this.tab = "Overview"; cx.notify(); }
         }
       })
       .size_full().min_h(0).p(16).gap(14).bg(t.popover ?? t.surface).text_color(t.foreground)
-      .child(h_flex().w_full().min_w(0).justify_between().items_center()
+      .child((this.compact ? v_flex().items_start().gap(8) : h_flex().justify_between().items_center()).w_full().min_w(0)
         .child(v_flex().flex_1().min_w(0).gap(3)
           .child(div().font_semibold().child("Mission control"))
           .child(div().text_size(11).text_color(t.muted).truncate().child(this.goal?.title ?? "Work for this goal")))
-        .child(h_flex().gap(5)
+        .child(h_flex().gap(5).flex_wrap()
           .child(button(t, "workflow-focus-queue", "?", (cx) => { this.showHelp = !this.showHelp; this.h.focus(); cx.notify(); }, { tip: "Keyboard help: show shortcuts and focus the queue", accessibleLabel: "Keyboard help" }))
           .when(Boolean(task), (el) => el.child(button(t, "workflow-task-tools", "Tools", (cx) => this.openTools(cx), { selected: this.tab === "Tools", tip: "T: find a skill, session or task action" })))
           .child(button(t, "workflow-tools-toggle", this.showTools ? "Hide settings" : "Settings", (cx) => { this.showTools = !this.showTools; cx.notify(); }, { tip: "Automation controls and saved preferences", selected: Boolean(this.showTools) }))
@@ -776,13 +848,17 @@ export class Workflow extends WorkflowPlan {
       .when(Boolean(this.notice), (el) => el.child(div().role("status").child(row(t, this.notice))))
       .when(Boolean(this.error), (el) => el.child(div().id("workflow-error").role("alert").text_color(t.blocked).child(this.error)))
       .when(this.showHelp, (el) => el.child(row(t, "Keyboard: 1 decision · 2 result · 3 evidence · 4 activity · 5 preferences · T tools · P plan · ↑/↓ tasks · N new · Esc returns focus to the queue; Esc again closes. Typing never triggers shortcuts.")))
-      .child(h_flex().items_start().h_full().flex_1().min_h(0).min_w(0).gap(20).child(this.taskList(t))
-        .child(v_flex().flex_1().h_full().min_h(0).min_w(0).gap(16)
-          .when(Boolean(task) && !["Plan", "Preferences", "Tools"].includes(this.tab), (el) => el.child(h_flex().gap(6).children(TABS.slice(0, 4).map((tab, index) => button(t,
+      .when(this.compact, (el) => el.child(button(t, "workflow-queue-toggle", this.compactQueueOpen ? "Back to work" : `Tasks · ${this.filter === "Completed" ? "History" : this.filter} (${workflowItems(this.tasks ?? [], this.filter).length})`, (cx) => {
+        this.compactQueueOpen = !this.compactQueueOpen; this.h.focus(); cx.notify();
+      }, { tip: "Switch between the task list and the current work. Drafts stay in place.", selected: Boolean(this.compactQueueOpen) })))
+      .child(h_flex().items_start().h_full().flex_1().min_h(0).min_w(0).gap(20)
+        .when(!this.compact || this.compactQueueOpen, (el) => el.child(this.taskList(t)))
+        .when(!this.compact || !this.compactQueueOpen, (el) => el.child(v_flex().flex_1().h_full().min_h(0).min_w(0).gap(16)
+          .when(Boolean(task) && !["Plan", "Preferences", "Tools"].includes(this.tab), (el) => el.child(h_flex().gap(6).flex_wrap().children(TABS.slice(0, 4).map((tab, index) => button(t,
             `workflow-tab-${tab}`, tab === "Overview" ? (task.state === "needs_you" ? "Decision" : "Summary") : tab === "Changes" ? (["blocked", "failed"].includes(task.state) ? "Findings" : "Result") : tab,
             (cx) => { this.tab = tab; this.h.focus(); cx.notify(); }, { size: "sm", selected: this.tab === tab, tip: `${index + 1}: open ${tab.toLowerCase()}` })
             .when(this.tab === tab, (item) => item.border_color(t.accent).text_color(t.accent))))))
           .child(v_flex().id(`workflow-panel-${this.tab}-${this.selected ?? "queue"}`).flex_1().w_full().min_h(0).min_w(0).overflow_y_scrollbar().gap(10)
-            .child(panel).when(!this.selected && !["Preferences", "Plan"].includes(this.tab) && (this.explicitNew || !(this.tasks ?? []).length), (el) => el.child(this.taskForm(t))))));
+            .child(panel).when(!this.selected && !["Preferences", "Plan"].includes(this.tab) && (this.explicitNew || !(this.tasks ?? []).length), (el) => el.child(this.taskForm(t)))))));
   }
 }

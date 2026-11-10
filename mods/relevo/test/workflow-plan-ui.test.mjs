@@ -91,6 +91,38 @@ test('a mission without outcomes can open one prefilled task without dispatching
   v.close();
 });
 
+test('missions without outcomes show brief work and existing standalone tasks separately', async () => {
+  const { v, cx } = await setup();
+  v.goal = { ...v.goal, steps: [] }; v.planDraftGoal = v.goal; v.planStepIds = [];
+  let tree = v.render();
+  assert.match(text(tree), /Work from brief/);
+  assert.doesNotMatch(text(tree), /0\/0 outcomes validated/);
+  assert.equal(find(tree, 'workflow-plan-refresh'), null);
+  assert.doesNotMatch(text(tree), /Choose outcomes|Select the work to include/);
+  assert.equal(text(find(tree, 'workflow-plan-create-first-task')), 'Create first task');
+  const standalone = { id: 'standalone', goalId: 'g', title: 'Fix the queue', state: 'needs_you' };
+  const cancelled = { id: 'cancelled', goalId: 'g', title: 'Old experiment', state: 'cancelled' };
+  const planned = { id: 'planned', goalId: 'g', planId: 'p', title: 'Planned step', state: 'planned' };
+  v.applyState({ tasks: [standalone, cancelled, planned], plans: [], events: [] });
+  tree = v.render();
+  assert.match(text(tree), /Fix the queue · Needs your review/);
+  assert.match(text(tree), /Old experiment · Cancelled/);
+  assert.doesNotMatch(text(tree), /Planned step/);
+  assert.equal(text(find(tree, 'workflow-plan-create-first-task')), 'Add task');
+  v.explicitNew = true; v.compactQueueOpen = true;
+  click(find(tree, 'workflow-plan-standalone-standalone'), cx);
+  assert.equal(v.selected, 'standalone');
+  assert.equal(v.tab, 'Overview');
+  assert.equal(v.explicitNew, false); assert.equal(v.compactQueueOpen, false);
+  v.tab = 'Plan'; v.selected = null; v.compactQueueOpen = true;
+  click(find(v.render(), 'workflow-plan-standalone-cancelled'), cx);
+  assert.equal(v.selected, 'cancelled');
+  assert.equal(v.filter, 'Completed');
+  assert.equal(v.compactQueueOpen, false);
+  assert.equal(fake.execs.length, 0);
+  v.close();
+});
+
 test('polling retains a plan draft and rejects a changed goal until explicit refresh', async () => {
   const { v, cx } = await setup(); configure(v); v.planStepIds = ['b'];
   const doc = JSON.parse(fake.files[goalFile]); doc.goals[0].version++; doc.goals[0].steps[1].title = 'Verify recovery states';

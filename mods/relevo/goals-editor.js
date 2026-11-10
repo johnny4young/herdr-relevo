@@ -268,12 +268,12 @@ export class GoalEditor {
                 state === "done" ? "Record your validation of this result" : "Record this step's current stage")))
               .child(button(t, `goal-step-remove-${step.id}`, "Remove", (cx) => this.removeStep(step, cx),
                 { disabled: this.busy, tip: "Remove this plan step when you save" })))))
-          .child(button(t, "goal-add-step", "+ Plan step", (cx) => this.addStep(cx),
+          .child(button(t, "goal-add-step", "+ Outcome", (cx) => this.addStep(cx),
             { disabled: this.busy || this.steps.length >= 20, tip: "Add a concrete result to validate; up to 20 steps" }))
-          .child(row("Goal state · closing does not approve or merge PRs", t))
-          .child(h_flex().gap(5).children(Object.entries(GOAL_STATES).map(([state, label]) =>
+          .child(row(`Mission status · ${GOAL_STATES[goalState(goal)]} · closing does not approve or merge PRs`, t))
+          .child(h_flex().gap(5).children(Object.entries(GOAL_STATES).filter(([state]) => state !== "completed").map(([state, label]) =>
             choice(`goal-state-${state}`, label, goal && goalState(goal) === state, (cx) => { if (this.goal) this.goal = { ...this.goal, state }; cx.notify(); },
-              state === "completed" ? "Requires every step validated and no pending decision. Open work remains visible." : "Update the goal state without starting or stopping agents")))))
+              "Update or reopen the goal state without starting or stopping agents")))))
         .when(this.panel === "ownership", (el) => el
           .child(field("owner", this.fields.owner, labels.owner))
           .child(row("Declared priority · visible blockers appear first", t))
@@ -289,7 +289,7 @@ export class GoalEditor {
       .child(h_flex().flex_none().gap(8).flex_wrap()
         .child(button(t, "goal-save", this.loading ? "Loading…" : this.busy ? "Saving…" : "Save", (cx) => this.save(cx),
           { kind: "solid", disabled: this.busy || !goal, tip: "⌘S saves all sections. This does not send messages, approve or merge changes." }))
-        .when(this.panel === "plan", (el) => el.child(button(t, "goal-finish", "Save and finish goal", (cx) => {
+        .when(this.panel === "plan" && goalState(goal) !== "completed", (el) => el.child(button(t, "goal-finish", "Finish mission", (cx) => {
           if (this.closed || this.busy || !this.goal) return;
           this.goal = { ...this.goal, state: "completed" }; this.save(cx);
         }, { disabled: this.busy || !goal || this.steps.some((step) => step.state !== "done") || (Boolean(this.fields.decision.value().trim()) && !this.resolvePending),

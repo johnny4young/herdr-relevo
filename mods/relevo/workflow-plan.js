@@ -3,6 +3,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { agents } from "herdr";
 import { button } from "./ui.js";
 import { projectGoalPlan, defaultPlanStepIds } from "./lib/goal-plan.js";
+import { workflowBucket } from "./lib/workflow-navigation.js";
 
 const labels = { todo: "Not started", planned: "Planned", ready: "Ready", running: "In progress", working: "In progress", needs_review: "Independent review", review: "Needs review", needs_you: "Needs your review", accepted: "Accepted", done: "Validated", blocked: "Needs attention", failed: "Failed", cancelled: "Cancelled" };
 const row = (t, value) => div().w_full().min_w(0).text_size(13).text_color(t.muted).child(value);
@@ -64,15 +65,30 @@ export class WorkflowPlan {
     const stale = this.goal.version !== goal.version;
     const active = (this.goal.state ?? "active") === "active";
     const plans = (this.plans ?? []).filter((plan) => plan.state !== "cancelled" && plan.taskIds.some((id) => this.tasks.some((task) => task.id === id && task.state !== "cancelled")));
+    const standaloneTasks = (this.tasks ?? []).filter((task) => !task.goalStep && !task.planId);
     const terminal = (task) => ["accepted", "cancelled"].includes(task.state);
     const livePlans = plans.filter((plan) => plan.state === "planned" || (plan.state === "started" && plan.taskIds.some((id) => {
       const task = this.tasks.find((item) => item.id === id);
       return task && !terminal(task);
     })));
     const showBuilder = livePlans.length === 0 || this.planMoreOpen;
+    const openTask = (task, cx) => {
+      this.selected = task.id;
+      this.filter = workflowBucket(task);
+      this.explicitNew = false; this.compactQueueOpen = false;
+      this.tab = "Overview"; this.h.focus(); cx.notify();
+    };
     return v_flex().w_full().min_w(0).gap(9)
       .child(div().font_semibold().child(this.goal.title))
-      .child(row(t, `${projected.filter((item) => item.state === "done").length}/${projected.length} outcomes validated`))
+      .child(row(t, goal.steps.length ? `${projected.filter((item) => item.state === "done").length}/${projected.length} outcomes validated` : "Work from brief"))
+      .when(!goal.steps.length, (el) => el
+        .child(row(t, "Accepting a task does not close this mission."))
+        .when(standaloneTasks.length > 0, (list) => list
+          .child(div().font_semibold().child("Tasks from the brief"))
+          .children(standaloneTasks.map((task) => v_flex().gap(4)
+            .child(row(t, `${task.title} · ${labels[task.state] ?? task.state}`))
+            .child(button(t, `workflow-plan-standalone-${task.id}`, "Open task", (cx) => openTask(task, cx),
+              { tip: "Open task status and review without starting or changing it" }))))))
       .children(plans.map((plan) => {
         const tasks = plan.taskIds.map((id) => this.tasks.find((task) => task.id === id)).filter(Boolean);
         const stopped = tasks.some((task) => task.paused);
@@ -83,11 +99,6 @@ export class WorkflowPlan {
         const pausedTask = tasks.find((task) => task.paused && task.state !== "accepted");
         const cancelledTask = tasks.find((task) => task.state === "cancelled");
         const next = tasks.find((task) => !terminal(task));
-        const openTask = (task, cx) => {
-          this.selected = task.id;
-          this.filter = task.state === "accepted" ? "Completed" : ["needs_you", "blocked", "failed"].includes(task.state) ? "Needs you" : "In progress";
-          this.tab = "Overview"; this.h.focus(); cx.notify();
-        };
         const nextAction = plan.state === "planned" ? (stopped ? "Ready to resume and start" : "Ready to start")
           : cancelledTask ? `Cancelled: ${cancelledTask.title} · plan needs an update`
           : needsYou ? `${needsYou.state === "needs_you" ? "Review" : "Resolve"}: ${needsYou.title}`
@@ -120,17 +131,18 @@ export class WorkflowPlan {
         this.planMoreOpen = !this.planMoreOpen; cx.notify();
       }, { accessibleLabel: `${this.planMoreOpen ? "Hide" : "Show"} outcome selection for another plan` })))
       .when(showBuilder, (el) => el
-      .child(div().font_semibold().pt(8).child("Choose outcomes"))
-      .child(row(t, "Select the work to include. Existing tasks and validated outcomes are already excluded."))
-      .when(!draftRows.length, (empty) => empty.child(row(t, "This mission has no outcomes. Create a task from its title and criteria, or add outcomes in the mission editor."))
-        .child(button(t, "workflow-plan-create-first-task", this.tasks.length ? "Create task" : "Create first task", (cx) => {
+      .when(!draftRows.length, (empty) => empty.child(row(t, "This mission has no outcomes. Create tasks from its title and criteria, or add outcomes in the mission editor."))
+        .child(button(t, "workflow-plan-create-first-task", standaloneTasks.length ? "Add task" : "Create first task", (cx) => {
           this.form.title.set_value(goal.title);
           this.form.criteria.set_value(goal.criteria ?? "");
           this.dependsOn = []; this.explicitNew = true; this.selected = null; this.tab = "Overview";
           this.taskSetupOpen = true; this.h.focus(); cx.notify();
         }, { disabled: this.busy || stale || !active, tip: "Open the task form with this mission's title and criteria prefilled; nothing starts automatically" })))
       .when(stale, (el) => el.child(row(t, "The goal changed while you were planning. Refresh before saving.")))
-      .child(button(t, "workflow-plan-refresh", "Refresh plan selection", (cx) => this.openPlan(cx, true), { disabled: this.busy, tip: "Reload current outcomes and default selection; keep your repository and agent choices" }))
+      .when(stale || draftRows.length > 0, (el) => el.child(button(t, "workflow-plan-refresh", "Refresh plan selection", (cx) => this.openPlan(cx, true), { disabled: this.busy, tip: "Reload current outcomes and default selection; keep your repository and agent choices" })))
+      .when(draftRows.length > 0, (el) => el
+      .child(div().font_semibold().pt(8).child("Choose outcomes"))
+      .child(row(t, "Select the work to include. Existing tasks and validated outcomes are already excluded."))
       .children(draftRows.map((item) => {
         const linked = Boolean(item.taskId || item.issue);
         const status = labels[item.state] ?? item.state;
@@ -152,7 +164,7 @@ export class WorkflowPlan {
               this.tab = "Overview"; this.h.focus(); cx.notify();
             }
           }, { tip: "Inspect the result and its evidence without changing progress" })));
-      }))
+      })))
       .when(selected.length > 0, (el) => el
         .child(div().font_semibold().child(`Preview · ${selected.length} tasks in order`))
         .children(selected.map((step, index) => row(t, `${index + 1}. ${step.title}${index ? " · after acceptance" : " · starts first"}`)))

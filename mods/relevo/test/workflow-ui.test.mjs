@@ -20,8 +20,10 @@ test('opens a native workflow overlay and renders task creation without sending 
 test('create validates two connected agents and sends the explicit task contract', async () => {
   const { v, cx } = await setup(); fake.agents = [agent('agent:one', 'One'), agent('agent:two', 'Two')];
   v.form.title.set_value('Implement search'); v.form.root.set_value('/work/app'); v.form.criteria.set_value('Search works'); v.executor = 'agent:one'; v.reviewer = 'agent:two';
+  v.setupReuseNotice = 'Old reuse notice'; v.setupReuseWarning = 'Old reuse warning';
   fake.exec = async (_cmd, args) => { const payload = JSON.parse(args.at(-1)); assert.equal(payload.action, 'create'); assert.equal(payload.task.root, '/work/app'); assert.equal(payload.task.executor.address, 'agent:one'); assert.equal(payload.task.maxRounds, 2); assert.equal(payload.task.maxMinutes, 20); fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [{ id: 'created-task', goalId: 'g', title: 'Implement search', state: 'planned' }], events: [], preferences: [], engine: { enabled: false } }); return { stdout: '{"doc":{},"result":{"taskId":"created-task"}}' }; };
-  v.create(cx); await flush(); assert.equal(fake.execs.length, 1); assert.equal(v.error, null); assert.equal(v.selected, 'created-task'); assert.equal(v.form.title.value(), ''); v.close();
+  v.create(cx); await flush(); assert.equal(fake.execs.length, 1); assert.equal(v.error, null); assert.equal(v.selected, 'created-task'); assert.equal(v.form.title.value(), '');
+  assert.equal(v.setupReuseNotice, null); assert.equal(v.setupReuseWarning, null); v.close();
 });
 
 test('agent setup searches the selected repository and prevents choosing one agent for both roles', async () => {
@@ -45,6 +47,49 @@ test('agent setup searches the selected repository and prevents choosing one age
   assert.equal(v.executor, ''); assert.equal(v.reviewer, '');
   assert.equal(fake.execs.length, 0, 'selecting and searching never dispatches work');
   v.close();
+});
+
+test('reuse copies only this mission’s latest successful setup after an explicit click', async () => {
+  const { v, cx } = await setup();
+  const old = { id: 'old', goalId: 'g', title: 'Earlier result', state: 'accepted', root: '/work/app',
+    executor: { address: 'builder', label: 'Builder' }, reviewer: { address: 'reviewer', label: 'Reviewer' },
+    maxRounds: 4, maxMinutes: 33, checks: [['npm', 'test']] };
+  v.tasks = [old, { ...old, id: 'other-goal', goalId: 'other', root: '/wrong/goal', maxRounds: 1 }];
+  v.explicitNew = true;
+  fake.agents = [{ ...agent('builder', 'Builder'), cwd: '/work/app' }, { ...agent('reviewer', 'Reviewer'), cwd: '/work/app' }];
+  v.form.title.set_value('New title'); v.form.criteria.set_value('New outcome');
+  let tree = v.render();
+  assert.ok(find(tree, 'workflow-previous-setup')); assert.ok(find(tree, 'workflow-use-previous-setup'));
+  const preview = text(find(tree, 'workflow-previous-setup'));
+  assert.match(preview, /Previous setup · app · Builder \+ Reviewer/);
+  assert.ok(!preview.includes('/work/app') && !preview.includes('Earlier result'));
+  assert.match(find(tree, 'workflow-use-previous-setup').tip, /Earlier result.*\/work\/app.*4 rounds.*33 minutes/);
+  click(find(tree, 'workflow-use-previous-setup'), cx); tree = v.render();
+  assert.equal(v.form.title.value(), 'New title'); assert.equal(v.form.criteria.value(), 'New outcome');
+  assert.equal(v.form.root.value(), '/work/app'); assert.equal(v.executor, 'builder'); assert.equal(v.reviewer, 'reviewer');
+  assert.equal(v.form.maxRounds.value(), '4'); assert.equal(v.form.maxMinutes.value(), '33'); assert.equal(v.checkPreset, 'npm-test');
+  assert.match(text(tree), /Previous setup applied\. Review repository and agents before creating\./);
+  assert.equal(v.taskAdvancedOpen, false, 'known presets do not expand limits and dependencies automatically');
+  assert.equal(fake.execs.length, 0); v.close();
+});
+
+test('reuse never silently restores disconnected agents and accepts a reviewed result as successful', async () => {
+  const { v, cx } = await setup();
+  v.tasks = [{ id: 'needs-you', goalId: 'g', title: 'Reviewed result', state: 'needs_you', root: '/work/app',
+    executor: { address: 'missing-builder', label: 'Old builder' }, reviewer: { address: 'reviewer', label: 'Reviewer' },
+    maxRounds: 3, maxMinutes: 28, checks: [['pnpm', 'lint']], checksResult: [{ code: 0 }], revision: 'r2',
+    attempts: [{ role: 'reviewer', state: 'reported', revision: 'r2', report: { status: 'completed' } }] }];
+  v.explicitNew = true;
+  fake.agents = [{ ...agent('reviewer', 'Reviewer'), cwd: '/work/app' }];
+  assert.ok(find(v.render(), 'workflow-use-previous-setup'));
+  click(find(v.render(), 'workflow-use-previous-setup'), cx);
+  assert.equal(v.executor, ''); assert.equal(v.reviewer, 'reviewer');
+  assert.match(v.setupReuseWarning, /Old builder.*unavailable/);
+  assert.equal(v.checkPreset, 'custom'); assert.equal(v.form.checks.value(), '[["pnpm","lint"]]');
+  assert.equal(v.taskAdvancedOpen, true, 'custom checks open for direct review');
+  v.form.root.type('/work/other', cx);
+  assert.equal(v.setupReuseNotice, null); assert.equal(v.setupReuseWarning, null);
+  assert.equal(fake.execs.length, 0); v.close();
 });
 
 test('task check presets send explicit argv and preserve custom JSON while switching presets', async () => {
