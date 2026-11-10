@@ -15,7 +15,7 @@ export function openGoal(id = null, source = null, panel = "decision") {
   openOverlay({ mod: "relevo", kind: "dialog", width: 620, height: 710,
     props: { role: "goal-editor", goalId: id, source, panel } });
 }
-const labels = { title: "Goal", owner: "Human owner", decision: "Pending decision", recommendation: "Lead recommendation", criteria: "Acceptance criteria" };
+const labels = { title: "Mission title", owner: "Human owner", decision: "Pending decision", recommendation: "Saved recommendation", criteria: "Acceptance criteria" };
 const multiline = new Set(["decision", "recommendation", "criteria", "response"]);
 const row = (value, t) => div().text_size(13).text_color(t.muted).child(value);
 
@@ -211,12 +211,12 @@ export class GoalEditor {
         .h(multiline.has(key) ? 76 : 32).px(8).rounded(5).border(1).border_color(t.border).bg(t.background)));
     const choice = (id, label, selected, action, tip) => button(t, id, label, action,
       { kind: selected ? "solid" : "outline", selected, disabled: this.busy, tip });
-    return v_flex().id("goal-editor").role("dialog").accessibility_label("Goal and decision").track_focus(this.h)
+    return v_flex().id("goal-editor").role("dialog").accessibility_label("Mission details").track_focus(this.h)
       .on_key_down((e, cx) => {
         if (e.key === "s" && e.modifiers?.platform && !e.modifiers?.alt && !e.modifiers?.control) { cx.stop_propagation(); this.save(cx); }
       })
       .size_full().min_h(0).p(14).gap(10).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
-      .child(h_flex().gap(8).items_center().child(div().flex_1().font_semibold().child("Goal and decision"))
+      .child(h_flex().gap(8).items_center().child(div().flex_1().font_semibold().child(p?.goalId ? "Mission details" : "New mission"))
         .child(button(t, "goal-cancel", "Close", () => closeOverlay(p?.overlay), { tip: this.busy && !this.loading ? "Close this editor. A save already started may still complete." : "Close without saving these edits" })))
       .child(h_flex().gap(6).children([["decision", "Decision"], ["plan", "Plan"], ["ownership", "Ownership"]].map(([panel, label]) =>
         choice(`goal-panel-${panel}`, label, this.panel === panel, (cx) => { this.planFocusRequest++; this.panel = panel; cx.notify(); },

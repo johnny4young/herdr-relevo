@@ -65,6 +65,64 @@ test('blocked and review states remain reachable and shortcuts do not steal inpu
   assert.match(text(v.render()), /Keyboard:/); v.close();
 });
 
+test('exhausted blocked work offers a review and a follow-up draft without retry or resume commands', async () => {
+  const old = { id: 'blocked', goalId: 'g', title: 'Implement search', state: 'blocked', root: '/repo', criteria: 'Search works',
+    executor: { address: 'builder', label: 'Builder' }, reviewer: { address: 'reviewer', label: 'Reviewer' }, checks: [['npm', 'test']],
+    checksResult: [{ argv: ['npm', 'test'], code: 0 }], round: 1, maxRounds: 1, maxMinutes: 12, revision: 'rev-1', dependsOn: ['prerequisite', 'blocked'],
+    attempts: [
+      { id: 'impl', role: 'executor', state: 'reported', report: { status: 'completed', summary: 'Added search behavior.' } },
+      { id: 'review-1', role: 'reviewer', state: 'reported', revision: 'rev-1', report: { status: 'changes_requested', summary: 'Search ignores case and has no empty state.' } },
+      { id: 'review-2', role: 'reviewer', state: 'reported', revision: 'rev-1', report: { status: 'changes_requested', summary: 'Latest finding: preserve the query when returning from results.' } },
+    ] };
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [
+    { id: 'prerequisite', goalId: 'g', title: 'Prerequisite', state: 'needs_you' }, old,
+  ], events: [] });
+  const { v, cx } = await setup(); v.selected = old.id;
+  let tree = v.render();
+  assert.equal(find(tree, 'workflow-action-retry-review'), null);
+  assert.equal(find(tree, 'workflow-action-start'), null);
+  assert.equal(find(tree, 'workflow-action-resume'), null);
+  assert.ok(find(tree, 'workflow-prepare-follow-up'));
+  assert.equal(find(tree, 'workflow-review-findings'), null, 'findings use the existing result navigation action');
+  assert.equal((text(tree).match(/Review findings/g) ?? []).length, 1);
+  assert.ok(!text(tree).includes('Added search behavior.'), 'executor success does not obscure blocked reviewer findings on the overview');
+  assert.match(text(tree), /Changes requested/);
+  assert.match(text(tree), /Latest finding: preserve the query/);
+  click(find(tree, 'workflow-prepare-follow-up'), cx);
+  tree = v.render();
+  assert.ok(find(tree, 'workflow-title')); assert.ok(find(tree, 'workflow-create'));
+  assert.equal(v.form.title.value(), 'Follow up: Implement search');
+  assert.equal(v.form.root.value(), '/repo');
+  assert.match(v.form.criteria.value(), /Search works/);
+  assert.match(v.form.criteria.value(), /Latest reviewer findings: Latest finding: preserve the query/);
+  assert.equal(v.form.checks.value(), '[["npm","test"]]');
+  assert.equal(v.form.maxRounds.value(), '1'); assert.equal(v.form.maxMinutes.value(), '12');
+  assert.equal(v.executor, 'builder'); assert.equal(v.reviewer, 'reviewer');
+  assert.deepEqual(v.dependsOn, ['prerequisite'], 'preserve prior prerequisites and never make the blocked source its own prerequisite');
+  assert.equal(fake.execs.length, 0, 'preparing and inspecting a follow-up never sends or starts work');
+  assert.deepEqual(v.tasks.find((task) => task.id === old.id), old, 'the blocked task remains in the task list unchanged');
+  v.close();
+});
+
+test('retry controls appear only while coordinator attempt budgets and state guards allow them', async () => {
+  const { v } = await setup();
+  const base = { id: 'task', title: 'Task', root: '/repo', revision: 'rev', checksResult: [{ code: 0 }], maxRounds: 2,
+    attempts: [{ id: 'review', role: 'reviewer', state: 'reported', revision: 'older-revision', report: { status: 'changes_requested', summary: 'Fix it.' } }] };
+  v.tasks = [{ ...base, state: 'blocked', round: 1 }]; v.selected = 'task';
+  let tree = v.render(); assert.ok(find(tree, 'workflow-action-retry-review')); assert.ok(find(tree, 'workflow-action-start'));
+  v.tasks = [{ ...base, state: 'blocked', round: 2, attempts: [base.attempts[0], { ...base.attempts[0], id: 'review-2' }, { ...base.attempts[0], id: 'review-3' }] }];
+  tree = v.render(); assert.equal(find(tree, 'workflow-action-retry-review'), null); assert.equal(find(tree, 'workflow-action-start'), null);
+  v.tasks = [{ ...base, state: 'blocked', round: 1, attempts: [{ ...base.attempts[0], delivery: 'uncertain' }] }];
+  tree = v.render(); assert.ok(find(tree, 'workflow-action-retry-review'), 'the coordinator permits review retry when a report exists and its retry budget remains'); assert.equal(find(tree, 'workflow-action-start'), null);
+  v.tasks = [{ ...base, state: 'blocked', round: 1, paused: true }];
+  tree = v.render(); assert.equal(find(tree, 'workflow-action-start'), null); assert.ok(find(tree, 'workflow-action-resume'));
+  v.tasks = [{ ...base, state: 'blocked', round: 2, attempts: [{ ...base.attempts[0] }, { ...base.attempts[0], id: 'review-2' }, { ...base.attempts[0], id: 'review-3', state: 'running' }] }];
+  tree = v.render(); assert.equal(find(tree, 'workflow-prepare-follow-up'), null, 'do not offer a follow-up while an attempt can still report');
+  v.tasks = [{ ...base, state: 'blocked', round: 2, attempts: [{ ...base.attempts[0] }, { ...base.attempts[0], id: 'review-2' }, { ...base.attempts[0], id: 'review-3', delivery: 'uncertain' }] }];
+  tree = v.render(); assert.equal(find(tree, 'workflow-prepare-follow-up'), null, 'resolve uncertain delivery before drafting more work');
+  v.close();
+});
+
 test('preferences stay pending until accepted and show unavailable metrics with no accepted tasks', async () => {
   fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [], events: [], preferences: [
     { id: 'p1', status: 'pending', scope: 'goal', scopeId: 'g', text: 'Keep changes focused' },

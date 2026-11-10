@@ -17,6 +17,7 @@ export function openWorkflow(goalId) {
 const STATES = { planned: "Planned", ready: "Ready", running: "In progress", needs_review: "Needs review", needs_you: "Needs you", accepted: "Completed", completed: "Completed", blocked: "Blocked", failed: "Failed", cancelled: "Cancelled" };
 const row = (t, value) => div().w_full().min_w(0).text_size(13).text_color(t.muted).child(value);
 const taskState = (state) => STATES[state] ?? state ?? "Unknown";
+const reportState = (state) => ({ completed: "Completed", changes_requested: "Changes requested", blocked: "Blocked" }[state] ?? taskState(state));
 const caption = (value, limit = 42) => value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 const TABS = ["Overview", "Changes", "Evidence", "Activity", "Preferences"];
 
@@ -216,7 +217,7 @@ export class Workflow extends WorkflowPlan {
         (context) => { this.explicitNew = false; this.selected = task.id; this.tab = "Overview"; this.h.focus(); context.notify(); },
         { selected: this.selected === task.id, tip: task.title, accessibleLabel: `${task.title}. ${taskState(task.state)}` }).w_full().min_w(0).h(56).overflow_hidden()
         .when(this.selected === task.id && this.tab !== "Plan", (el) => el.bg(t.selected).border_color(t.accent)))))
-      .child(button(t, "workflow-goal-plan", "Goal plan", (context) => this.openPlan(context), { selected: this.tab === "Plan", tip: "P: connect goal outcomes to one executable plan and track accepted results" }))
+      .child(button(t, "workflow-goal-plan", "Plan work", (context) => this.openPlan(context), { selected: this.tab === "Plan", tip: "P: connect goal outcomes to one executable plan and track accepted results" }))
       .child(button(t, "workflow-new-task", "+ New task", (context) => { this.explicitNew = true; this.selected = null; this.tab = "Overview"; this.h.focus(); context.notify(); }, { size: "sm", tip: "Clear selection and create a goal task" }))
       .when(this.filter === "Needs you" && batchable.length > 1, (el) => el.child(this.batchPanel(t, batchable)));
   }
@@ -317,11 +318,23 @@ export class Workflow extends WorkflowPlan {
     if (planDraft) actions.push(button(t, "workflow-action-plan", "View plan", (context) => this.openPlan(context), { tip: "Start all planned tasks together from Goal plan" }));
     if (!planDraft && !cancelledDependency && (task.state === "planned" || (task.state === "ready" && !this.engine?.enabled)) && !task.paused) actions.push(action("Start", "start", "Start the chosen existing sessions"));
     const last = task.attempts?.at(-1);
-    if (task.state === "blocked" && last?.role === "reviewer" && last.state === "reported") {
+    // The coordinator validates task.revision against the live checkout fingerprint.
+    // A historical attempt revision is not part of that command guard.
+    const hasRevision = Boolean(task.revision);
+    const checksPassed = (task.checksResult ?? []).every((check) => check.code === 0);
+    const reviewBudgetAvailable = (task.attempts ?? []).filter((attempt) => attempt.role === "reviewer").length < (task.maxRounds ?? 2) + 1;
+    const attemptBudgetAvailable = (task.round ?? 0) < (task.maxRounds ?? 2);
+    const noUncertainDelivery = last?.delivery !== "uncertain";
+    const noLiveAttempt = !(task.state === "blocked" && last?.state === "running");
+    const canRetryReview = task.state === "blocked" && last?.role === "reviewer" && last.state === "reported" && hasRevision && checksPassed && reviewBudgetAvailable;
+    const canStartAgain = ["blocked", "failed"].includes(task.state) && !task.paused && attemptBudgetAvailable && noUncertainDelivery && noLiveAttempt;
+    const canResume = task.paused && !planDraft && !["needs_you", "accepted", "cancelled"].includes(task.state) && noUncertainDelivery && noLiveAttempt &&
+      (!["blocked", "failed", "planned"].includes(task.state) || attemptBudgetAvailable);
+    if (canRetryReview) {
       actions.push(action("Retry review", "retry-review", "Ask the independent reviewer to reassess the same checked revision; the coordinator verifies it is unchanged"));
     }
-    if (["blocked", "failed"].includes(task.state) && !task.paused) actions.push(action("Retry", "start", "Start a new bounded attempt after reviewing the reported issue"));
-    if (!planDraft && task.paused && !["needs_you", "accepted", "cancelled"].includes(task.state)) actions.push(action("Resume", "resume", "Resume dispatches for this task"));
+    if (canStartAgain) actions.push(action("Retry", "start", "Start a new bounded attempt after reviewing the reported issue"));
+    if (canResume) actions.push(action("Resume", "resume", "Resume dispatches for this task"));
     else if (!task.paused && ["running", "ready", "planned", "needs_review", "needs_you", "blocked"].includes(task.state)) actions.push(action("Pause", "pause", "Pause new dispatches; an active agent may finish"));
     if (!["accepted", "cancelled"].includes(task.state)) actions.push(action("Cancel", "cancel", "Cancel task and request an interrupt if an agent is running"));
     actions.push(action("Refresh", "refresh", "Refresh checkout and evidence status"));
@@ -343,7 +356,22 @@ export class Workflow extends WorkflowPlan {
     this.form.maxRounds.set_value(String(task.maxRounds ?? 2));
     this.form.maxMinutes.set_value(String(task.maxMinutes ?? 20));
     this.executor = task.executor?.address ?? ""; this.reviewer = task.reviewer?.address ?? "";
-    this.dependsOn = []; this.selected = null; this.explicitNew = true; this.tab = "Overview";
+    this.dependsOn = (task.dependsOn ?? []).filter((id) => id !== task.id); this.selected = null; this.explicitNew = true; this.tab = "Overview";
+    this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null;
+    cx.notify();
+  }
+
+  prepareBlockedFollowUp(task, cx) {
+    const reviewer = [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === "reviewer" && attempt.report);
+    const findings = reviewer?.report?.summary?.trim();
+    this.form.title.set_value(`Follow up: ${task.title}`.slice(0, 240));
+    this.form.root.set_value(task.root ?? "");
+    this.form.criteria.set_value([task.criteria, findings ? `Latest reviewer findings: ${findings}` : "Latest reviewer findings: none recorded."].filter(Boolean).join("\n\n"));
+    this.form.checks.set_value(JSON.stringify(task.checks ?? []));
+    this.form.maxRounds.set_value(String(task.maxRounds ?? 2));
+    this.form.maxMinutes.set_value(String(task.maxMinutes ?? 20));
+    this.executor = task.executor?.address ?? ""; this.reviewer = task.reviewer?.address ?? "";
+    this.dependsOn = (task.dependsOn ?? []).filter((id) => id !== task.id); this.selected = null; this.explicitNew = true; this.tab = "Overview";
     this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null;
     cx.notify();
   }
@@ -389,7 +417,7 @@ export class Workflow extends WorkflowPlan {
     if (task.state === "needs_you") return "The agents have finished. Review the result below, then accept it or request changes. You do not need to open their sessions.";
     if (task.state === "accepted") return "Accepted and saved in History. This task no longer needs your attention.";
     if (task.state === "cancelled") return "This task was cancelled. No more work will be assigned. Create a new task if you want to continue.";
-    if (task.state === "blocked" || task.state === "failed") return "This task needs attention. Read the issue below, inspect the activity if needed, then retry when it is resolved.";
+    if (task.state === "blocked" || task.state === "failed") return "This task is blocked. Review the findings and prepare a follow-up if needed.";
     if (task.state === "ready") {
       const pending = (task.dependsOn ?? []).map((id) => this.tasks?.find((item) => item.id === id)).filter((item) => !item || item.state !== "accepted");
       const continuation = this.engine?.enabled && !task.paused ? "This task continues automatically once its prerequisite is accepted." : "After the prerequisite is accepted, resume this task or start automation to continue.";
@@ -399,7 +427,7 @@ export class Workflow extends WorkflowPlan {
       if (blocked) return `Waiting for “${blocked.title}” to be resolved and accepted. Open that task in Needs you to inspect the issue. ${continuation}`;
       if (pending.length) return `Waiting for your acceptance of ${pending.map((item) => item?.title ?? "a prerequisite task").join(", ")}. ${continuation}`;
     }
-    if (task.paused) return "This task is paused. Choose Resume when you want the coordinator to continue.";
+    if (task.paused) return "This task is paused.";
     if (task.state === "planned" && task.planId) return "This task belongs to a saved plan. Open Goal plan and choose Start plan once for the whole sequence.";
     if (task.state === "ready" && this.engine?.enabled) return "Queued for an available agent. The plan is already started; no further action is needed. Checks and independent review will follow automatically.";
     if (task.state === "planned" || task.state === "ready") return "Choose Start to assign this task. The coordinator will run checks, request independent review and bring the result back here.";
@@ -410,6 +438,12 @@ export class Workflow extends WorkflowPlan {
   overview(t, task, cx) {
     const latest = (role) => [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === role && attempt.report)?.report;
     const implementation = latest("executor"), review = latest("reviewer");
+    const blocked = ["blocked", "failed"].includes(task.state);
+    const primaryReport = blocked && review ? review : implementation;
+    const latestAttempt = task.attempts?.at(-1);
+    const unresolvedAttempt = latestAttempt?.state === "running" || ["uncertain", "sending"].includes(latestAttempt?.delivery);
+    const followUpAvailable = blocked && !unresolvedAttempt && ((task.round ?? 0) >= (task.maxRounds ?? 2) ||
+      (task.attempts ?? []).filter((attempt) => attempt.role === "reviewer").length >= (task.maxRounds ?? 2) + 1);
     const checks = task.checksResult ?? [];
     const details = this.detailsFor === task.id;
     const metric = (label, value, color) => v_flex().flex_1().min_w(0).gap(5).p(10).rounded(6).bg(t.raised)
@@ -425,15 +459,18 @@ export class Workflow extends WorkflowPlan {
       .child(h_flex().w_full().gap(8).items_start().children([
         metric("CHECKS", checks.length ? `${checks.filter((check) => check.code === 0).length}/${checks.length} passed` : "Not recorded",
           checks.some((check) => check.code !== 0) ? t.blocked : t.foreground),
-        metric("INDEPENDENT REVIEW", review ? (review.status === "completed" ? "Completed" : taskState(review.status)) : "Not reported",
+        metric("INDEPENDENT REVIEW", review ? reportState(review.status) : "Not reported",
           review && review.status !== "completed" ? t.blocked : t.foreground),
         metric("EVIDENCE", `${task.evidence?.length ?? 0} attached`),
       ]))
-      .when(this.decisionNoteFor !== task.id && Boolean(implementation), (el) => el.child(v_flex().gap(5)
-        .child(div().text_size(11).text_color(t.muted).child("AGENT SUMMARY"))
-        .child(row(t, caption(implementation.summary ?? "Implementation report available", 160)))))
+      .when(this.decisionNoteFor !== task.id && Boolean(primaryReport), (el) => el.child(v_flex().gap(5)
+        .child(div().text_size(11).text_color(t.muted).child(blocked && review ? "LATEST REVIEW FINDINGS" : "AGENT SUMMARY"))
+        .child(row(t, caption(primaryReport.summary ?? "Report available", 240)))))
+      .when(followUpAvailable, (el) => el
+        .child(button(t, "workflow-prepare-follow-up", "Prepare follow-up", (context) => this.prepareBlockedFollowUp(task, context),
+          { kind: "solid", tip: "Prefill a new task with current findings and bounded settings; nothing is sent until you create and start it" })))
       .child(h_flex().gap(5)
-        .child(button(t, "workflow-inspect-result", "Review result", (context) => { this.tab = "Changes"; this.h.focus(); context.notify(); },
+        .child(button(t, "workflow-inspect-result", followUpAvailable ? "Review findings" : "Review result", (context) => { this.tab = "Changes"; this.h.focus(); context.notify(); },
           { size: "lg", tip: "2: inspect the diff, recorded checks and full agent reports before deciding" }))
         .child(button(t, "workflow-inspect-evidence", "Open evidence", (context) => { this.tab = "Evidence"; this.h.focus(); context.notify(); },
           { tip: "3: inspect attached screenshots, videos and reports" })))
@@ -500,7 +537,7 @@ export class Workflow extends WorkflowPlan {
         .when(Boolean(this.showCheckOutput), (el) => el.child(row(t, "stdout: " + String(check.stdout ?? "").slice(0, 2000) + " · stderr: " + String(check.stderr ?? "").slice(0, 2000))))))
       .when(Boolean(task.checksResult?.length), (el) => el.child(button(t, "workflow-check-output", this.showCheckOutput ? "Hide check output" : "Show check output", (cx) => { this.showCheckOutput = !this.showCheckOutput; cx.notify(); }, { tip: "Expand recorded check output" })))
       .children(latest.map((attempt) => v_flex().w_full().min_w(0).gap(5).p(8).rounded(6).border_1().border_color(t.border)
-        .child(div().font_semibold().child((attempt.role === "reviewer" ? "Independent review" : "Implementation report") + " · " + attempt.report.status))
+        .child(div().font_semibold().child((attempt.role === "reviewer" ? "Independent review" : "Implementation report") + " · " + reportState(attempt.report.status)))
         .child(row(t, this.expandedReports?.[attempt.id] ? attempt.report.summary : caption(attempt.report.summary, 260)))
         .child(button(t, "workflow-report-" + attempt.id, this.expandedReports?.[attempt.id] ? "Show less" : "Read full report", (cx) => { this.expandedReports ??= {}; this.expandedReports[attempt.id] = !this.expandedReports[attempt.id]; cx.notify(); }, { tip: "Read the agent's complete report and stated limitations" }))))
       .child(row(t, "Agent reports do not establish human acceptance. Earlier attempts remain in Activity."))
@@ -711,7 +748,7 @@ export class Workflow extends WorkflowPlan {
       .size_full().min_h(0).p(16).gap(14).bg(t.popover ?? t.surface).text_color(t.foreground)
       .child(h_flex().w_full().min_w(0).justify_between().items_center()
         .child(v_flex().flex_1().min_w(0).gap(3)
-          .child(div().font_semibold().child("Workflow"))
+          .child(div().font_semibold().child("Mission control"))
           .child(div().text_size(11).text_color(t.muted).truncate().child(this.goal?.title ?? "Work for this goal")))
         .child(h_flex().gap(5)
           .child(button(t, "workflow-focus-queue", "?", (cx) => { this.showHelp = !this.showHelp; this.h.focus(); cx.notify(); }, { tip: "Keyboard help: show shortcuts and focus the queue", accessibleLabel: "Keyboard help" }))

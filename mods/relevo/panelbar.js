@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
-import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { theme, exec, run, spaces, panes, focused, props, openOverlay, closeOverlay } from "herdr";
+import { h_flex, v_flex, Button, InputState, Input } from "gpui-base";
+import { theme, exec, run, spaces, panes, focused, props, openOverlay, closeOverlay, notify } from "herdr";
 import { touchedAt } from "./worktrees.js";
 import { ago } from "./lib/time.js";
 import { GIT_READ } from "./lib/git.js";
@@ -30,12 +30,13 @@ async function checkouts(cwd) {
   return { top, list: list.filter((c) => !c.missing) };
 }
 
-export function openFinder() {
-  const root = focusedCwd();
+export function openFinder(root = focusedCwd()) {
   if (root) {
     openOverlay({
-      mod: "relevo", kind: "popup", at: "top", offset: 40, width: 640, height: 0.7, props: { role: "find-file", root },
+      mod: "relevo", kind: "popup", at: "top", offset: 40, width: 640, height: 0.8, props: { role: "find-file", root },
     });
+  } else {
+    notify({ title: "Can't find files", body: "No repository folder is available.", level: "warning" });
   }
 }
 
@@ -80,16 +81,20 @@ export class PanelBar {
   }
 
   render() {
-    const t = theme();
+    const t = theme(), root = this.top ?? focusedCwd(), enabled = Boolean(root) && !this.syntheticPreview;
     return h_flex().id("relevo-panel-bar").size_full().px(4).gap(6).items_center().bg(t.chrome).text_color(t.foreground)
       .child(this.selector(t))
-      .child(h_flex().id("find-file").flex_1().min_w(0).h(26).px(8).gap(6).items_center().rounded(6)
+      .child(Button.new("find-file").id("find-file").flex().flex_1().min_w(0).h(26).px(8).gap(6).items_center().rounded(6)
+        .tab_index(0).tab_stop(enabled).disabled(!enabled).accessibility_label("Find file")
+        .focus((el) => el.border_2().border_color(t.accent))
+        .tooltip(`Find a file in ${root ?? "the focused repository"} (⌘O)`)
         .border_1().border_color(t.border).bg(t.background)
         .cursor_pointer().hover((s) => s.bg(t.hover))
-        .on_click(() => { if (!this.syntheticPreview) openFinder(); })
+        .on_click((_e, cx) => { cx.stop_propagation(); if (enabled) openFinder(root); })
         .child(div().text_color(t.dim).child("⌕"))
-        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted)
-          .child(`Open file in ${this.top?.split("/").pop() ?? "…"}`))
+        .child(div().text_size(11).text_color(t.muted).child("Find file…"))
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim)
+          .child(root?.split("/").pop() ?? ""))
         .child(div().text_size(11).text_color(t.dim).child("⌘O")));
   }
 }
@@ -112,24 +117,38 @@ export class FileFinder {
     this.files = null;
     this.at = 0;
     this.query = "";
+    this.loadState = "loading";
+    this.closed = false;
     this.input = InputState.new({ value: "", placeholder: "file name or path" });
     this.input.on("change", (_e, cx) => {
+      if (this.closed) return;
       this.query = this.input.value().trim().toLowerCase();
       this.at = 0;
       cx.notify();
     });
-    this.input.on("submit", () => this.open(this.shown()[this.at]));
+    this.input.on("submit", () => { if (!this.closed) this.open(this.shown()[this.at]); });
     this.input.focus();
-    cx.timer.after(300, () => this.input.focus());
+    cx.timer.after(300, () => { if (!this.closed) this.input.focus(); });
     cx.spawn(async (cx) => {
       const root = props()?.root;
       if (!root) {
         this.files = [];
-        return cx.notify();
+        this.loadState = "error";
+        this.loadError = "No repository folder is available.";
+        if (!this.closed) cx.notify();
+        return;
       }
-      const r = await exec("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd: root });
-      this.files = r.code === 0 ? r.stdout.split("\n").filter(Boolean).slice(0, MAX_FILES) : [];
-      cx.notify();
+      try {
+        const r = await exec("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root });
+        if (r.code !== 0) throw Error(r.stderr?.trim() || `git ls-files exited with status ${r.code}`);
+        this.files = [...new Set(r.stdout.split("\0").filter(Boolean))].slice(0, MAX_FILES);
+        this.loadState = "ready";
+      } catch (e) {
+        this.files = [];
+        this.loadState = "error";
+        this.loadError = `Could not load files: ${String(e?.message ?? e)}`;
+      }
+      if (!this.closed) cx.notify();
     });
   }
 
@@ -137,18 +156,20 @@ export class FileFinder {
   shown() {
     if (!this.files) return [];
     if (this.memo?.query === this.query && this.memo.files === this.files) return this.memo.rows;
-    const rows = !this.query
-      ? this.files.slice(0, SHOWN)
+    const matches = !this.query
+      ? this.files
       : this.files.map((f) => [f, score(f, this.query)])
         .filter(([, s]) => s !== null)
         .sort((a, b) => a[1] - b[1])
-        .slice(0, SHOWN)
         .map(([f]) => f);
-    this.memo = { query: this.query, files: this.files, rows };
+    const rows = matches.slice(0, SHOWN);
+    this.memo = { query: this.query, files: this.files, rows, matches: matches.length };
     return rows;
   }
 
   close() {
+    if (this.closed) return;
+    this.closed = true;
     this.input.release();
   }
 
@@ -170,13 +191,20 @@ export class FileFinder {
 
   render() {
     const t = theme(), rows = this.shown();
+    const matches = this.memo?.query === this.query && this.memo.files === this.files ? this.memo.matches : rows.length;
     return v_flex().id("find-file-popup").size_full().p(12).gap(8)
       .bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
       .on_key_down((e, cx) => this.key(e, cx))
       .child(Input.new(this.input).h(32).px(10).items_center().rounded(6).border(1).border_color(t.accent).bg(t.background))
-      .child(v_flex().id("find-file-list").flex_1().min_h(0).overflow_y_scrollbar()
-        .when(this.files === null, (el) => el.child(div().p(8).text_color(t.dim).child("…")))
-        .when(this.files !== null && !rows.length, (el) => el.child(div().p(8).text_color(t.dim).child("No matching files")))
+      .child(h_flex().id("find-file-status").h(20).flex_none().items_center().px(2).text_size(11).text_color(t.dim)
+        .child(this.loadState === "loading" ? "Loading files…"
+          : this.loadState === "error" ? this.loadError
+            : this.query ? `${rows.length} shown · ${matches} matches · ↑↓ move, Enter open, Esc close`
+              : `${rows.length} shown · ${this.files.length}${this.files.length === MAX_FILES ? "+" : ""} files · ↑↓ move, Enter open, Esc close`))
+      .child(v_flex().id("find-file-list").h(320).flex_none().overflow_y_scrollbar()
+        .when(this.loadState === "error", (el) => el.child(div().p(8).text_color(t.ansi1).child(this.loadError)))
+        .when(this.loadState === "ready" && !this.files.length, (el) => el.child(div().p(8).text_color(t.dim).child("No files found in this repository")))
+        .when(this.loadState === "ready" && this.files.length > 0 && !rows.length, (el) => el.child(div().p(8).text_color(t.dim).child("No matching files")))
         .children(rows.map((f, i) => {
           const cut = f.lastIndexOf("/") + 1;
           return h_flex().id(`ff-${f}`).h(28).px(8).gap(8).flex_none().items_center().rounded(6).cursor_pointer()

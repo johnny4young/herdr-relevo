@@ -135,6 +135,7 @@ test('linked quiet PR stays visible but evidence cannot look current after a fai
   view.prsAt = Date.now() / 1000; view.error = "offline";
   view.openPRs = [{ url: key.slice(3), repo: 'acme/app', number: 1, title: 'Quiet PR', headRefOid: a, updatedAt: new Date().toISOString() }];
   fake.stored[GOAL_MODE] = true;
+  view.expanded['goal-g1-context'] = true;
   const tree = view.render(cx);
   assert.ok(find(tree, `pr-${key.slice(3)}`));
   assert.match(text(tree), /Unverified/);
@@ -239,13 +240,14 @@ test('decision-only goals are keyboard reachable and completed goals never hide 
   view.prsAt = Date.now() / 1000; fake.stored[GOAL_MODE] = true;
   let tree = view.render(cx);
   assert.doesNotMatch(text(tree), /Nothing waiting/);
-  assert.match(text(tree), /1 pending goal decision\(s\)/);
+  assert.match(text(tree), /DECISION NEEDED/);
+  assert.match(text(tree), /Keep existing flow\?/);
   view.nav.find((n) => n.id === 'goal-g1').go();
   assert.equal(fake.overlays.at(-1).props.goalId, 'g1');
   view.goalDoc = commit({ ...goal(), state: 'completed' }); view.mine = [samplePR(1, { hot: true })];
   tree = view.render(cx);
   assert.ok(find(tree, `pr-${key.slice(3)}`));
-  assert.match(text(tree), /Open work remains visible/);
+  assert.match(text(tree), /MISSION COMPLETED/);
 });
 
 test('observed executors exclude child shells that do not report agent status', async () => {
@@ -253,10 +255,11 @@ test('observed executors exclude child shells that do not report agent status', 
   fake.agents = [{ address: 't1', status: 'working' }, { address: 't2', status: 'working' }];
   fake.terminals = [{ address: 't1' }, { address: 't2', parent: 't1' }, { address: 't3', parent: 't1' }];
   view.goalDoc = commit({ ...goal(), lead: 't1' }); fake.stored[GOAL_MODE] = true;
+  view.expanded['goal-g1-context'] = true;
   assert.match(text(view.render(cx)), /1 observed child agents/);
 });
 
-test('secondary goal context folds without hiding decisions, evidence or PR actions', async () => {
+test('mission details fold saved context and evidence while manual decisions and PR actions remain reachable', async () => {
   const { view, cx } = await inbox(), pr = samplePR(1);
   const detail = { ...goal(), decision: 'Approve the search layout?', recommendation: 'Keep the filter visible.',
     criteria: 'Keyboard navigation and every original review control remain available.',
@@ -267,13 +270,14 @@ test('secondary goal context folds without hiding decisions, evidence or PR acti
   const original = JSON.stringify(view.goalDoc);
   let tree = view.render(cx), fold = find(tree, 'goal-context-g1');
   assert.ok(fold); assert.equal(fold.kind, 'button'); assert.match(fold.accessibleLabel, /Expand/);
-  assert.match(text(fold), /Criteria and feedback · 1 recorded/);
+  assert.match(text(fold), /Mission details · 1 evidence/);
   assert.equal(find(tree, 'goal-context-detail-g1'), null);
   assert.ok(!text(tree).includes(detail.criteria)); assert.ok(!text(tree).includes(detail.decisions[0].text));
-  assert.ok(text(tree).includes(detail.decision)); assert.ok(text(tree).includes(detail.recommendation));
-  assert.ok(find(tree, 'goal-evidence-g1-0')); assert.ok(find(tree, `review-pr-${pr.url}`));
+  assert.ok(text(tree).includes(detail.decision)); assert.ok(!text(tree).includes(detail.recommendation));
+  assert.equal(find(tree, 'goal-evidence-g1-0'), null); assert.ok(find(tree, `review-pr-${pr.url}`));
   const nav = view.nav.map((n) => n.id), execs = [...fake.execs];
   click(fold, cx); tree = view.render(cx);
+  assert.ok(find(tree, 'goal-evidence-g1-0')); assert.ok(text(tree).includes(detail.recommendation));
   assert.ok(text(find(tree, 'goal-context-detail-g1')).includes(detail.criteria));
   assert.ok(text(tree).includes(detail.decisions[0].text));
   assert.match(find(tree, 'goal-context-g1').accessibleLabel, /Collapse/);
@@ -288,7 +292,7 @@ test('empty goal context remains discoverable and fold state is independent for 
   const { view, cx } = await inbox();
   view.goalDoc = saveGoal(commit(), goal('g2', []), 0); fake.stored[GOAL_MODE] = true;
   let tree = view.render(cx);
-  assert.match(text(find(tree, 'goal-context-g1')), /Criteria and feedback/);
+  assert.match(text(find(tree, 'goal-context-g1')), /Mission details/);
   assert.doesNotMatch(text(find(tree, 'goal-context-g1')), /recorded/);
   click(find(tree, 'goal-context-g1'), cx); tree = view.render(cx);
   assert.match(text(find(tree, 'goal-context-detail-g1')), /Criteria: Not set/);

@@ -1,6 +1,10 @@
 # Goal Inbox interaction
 
-Goals organizes the existing Inbox. PR, review, CI, conflict, reply, draft, addressed-work and Land controls remain available. Product labels are English; user-authored content retains its original language.
+**Reviews** (previously Classic) keeps the existing review queue. **Missions** (previously Goals) organizes work by outcome and adds agent coordination. PR, review, CI, conflict, reply, draft, addressed-work and Land controls remain available. Product labels are English; user-authored content retains its original language. Stored goal records, mode preferences and command names retain their existing format.
+
+Mission cards show the current task state and one primary action: review a result, resolve a blocker, continue paused work or plan agent work. Enter on the selected card opens that same action. Saved decision/recommendation text cannot override an active workflow's state; it remains under **Mission details**. Manual questions without a workflow remain directly actionable. **Outcomes** expands progress and manual validation; **Mission details** expands ownership, notes, criteria and attached evidence. Accepted and cancelled tasks do not inflate the open-task count.
+
+The repository toolbar's **Find file…** is an accessible button, not an inline text field. It opens a file picker with visible loading, result-count, empty and error states. Search matches tracked and nonignored untracked file paths, with arrow keys and Enter to open a result and Escape to close. The clicked button uses its displayed repository root. Files open in the existing native file viewer.
 
 Click Inbox to focus the queue. Arrow keys select work, Home/End reach the first/last item, G selects the next goal, F focuses it or returns to All work, and E opens context. R on a goal opens its first available linked diff; source cards select individual changes. S on a PR opens existing skill/account choices. ? shows help. Tab and Shift-Tab move between controls. Shortcuts do not act while typing in a descendant input.
 

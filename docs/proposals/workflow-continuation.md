@@ -39,13 +39,15 @@ The [research record](workflow-research.md) explains the source ideas and their 
 
 ## Normal user journey
 
-1. Inbox → Goals → select a goal → Workflow. Start with Needs you.
+1. Inbox → Missions → select a mission → its primary action opens Mission control. Start with Needs you. Reviews is the original queue; these UI names replace Goals/Classic without changing stored records.
 2. Read Result and inspect changes/Evidence as necessary. Activity answers who assigned what; Tools contains secondary actions and configured skills.
 3. Accept result, Request changes or Decide later. Acceptance records the current revision and explains the next effect. It is not GitHub approval, merge, or goal closure.
 4. Already-started eligible work proceeds through an enabled coordinator. If work is stopped, blocked, missing evidence or out of budget, explain that state and the specific recovery action.
 5. Accepted work stays in History. Close the goal only after its actual outcomes and outstanding decisions have been reviewed by the user.
 
 The guiding UX question is: can the user understand what to do here and what will happen after one action? Do not solve confusion by adding more counters, explanatory paragraphs or duplicate buttons to the main card. Derive status from current records; manually written next-decision/recommendation text can become stale after acceptance and needs attention.
+
+The current usability iteration derives the card's primary action from live tasks, keeps saved prose in Mission details, folds outcome progress, and offers a bounded follow-up when a settled blocked attempt has exhausted its budget. File search now exposes its result list and loading/error/empty states. Continue validating these native interactions before broadening the feature set; a render-unit test cannot prove popup sizing or screen-reader exposure.
 
 ## Resume engineering work
 

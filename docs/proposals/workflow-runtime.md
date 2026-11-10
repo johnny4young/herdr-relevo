@@ -1,12 +1,14 @@
 # Local goal workflows
 
-Open **Workflow** from an existing goal in Inbox. Goals still group the original PR, CI, review, account and worktree controls. A workflow task adds an explicit expected outcome, local checkout, executor and independent reviewer. It links existing agent sessions; it does not create accounts or infer that a terminal's idle state means its task succeeded.
+Open **Missions** in Inbox, then use the mission's primary action to open **Mission control**. **Reviews** retains the original PR, CI, review, account and worktree controls. Missions are the existing goal records under a clearer UI name; no migration is needed. A workflow task adds an explicit expected outcome, local checkout, executor and independent reviewer. It links existing agent sessions; it does not create accounts or infer that a terminal's idle state means its task succeeded.
 
 The queue opens on work needing attention. **Review** summarizes the result, recorded checks and independent review. Review changes and evidence as needed, then choose **Accept result**, **Request changes** or **Decide later**. Sessions, messages and skills live under **Tools**; configuration lives under **Settings**. Reading reports does not require opening an agent session. Decision controls also appear after the detailed reports so you can act where you finish reviewing.
 
 Acceptance saves the decision and automatically opens the next pending item. When no decision remains, the queue shows a confirmation describing ongoing, paused or completed work. Accepted tasks remain available in **History**. There is no manual Next step action. Before accepting, the UI explains whether a follow-up is defined and eligible to continue. Already-started, unpaused dependencies continue through an enabled coordinator; acceptance can recover that coordinator if its process was lost. It does not start merely planned tasks or override an explicit stop. Goal-level criteria and GitHub approval remain separate from individual task acceptance.
 
 Request changes opens a feedback draft before anything is sent. If the round limit is exhausted, **Prepare follow-up** prefills a separate task for you to review, create and start explicitly; the existing result remains pending. Optional decision notes can be discarded without sending, and drafts stay separate between tasks.
+
+Blocked tasks lead with the latest independent review findings. Retry and Resume are offered only when the recorded budget and attempt state permit them; the runtime still rechecks the live checkout. Exhausted, settled attempts offer **Prepare follow-up**, preserving existing prerequisites and including the review findings. An unresolved live or uncertain attempt must be inspected and reconciled first. Preparing a follow-up neither sends work nor changes the earlier task's decision.
 
 ## Execution and decisions
 
@@ -49,7 +51,7 @@ For the complete product goal, research sources, remaining work and engineering 
 
 ### Everyday use
 
-Open a goal's **Workflow** to see **Needs you** first. Read **Result** and **Evidence**, then choose **Accept result** or **Request changes**. Acceptance advances the queue; dependent tasks continue only when their prerequisites are accepted and automation is enabled.
+Open a mission's primary action to see **Needs you** first. Read **Result** and **Evidence**, then choose **Accept result** or **Request changes**. Acceptance advances the queue; dependent tasks continue only when their prerequisites are accepted and automation is enabled.
 
 Use **Tools** (**T** with the workflow focused) to search task actions, configured skills, and agent sessions. Selecting a skill previews its command and recipient; **Queue skill** submits it explicitly. Queued work can change a pending result, so inspect new changes before accepting. **Activity** explains who received each assignment and what they reported. Full assignments and the technical event log expand on demand.
 

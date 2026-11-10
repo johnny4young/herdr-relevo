@@ -66,6 +66,7 @@ test('goal review opens the existing review route without launching a skill or c
 
 test('recording a decision opens the editor without accepting work', async () => {
   const { v, cx } = await inbox(); const doc = JSON.stringify(v.goalDoc), before = fake.execs.length;
+  click(find(v.render(cx), 'goal-context-g'), cx);
   click(find(v.render(cx), 'goal-record-g'), cx);
   assert.equal(fake.overlays.at(-1).props.goalId, 'g');
   assert.equal(JSON.stringify(v.goalDoc), doc); assert.equal(fake.execs.length, before);
@@ -79,10 +80,12 @@ test('focus shortcut respects descendant text focus and can exit from a linked c
   v.navKey({ key: 'f' }, cx); v.render(cx); assert.equal(v.goalProjection.scope, null);
 });
 
-test('no available diff keeps goal review disabled while decision context remains available', async () => {
+test('no available diff offers agent planning instead of a dead review button; notes remain in details', async () => {
   const { v, cx } = await inbox(); delete v.clones[pr.repo]; const tree = v.render(cx);
-  assert.equal(find(tree, 'goal-review-next-g').isDisabled, true);
-  assert.equal(find(tree, 'goal-record-g').isDisabled, false);
+  assert.equal(find(tree, 'goal-review-next-g'), null);
+  assert.equal(text(find(tree, 'goal-workflow-g')), 'Plan agent work');
+  click(find(tree, 'goal-context-g'), cx);
+  assert.equal(find(v.render(cx), 'goal-record-g').isDisabled, false);
 });
 
 test('goal card projects matching workflow progress and exposes failures without changing saved intent', async () => {
@@ -104,9 +107,9 @@ test('goal card projects matching workflow progress and exposes failures without
   ];
   const before = JSON.stringify(v.goalDoc);
   let tree = v.render(cx);
-  assert.match(text(find(tree, 'goal-g')), /2\/3 steps complete/);
-  assert.match(text(find(tree, 'goal-g')), /workflow issue/);
-  assert.match(text(find(tree, 'goal-g')), /5 tasks · 1 need you · 2 accepted · 1 linked outcome/);
+  assert.match(text(find(tree, 'goal-g')), /2\/3 complete/);
+  assert.match(text(find(tree, 'goal-g')), /need attention/);
+  assert.match(text(find(tree, 'goal-g')), /3 open tasks/);
   v.expanded['goal-g-plan'] = true;
   tree = v.render(cx);
   const card = text(find(tree, 'goal-g'));
@@ -115,4 +118,51 @@ test('goal card projects matching workflow progress and exposes failures without
   assert.match(card, /Validated by you · Keep keyboard access · manual/);
   assert.match(card, /Multiple active workflow tasks/);
   assert.equal(JSON.stringify(v.goalDoc), before);
+});
+
+test('mission card uses live blocker state instead of a stale saved acceptance request', async () => {
+  const { v, cx } = await inbox();
+  const goal = v.goalDoc.goals[0]; goal.decision = 'Accept the old result'; goal.recommendation = 'Old recommendation';
+  v.workflowTasks = [
+    { id: 'accepted', goalId: 'g', title: 'Old work', state: 'accepted' },
+    { id: 'blocked', goalId: 'g', title: 'Repair handoff', state: 'blocked', paused: true },
+  ];
+  const before = JSON.stringify(v.goalDoc);
+  const tree = v.render(cx), card = find(tree, 'goal-g');
+  assert.match(text(card), /NEEDS ATTENTION/);
+  assert.match(text(card), /Repair handoff/);
+  assert.doesNotMatch(text(card), /Accept the old result|Old recommendation/);
+  assert.equal(text(find(card, 'goal-workflow-g')), 'Resolve blocker');
+  v.sel = 'goal-g'; const sent = fake.execs.length;
+  v.navKey({ key: 'enter' }, cx);
+  assert.equal(fake.overlays.at(-1).props.role, 'workflow');
+  assert.equal(fake.execs.length, sent);
+  click(find(tree, 'goal-context-g'), cx);
+  assert.match(text(find(v.render(cx), 'goal-g')), /Saved question: Accept the old result/);
+  assert.equal(JSON.stringify(v.goalDoc), before);
+});
+
+test('unavailable workflow state never renders stale results as actionable acceptance', async () => {
+  const { v, cx } = await inbox();
+  v.workflowTasks = [{ id: 'old', goalId: 'g', title: 'Old result', state: 'needs_you' }];
+  v.workflowError = 'Cannot read state';
+  const card = find(v.render(cx), 'goal-g');
+  assert.match(text(card), /STATUS UNAVAILABLE/);
+  assert.doesNotMatch(text(card), /READY FOR YOUR REVIEW|Old result/);
+  assert.equal(text(find(card, 'goal-workflow-g')), 'Open mission');
+});
+
+test('paused work and pending review have distinct primary actions without changing stored mode or data', async () => {
+  const { v, cx } = await inbox();
+  v.workflowTasks = [{ id: 'task', goalId: 'g', title: 'Implement search', state: 'running', paused: true }];
+  v.workflowEngine = { enabled: false };
+  let tree = v.render(cx);
+  assert.match(text(find(tree, 'goal-g')), /AUTOMATION PAUSED/);
+  assert.equal(text(find(tree, 'goal-workflow-g')), 'Continue work');
+  v.workflowTasks[0].state = 'needs_you';
+  tree = v.render(cx);
+  assert.equal(text(find(tree, 'goal-workflow-g')), 'Review result');
+  assert.equal(text(find(tree, 'inbox-mode-false')), 'Reviews');
+  assert.equal(text(find(tree, 'inbox-mode-true')), 'Missions');
+  assert.equal(fake.stored[GOAL_MODE], true);
 });
