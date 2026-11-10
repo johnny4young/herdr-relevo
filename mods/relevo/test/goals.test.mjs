@@ -144,7 +144,7 @@ async function inbox() {
   return { view, cx };
 }
 
-test('objectives use original PR review/actions and classic mode restores its section', async () => {
+test('Runs routes original PR review/actions to Reviews', async () => {
   const { view, cx } = await inbox();
   fake.layout = { id: 'root', children: [
     { id: 'panel', hidden: false }, { id: 'panel-body', active: 'inbox' }, { id: 'panel-bar', hidden: true },
@@ -153,13 +153,13 @@ test('objectives use original PR review/actions and classic mode restores its se
   view.clones['acme/app'] = '/work/app';
   fake.stored[GOAL_MODE] = true;
   let tree = view.render(cx);
-  assert.ok(find(tree, `pr-${key.slice(3)}`));
-  assert.ok(find(tree, `review-pr-${key.slice(3)}`));
-  assert.ok(find(tree, `source-link-${key}`));
+  assert.equal(find(tree, `pr-${key.slice(3)}`), null);
   click(find(new InboxButton().render(), 'reviews-toggle'), cx);
   tree = view.render(cx);
   assert.match(text(tree), /YOUR PRS/);
-  assert.equal(find(tree, `source-link-${key}`), null);
+  assert.ok(find(tree, `pr-${key.slice(3)}`));
+  assert.ok(find(tree, `review-pr-${key.slice(3)}`));
+  assert.ok(find(view.render(cx), `source-link-${key}`));
 });
 
 test('two blocked agents in one repo retain separate actionable questions', async () => {
@@ -171,12 +171,12 @@ test('two blocked agents in one repo retain separate actionable questions', asyn
   assert.equal(sources.length, 2);
 });
 
-test('goal keyboard order follows visible priority and hides previous cards as selection advances', async () => {
+test('Reviews keyboard order follows visible priority and hides previous cards as selection advances', async () => {
   const { view, cx } = await inbox();
   view.h.is_focused = () => true;
   const pr = (i) => ({ url: `https://github.com/acme/app/pull/${i}`, repo: 'acme/app', number: i, title: `PR ${i}`, reasons: [], skills: [], updatedAt: new Date().toISOString() });
   view.mine = [pr(1), pr(2), pr(3), pr(4)];
-  fake.stored[GOAL_MODE] = true;
+  fake.stored[GOAL_MODE] = false;
   view.render(cx); view.sel = 'pr-https://github.com/acme/app/pull/4';
   const tree = view.render(cx);
   assert.equal(find(tree, 'pr-https://github.com/acme/app/pull/1'), null);
@@ -188,11 +188,11 @@ test('linked quiet PR stays visible while saved evidence details stay out of its
   view.goalDoc = commit({ ...goal(), evidence: [{ source: key, revision: a, kind: "video", label: "Demo", url: "https://example.com/demo" }] });
   view.prsAt = Date.now() / 1000; view.error = "offline";
   view.openPRs = [{ url: key.slice(3), repo: 'acme/app', number: 1, title: 'Quiet PR', headRefOid: a, updatedAt: new Date().toISOString() }];
-  fake.stored[GOAL_MODE] = true;
+  fake.stored[GOAL_MODE] = false;
   const tree = view.render(cx);
   assert.ok(find(tree, `pr-${key.slice(3)}`));
   assert.doesNotMatch(text(tree), /Unverified|Demo|Criteria:/);
-  assert.ok(find(tree, 'goal-edit-g1'));
+  assert.ok(find(tree, `source-link-${key}`));
   assert.equal(view.goalProjection.groups[0].items.length, 1);
 });
 
@@ -250,27 +250,27 @@ test('linked addressed PR stays folded, retains undo, and returns after new GitH
   view.goalDoc = commit(); view.mine = [pr]; view.openPRs = [pr];
   const markedAt = Date.parse(pr.updatedAt) / 1000;
   view.addressed[pr.url] = markedAt;
-  fake.stored[GOAL_MODE] = true;
+  fake.stored[GOAL_MODE] = false;
   let tree = view.render(cx);
   assert.equal(find(tree, `pr-${pr.url}`), null);
-  assert.ok(find(tree, 'goal-addressed-g1'));
-  click(find(tree, 'goal-addressed-g1'), cx); tree = view.render(cx);
+  assert.ok(find(tree, 'addressed-mine'));
+  click(find(tree, 'addressed-mine'), cx); tree = view.render(cx);
   assert.ok(find(tree, `undo-${pr.url}`));
   assert.equal(view.nav.filter((n) => n.id === `pr-${pr.url}`).length, 1);
   view.mine = [{ ...pr, updatedAt: new Date((markedAt + 10) * 1000).toISOString() }];
-  view.expanded['goal-g1-done'] = false;
+  view.expanded['mine-done'] = false;
   tree = view.render(cx);
   assert.ok(find(tree, `pr-${pr.url}`));
-  assert.equal(find(tree, 'goal-addressed-g1'), null);
+  assert.equal(find(tree, 'addressed-mine'), null);
 });
 
 test('drafts keep Ready for review and Open PR and Enter does not launch a review skill', async () => {
   const { view, cx } = await inbox(), pr = samplePR(1, { isDraft: true, skills: ['review'] });
   view.goalDoc = commit(); view.drafts = [pr]; view.openPRs = [pr]; view.clones[pr.repo] = '/work/app';
-  fake.stored[GOAL_MODE] = true;
+  fake.stored[GOAL_MODE] = false;
   let tree = view.render(cx);
   assert.equal(find(tree, `pr-${pr.url}`), null);
-  click(find(tree, 'goal-drafts-g1'), cx); tree = view.render(cx);
+  click(find(tree, 'drafts-mine'), cx); tree = view.render(cx);
   assert.ok(find(tree, `ready-${pr.url}`)); assert.ok(find(tree, `open-${pr.url}`));
   assert.equal(view.goalProjection.sources.length, 1);
   const before = fake.execs.length;
@@ -278,13 +278,13 @@ test('drafts keep Ready for review and Open PR and Enter does not launch a revie
   assert.deepEqual(fake.execs.slice(before), [`open ${pr.url}`]);
 });
 
-test('local addressed work keeps undo and review in goal mode', async () => {
+test('local addressed work keeps undo and review in Reviews', async () => {
   const { view, cx } = await inbox();
   view.local = [{ kind: 'diff', top: '/work/app', agent: { address: 't1', status: 'idle' }, files: 1, add: 2, del: 0 }];
-  view.labelling.t1 = '123:1'; fake.stored[GOAL_MODE] = true;
+  view.labelling.t1 = '123:1'; fake.stored[GOAL_MODE] = false;
   let tree = view.render(cx);
   assert.equal(find(tree, 'in-t1'), null);
-  click(find(tree, 'goal-addressed-unlinked'), cx); tree = view.render(cx);
+  click(find(tree, 'addressed-local'), cx); tree = view.render(cx);
   assert.ok(find(tree, 'review-t1')); assert.ok(find(tree, 'undo-t1'));
 });
 
@@ -297,11 +297,14 @@ test('decision-only goals are keyboard reachable and completed goals never hide 
   assert.match(text(tree), /Decision needed/);
   assert.match(text(tree), /Keep existing flow\?/);
   view.nav.find((n) => n.id === 'goal-g1').go();
+  assert.equal(fake.stored[GOAL_MODE], false); view.render(cx);
+  view.nav.find((n) => n.id === 'decision-g1').go();
   assert.equal(fake.overlays.at(-1).props.goalId, 'g1');
   view.goalDoc = commit({ ...goal(), state: 'completed' }); view.mine = [samplePR(1, { hot: true })];
   tree = view.render(cx);
   assert.ok(find(tree, `pr-${key.slice(3)}`));
-  assert.match(text(tree), /Run completed/);
+  fake.stored[GOAL_MODE] = true;
+  assert.match(text(view.render(cx)), /Run completed/);
 });
 
 test('run cards keep the next action and editor while hiding lead provenance', async () => {
@@ -315,7 +318,7 @@ test('run cards keep the next action and editor while hiding lead provenance', a
   assert.doesNotMatch(text(tree), /observed child agents|Focus lead|Message lead|Criteria:|Outcomes/);
 });
 
-test('compact run card keeps current action, source review, and Edit without repeating saved metadata', async () => {
+test('compact run card keeps current action and Edit without duplicating source review or metadata', async () => {
   const { view, cx } = await inbox(), pr = samplePR(1);
   const detail = { ...goal(), decision: 'Approve the search layout?', recommendation: 'Keep the filter visible.',
     criteria: 'Keyboard navigation and every original review control remain available.',
@@ -326,7 +329,7 @@ test('compact run card keeps current action, source review, and Edit without rep
   const original = JSON.stringify(view.goalDoc);
   const tree = view.render(cx);
   assert.ok(find(tree, 'goal-edit-g1'));
-  assert.ok(find(tree, `pr-${pr.url}`));
+  assert.equal(find(tree, `pr-${pr.url}`), null);
   const nextAction = find(tree, 'goal-review-next-g1') || find(tree, 'goal-workflow-g1') || find(tree, 'goal-decision-next-g1');
   assert.ok(nextAction);
   assert.ok(text(nextAction).length > 0);

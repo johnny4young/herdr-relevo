@@ -56,8 +56,9 @@ test('a removed historical skill still shows the current agent status', () => {
 test('a PR with a missing skill keeps review, open and addressed controls', async () => {
   const view = new Inbox(), cx = fakeCx(); view.init({}, cx); await flush();
   view.mine = [pr]; view.clones[pr.repo] = '/work/app';
-  const tree = view.render(cx);
+  let tree = view.render(cx);
   assert.ok(find(tree, `pr-${pr.url}`)); assert.ok(find(tree, `review-pr-${pr.url}`));
+  click(find(tree, `more-pr-${pr.url}`), cx); tree = view.render(cx);
   assert.ok(find(tree, `open-${pr.url}`)); assert.ok(find(tree, `addressed-${pr.url}`));
   assert.equal(find(tree, `run-retired-${pr.url}`).isDisabled, true);
 });

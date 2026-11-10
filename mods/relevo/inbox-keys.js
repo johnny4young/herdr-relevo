@@ -37,12 +37,14 @@ export class KeyNav {
     for (const [key, list] of [["requested", v.requested], ["mine", v.mine]]) {
       const shownPRs = [...list.filter(recent), ...(this.expanded[key] ? list.filter((p) => !recent(p)) : [])];
       if (key === "mine" && this.expanded["mine-ready"]) shownPRs.push(...v.ready);
-      for (const pr of shownPRs) items.push({ id: `pr-${pr.url}`, section: key, go: () => this.runPR(pr) });
+      if (key === "mine" && this.expanded["mine-drafts"]) shownPRs.push(...(this.drafts ?? []));
+      if (this.expanded[`${key}-done`]) shownPRs.push(...(key === "mine" ? v.mineDone ?? [] : v.requestedDone ?? []));
+      for (const pr of new Map(shownPRs.map((pr) => [pr.url, pr])).values()) items.push({ id: `pr-${pr.url}`, section: key, go: () => pr.isDraft ? exec("open", [pr.url]) : this.runPR(pr) });
     }
-    for (const i of v.local.filter((x) => x.kind === "diff")) {
+    for (const i of [...v.local.filter((x) => x.kind === "diff"), ...(this.expanded["local-done"] ? v.localDone ?? [] : [])]) {
       items.push({ id: `in-${i.agent.address}`, section: "local", go: () => openReview(i.top, i.agent.address) });
     }
-    items.push(...this.linkedReviews(v).filter((source) => !source.addressed).map((source) => ({
+    items.push(...this.linkedReviews(v).filter((source) => !source.addressed || this.expanded["linked-done"]).map((source) => ({
       id: `pr-${source.pr.url}`, section: "linked", go: () => source.draft ? exec("open", [source.pr.url]) : this.runPR(source.pr),
     })));
     for (const w of v.worktrees.filter((x) => x.merged && this.inSight(x))) {
