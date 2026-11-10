@@ -28,3 +28,11 @@ test('links with spaced URLs and links that leave a bang behind never become ima
   assert.equal(agentMarkdown('[docs]( https://evil.test )'), 'docs (https://evil.test)');
   for (const input of ['x![[a](b)](https://evil.test/i.png)', '[!](u)[y](https://evil.test/j.png)']) assert.doesNotMatch(agentMarkdown(input), /!\s*\[/, input);
 });
+
+test('deep nesting stays bounded and still leaves no tag or image', () => {
+  const deep = `${'!['.repeat(3000)}x${'](https://evil.test/a.png)'.repeat(3000)}<${'<'.repeat(2000)}img src=x>`;
+  const started = Date.now(), out = agentMarkdown(deep);
+  assert.ok(Date.now() - started < 1000);
+  assert.doesNotMatch(out, /!\s*\[/); assert.doesNotMatch(out, /<[A-Za-z]/);
+  assert.equal(agentMarkdown('> [r]: https://evil.test\n![a][r]').trim(), 'a');
+});
