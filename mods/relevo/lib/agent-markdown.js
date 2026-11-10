@@ -5,11 +5,11 @@ export function agentMarkdown(text) {
   do {
     previous = out;
     out = out.replace(/<[^<>]*>/g, "")
+      .replace(/^ {0,3}\[[^\]]+\]:.*$/gm, "")
       .replace(/!\[([^\[\]]*)\](?:\([^()]*\)|\[[^\[\]]*\])?/g, (_m, alt) => alt)
-      .replace(/!(?=\s*\[)/g, "");
+      .replace(/!(?=\s*\[)/g, "")
+      .replace(/\[([^\[\]]+)\]\(\s*([^)\s]+)[^)]*\)/g, (_m, label, url) => `${label} (${url})`)
+      .replace(/\[([^\[\]]+)\]\[[^\[\]]*\]/g, (_m, label) => label);
   } while (out !== previous);
-  return out
-    .replace(/^ {0,3}\[[^\]]+\]:.*$/gm, "")
-    .replace(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/g, (_m, label, url) => `${label} (${url})`)
-    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, (_m, label) => label);
+  return out.replace(/!(?=\s*\[)/g, "");
 }

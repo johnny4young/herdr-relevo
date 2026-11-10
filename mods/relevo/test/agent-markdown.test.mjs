@@ -23,3 +23,8 @@ test('no image syntax survives nesting or tags that rebuild it', () => {
     assert.doesNotMatch(agentMarkdown(input), /<|>/, input);
   }
 });
+
+test('links with spaced URLs and links that leave a bang behind never become images', () => {
+  assert.equal(agentMarkdown('[docs]( https://evil.test )'), 'docs (https://evil.test)');
+  for (const input of ['x![[a](b)](https://evil.test/i.png)', '[!](u)[y](https://evil.test/j.png)']) assert.doesNotMatch(agentMarkdown(input), /!\s*\[/, input);
+});
