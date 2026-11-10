@@ -38,6 +38,8 @@ Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, dr
 
 The [research record](workflow-research.md) explains the source ideas and their limits. Do not treat every proposal there as implemented.
 
+The [Paseo follow-up](paseo-research.md) adds a pinned source comparison and adoption priorities. Mission check summaries now distinguish no checks, unrun checks, partial evidence and explicit failures, including timeouts. Prior results are suppressed while a fresh executor attempt runs or reports that implementation did not complete; cancellation stays incomplete. Searchable shortcut help, context-scoped draft recovery and named setup profiles are proposed follow-ups, not available options.
+
 ## Normal user journey
 
 1. Inbox → Missions → select a mission → its primary action opens Mission control. Start with Needs you. Reviews is the original queue; these UI names replace Goals/Classic without changing stored records.

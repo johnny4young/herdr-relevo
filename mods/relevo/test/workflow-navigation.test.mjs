@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptanceEffect, queueSummary, workflowItems } from '../lib/workflow-navigation.js';
+import { acceptanceEffect, queueSummary, workflowCheckSummary, workflowItems } from '../lib/workflow-navigation.js';
 import { missionNextAction } from '../lib/goal-workflow.js';
 
 test('ready decisions appear before historical blockers without hiding or mutating either', () => {
@@ -29,4 +29,31 @@ test('empty decision queues distinguish completion from ongoing, planned and sto
   assert.match(queueSummary([{ state: 'planned' }], { enabled: true }).detail, /not started/);
   assert.match(queueSummary([{ state: 'ready' }], { enabled: false }).detail, /paused/);
   assert.equal(queueSummary([{ state: 'running' }], { enabled: true }).title, 'Work continues');
+});
+
+test('workflow check summary distinguishes unconfigured, unrun, complete and incomplete checks', () => {
+  assert.deepEqual(workflowCheckSummary({ checks: [], checksResult: [] }), { label: 'Not configured', tone: 'muted' });
+  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test']], checksResult: [] }), { label: 'Not run', tone: 'muted' });
+  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test'], ['npm', 'lint']], checksResult: [{ code: 0 }, { code: 0 }] }), { label: '2/2 passed', tone: 'normal' });
+  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test'], ['npm', 'lint']], checksResult: [{ code: 0 }] }), { label: '1/2 passed · incomplete', tone: 'muted' });
+  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test']], checksResult: [{ code: 0 }, { code: 0 }] }), { label: '2/2 passed', tone: 'normal' });
+});
+
+test('workflow check failures take priority and unknown exit codes stay incomplete', () => {
+  assert.deepEqual(workflowCheckSummary({ checks: [['a'], ['b'], ['c']], checksResult: [{ code: 1 }, { code: 0 }] }), { label: '1 failed · 1/3 passed', tone: 'failure' });
+  assert.deepEqual(workflowCheckSummary({ checks: [['a']], checksResult: [{ code: 0 }, { code: '0' }] }), { label: '1/2 passed · incomplete', tone: 'muted' });
+});
+
+test('a running executor hides stale check results until the current checks arrive', () => {
+  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test']], checksResult: [{ code: 1 }], attempts: [{ role: 'executor', state: 'running' }] }), { label: 'Awaiting checks', tone: 'muted' });
+  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test']], checksResult: [{ code: 1 }], attempts: [{ role: 'reviewer', state: 'running' }] }), { label: '1 failed · 0/1 passed', tone: 'failure' });
+});
+
+test('a blocked implementation does not revive prior-round checks and cancellation is not failure', () => {
+  const checks = [['node', '--test']];
+  assert.deepEqual(workflowCheckSummary({ checks, checksResult: [{ code: 0 }], attempts: [{ role: 'executor', state: 'reported', report: { status: 'blocked' } }] }), { label: 'Not run', tone: 'muted' });
+  assert.deepEqual(workflowCheckSummary({ checks, checksResult: [{ code: 'timeout' }] }), { label: '1 failed · 0/1 passed', tone: 'failure' });
+  assert.deepEqual(workflowCheckSummary({ checks, checksResult: [{ code: 'ENOENT' }] }), { label: '1 failed · 0/1 passed', tone: 'failure' });
+  assert.deepEqual(workflowCheckSummary({ checks, checksResult: [{ code: 'cancelled' }] }), { label: '0/1 passed · incomplete', tone: 'muted' });
+  assert.deepEqual(workflowCheckSummary({ checks: [], attempts: [{ role: 'executor', state: 'running' }] }), { label: 'Not configured', tone: 'muted' });
 });

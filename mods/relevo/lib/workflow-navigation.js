@@ -8,6 +8,34 @@ export const workflowItems = (tasks, bucket) => {
   return bucket === "Needs you" ? items.sort((a, b) => Number(b.state === "needs_you") - Number(a.state === "needs_you")) : items;
 };
 
+export function workflowCheckSummary(task) {
+  const results = Array.isArray(task.checksResult) ? task.checksResult : [];
+  const latest = Array.isArray(task.attempts) ? task.attempts.at(-1) : null;
+  const configured = Array.isArray(task.checks) ? task.checks.length : 0;
+  if (!configured && !results.length) return { label: 'Not configured', tone: 'muted' };
+  if (latest?.role === 'executor' && latest.state === 'running') return { label: 'Awaiting checks', tone: 'muted' };
+  // A non-completed implementation does not run checks; the store can still
+  // contain a preceding round's results for its history.
+  if (latest?.role === 'executor' && latest.state === 'reported' && latest.report?.status && latest.report.status !== 'completed') {
+    return { label: 'Not run', tone: 'muted' };
+  }
+  if (configured && !results.length) return { label: 'Not run', tone: 'muted' };
+
+  const total = Math.max(configured, results.length);
+  const passed = results.filter((result) => Number.isFinite(result?.code) && result.code === 0).length;
+  const failures = results.filter((result) => {
+    const code = result?.code;
+    return (Number.isFinite(code) && code !== 0) ||
+      (typeof code === 'string' && code.trim() !== '' && !['0', 'cancelled'].includes(code));
+  }).length;
+  if (failures) return { label: `${failures} failed · ${passed}/${total} passed`, tone: 'failure' };
+
+  const complete = results.length >= configured && results.every((result) => Number.isFinite(result?.code));
+  return complete
+    ? { label: `${passed}/${total} passed`, tone: 'normal' }
+    : { label: `${passed}/${total} passed · incomplete`, tone: 'muted' };
+}
+
 export function acceptanceEffect(task, tasks, engine) {
   const next = tasks.filter((item) => item.dependsOn?.includes(task.id) && !["accepted", "cancelled"].includes(item.state));
   if (!next.length) return "Accepting finishes this task. No follow-up task is defined.";

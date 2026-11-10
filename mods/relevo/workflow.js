@@ -4,7 +4,7 @@ import { agents, panes, props, theme, openOverlay, closeOverlay, exec, appHome, 
 import { button, overlayHeight } from "./ui.js";
 import { openReview } from "./review.js";
 import { SKILLS as CONFIGURED_SKILLS } from "./config.js";
-import { workflowBucket, workflowItems, acceptanceEffect, queueSummary } from "./lib/workflow-navigation.js";
+import { workflowBucket, workflowItems, acceptanceEffect, queueSummary, workflowCheckSummary } from "./lib/workflow-navigation.js";
 import { readGoals } from "./goals-store.js";
 import { WorkflowPlan } from "./workflow-plan.js";
 
@@ -534,7 +534,7 @@ export class Workflow extends WorkflowPlan {
     const unresolvedAttempt = latestAttempt?.state === "running" || ["uncertain", "sending"].includes(latestAttempt?.delivery);
     const followUpAvailable = blocked && !unresolvedAttempt && ((task.round ?? 0) >= (task.maxRounds ?? 2) ||
       (task.attempts ?? []).filter((attempt) => attempt.role === "reviewer").length >= (task.maxRounds ?? 2) + 1);
-    const checks = task.checksResult ?? [];
+    const checkSummary = workflowCheckSummary(task);
     const details = this.detailsFor === task.id;
     const metric = (label, value, color) => v_flex().flex_1().min_w(0).gap(5).p(10).rounded(6).bg(t.raised)
       .child(div().text_size(11).text_color(t.muted).child(label))
@@ -547,8 +547,8 @@ export class Workflow extends WorkflowPlan {
         .when(task.state === "needs_you", (el) => el.child(row(t, "Review the evidence, then decide."))))
       .when(Boolean(task.error), (el) => el.child(div().role("alert").text_color(t.blocked).child(task.error)))
       .child(h_flex().w_full().gap(8).items_start().children([
-        metric("CHECKS", checks.length ? `${checks.filter((check) => check.code === 0).length}/${checks.length} passed` : "Not recorded",
-          checks.some((check) => check.code !== 0) ? t.blocked : t.foreground),
+        metric("CHECKS", checkSummary.label,
+          checkSummary.tone === "failure" ? t.blocked : checkSummary.tone === "muted" ? t.muted : t.foreground),
         metric("INDEPENDENT REVIEW", review ? reportState(review.status) : "Not reported",
           review && review.status !== "completed" ? t.blocked : t.foreground),
         metric("EVIDENCE", `${task.evidence?.length ?? 0} attached`),

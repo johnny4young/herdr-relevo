@@ -266,6 +266,20 @@ test('the first screen explains the decision and keeps sessions and messaging se
   assert.equal(fake.execs.length, 0); v.close();
 });
 
+test('check summary distinguishes partial evidence, failure and a fresh implementation round', async () => {
+  const { v } = await setup();
+  const task = { id: 'checks', goalId: 'g', title: 'Verify result', state: 'blocked',
+    checks: [['node', '--test'], ['npm', 'run', 'lint']], checksResult: [{ code: 0 }], attempts: [] };
+  v.tasks = [task]; v.selected = task.id;
+  assert.match(text(v.render()), /CHECKS 1\/2 passed · incomplete/);
+  task.checksResult.push({ code: 1 });
+  assert.match(text(v.render()), /CHECKS 1 failed · 1\/2 passed/);
+  task.state = 'running'; task.attempts = [{ role: 'executor', state: 'running' }];
+  assert.match(text(v.render()), /CHECKS Awaiting checks/);
+  assert.equal(fake.execs.length, 0, 'summarizing evidence never starts work');
+  v.close();
+});
+
 test('requesting changes previews the next effect and requires explicit feedback submission', async () => {
   const { v, cx } = await setup();
   v.tasks = [{ id: 'result', goalId: 'g', title: 'Search', state: 'needs_you', round: 1, maxRounds: 2, revision: 'current' }];
@@ -332,7 +346,7 @@ test('compact review preserves full context on demand without dispatching or imp
     { id: 'review', role: 'reviewer', report: { status: 'blocked', summary: reviewerSummary } },
   ] }]; v.selected = 'result'; v.engine = { enabled: true };
   let tree = v.render();
-  assert.match(text(tree), /CHECKS Not recorded INDEPENDENT REVIEW Blocked EVIDENCE 0 attached/);
+  assert.match(text(tree), /CHECKS Not configured INDEPENDENT REVIEW Blocked EVIDENCE 0 attached/);
   assert.ok(!text(tree).includes(reviewerSummary));
   assert.ok(!text(find(tree, 'workflow-outcome-header')).includes(title), 'long assignments are disclosed instead of dominating the first screen');
   assert.equal(find(tree, 'workflow-engine-stop'), null);
