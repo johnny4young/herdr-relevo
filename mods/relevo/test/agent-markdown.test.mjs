@@ -36,3 +36,13 @@ test('deep nesting stays bounded and still leaves no tag or image', () => {
   assert.doesNotMatch(out, /!\s*\[/); assert.doesNotMatch(out, /<[A-Za-z]/);
   assert.equal(agentMarkdown('> [r]: https://evil.test\n![a][r]').trim(), 'a');
 });
+
+test('the cleanup after the pass cap cannot rebuild a tag or an image', () => {
+  const capped = (tail) => `${'<'.repeat(9)}${'x>'.repeat(9)}${tail}`;
+  for (const input of [capped('<<img src=https://evil.test/p>'), '!![x](https://evil.test/a.png)', '! ! [x](https://evil.test/b.png)',
+    `${'!['.repeat(8)}x${'](u)'.repeat(8)}`, `${'<'.repeat(7)}<img src=x>${'>'.repeat(7)}`]) {
+    const out = agentMarkdown(input);
+    assert.doesNotMatch(out, /![\s!]*\[/, input);
+    assert.doesNotMatch(out, /<[A-Za-z/!?]/, input);
+  }
+});

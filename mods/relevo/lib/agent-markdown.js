@@ -16,8 +16,10 @@ export function agentMarkdown(text) {
       .replace(/\[([^\[\]]+)\]\(\s*([^)\s]+)[^)]*\)/g, (_m, label, url) => `${label} (${url})`)
       .replace(/\[([^\[\]]+)\]\[[^\[\]]*\]/g, (_m, label) => label);
   } while (out !== previous && ++passes < MAX_PASSES);
-  // Whatever deep nesting left after the cap cannot open a tag or an image.
-  lastOutput = out.replace(/<(?=[A-Za-z/!?])/g, "").replace(/!(?=\s*\[)/g, "");
+  // Converged output holds no tag; text still nested at the cap keeps no angle bracket at all.
+  if (out !== previous) out = out.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // One pass: no "!" survives with only spaces or other "!" between it and a "[".
+  lastOutput = out.replace(/!(?=[\s!]*\[)/g, "");
   lastInput = input;
   return lastOutput;
 }
