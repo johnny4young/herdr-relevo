@@ -5,6 +5,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:f
 import { basename, extname, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createReadStream as fileStream } from 'node:fs';
+import { runCheck } from './process.mjs';
 
 const execFile = promisify(nodeExecFile);
 const hash = (data) => createHash('sha256').update(data).digest('hex');
@@ -35,7 +36,7 @@ export async function fingerprint(root) {
   return digest.digest('hex');
 }
 
-export async function runChecks(root, checks, { run, timeoutMs = 60000, maxOutput = 32768, signal, clock = Date.now } = {}) {
+export async function runChecks(root, checks, { run = runCheck, timeoutMs = 60000, maxOutput = 16384, signal, clock = Date.now } = {}) {
   if (!Array.isArray(checks) || checks.some((x) => !Array.isArray(x) || !x.length || x.some((a) => typeof a !== 'string'))) throw new TypeError('checks must be arrays of argv strings');
   const results = [];
   const deadline = clock() + timeoutMs;
@@ -44,11 +45,11 @@ export async function runChecks(root, checks, { run, timeoutMs = 60000, maxOutpu
     const at = new Date().toISOString();
     try {
       const remaining = Math.max(1, deadline - clock());
-      const result = run ? await run(argv, { cwd: root, timeout: remaining, maxOutput, signal }) : await execFile(argv[0], argv.slice(1), { cwd: root, timeout: remaining, maxBuffer: maxOutput, encoding: 'utf8', signal });
-      results.push({ argv, code: result.code ?? 0, stdout: String(result.stdout ?? '').slice(0, maxOutput), stderr: String(result.stderr ?? '').slice(0, maxOutput), at });
-      if (result.code === 124 || result.code === 'timeout' || signal?.aborted) break;
+      const result = await run(argv, { cwd: root, timeout: remaining, maxOutput, signal });
+      results.push({ argv, code: result.code ?? 0, stdout: String(result.stdout ?? '').slice(-maxOutput), stderr: String(result.stderr ?? '').slice(-maxOutput), at });
+      if (['timeout', 'cancelled', 124].includes(result.code) || signal?.aborted) break;
     } catch (error) {
-      results.push({ argv, code: error.code === 'ETIMEDOUT' || error.killed ? 'timeout' : (error.code ?? 1), stdout: String(error.stdout ?? '').slice(0, maxOutput), stderr: String(error.stderr ?? error.message ?? '').slice(0, maxOutput), at });
+      results.push({ argv, code: error.code === 'ETIMEDOUT' || error.killed ? 'timeout' : (error.code ?? 1), stdout: String(error.stdout ?? '').slice(-maxOutput), stderr: String(error.stderr ?? error.message ?? '').slice(-maxOutput), at });
       if (error.code === 'ETIMEDOUT' || error.killed || signal?.aborted) break;
     }
   }

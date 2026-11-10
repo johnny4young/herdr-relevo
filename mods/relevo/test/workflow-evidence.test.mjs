@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as wait } from 'node:timers/promises';
 import { attachArtifact, fingerprint, removeArtifact, runChecks, verifyArtifact } from '../runtime/evidence.mjs';
 
 async function fixture(fn) {
@@ -44,7 +45,7 @@ test('runChecks handles no checks, bounds output, keeps sequential results and r
     if (name === 'slow') throw Object.assign(new Error('timed out'), { killed: true });
     return { code: 0, stdout: '123456', stderr: '' };
   } });
-  assert.equal(results[0].stdout, '1234'); assert.equal(results[1].code, 'timeout');
+  assert.equal(results[0].stdout, '3456'); assert.equal(results[1].code, 'timeout');
   assert.ok(results.every((r) => Number.isFinite(Date.parse(r.at))));
 });
 
@@ -71,4 +72,20 @@ test('artifact rejects credential sources, invalid media, and symlink sources', 
   await rm(join(stateDir, 'artifacts'), { recursive: true, force: true });
   await symlink(join(dir, 'real-parent'), join(stateDir, 'artifacts'));
   await assert.rejects(attachArtifact({ stateDir, taskId: 't', source: join(dir, 'real-parent', 'inside.md'), kind: 'report' }), /symlink/);
+}));
+
+test('a passing check with long output passes and keeps the tail', async () => {
+  const [result] = await runChecks('.', [[process.execPath, '-e', 'process.stdout.write("a".repeat(40000) + "END")']]);
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout.length, 16384);
+  assert.ok(result.stdout.endsWith('END'));
+});
+
+test('a timed-out check also stops the processes it started', async () => fixture(async (dir) => {
+  const pidFile = join(dir, 'child.pid');
+  const [result] = await runChecks(dir, [['sh', '-c', `sleep 30 & echo $! > ${pidFile}; sleep 30`]], { timeoutMs: 300 });
+  assert.equal(result.code, 'timeout');
+  const pid = Number(await readFile(pidFile, 'utf8'));
+  await wait(100);
+  assert.throws(() => process.kill(pid, 0));
 }));

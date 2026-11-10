@@ -263,7 +263,9 @@ test('acceptance clears the prerequisite reason even while another task holds th
   assert.match(f.runtime.read().tasks.find((task) => task.id === dependent.id).waitingReason, /blocked/);
   transaction(f.home, (doc) => {
     doc.tasks.find((task) => task.id === prerequisite.id).state = 'accepted';
-    doc.tasks.find((task) => task.id === other.result.taskId).state = 'running';
+    const holder = doc.tasks.find((task) => task.id === other.result.taskId);
+    holder.state = 'running';
+    holder.attempts.push({ id: 'held', role: 'executor', address: 'other-exec', state: 'running', delivery: 'acknowledged', at: new Date().toISOString() });
   });
   await f.runtime.dispatch(dependent.id);
   const current = f.runtime.read().tasks.find((task) => task.id === dependent.id);

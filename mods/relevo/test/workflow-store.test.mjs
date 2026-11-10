@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { mkdtemp, readFile, rm, mkdir, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { emptyState, privateDir, readState, stateDir, transaction } from '../runtime/store.mjs';
 
 async function fixture(fn) {
@@ -58,4 +59,21 @@ test('failed mutations leave the prior state intact and release both locks', asy
   assert.throws(() => transaction(home, (doc) => { doc.engine.enabled = false; throw Error('abort'); }), /abort/);
   assert.equal(await readFile(file, 'utf8'), before);
   assert.equal(fs.existsSync(join(dir, 'write.lock')), false); assert.equal(fs.existsSync(join(dir, 'write.acquire')), false);
+}));
+
+test('a writer that exits shortly is waited for instead of failing busy', async () => fixture(async (home) => {
+  const dir = privateDir(stateDir(home)), lock = join(dir, 'write.lock'); await mkdir(lock);
+  const pid = Number(execFileSync('sh', ['-c', 'sleep 0.3 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }));
+  await writeFile(join(lock, 'owner.json'), JSON.stringify({ pid, token: 'short-writer' }));
+  const result = transaction(home, (doc) => { doc.engine.enabled = true; });
+  assert.equal(result.doc.engine.enabled, true);
+}));
+
+test('a guard or ownerless lock left by a crash is reclaimed', async () => fixture(async (home) => {
+  const dir = privateDir(stateDir(home)), guard = join(dir, 'write.acquire'), lock = join(dir, 'write.lock');
+  await mkdir(guard); await mkdir(lock);
+  const old = new Date(Date.now() - 60000); fs.utimesSync(guard, old, old); fs.utimesSync(lock, old, old);
+  transaction(home, (doc) => { doc.engine.enabled = true; });
+  assert.equal(readState(home).engine.enabled, true);
+  assert.equal(fs.existsSync(guard), false); assert.equal(fs.existsSync(lock), false);
 }));

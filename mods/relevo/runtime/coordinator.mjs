@@ -10,6 +10,16 @@ const terminalStates = new Set(['accepted', 'cancelled']);
 const text = (value, max = 4000) => typeof value === 'string' && value.trim() && value.length <= max;
 const recipient = (actor) => actor && /^[-a-zA-Z0-9_/]+$/.test(actor.address ?? '');
 const statusOf = (actor) => typeof actor.status === 'string' ? actor.status : actor.status?.state;
+// An unreported attempt keeps its checkout and agents until it reports or a human reconciles it.
+const holdsCheckout = (task) => task.attempts.at(-1)?.state === 'running';
+function checkoutBusy(doc, task, actor) {
+  const active = doc.tasks.filter((other) => other.id !== task.id && holdsCheckout(other));
+  return active.length >= doc.engine.maxConcurrent ||
+    active.some((other) => other.root === task.root || [other.executor.address, other.reviewer.address].includes(actor.address));
+}
+const MAX_FEEDBACK = 8000, MAX_STORED_PROMPT = 12000;
+const failedChecks = (checks) => `Checks failed: ${JSON.stringify(checks.filter((check) => check.code !== 0).map((check) => ({
+  argv: check.argv, code: check.code, stdout: String(check.stdout ?? '').slice(-2000), stderr: String(check.stderr ?? '').slice(-2000) })))}`.slice(0, MAX_FEEDBACK);
 export function createRuntime({ home, runCommand = run, clock = Date.now, fingerprintImpl = fingerprint, checksImpl = runChecks } = {}) {
   const dir = privateDir(stateDir(home));
   const activeChecks = new Map();
@@ -251,7 +261,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       return update((doc) => {
         const task = taskById(doc, before.id);
         for (const e of task.evidence) e.valid = evidenceStatus.find((s) => s.id === e.id)?.valid ?? false;
-        if (task.revision && task.revision !== revision && ['needs_you', 'accepted'].includes(task.state)) {
+        if (task.revision && task.revision !== revision && task.state === 'needs_you') {
           task.state = 'blocked'; task.error = 'The checkout changed. Run a new review before accepting.';
           log(doc, task, 'Review became stale', task.error);
         }
@@ -359,7 +369,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (message.mode === 'queue' && !['idle', 'done'].includes(actor.status)) return;
     update((doc) => { const m = taskById(doc, taskId).messages.find((m) => m.id === messageId); if (m.status !== 'queued') throw Error('Message already submitted'); m.status = 'sending'; });
     let result;
-    try { result = await hc(['send', '--json', ...(actor.status === 'done' ? [] : ['--if', actor.status]), message.address, message.text]); }
+    try { result = await hc(['send', '--json', ...(actor.status === 'done' ? [] : ['--if', actor.status]), '--', message.address, message.text]); }
     catch (e) { result = { code: 1, stderr: e.message }; }
     update((doc) => { const t = taskById(doc, taskId), m = t.messages.find((m) => m.id === messageId); m.status = result.code === 0 ? 'delivered' : 'uncertain';
       if (['needs_you', 'needs_review'].includes(t.state)) { t.state = 'blocked'; t.error = 'A follow-up was sent. Refresh and run a new review before accepting.'; }
@@ -397,15 +407,15 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         if (current.state === 'ready' && !current.paused && !dependencyWaitReason(current, next)) current.waitingReason = null;
       });
     }
-    const working = doc.tasks.filter((t) => ['running'].includes(t.state));
-    if (working.length >= doc.engine.maxConcurrent || working.some((t) => t.root === task.root || [t.executor.address, t.reviewer.address].includes(actor.address))) return;
+    if (checkoutBusy(doc, task, actor)) return;
     let observed;
     try { observed = await getActor(actor, task.root); } catch (e) { block(task.id, e.message); return; }
     if (!['idle', 'done'].includes(observed.status)) return;
     const revision = await fingerprintImpl(task.root);
     if (role === 'reviewer' && task.revision !== revision) { block(task.id, 'Checkout changed after checks. Start a fresh attempt.'); return; }
     const attempt = { id: uid(), role, address: actor.address, token: uid(), delivery: 'sending', state: 'running', at: new Date(clock()).toISOString(), revision, startedTurn: observed.turn };
-    attempt.prompt = prompt(task, attempt, preferencesFor(doc.preferences, { goalId: task.goalId, root: task.root }));
+    const fullPrompt = prompt(task, attempt, preferencesFor(doc.preferences, { goalId: task.goalId, root: task.root }));
+    attempt.prompt = fullPrompt.length > MAX_STORED_PROMPT ? `${fullPrompt.slice(0, MAX_STORED_PROMPT)}…` : fullPrompt;
     update((next) => {
       const t = taskById(next, task.id);
       // Human controls can change while the agent and checkout are inspected.
@@ -418,8 +428,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         t.waitingReason = currentWaitingReason;
         return { waiting: true };
       }
-      const active = next.tasks.filter((other) => other.id !== t.id && other.attempts.at(-1)?.state === 'running');
-      if (active.length >= next.engine.maxConcurrent || active.some((other) => other.root === t.root || [other.executor.address, other.reviewer.address].includes(actor.address))) throw Error('Another attempt is using this checkout or agent');
+      if (checkoutBusy(next, t, actor)) return { waiting: true };
       if (role === 'executor') { if (t.round >= t.maxRounds) throw Error('Attempt budget exhausted'); t.round++; }
       t.state = 'running'; t.waitingReason = null; t.attempts.push(attempt); t.error = null;
       log(next, t, 'Task assigned', `${role} → ${actor.label || actor.address}; attempt ${attempt.id}`);
@@ -428,36 +437,45 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     let result;
     // hc accepts an exact guard only for idle/working. A freshly observed done
     // session uses normal send, which still refuses blocked permission prompts.
-    try { result = await hc(['send', '--json', ...(observed.status === 'done' ? [] : ['--if', 'idle']), actor.address, attempt.prompt]); }
+    try { result = await hc(['send', '--json', ...(observed.status === 'done' ? [] : ['--if', 'idle']), '--', actor.address, fullPrompt]); }
     catch (e) { result = { code: 1, stderr: e.message }; }
     update((next) => {
       const t = taskById(next, task.id), a = t.attempts.find((a) => a.id === attempt.id);
-      a.delivery = result.code === 0 ? 'acknowledged' : 'uncertain';
+      // A cancel during the send already marked it uncertain so a human can reconcile it.
+      a.delivery = result.code === 0 && a.delivery !== 'uncertain' ? 'acknowledged' : 'uncertain';
       if (result.code !== 0 && !terminalStates.has(t.state)) { t.state = 'blocked'; t.error = 'Delivery not confirmed. Inspect this attempt; no automatic resend.'; }
       log(next, t, result.code === 0 ? 'Delivery acknowledged' : 'Delivery uncertain', result.stderr || 'Transport accepted the message; completion is still pending', actor.address);
     });
   }
+  // Called from error handlers, so it must never throw; a busy store leaves the task for the next tick.
   function block(taskId, reason) {
-    const current = taskById(readState(home), taskId);
-    if (terminalStates.has(current.state) || (current.state === 'blocked' && current.error === reason)) return;
-    update((doc) => { const task = taskById(doc, taskId); task.state = 'blocked'; task.error = reason; log(doc, task, 'Task blocked', reason); });
+    try {
+      const current = taskById(readState(home), taskId);
+      if (terminalStates.has(current.state) || (current.state === 'blocked' && current.error === reason)) return;
+      update((doc) => {
+        const task = taskById(doc, taskId);
+        if (terminalStates.has(task.state) || (task.state === 'blocked' && task.error === reason)) return;
+        task.state = 'blocked'; task.error = reason; log(doc, task, 'Task blocked', reason);
+      });
+    } catch { /* retried on the next tick */ }
   }
   async function collect(task) {
     const attempt = task.attempts.at(-1);
     if (!attempt || attempt.state !== 'running' || !['running', 'blocked'].includes(task.state)) return;
     const file = path.join(dir, 'reports', `${attempt.id}.json`);
-    if (fs.existsSync(file)) {
+    // A half-written report or an agent still working falls through to the deadline check.
+    report: if (fs.existsSync(file)) {
       const stat = fs.lstatSync(file);
       if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 32768) { block(task.id, 'Invalid agent report file'); return; }
       let report;
-      try { report = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return; }
+      try { report = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { break report; }
       if (report.attemptId !== attempt.id || report.token !== attempt.token || !['completed', 'changes_requested', 'blocked'].includes(report.status) || !text(report.summary, 10000)) { block(task.id, 'Invalid or mismatched agent report'); return; }
       const actor = await hc(['get', '--json', attempt.address]);
       if (actor.code !== 0) { block(task.id, 'Agent disconnected before its report could be verified'); return; }
       const state = JSON.parse(actor.stdout);
       state.status = statusOf(state);
       // Wait until the reporting agent has stopped writing the checkout.
-      if (state.status === 'working') return;
+      if (state.status === 'working') break report;
       if (!['idle', 'done'].includes(state.status)) { block(task.id, `Agent stopped with ${state.status ?? state.state}`); return; }
       const revision = await fingerprintImpl(task.root);
       let checks = task.checksResult;
@@ -469,8 +487,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         };
         const watcher = fs.watch(dir, (_event, name) => { if (String(name) === 'state.json') checkCancellation(); });
         checkCancellation();
-        try { checks = await checksImpl(task.root, task.checks, { signal: controller.signal,
-          timeoutMs: Math.max(1, Math.min(task.maxMinutes * 60000 - (clock() - Date.parse(attempt.at)), 60000)) }); }
+        // Checks get their own budget: a report near the attempt deadline must not fail them.
+        try { checks = await checksImpl(task.root, task.checks, { signal: controller.signal, timeoutMs: Math.min(task.maxMinutes, 10) * 60000 }); }
         finally { watcher.close(); activeChecks.delete(task.id); }
         // Stop/cancel is not a failed check. Keep the report available so an
         // explicit resume validates this same attempt without another round.
@@ -489,7 +507,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         if (attempt.role === 'executor' && afterChecks !== revision) { t.state = 'blocked'; t.error = 'Checks changed the checkout. Review the changes before retrying.'; return; }
         const failed = checks.some((check) => check.code !== 0);
         if ((attempt.role === 'reviewer' && report.status === 'changes_requested') || (attempt.role === 'executor' && (failed || report.status !== 'completed'))) {
-          t.feedback = failed ? `Checks failed: ${JSON.stringify(checks)}` : report.summary;
+          t.feedback = failed ? failedChecks(checks) : report.summary;
           t.checksResult = checks; t.revision = afterChecks;
           if (t.round >= t.maxRounds) { t.state = 'blocked'; t.error = 'Correction budget exhausted; human direction required'; }
           else { t.state = 'ready'; t.nextRole = 'executor'; }

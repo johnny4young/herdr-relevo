@@ -57,10 +57,20 @@ export function alive(pid) {
   if (!Number.isSafeInteger(pid) || pid < 1) return false;
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
-export function transaction(home, mutate) {
-  const dir = privateDir(stateDir(home)), lock = path.join(dir, 'write.lock');
-  const guard = path.join(dir, 'write.acquire');
-  try { fs.mkdirSync(guard, { mode: 0o700 }); } catch { throw Error('Workflow is busy; retry shortly'); }
+const BUSY = 'Workflow is busy; retry shortly';
+// A crash can leave a guard or an ownerless lock behind; both normally live for microseconds.
+const ABANDONED_MS = 5000;
+const abandoned = (dir) => { try { return Date.now() - fs.lstatSync(dir).mtimeMs > ABANDONED_MS; } catch { return false; } };
+const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+let holding = false;
+
+function acquireWrite(dir) {
+  const lock = path.join(dir, 'write.lock'), guard = path.join(dir, 'write.acquire');
+  try { fs.mkdirSync(guard, { mode: 0o700 }); }
+  catch (e) {
+    if (e.code === 'EEXIST' && abandoned(guard)) try { fs.rmdirSync(guard); } catch { /* another writer reclaimed it */ }
+    throw Error(BUSY);
+  }
   const token = uid();
   try {
     try { fs.mkdirSync(lock, { mode: 0o700 }); }
@@ -68,15 +78,33 @@ export function transaction(home, mutate) {
       if (e.code !== 'EEXIST') throw e;
       if (fs.lstatSync(lock).isSymbolicLink()) throw Error('Unsafe workflow lock');
       // Serialize reclamation: a second process must never remove a new owner's lock.
-      let owner;
       const ownerFile = path.join(lock, 'owner.json');
+      let owner = null;
       try { if (fs.lstatSync(ownerFile).isSymbolicLink()) throw Error(); owner = JSON.parse(fs.readFileSync(ownerFile, 'utf8')); }
-      catch { throw Error('Workflow is busy; retry shortly'); }
-      if (alive(owner.pid)) throw Error('Workflow is busy; retry shortly');
-      fs.unlinkSync(ownerFile); fs.rmdirSync(lock); fs.mkdirSync(lock, { mode: 0o700 });
+      catch { if (fs.existsSync(ownerFile) || !abandoned(lock)) throw Error(BUSY); }
+      if (owner && alive(owner.pid)) throw Error(BUSY);
+      if (owner) fs.unlinkSync(ownerFile);
+      fs.rmdirSync(lock); fs.mkdirSync(lock, { mode: 0o700 });
     }
     fs.writeFileSync(path.join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, token }), { flag: 'wx', mode: 0o600 });
   } finally { fs.rmdirSync(guard); }
+  return { lock, token };
+}
+
+export function transaction(home, mutate, { waitMs = 2000 } = {}) {
+  const dir = privateDir(stateDir(home));
+  if (holding) throw Error(BUSY);
+  const deadline = Date.now() + waitMs;
+  let acquired, delay = 10;
+  for (;;) {
+    try { acquired = acquireWrite(dir); break; }
+    catch (e) {
+      if (e.message !== BUSY || Date.now() + delay > deadline) throw e;
+      pause(delay); delay = Math.min(delay * 2, 200);
+    }
+  }
+  const { lock, token } = acquired;
+  holding = true;
   try {
     const doc = readState(home), result = mutate(doc);
     if (result && typeof result.then === 'function') throw Error('Transactions must not perform asynchronous effects');
@@ -86,6 +114,7 @@ export function transaction(home, mutate) {
     atomic(path.join(dir, 'state.json'), doc);
     return { doc, result };
   } finally {
+    holding = false;
     const owner = JSON.parse(fs.readFileSync(path.join(lock, 'owner.json'), 'utf8'));
     if (owner.token === token) { fs.unlinkSync(path.join(lock, 'owner.json')); fs.rmdirSync(lock); }
   }

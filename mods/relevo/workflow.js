@@ -699,7 +699,7 @@ export class Workflow extends WorkflowDraftView {
       .when(!task.checksResult?.length, (el) => el.child(row(t, "No checks recorded for this task.")))
       .children((task.checksResult ?? []).map((check, index) => v_flex().w_full().min_w(0).gap(3)
         .child(row(t, (check.argv?.join(" ") ?? "Check " + (index + 1)) + " · " + (check.code === 0 ? "passed" : "failed (" + (check.code ?? "unknown") + ")")))
-        .when(Boolean(this.showCheckOutput), (el) => el.child(row(t, "stdout: " + String(check.stdout ?? "").slice(0, 2000) + " · stderr: " + String(check.stderr ?? "").slice(0, 2000))))))
+        .when(Boolean(this.showCheckOutput), (el) => el.child(row(t, "stdout: " + String(check.stdout ?? "").slice(-2000) + " · stderr: " + String(check.stderr ?? "").slice(-2000))))))
       .when(Boolean(task.checksResult?.length), (el) => el.child(button(t, "workflow-check-output", this.showCheckOutput ? "Hide check output" : "Show check output", (cx) => { this.showCheckOutput = !this.showCheckOutput; cx.notify(); }, { tip: "Expand recorded check output" })))
       .children(latest.map((attempt) => v_flex().w_full().min_w(0).gap(5).p(8).rounded(6).border_1().border_color(t.border)
         .child(div().font_semibold().child((attempt.role === "reviewer" ? "Independent review" : "Implementation report") + " · " + reportState(attempt.report.status)))

@@ -10,7 +10,7 @@ import { linkedDecision } from "../lib/goal-workflow.js";
 import { transaction } from "../runtime/store.mjs";
 import { runChecks } from "../runtime/evidence.mjs";
 
-async function fixture({ sendCode = 0, checkCode = 0, maxRounds = 3, checksImpl: injectedChecks, fingerprintImpl: injectedFingerprint } = {}) {
+async function fixture({ sendCode = 0, checkCode = 0, maxRounds = 3, checksImpl: injectedChecks, fingerprintImpl: injectedFingerprint, onSend } = {}) {
   const base = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "relevo-runtime-"));
   const home = path.join(base, "home"), root = path.join(base, "repo");
   fs.mkdirSync(home); fs.mkdirSync(root);
@@ -24,7 +24,7 @@ async function fixture({ sendCode = 0, checkCode = 0, maxRounds = 3, checksImpl:
   const actorStatuses = new Map();
   const runCommand = async ([, ...args]) => {
     if (args[0] === "get") return { code: 0, stdout: JSON.stringify({ state: "live", status: { app: "codex", state: actorStatuses.get(args[2]) ?? "idle" }, cwd: root, turn: 1 }) };
-    if (args[0] === "send") { sends.push(args); return { code: sendCode, stdout: "", stderr: sendCode ? "offline" : "" }; }
+    if (args[0] === "send") { sends.push(args); await onSend?.(args); return { code: sendCode, stdout: "", stderr: sendCode ? "offline" : "" }; }
     if (args[0] === "interrupt") { interrupts.push(args[1]); return { code: 0, stdout: "" }; }
     throw new Error(`unexpected hc ${args[0]}`);
   };
@@ -117,8 +117,8 @@ test("an uncertain attempt reserves its checkout and agent from another task", a
   await f.runtime.command({ action: "start", taskId: second }); await f.runtime.tick();
   const doc = f.runtime.read();
   assert.equal(f.sends.length, 1);
-  assert.equal(doc.tasks.find((item) => item.id === second).state, "blocked");
-  assert.match(doc.tasks.find((item) => item.id === second).error, /checkout or agent/);
+  assert.equal(doc.tasks.find((item) => item.id === second).state, "ready", "waits instead of being blocked");
+  assert.equal(doc.tasks.find((item) => item.id === second).error, null);
 });
 
 test("configured skills queue bounded prompts and reject unknown skill names", async (t) => {
@@ -407,4 +407,71 @@ test("invalid dependencies, cwd mismatch, pause and cancellation fail closed", a
   assert.equal(f.sends.length, 0); assert.equal(f.runtime.read().tasks[0].paused, true);
   await f.runtime.command({ action: "cancel", taskId: f.taskId });
   assert.equal(f.runtime.read().tasks[0].state, "cancelled"); assert.deepEqual(f.interrupts, []);
+});
+
+test("Refresh after a later edit keeps an accepted result accepted", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  f.report("executor", "completed", "Implemented"); await f.runtime.tick(); await f.runtime.tick();
+  f.report("reviewer", "completed", "Reviewed"); await f.runtime.tick();
+  await f.runtime.command({ action: "decide", taskId: f.taskId, outcome: "accept", revision: f.runtime.read().tasks[0].revision });
+  f.setRevision("checkout-r2");
+  await f.runtime.command({ action: "refresh", taskId: f.taskId });
+  assert.equal(f.runtime.read().tasks[0].state, "accepted");
+});
+
+test("sends end options before the terminal so text starting with a dash is delivered", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  const args = f.sends[0];
+  assert.equal(args[args.indexOf("--") + 1], "exec-agent");
+});
+
+test("cancelling during a send leaves the attempt reconcilable and frees the checkout after reconcile", async (t) => {
+  let runtime, taskId;
+  const f = await fixture({ onSend: async () => { await runtime.command({ action: "cancel", taskId }); } });
+  t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  runtime = f.runtime; taskId = f.taskId;
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  const attempt = f.runtime.read().tasks[0].attempts.at(-1);
+  assert.equal(f.runtime.read().tasks[0].state, "cancelled");
+  assert.equal(attempt.delivery, "uncertain");
+  await f.runtime.command({ action: "reconcile", taskId: f.taskId, attemptId: attempt.id, confirmStopped: true });
+  assert.equal(f.runtime.read().tasks[0].attempts.at(-1).state, "abandoned");
+});
+
+test("a half-written report still lets the attempt time out", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  const attempt = f.runtime.read().tasks[0].attempts.at(-1);
+  fs.writeFileSync(path.join(f.home, "relevo-workflow", "reports", `${attempt.id}.json`), '{"attemptId":');
+  f.setNow(f.now + 11 * 60000); await f.runtime.tick();
+  const task = f.runtime.read().tasks[0];
+  assert.equal(task.attempts.at(-1).timedOut, true);
+  assert.equal(task.state, "blocked");
+});
+
+test("failed check output is bounded in feedback and in the stored prompt", async (t) => {
+  const noisy = "x".repeat(60000);
+  const f = await fixture({ checksImpl: async () => Array.from({ length: 10 }, () => ({ argv: ["npm", "test"], code: 1, stdout: noisy, stderr: noisy })) });
+  t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  f.report("executor", "completed", "Implemented"); await f.runtime.tick(); await f.runtime.tick();
+  const task = f.runtime.read().tasks[0];
+  assert.ok(task.feedback.length <= 8000);
+  assert.ok(task.attempts.at(-1).prompt.length <= 12001);
+  assert.ok(f.sends.at(-1).at(-1).includes("Checks failed"));
+});
+
+test("a busy store during a tick never stops the coordinator", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  const attempt = f.runtime.read().tasks[0].attempts.at(-1);
+  fs.mkdirSync(path.join(f.home, "relevo-workflow", "reports", `${attempt.id}.json`));
+  const lock = path.join(f.home, "relevo-workflow", "write.lock");
+  fs.mkdirSync(lock); fs.writeFileSync(path.join(lock, "owner.json"), JSON.stringify({ pid: process.pid, token: "other-writer" }));
+  await assert.doesNotReject(f.runtime.tick());
+  fs.rmSync(lock, { recursive: true });
+  await f.runtime.tick();
+  assert.equal(f.runtime.read().tasks[0].state, "blocked");
 });
