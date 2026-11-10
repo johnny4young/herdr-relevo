@@ -12,4 +12,4 @@ Review comments have a persistent editor below the diff with **Save comment**, *
 
 Focus is a view filter, not an agent assignment. Lead identifies an existing agent; observed children do not establish task ownership. Review scope controls select working-tree, branch or previously viewed changes.
 
-Session names, project metadata, screenshots, research notes and exercise results belong outside the repository. See [installation and rollback](decision-inbox.md) for operational instructions.
+Session names, private project metadata, screenshots, private research notes and exercise results belong outside the repository. Public sources and design decisions are in the [research record](workflow-research.md). See [installation and rollback](decision-inbox.md) for operational instructions.

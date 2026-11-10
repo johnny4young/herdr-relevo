@@ -17,6 +17,6 @@ A goal records an expected outcome, owner, priority, optional existing lead, lin
 
 The [local workflow runtime](workflow-runtime.md) adds explicit task ownership, coordinator dispatch, delivery records, restart reconciliation, round/time limits, local artifact fingerprints, batches and accepted scoped preferences. Assigning a lead alone does not start execution. Automatic goal decomposition, provider-enforced money budgets, automatic visual artifact generation and built-in speech capture remain outside this increment; native text fields support system dictation.
 
-Keep work logs, research, named project examples and run results local. Public documentation describes product behavior and reproducible commands only.
+Public research and design rationale are collected in the [research record](workflow-research.md). Keep private work logs, named project examples, session artifacts and exercise results local. The [continuation guide](workflow-continuation.md) records the goal, implementation boundaries and next engineering steps for another session.
 
 See [interaction](goal-ux.md) and [installation](decision-inbox.md).
