@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { run, exec, shared, setShared, readTextFile, appHome } from "herdr";
 import { accountFor, inFocus } from "./context.js";
-import { button, sectionHeader, foldRow } from "./ui.js";
+import { button, sectionHeader } from "./ui.js";
 import { openGoal } from "./goals-editor.js";
 import { readGoals, GOALS_CHANGED } from "./goals-store.js";
 import { emptyGoals, groupSources, sourceKey } from "./lib/goals.js";
@@ -14,14 +14,13 @@ import { openWorkflow } from "./workflow.js";
 export const GOAL_MODE = "relevo.goals.mode";
 export const GOAL_SCOPE = "relevo.goals.scope";
 const line = (s, t, attention = false) => div().text_size(11).text_color(attention ? t.blocked : t.muted).child(s);
-const missionFold = (view, t, id, key, label) => foldRow(view, t, id, key, label).w_full().justify_start().text_left();
 
 export class GoalViews {
   startGoals(cx) {
     this.goalDoc = emptyGoals();
     this.loadGoals(cx);
     // A bounded local metadata read also catches edits by an external lead agent.
-    cx.timer.every(5000, (cx) => { if (shared(GOAL_MODE) === true) this.loadGoals(cx); });
+    cx.timer.every(5000, (cx) => { this.loadGoals(cx); });
   }
 
   loadGoals(cx) {
@@ -95,19 +94,19 @@ export class GoalViews {
   }
 
   goalAction(key, cx) {
-    if (shared(GOAL_MODE) !== true) return false;
-    if (key === "g") { this.nextGoal(cx); return true; }
+    const runMode = shared(GOAL_MODE) === true;
+    if (key === "g" && runMode) { this.nextGoal(cx); return true; }
     if (key === "?") {
       this.goalHelp = !this.goalHelp;
       if (this.goalHelp) this.shortcutHelp?.focus();
       else this.h.focus();
       return true;
     }
-    const group = this.goalProjection?.groups.find((g) => `goal-${g.goal.id}` === this.sel);
-    if (key === "f" && (group || this.goalProjection?.scope)) {
+    const group = runMode && this.goalProjection?.groups.find((g) => `goal-${g.goal.id}` === this.sel);
+    if (key === "f" && runMode && (group || this.goalProjection?.scope)) {
       this.focusGoal(this.goalProjection.scope ? null : group.goal.id, cx); return true;
     }
-    if (key === "r" && group) { this.reviewGoal(group.items); return true; }
+    if (key === "r" && group) { this.showRunReviews(group.goal); return true; }
     if (key === "w" && group) { openWorkflow(group.goal.id); return true; }
     const source = this.goalProjection?.sources.find((s) => (s.kind === "pr" ? `pr-${s.pr.url}` : `in-${s.item.agent.address}`) === this.sel);
     if (key === "e" && (group || source)) {
@@ -137,22 +136,77 @@ export class GoalViews {
   openMissionAction(goal) {
     const items = this.goalProjection?.groups.find((group) => group.goal.id === goal.id)?.items ?? [];
     const action = missionNextAction(goal, this.workflowTasks ?? [], this.workflowEngine, this.workflowError, reviewableWork(items, this.clones).length);
-    if (action.action === 'review') this.reviewGoal(items);
-    else if (action.action === 'decision') openGoal(goal.id);
+    if (action.action === 'review' || action.action === 'decision' || (!this.workflowError && (this.workflowTasks ?? []).some((task) => task.goalId === goal.id && task.state === 'needs_you'))) this.showRunReviews(goal);
     else openWorkflow(goal.id);
+  }
+
+  runReviews() {
+    if (this.workflowError) return [];
+    return (this.workflowTasks ?? []).filter((task) => task.state === "needs_you").map((task) => ({
+      id: `result-${task.id}`, title: task.title, detail: this.goalDoc?.goals.find((goal) => goal.id === task.goalId)?.title ?? "Run result",
+      go: () => openWorkflow(task.goalId, task.id),
+    }));
+  }
+
+  decisionReviews() {
+    return (this.goalDoc?.goals ?? []).filter((goal) => goal.decision?.trim()).map((goal) => ({
+      id: `decision-${goal.id}`, title: goal.decision.trim(), detail: goal.title,
+      go: () => openGoal(goal.id, null, "decision"),
+    }));
+  }
+
+  linkedReviews(v) {
+    const listed = new Set([...(v.requested ?? []), ...(v.mine ?? []), ...(v.ready ?? []),
+      ...(v.requestedDone ?? []), ...(v.mineDone ?? []), ...(this.drafts ?? [])].map((pr) => pr.url));
+    return this.goalSources(v).filter((source) => source.kind === "pr" && !listed.has(source.pr.url));
+  }
+
+  linkedReviewRows(t, v) {
+    const sources = this.linkedReviews(v);
+    if (!sources.length) return [];
+    return [sectionHeader(t, "LINKED WORK", sources.filter((source) => !source.addressed).length),
+      ...sources.filter((source) => !source.addressed).map((source) => source.draft ? this.draftCard(t, source.pr) : this.prCard(t, source.pr, false)),
+      ...this.addressedFold(t, "linked", sources.filter((source) => source.addressed), (source) => this.prCard(t, source.pr, false, true)),
+    ];
+  }
+
+  reviewEntries() { return [...this.runReviews(), ...this.decisionReviews()]; }
+
+  showRunReviews(goal) {
+    const task = !this.workflowError && (this.workflowTasks ?? []).find((task) => task.goalId === goal.id && task.state === "needs_you");
+    const result = this.runReviews().find((entry) => entry.id === `result-${task?.id}`);
+    const source = this.goalSources(this.shown()).find((source) => goal.sources.includes(source.key) && !source.addressed && !source.draft);
+    if (!result && !goal.decision?.trim() && source?.kind === "pr") {
+      this.expanded[source.requested ? "requested" : "mine"] = true;
+      if ((this.ready ?? []).some((pr) => pr.url === source.pr.url)) this.expanded["mine-ready"] = true;
+    }
+    this.sel = result?.id ?? (goal.decision?.trim() ? `decision-${goal.id}` : source ? source.kind === "pr" ? `pr-${source.pr.url}` : `in-${source.item.agent.address}` : null);
+    setShared(GOAL_MODE, false); this.h.focus();
+  }
+
+  runReviewRows(t) {
+    const entries = this.reviewEntries();
+    return [
+      ...(this.workflowError ? [line(this.workflowError, t, true)] : []),
+      ...(entries.length ? [sectionHeader(t, "READY FOR YOU", entries.length)] : []),
+      ...entries.filter((entry) => !this.hiddenIds.has(entry.id)).map((entry) => this.card(t, entry.id, false,
+        div().text_size(11).text_color(t.muted).truncate().tooltip(entry.detail).child(entry.detail),
+        div().text_size(13).font_semibold().child(entry.title),
+        [button(t, `open-${entry.id}`, entry.id.startsWith("result-") ? "Review result" : "Review decision", entry.go,
+          { kind: "solid", tip: "Inspect the result and decide. Opening it does not approve anything." })])),
+    ];
+  }
+
+  sourceContextButton(t, key) {
+    const source = this.goalSources(this.shown()).find((source) => source.key === key);
+    if (!source) return null;
+    const goal = this.goalDoc?.goals.find((goal) => goal.sources.includes(key));
+    return button(t, `source-link-${key}`, goal ? "Run context" : "Link run", () => openGoal(goal?.id ?? null, source),
+      { size: "sm", tip: "Link this work to a run or edit its context and evidence" });
   }
 
   goalNewButton(t) {
     return button(t, "goal-new", "+ Run", () => openGoal(), { size: "sm", tip: "Write a prompt, choose agents, then start when ready" });
-  }
-
-  sourceCard(t, source, goal = null) {
-    return v_flex().id(`source-${source.key}`).gap(4)
-      .child(source.kind === "pr" ? source.draft ? this.draftCard(t, source.pr) : this.prCard(t, source.pr, source.requested, source.addressed) : this.localCard(t, source.item, source.addressed))
-      .child(h_flex().flex_wrap().gap(5).justify_end()
-        .when(source.kind === "pr", (el) => el.child(button(t, `source-skills-${source.key}`, "Skills…", () => this.openSkillMenu(source.pr),
-          { size: "sm", disabled: !this.clones[source.pr.repo], tip: this.clones[source.pr.repo] ? "S on this card: choose a skill and account before running" : "Clone this repository to run its skills" })))
-        .child(button(t, `source-link-${source.key}`, goal ? "Context / evidence" : "Link run", () => openGoal(goal?.id ?? null, source), { size: "sm", tip: "E on this card: edit context, record feedback or attach evidence; no message is sent" })));
   }
 
   projectGoals(v) {
@@ -160,26 +214,7 @@ export class GoalViews {
     const scoped = scopeGoals({ sources, ...groupSources(this.goalDoc ?? emptyGoals(), sources) }, shared(GOAL_SCOPE));
     const { groups, unlinked } = scoped;
     const waiting = unlinked.filter((s) => s.blocked), other = unlinked.filter((s) => !s.blocked);
-    return { ...scoped, sources, groups, waiting, other, ordered: [...waiting,
-      ...groups.flatMap((g) => [{ kind: "goal", goal: g.goal }, ...this.goalVisibleSources(g.goal.id, g.items)]), ...this.goalVisibleSources("unlinked", other)] };
-  }
-
-  goalVisibleSources(id, items) {
-    return [...items.filter((s) => !s.addressed && !s.draft),
-      ...(this.expanded[`goal-${id}-drafts`] ? items.filter((s) => s.draft && !s.addressed) : []),
-      ...(this.expanded[`goal-${id}-done`] ? items.filter((s) => s.addressed) : [])];
-  }
-
-  goalSourceRows(t, id, items, goal = null) {
-    const visible = (s) => !this.hiddenIds.has(s.kind === "pr" ? `pr-${s.pr.url}` : `in-${s.item.agent.address}`);
-    const drafts = items.filter((s) => s.draft && !s.addressed), done = items.filter((s) => s.addressed);
-    return [
-      ...items.filter((s) => !s.draft && !s.addressed && visible(s)).map((s) => this.sourceCard(t, s, goal)),
-      ...(drafts.length ? [missionFold(this, t, `goal-drafts-${id}`, `goal-${id}-drafts`, `${drafts.length} draft(s)`),
-        ...(this.expanded[`goal-${id}-drafts`] ? drafts.filter(visible).map((s) => this.sourceCard(t, s, goal)) : [])] : []),
-      ...(done.length ? [missionFold(this, t, `goal-addressed-${id}`, `goal-${id}-done`, `${done.length} addressed · not necessarily completed`),
-        ...(this.expanded[`goal-${id}-done`] ? done.filter(visible).map((s) => this.sourceCard(t, s, goal)) : [])] : []),
-    ];
+    return { ...scoped, sources, groups, waiting, other, ordered: groups.map((g) => ({ kind: "goal", goal: g.goal })) };
   }
 
   goalViewport() {
@@ -189,23 +224,22 @@ export class GoalViews {
   }
 
   goalsGroup(t) {
-    const { groups, waiting, other, scope, outsideCount, outsideBlockers } = this.goalProjection;
-    const visible = (s) => !this.hiddenIds.has(s.kind === "pr" ? `pr-${s.pr.url}` : `in-${s.item.agent.address}`);
+    const { groups, scope, outsideCount, outsideBlockers } = this.goalProjection;
     return [
       ...(scope ? [(this.narrowInbox ? v_flex() : h_flex()).w_full().min_w(0).gap(5)
-        .child(button(t, "goal-all-work", "← All runs", (cx) => this.focusGoal(null, cx), { size: "sm", tip: "F: show all runs and unlinked work" }))
+        .child(button(t, "goal-all-work", "← All runs", (cx) => this.focusGoal(null, cx), { size: "sm", tip: "F: show all runs" }))
         .when(!this.narrowInbox, (el) => el.child(div().flex_1()))
         .when(outsideBlockers > 0, (el) => el.child(line(`${outsideBlockers} need attention elsewhere`, t, true)
           .min_w(0).tooltip(`${outsideCount} other items outside this run`)))]
-        : [line("Start a run, then review its work.", t)]),
+        : [line("Give agents a task. Follow progress here.", t)]),
       ...(this.goalsError ? [div().text_size(11).text_color(t.blocked).child(this.goalsError)] : []),
-      ...(waiting.length ? [sectionHeader(t, "UNLINKED BLOCKERS", waiting.length), ...waiting.filter(visible).map((s) => this.sourceCard(t, s))] : []),
-      ...groups.filter((g) => !this.hiddenIds.has(`goal-${g.goal.id}`) || this.goalVisibleSources(g.goal.id, g.items).some(visible)).map(({ goal, items, urgency }) => {
+      ...groups.filter((g) => !this.hiddenIds.has(`goal-${g.goal.id}`)).map(({ goal, items, urgency }) => {
         const tasks = (this.workflowTasks ?? []).filter((task) => task.goalId === goal.id);
         const reviewable = reviewableWork(items, this.clones);
         const next = missionNextAction(goal, tasks, this.workflowEngine, this.workflowError, reviewable.length);
         const status = next.status.replace(/\bMission\b/g, "Run");
-        const actionLabel = next.label.replace(/\bmission\b/gi, "run");
+        const inReviews = next.action === "review" || next.action === "decision" || (!this.workflowError && tasks.some((task) => task.state === "needs_you"));
+        const actionLabel = inReviews ? "View in Reviews" : next.label.replace(/\bmission\b/gi, "run");
         return v_flex().id(`goal-${goal.id}`).w_full().min_w(0).p(6).gap(4).rounded(8).bg(t.background).border_1().border_color(this.selected(`goal-${goal.id}`) ? t.accent : urgency === 0 ? t.blocked : t.border)
           .child(h_flex().gap(5).items_center().child(div().flex_1().min_w(0).text_size(13).font_semibold().child(goal.title))
             .when(!scope, (el) => el.child(button(t, `goal-focus-view-${goal.id}`, "Focus", (cx) => this.focusGoal(goal.id, cx), { size: "sm", tip: "F on this goal: focus its linked work; other blockers remain counted" })))
@@ -215,11 +249,9 @@ export class GoalViews {
               .child(div().id(`goal-next-status-${goal.id}`).min_w(0).text_size(11).font_semibold().text_color(["Needs attention", "Status unavailable"].includes(next.status) ? t.blocked : t.accent).truncate().tooltip(status).child(status))
               .child(div().id(`goal-next-detail-${goal.id}`).min_w(0).text_size(13).truncate().tooltip(next.detail).child(next.detail)))
             .child(button(t, next.action === 'review' ? `goal-review-next-${goal.id}` : next.action === 'decision' ? `goal-decision-next-${goal.id}` : `goal-workflow-${goal.id}`, actionLabel, () => this.openMissionAction(goal),
-              { kind: "solid", tip: "Open the next step. This does not send work or accept a result." })))
-          .children(this.goalSourceRows(t, goal.id, items, goal));
+              { kind: "solid", tip: "Open the next step. This does not send work or accept a result." })));
       }),
-      ...(!groups.length ? [line("Create a run to give agents an outcome and review their work here.", t)] : []),
-      ...(other.length ? [sectionHeader(t, "UNLINKED WORK", other.length), ...this.goalSourceRows(t, "unlinked", other)] : []),
+      ...(!groups.length ? [line("Start with a prompt. Results will appear in Reviews when ready.", t)] : []),
     ];
   }
 }

@@ -10,12 +10,12 @@ import { readGoals } from "./goals-store.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { ShortcutHelp } from "./shortcut-help.js";
 
-export function openWorkflow(goalId) {
+export function openWorkflow(goalId, taskId = null) {
   // Herdr dialogs consume Escape before mod handlers. A keyed window lets
   // Workflow return focus from an input without discarding its draft.
   // Fit content to avoid the host's fixed-height cache path omitting AX nodes.
   // The rendered root supplies a viewport-bounded height instead.
-  openOverlay({ mod: "relevo", kind: "window", key: `relevo-workflow-${goalId}`, width: 0.6, props: { role: "workflow", goalId } });
+  openOverlay({ mod: "relevo", kind: "window", key: `relevo-workflow-${goalId}${taskId ? `-${taskId}` : ""}`, width: 0.6, props: { role: "workflow", goalId, ...(taskId ? { taskId } : {}) } });
 }
 
 const STATES = { planned: "Planned", ready: "Ready", running: "In progress", needs_review: "Needs review", needs_you: "Needs you", accepted: "Completed", completed: "Completed", blocked: "Blocked", failed: "Failed", cancelled: "Cancelled" };
@@ -40,6 +40,7 @@ export class Workflow extends WorkflowDraftView {
     this.explicitNew = false;
     this.h = cx.focus_handle();
     this.goalId = props()?.goalId;
+    this.requestedTaskId = props()?.taskId;
     this.form = {
       title: InputState.new({ value: "" }), root: InputState.new({ value: "" }),
       criteria: TextareaState.new({ value: "" }), checks: InputState.new({ value: "" }),
@@ -103,6 +104,10 @@ export class Workflow extends WorkflowDraftView {
         const initial = !this.loadedOnce;
         this.loadedOnce = true; this.lastLoadedRaw = raw;
         this.applyState(state);
+        if (initial && this.requestedTaskId) {
+          const requested = this.tasks.find((task) => task.id === this.requestedTaskId);
+          if (requested) { this.selected = requested.id; this.filter = workflowBucket(requested); }
+        }
         if (initial && this.goal && !this.tasks.length) {
           if (this.goal.steps?.length) this.openPlan(cx);
           else if (!this.pendingDraft) {

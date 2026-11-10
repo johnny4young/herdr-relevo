@@ -258,6 +258,8 @@ export class PrViews {
       [
         button(t, `ready-${pr.url}`, "Ready for review", (cx) => this.prCommand(pr, ["ready"], "Ready for review", cx)),
         button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url])),
+        this.sourceContextButton(t, `pr:${pr.url}`),
+        button(t, `source-skills-pr:${pr.url}`, "Skills…", () => this.openSkillMenu(pr), { size: "sm", disabled: !this.clones[pr.repo], tip: "Choose a skill and account before running" }),
       ]);
   }
 
@@ -322,6 +324,8 @@ export class PrViews {
       }));
     }
     if (!actions.includes(openPR)) actions.push(openPR);
+    const context = this.sourceContextButton(t, `pr:${pr.url}`);
+    if (context) actions.push(context);
     const mark = addressed
       ? button(t, `undo-${pr.url}`, "Undo", (cx) => this.setAddressed(pr, false, cx), { tip: "Back to the list" })
       : button(t, `addressed-${pr.url}`, "✓", (cx) => this.setAddressed(pr, true, cx), {

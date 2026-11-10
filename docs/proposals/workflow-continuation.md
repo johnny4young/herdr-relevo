@@ -126,3 +126,7 @@ node scripts/live-relevo.mjs verify-original --backup "$BACKUP"
 ```
 
 The installer/rollback stops the local coordinator before runtime replacement and preserves agent sessions and private evidence. Inspect paused work afterward; do not assume an update restarted it. Preserve configuration and human decisions and verify them locally. Keep private manifests, absolute machine paths and state exports out of commits and PR comments.
+
+### Runs and Reviews routing
+
+Runs contains assignments and progress only. Reviews owns PR/local review cards, workflow results in `needs_you`, and unresolved manual decisions. `inbox-goals.js` projects these read-only queues; `workflow.js` accepts an optional task ID and validates it belongs to the run before selecting it. Acceptance remains an explicit workflow action. Source linking, drafts, skills and addressed/Undo controls remain in Reviews. Do not restore duplicate source cards inside Runs.

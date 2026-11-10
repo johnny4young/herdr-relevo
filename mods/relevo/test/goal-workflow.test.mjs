@@ -50,21 +50,23 @@ test('Focus and All work preserve work and restore the complete keyboard queue',
   const { v, cx } = await inbox(); const before = v.nav.map((n) => n.id), doc = JSON.stringify(v.goalDoc);
   click(find(v.render(cx), 'goal-focus-view-g'), cx); let tree = v.render(cx);
   assert.equal(fake.stored[GOAL_SCOPE], 'g'); assert.equal(v.goalProjection.outsideBlockers, 1);
-  assert.deepEqual(v.nav.map((n) => n.id), ['goal-g', `pr-${pr.url}`]);
+  assert.deepEqual(v.nav.map((n) => n.id), ['goal-g']);
   assert.match(text(tree), /1 need attention elsewhere/);
   assert.doesNotMatch(text(tree), /2 other items/);
   assert.ok(find(tree, 'goal-all-work')); assert.equal(find(tree, `source-pr:${pr.url}2`), null);
   click(find(tree, 'goal-all-work'), cx); tree = v.render(cx);
-  assert.deepEqual(v.nav.map((n) => n.id), before); assert.ok(find(tree, `source-pr:${pr.url}2`));
+  assert.deepEqual(v.nav.map((n) => n.id), before); assert.equal(find(tree, `source-pr:${pr.url}2`), null);
   assert.equal(JSON.stringify(v.goalDoc), doc);
 });
 
-test('goal review opens the existing review route without launching a skill or changing goal state', async () => {
+test('run review switches to its existing Reviews card without launching work or changing data', async () => {
   const { v, cx } = await inbox(); const doc = JSON.stringify(v.goalDoc), calls = [];
   v.reviewPR = (p) => calls.push(p); const before = fake.execs.length;
   click(find(v.render(cx), 'goal-review-next-g'), cx);
-  v.sel = 'goal-g'; v.navKey({ key: 'r' }, cx);
-  assert.deepEqual(calls, [pr, pr]); assert.equal(fake.execs.length, before);
+  assert.equal(fake.stored[GOAL_MODE], false);
+  assert.equal(v.sel, `pr-${pr.url}`);
+  assert.ok(find(v.render(cx), `pr-${pr.url}`));
+  assert.deepEqual(calls, []); assert.equal(fake.execs.length, before);
   assert.equal(JSON.stringify(v.goalDoc), doc);
 });
 
@@ -176,7 +178,7 @@ test('paused work and pending review have distinct actions; the topbar switches 
   assert.equal(text(find(tree, 'goal-workflow-g')), 'Continue work');
   v.workflowTasks[0].state = 'needs_you';
   tree = v.render(cx);
-  assert.equal(text(find(tree, 'goal-workflow-g')), 'Review result');
+  assert.equal(text(find(tree, 'goal-workflow-g')), 'View in Reviews');
   assert.equal(fake.stored[GOAL_MODE], true, 'opening a queue action keeps the Runs mode');
   assert.equal(JSON.stringify(v.goalDoc), data, 'opening a queue action preserves run data');
 
@@ -190,4 +192,76 @@ test('paused work and pending review have distinct actions; the topbar switches 
   click(find(tabs, 'reviews-toggle'), cx);
   assert.equal(fake.stored[GOAL_MODE], false);
   assert.equal(JSON.stringify(v.goalDoc), data);
+});
+
+test('Runs contains only run navigation; Reviews receives each ready result and preserves existing PRs', async () => {
+  const { v, cx } = await inbox();
+  v.workflowTasks = [
+    { id: 'first', goalId: 'g', title: 'First result', state: 'needs_you' },
+    { id: 'second', goalId: 'g', title: 'Second result', state: 'needs_you' },
+    { id: 'working', goalId: 'g', title: 'Working task', state: 'running' },
+  ];
+  const saved = JSON.stringify(v.goalDoc), tasks = JSON.stringify(v.workflowTasks);
+  const before = fake.execs.length;
+  let tree = v.render(cx);
+  assert.deepEqual(v.nav.map((entry) => entry.id), ['goal-g']);
+  assert.equal(find(tree, `pr-${pr.url}`), null);
+  assert.equal(find(tree, 'result-first'), null);
+  click(find(tree, 'goal-workflow-g'), cx);
+  assert.equal(fake.stored[GOAL_MODE], false);
+  assert.equal(v.sel, 'result-first');
+  tree = v.render(cx);
+  assert.ok(find(tree, 'result-first')); assert.ok(find(tree, 'result-second'));
+  assert.equal(find(tree, 'result-working'), null);
+  assert.ok(find(tree, `pr-${pr.url}`));
+  assert.equal(find(tree, 'goal-g'), null);
+  const count = fake.stored['relevo.inbox.count'];
+  v.sel = 'result-second'; v.navKey({ key: 'enter' }, cx);
+  assert.deepEqual(fake.overlays.at(-1).props, { role: 'workflow', goalId: 'g', taskId: 'second' });
+  assert.equal(fake.execs.length, before);
+  assert.equal(JSON.stringify(v.goalDoc), saved);
+  assert.equal(JSON.stringify(v.workflowTasks), tasks);
+  v.workflowTasks[1].state = 'accepted';
+  tree = v.render(cx);
+  assert.equal(find(tree, 'result-second'), null);
+  assert.equal(fake.stored['relevo.inbox.count'], count - 1);
+  fake.stored[GOAL_MODE] = true;
+  assert.ok(find(v.render(cx), 'goal-g'), 'accepted results remain in run history');
+});
+
+test('manual decisions stay actionable in Reviews and unreadable workflow hides stale results', async () => {
+  const { v, cx } = await inbox();
+  v.goalDoc.goals[0].decision = 'Choose the final approach';
+  v.workflowTasks = [{ id: 'old', goalId: 'g', title: 'Stale task', state: 'needs_you' }];
+  v.workflowError = 'Workflow status unavailable';
+  fake.stored[GOAL_MODE] = false;
+  const tree = v.render(cx);
+  assert.equal(find(tree, 'result-old'), null);
+  assert.match(text(tree), /Workflow status unavailable/);
+  click(find(tree, 'open-decision-g'), cx);
+  assert.equal(fake.overlays.at(-1).props.goalId, 'g');
+  assert.equal(fake.overlays.at(-1).props.panel, 'decision');
+});
+
+test('Reviews refreshes workflow metadata without switching to Runs', async () => {
+  const { v, cx } = await inbox(); fake.stored[GOAL_MODE] = false;
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({
+    tasks: [{ id: 'fresh', goalId: 'g', title: 'New result', state: 'needs_you' }], engine: { enabled: false },
+  });
+  cx.fire(5000); await flush();
+  assert.ok(find(v.render(cx), 'result-fresh'));
+  assert.equal(fake.stored[GOAL_MODE], false);
+});
+
+test('linked PRs outside the ordinary queue remain reachable once in Reviews, including addressed Undo', async () => {
+  const { v, cx } = await inbox();
+  v.mine = []; v.openPRs = [{ ...pr, headRefOid: 'head-1' }];
+  fake.stored[GOAL_MODE] = false;
+  let tree = v.render(cx);
+  assert.ok(find(tree, `pr-${pr.url}`));
+  assert.ok(find(tree, `source-link-pr:${pr.url}`));
+  assert.equal(v.nav.filter((entry) => entry.id === `pr-${pr.url}`).length, 1);
+  v.mine = [pr]; tree = v.render(cx);
+  assert.equal(v.linkedReviews(v.shown()).length, 0, 'ordinary queue entry owns the PR');
+  assert.equal(v.nav.filter((entry) => entry.id === `pr-${pr.url}`).length, 1);
 });

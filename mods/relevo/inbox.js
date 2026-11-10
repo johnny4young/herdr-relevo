@@ -152,7 +152,8 @@ export class Inbox {
 
   // What waits on you at a glance; each number takes you to its part of the list.
   summary(t, v, cx) {
-    const asks = v.local.filter((i) => i.kind === "blocked").length + v.desktop.filter((s) => s.state === "blocked").length;
+    const reviewEntries = this.reviewEntries();
+    const asks = reviewEntries.length + v.local.filter((i) => i.kind === "blocked").length + v.desktop.filter((s) => s.state === "blocked").length;
     const tokens = this.todayTokens(cx);
     const tile = (id, label, value, tip, go = null, hot = false) => v_flex().id(`sum-${id}`).flex_1().min_w(0).px(8).py(6).gap(1)
       .rounded(8).bg(t.background).border_1().border_color(hot ? t.blocked : t.border).tooltip(tip)
@@ -165,8 +166,11 @@ export class Inbox {
       cx.notify();
     };
     return h_flex().id("inbox-summary").flex_none().gap(6)
-      .child(tile("asks", "need you", String(asks), "Agents and Desktop sessions waiting on an answer", () => run("relevo.next-waiting"), asks > 0))
-      .child(tile("reviews", "reviews", String(v.requested.filter(recent).length), "PRs waiting on your review, from the last 45 days"))
+      .child(tile("asks", "need you", String(asks), "Run decisions, agents and Desktop sessions waiting on you", (cx) => {
+        if (reviewEntries.length) { this.sel = reviewEntries[0].id; this.h.focus(); cx.notify(); }
+        else run("relevo.next-waiting");
+      }, asks > 0))
+      .child(tile("reviews", "PR reviews", String(v.requested.filter(recent).length), "PRs waiting on your review, from the last 45 days"))
       .child(tile("prs", "your PRs", String(v.mine.filter(recent).length), "Your PRs that need something, from the last 45 days"))
       .child(tile("ready", "ready", String(v.ready.length), "Your PRs with nothing left but the merge", open("mine-ready")))
       .child(tile("tokens", "today", tokens == null ? "…" : compact(tokens), "Tokens today: output and new context, all surfaces", () => openUsage()));
@@ -206,7 +210,7 @@ export class Inbox {
 
   publish(v = this.shown()) {
     const open = (list) => list.filter((p) => recent(p) && !this.seen(p) && !(this.launchedMap()[p.url] && this.prBusy(p))).length;
-    const n = v.local.length + v.desktop.filter((s) => s.state === "blocked").length + open(v.mine) + open(v.requested);
+    const n = this.reviewEntries().length + v.local.length + v.desktop.filter((s) => s.state === "blocked").length + open(v.mine) + open(v.requested);
     if (shared(COUNT) !== n) setShared(COUNT, n);
     this.publishReasons();
     this.publishAgentPRs();
@@ -654,6 +658,7 @@ export class Inbox {
           kind: "solid", tip: withKey("Comment on the diff line by line", "relevo.review"),
         }),
         button(t, `agent-${a.address}`, "Agent", goAgent),
+        this.sourceContextButton(t, `local:${item.top || a.address}`),
         button(t, `diff-${a.address}`, "View diff", () => {
           run("pane.focus", { pane: a.pane });
           showPanel("changes");
@@ -697,17 +702,14 @@ export class Inbox {
     this.takeFocus(cx);
     this.refreshGoals(cx);
     const goalMode = shared(GOAL_MODE) === true;
-    if (goalMode) this.goalProjection = this.projectGoals(v);
-    const scoped = goalMode && Boolean(this.goalProjection.scope);
-    this.nav = scoped ? this.goalNav(this.goalProjection.ordered) : goalMode
-      ? [...this.navItems(v).filter((n) => ["away", "desktop"].includes(n.section)), ...this.goalNav(this.goalProjection.ordered), ...this.navItems(v).filter((n) => n.section === "trees")]
-      : this.navItems(v);
+    this.goalProjection = this.projectGoals(v);
+    this.nav = goalMode ? this.goalNav(this.goalProjection.ordered) : this.navItems(v);
     this.keyboard = this.h.is_focused();
     if (this.sel && !this.nav.some((i) => i.id === this.sel)) this.sel = null;
     const view = goalMode ? this.goalViewport() : this.viewport();
     this.hiddenIds = view.hidden;
     const part = (key, els) => (view.sections.has(key) ? [] : els.filter(Boolean));
-    const total = v.local.length + v.desktop.length + v.mine.length + v.requested.length;
+    const total = this.reviewEntries().length + v.local.length + v.desktop.length + v.mine.length + v.requested.length;
     return v_flex().id("relevo-inbox").size_full().min_w(0).min_h(0).rounded(10).overflow_hidden()
       .on_size_change((size, context) => {
         const narrow = size.width < 350;
@@ -737,20 +739,21 @@ export class Inbox {
       .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().p(8).gap(6)
         .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
         .when(Boolean(this.localError), (el) => el.child(div().id("local-error").p(8).text_size(11).text_color(t.blocked).child(this.localError)))
-        .when(!total && !this.error && Boolean(this.prsAt) && (!goalMode || (!this.goalProjection.groups.length && !this.goalProjection.sources.length)), (el) => el.child(
+        .when(!goalMode && !total && !this.error && Boolean(this.prsAt), (el) => el.child(
           div().p(12).text_size(13).text_color(t.dim).child("Nothing waiting")))
-        .when(view.above === 0 && !scoped && !goalMode, (el) => el.child(this.summary(t, v, cx)))
+        .when(view.above === 0 && !goalMode, (el) => el.child(this.summary(t, v, cx)))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
-        .children(scoped ? [] : part("away", this.awayGroup(t)))
+        .children(goalMode ? [] : part("away", this.awayGroup(t)))
         .children(goalMode ? [] : part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
-        .children(scoped ? [] : part("desktop", this.desktopGroup(t, v.desktop, v.desktopDone)))
-        .children(scoped ? [] : part("landing", this.landingGroup(t)))
-        .children(goalMode ? this.goalsGroup(t) : [])
+        .children(goalMode ? [] : part("desktop", this.desktopGroup(t, v.desktop, v.desktopDone)))
+        .children(goalMode ? [] : part("landing", this.landingGroup(t)))
+        .children(goalMode ? this.goalsGroup(t) : part("results", this.runReviewRows(t)))
         .children(goalMode ? [] : part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true, v.requestedDone)))
         .children(goalMode ? [] : part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone, v.ready)))
         .children(goalMode ? [] : part("local", this.localGroup(t, "local", "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"), v.localDone)))
-        .children(scoped ? [] : part("today", this.todayGroup(t, v.today)))
-        .children(scoped ? [] : part("trees", this.treeGroups(t, v.worktrees))));
+        .children(goalMode ? [] : part("linked", this.linkedReviewRows(t, v)))
+        .children(goalMode ? [] : part("today", this.todayGroup(t, v.today)))
+        .children(goalMode ? [] : part("trees", this.treeGroups(t, v.worktrees))));
   }
 }
 

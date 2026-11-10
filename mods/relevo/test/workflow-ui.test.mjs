@@ -506,3 +506,21 @@ test('a new prompt-only run opens agent setup directly without a plan or dispatc
   assert.equal(v.form.criteria.value(), 'Edited prompt', 'refresh never reseeds an edited draft');
   v.close();
 });
+
+test('a result link selects its exact task once and cannot select a task from another run', async () => {
+  const path = '/home/test/.config/herdr-app/relevo-workflow/state.json';
+  const state = { tasks: [
+    { id: 'first', goalId: 'g', title: 'First result', state: 'needs_you' },
+    { id: 'second', goalId: 'g', title: 'Second result', state: 'needs_you' },
+    { id: 'foreign', goalId: 'other', title: 'Other run', state: 'needs_you' },
+  ], events: [] };
+  fake.files[path] = JSON.stringify(state);
+  openWorkflow('g', 'second'); fake.props = fake.overlays.at(-1).props;
+  const v = new Workflow(), cx = fakeCx(); v.init({}, cx); await flush();
+  assert.equal(v.selected, 'second'); assert.equal(v.filter, 'Needs you');
+  v.selected = 'first'; state.tasks[0].title = 'Updated result'; fake.files[path] = JSON.stringify(state);
+  v.load(cx); await flush(); assert.equal(v.selected, 'first', 'polling does not steal selection back'); v.close();
+  fake.props = { goalId: 'g', taskId: 'foreign' };
+  const other = new Workflow(); other.init({}, cx); await flush();
+  assert.equal(other.selected, 'first'); assert.equal(fake.execs.length, 0); other.close();
+});
