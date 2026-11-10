@@ -45,9 +45,9 @@ export class Workflow extends WorkflowDraftView {
     this.goalId = props()?.goalId;
     this.requestedTaskId = props()?.taskId;
     this.lastRequest = shared(RUN_REQUEST)?.at ?? 0;
-    // The split focuses the new pane, which is how this view learns its own id.
+    // A reloaded view keeps its registered pane; a new split is focused, which is how it learns its id.
     cx.timer.after(300, () => {
-      const pane = focused()?.pane;
+      const pane = liveRunPanes()[this.goalId] ?? focused()?.pane;
       if (this.closed || !pane || panes().find((item) => item.pane === pane)?.mod !== "relevo") return;
       this.pane = pane;
       setShared(RUN_PANES, { ...liveRunPanes(), [this.goalId]: pane });

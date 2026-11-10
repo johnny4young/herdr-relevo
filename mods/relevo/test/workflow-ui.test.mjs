@@ -640,3 +640,12 @@ test('the decision bar sits outside the scrolling content and the summary render
   assert.match(text(find(tree, 'workflow-status-chips')), /Codex → Claude · round 1\/2/);
   v.close();
 });
+
+test('a run pane reloaded with the mod finds its registered pane even without focus', async () => {
+  fake.stored['relevo.runs.open'] = { g: 'kept-pane' };
+  fake.focused = { pane: 'terminal-pane' }; fake.panes = [{ pane: 'kept-pane', mod: 'relevo' }, { pane: 'terminal-pane' }];
+  fake.props = { goalId: 'g' };
+  const v = new Workflow(), cx = fakeCx(); v.init({}, cx); await flush();
+  cx.timers.find((timer) => timer.ms === 300)?.fn(cx);
+  assert.equal(v.pane, 'kept-pane'); assert.ok(find(v.render(), 'workflow-close')); v.close();
+});
