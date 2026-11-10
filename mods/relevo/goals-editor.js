@@ -293,7 +293,6 @@ export class GoalEditor {
         .when(this.panel === "decision", (el) => el
           .when(isNewRun, (content) => content
             .child(field("criteria", this.fields.criteria, "Prompt"))
-            .child(row("Save this prompt, then choose who runs it.", t))
             .child(button(t, "new-run-title-toggle", this.newRunTitleOpen ? "Hide title" : this.fields.title.value().trim() ? "Edit title" : "Add a title", (cx) => {
               this.newRunTitleOpen = !this.newRunTitleOpen; cx.notify();
             }, { size: "sm", tip: "Optional title; by default the first prompt line names this run" }))

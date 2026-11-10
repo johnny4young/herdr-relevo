@@ -79,7 +79,7 @@ test('new run saves one prompt-backed record then opens planned task setup witho
   cx.timers.at(-1).fn(cx); assert.equal(promptFocus, 1);
   let tree = editor.render();
   assert.ok(find(tree, 'goal-field-criteria')); assert.equal(find(tree, 'goal-field-title'), null);
-  assert.match(text(tree), /Save this prompt, then choose who runs it\./);
+  assert.match(text(find(tree, 'goal-save')), /Choose agents/);
   click(find(tree, 'new-run-title-toggle'), cx); tree = editor.render();
   assert.ok(find(tree, 'goal-field-title'));
   click(find(tree, 'new-run-title-toggle'), cx); tree = editor.render();
