@@ -150,7 +150,7 @@ test('Run card uses live blocker state and keeps saved acceptance details in Edi
   assert.equal(text(find(card, 'goal-workflow-g')), 'Resolve blocker');
   v.sel = 'goal-g'; const sent = fake.execs.length;
   v.navKey({ key: 'enter' }, cx);
-  assert.equal(fake.overlays.at(-1).props.role, 'workflow');
+  assert.equal(fake.runs.findLast(([name]) => name === 'pane.split')[1].props.role, 'workflow');
   assert.equal(fake.execs.length, sent);
   click(find(tree, 'goal-edit-g'), cx);
   assert.equal(fake.overlays.at(-1).props.goalId, 'g');
@@ -217,7 +217,7 @@ test('Runs contains only run navigation; Reviews receives each ready result and 
   assert.equal(find(tree, 'goal-g'), null);
   const count = fake.stored['relevo.inbox.count'];
   v.sel = 'result-second'; v.navKey({ key: 'enter' }, cx);
-  assert.deepEqual(fake.overlays.at(-1).props, { role: 'workflow', goalId: 'g', taskId: 'second' });
+  assert.deepEqual(fake.runs.findLast(([name]) => name === 'pane.split')[1].props, { role: 'workflow', goalId: 'g', taskId: 'second' });
   assert.equal(fake.execs.length, before);
   assert.equal(JSON.stringify(v.goalDoc), saved);
   assert.equal(JSON.stringify(v.workflowTasks), tasks);

@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
-import { agents, panes, props, theme, closeOverlay, exec, appHome, readTextFile, run } from "herdr";
-import { button, onSubmitChord, overlayHeight } from "./ui.js";
+import { agents, panes, props, theme, exec, appHome, readTextFile, run, focused, shared, setShared } from "herdr";
+import { button, onSubmitChord } from "./ui.js";
 import { openReview } from "./review.js";
 import { focusedCwd } from "./panelbar.js";
 import { SKILLS as CONFIGURED_SKILLS } from "./config.js";
@@ -10,6 +10,7 @@ import { linkedDecision } from "./lib/goal-workflow.js";
 import { readGoals } from "./goals-store.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { ShortcutHelp } from "./shortcut-help.js";
+import { RUN_PANES, RUN_REQUEST, liveRunPanes } from "./workflow-window.js";
 export { openWorkflow } from "./workflow-window.js";
 
 const STATES = { planned: "Planned", ready: "Ready", running: "In progress", needs_review: "Needs review", needs_you: "Needs you", accepted: "Completed", completed: "Completed", blocked: "Blocked", failed: "Failed", cancelled: "Cancelled" };
@@ -42,6 +43,14 @@ export class Workflow extends WorkflowDraftView {
     this.h = cx.focus_handle();
     this.goalId = props()?.goalId;
     this.requestedTaskId = props()?.taskId;
+    this.lastRequest = Date.now();
+    // The split focuses the new pane, which is how this view learns its own id.
+    cx.timer.after(300, () => {
+      const pane = focused()?.pane;
+      if (this.closed || !pane || panes().find((item) => item.pane === pane)?.mod !== "relevo") return;
+      this.pane = pane;
+      setShared(RUN_PANES, { ...liveRunPanes(), [this.goalId]: pane });
+    });
     this.form = {
       title: InputState.new({ value: "" }), root: InputState.new({ value: "" }),
       criteria: TextareaState.new({ value: "" }), checks: InputState.new({ value: "" }),
@@ -86,6 +95,20 @@ export class Workflow extends WorkflowDraftView {
     this.shortcutHelp?.close();
     this.h.release();
     Object.values(this.form).forEach((field) => field.release());
+    if (this.pane && shared(RUN_PANES)?.[this.goalId] === this.pane) {
+      const { [this.goalId]: _, ...rest } = liveRunPanes();
+      setShared(RUN_PANES, rest);
+    }
+  }
+
+  // Opening a run that already has a pane focuses it and asks it to show one task.
+  takeRequest() {
+    const request = shared(RUN_REQUEST);
+    if (request?.goalId !== this.goalId || !(request.at > this.lastRequest)) return;
+    this.lastRequest = request.at;
+    const task = this.tasks?.find((item) => item.id === request.taskId);
+    if (task) { this.selected = task.id; this.filter = workflowBucket(task); this.explicitNew = false; this.tab = "Overview"; }
+    this.h.focus();
   }
 
   load(cx) {
@@ -752,11 +775,10 @@ export class Workflow extends WorkflowDraftView {
           { disabled: this.busy || !this.form.path.value().trim(), tip: `Record a local ${kind} attachment` }))))));
   }
 
-  // The diff is a pane under this window; it offers Back to decision for this task.
+  // The diff opens as a pane beside this one and offers Back to decision for this task.
   openDiff(task, cx) {
-    const overlay = props()?.overlay;
     cx.spawn(async (cx) => {
-      try { await openReview(task.root, task.executor?.address, null, { goalId: task.goalId, taskId: task.id }); closeOverlay(overlay); }
+      try { await openReview(task.root, task.executor?.address, null, { goalId: task.goalId, taskId: task.id }); }
       catch (error) { if (!this.closed) { this.error = String(error.message ?? error); cx.notify(); } }
     });
   }
@@ -777,7 +799,7 @@ export class Workflow extends WorkflowDraftView {
       ...["executor", "reviewer"].filter((role) => task[role]?.address).map((role) => ({
         id: role, label: role === "executor" ? "Open implementer session" : "Open reviewer session",
         detail: `${task[role].label ?? task[role].address} · ${task[role].address}`,
-        action: () => { run("agent.focus", { terminal: task[role].address }); closeOverlay(props()?.overlay); },
+        action: () => run("agent.focus", { terminal: task[role].address }),
       })),
       ...Object.entries(CONFIGURED_SKILLS).filter(([, value]) => typeof value === "string" && value.trim()).map(([name, command]) => ({
         id: `skill-${name}`, label: `Skill: ${name}`, detail: `/${command} · queue for the implementer`,
@@ -906,8 +928,8 @@ export class Workflow extends WorkflowDraftView {
 
   render() {
     this.persistDraft();
+    this.takeRequest();
     const t = theme();
-    const overlay = props()?.overlay;
     const task = this.tasks?.find((item) => item.id === this.selected);
     const panel = this.tab === "Tools" ? this.toolsPanel(t, task) : this.tab === "Plan" ? this.planPanel(t) : this.tab === "Preferences" ? this.preferences(t)
       : task ? this.tab === "Activity" ? this.activity(t, task)
@@ -915,12 +937,11 @@ export class Workflow extends WorkflowDraftView {
         : this.tab === "Evidence" ? this.evidence(t, task)
           : this.overview(t, task)
       : this.emptyQueue(t);
-    return v_flex().id("workflow-dialog").role("dialog").accessibility_label("Run details").track_focus(this.h)
+    return v_flex().id("workflow-dialog").accessibility_label("Run").track_focus(this.h)
       .on_size_change((size, cx) => {
         const compact = size.width < 700;
         if (this.compact !== compact) { this.compact = compact; cx.notify(); }
       })
-      .on_mouse_down("left", (_event, cx) => cx.stop_propagation())
       .on_key_down((event, cx) => {
         if (event.key === "escape") {
           if (this.acceptIntent) { this.acceptIntent = null; this.h.focus(); cx.stop_propagation(); cx.notify(); return; }
@@ -928,10 +949,8 @@ export class Workflow extends WorkflowDraftView {
           cx.stop_propagation();
           if (this.compact && this.compactQueueOpen) { this.compactQueueOpen = false; this.h.focus(); cx.notify(); return; }
           if (this.tab === "Tools") { this.tab = this.toolsReturnTab ?? "Overview"; this.toolPreview = null; this.h.focus(); cx.notify(); return; }
-          if (!this.h.is_focused()) {
-            this.h.focus(); cx.notify(); return;
-          }
-          closeOverlay(overlay); return;
+          if (!this.h.is_focused()) { this.h.focus(); cx.notify(); }
+          return;
         }
         if (this.composing() && !this.busy && event.key === "enter" && event.modifiers?.platform && !event.modifiers?.alt && !event.modifiers?.control) {
           cx.stop_propagation(); this.create(cx, { start: true }); return;
@@ -960,7 +979,7 @@ export class Workflow extends WorkflowDraftView {
           if (tasks.length) { this.compactQueueOpen = false; this.explicitNew = false; this.selected = tasks[next].id; this.tab = "Overview"; cx.notify(); }
         }
       })
-      .w_full().h(overlayHeight(720, 0.88)).max_h_full().min_h(0).p(16).gap(14).bg(t.popover ?? t.surface).text_color(t.foreground)
+      .size_full().min_h(0).p(16).gap(14).bg(t.background).text_color(t.foreground)
       .child((this.compact ? v_flex().items_start().gap(8) : h_flex().justify_between().items_center()).w_full().min_w(0)
         .child(v_flex().flex_1().min_w(0).gap(3)
           .child(div().font_semibold().child("Run details"))
@@ -969,7 +988,7 @@ export class Workflow extends WorkflowDraftView {
           .child(button(t, "workflow-focus-queue", "?", (cx) => this.toggleHelp(cx), { tip: "Search keyboard shortcuts for this window", accessibleLabel: "Keyboard help" }))
           .when(Boolean(task), (el) => el.child(button(t, "workflow-task-tools", "Tools", (cx) => this.openTools(cx), { selected: this.tab === "Tools", tip: "T: find a skill, session or task action" })))
           .child(button(t, "workflow-tools-toggle", this.showTools ? "Hide settings" : "Settings", (cx) => { this.showTools = !this.showTools; cx.notify(); }, { tip: "Automation controls and saved preferences", selected: Boolean(this.showTools) }))
-          .child(button(t, "workflow-close", "Close", () => closeOverlay(overlay), { tip: "Close workflow" }))))
+          .when(Boolean(this.pane), (el) => el.child(button(t, "workflow-close", "Close", () => run("pane.close", { pane: this.pane }))))))
       .when(this.showTools, (el) => el.child(h_flex().gap(6)
         .child(button(t, "workflow-tab-Preferences", "Preferences", (cx) => { this.tab = "Preferences"; this.h.focus(); cx.notify(); }, { tip: "5: manage guidance for future work" }))
         .when(Boolean(this.engine?.enabled), (controls) => controls.child(button(t, "workflow-engine-stop", "Pause automation", (cx) => this.command({ action: "stop" }, cx), { disabled: this.busy, tip: "Stop future dispatches across every goal; current agent sessions keep running" })))))

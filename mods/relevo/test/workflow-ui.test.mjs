@@ -9,10 +9,8 @@ const agent = (address, title) => ({ address, title, status: 'idle', app: 'codex
 async function setup() { fake.props = { goalId: 'g', overlay: 'o' }; const v = new Workflow(), cx = fakeCx(); v.init({}, cx); await flush(); return { v, cx }; }
 
 test('opens a native workflow overlay and renders task creation without sending commands', async () => {
-  openWorkflow('g'); assert.deepEqual(fake.overlays.at(-1).props, { role: 'workflow', goalId: 'g' });
-  assert.equal(fake.overlays.at(-1).kind, 'window', 'host dialogs dismiss on Escape before mod input handlers');
-  assert.equal(fake.overlays.at(-1).key, 'relevo-workflow-g', 'opening this goal reuses its workflow window');
-  assert.equal(fake.overlays.at(-1).height, undefined, 'fit-content host path preserves the native accessibility subtree');
+  openWorkflow('g'); assert.deepEqual(fake.runs.findLast(([name]) => name === 'pane.split')[1], { direction: 'right', mod: 'relevo', props: { role: 'workflow', goalId: 'g' } });
+  assert.equal(fake.overlays.length, 0, 'a run is a pane, not a floating window');
   const { v } = await setup(); const tree = v.render();
   assert.match(text(tree), /New task/); assert.ok(find(tree, 'workflow-start-new')); assert.equal(fake.execs.length, 0);
   assert.ok(find(tree, 'workflow-dialog')); v.close();
@@ -136,7 +134,7 @@ test('shows activity and evidence actions only on selection and handles Escape',
   assert.equal(fake.closedOverlays.length, 0); assert.equal(v.form.title.value(), 'Unsent title');
   v.h.is_focused = () => true;
   escape({ key: 'escape' }, cx);
-  assert.equal(fake.closedOverlays.at(-1), 'o'); v.close();
+  assert.equal(fake.runs.some(([name]) => name === 'pane.close'), false, 'Escape never closes the pane'); v.close();
 });
 
 test('blocked and review states remain reachable and shortcuts do not steal input keys', async () => {
@@ -515,7 +513,7 @@ test('a result link selects its exact task once and cannot select a task from an
     { id: 'foreign', goalId: 'other', title: 'Other run', state: 'needs_you' },
   ], events: [] };
   fake.files[path] = JSON.stringify(state);
-  openWorkflow('g', 'second'); fake.props = fake.overlays.at(-1).props;
+  openWorkflow('g', 'second'); fake.props = fake.runs.findLast(([name]) => name === 'pane.split')[1].props;
   const v = new Workflow(), cx = fakeCx(); v.init({}, cx); await flush();
   assert.equal(v.selected, 'second'); assert.equal(v.filter, 'Needs you');
   v.selected = 'first'; state.tasks[0].title = 'Updated result'; fake.files[path] = JSON.stringify(state);
@@ -604,4 +602,21 @@ test('agents are named by program and tab, not their changing terminal title, an
   assert.match(text(find(v.render(), 'workflow-task-setup')), /^lab · Codex → Claude Code · Review · Team Haiku$/);
   assert.equal(v.taskAdvancedOpen, false);
   v.close();
+});
+
+test('a run pane registers itself, is reused when opened again and closes with its own pane', async () => {
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [
+    { id: 'a', goalId: 'g', title: 'First', state: 'needs_you' }, { id: 'b', goalId: 'g', title: 'Second', state: 'needs_you' }], events: [], preferences: [], engine: { enabled: false } });
+  fake.focused = { pane: 'run-pane' }; fake.panes = [{ pane: 'run-pane', mod: 'relevo' }];
+  fake.props = { goalId: 'g' };
+  const v = new Workflow(), cx = fakeCx(); v.init({}, cx); await flush();
+  cx.timers.find((timer) => timer.ms === 300)?.fn(cx);
+  assert.deepEqual(fake.stored['relevo.runs.open'], { g: 'run-pane' });
+  fake.runs.length = 0;
+  openWorkflow('g', 'b');
+  assert.deepEqual(fake.runs, [['pane.focus', { pane: 'run-pane' }]], 'no second pane for the same run');
+  v.render(); assert.equal(v.selected, 'b');
+  click(find(v.render(), 'workflow-close'), cx);
+  assert.deepEqual(fake.runs.at(-1), ['pane.close', { pane: 'run-pane' }]);
+  v.close(); assert.deepEqual(fake.stored['relevo.runs.open'], {});
 });

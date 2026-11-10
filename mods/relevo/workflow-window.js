@@ -1,7 +1,20 @@
-import { openOverlay } from "herdr";
+import { panes, run, setShared, shared } from "herdr";
 
-// A keyed window, not a dialog: Herdr dialogs consume Escape before mod handlers.
-// It fits its content because the host's fixed-height cache path omits AX nodes.
+export const RUN_PANES = "relevo.runs.open";
+export const RUN_REQUEST = "relevo.runs.request";
+
+// Entries whose pane is gone drop out on the next write.
+export const liveRunPanes = () => Object.fromEntries(
+  Object.entries(shared(RUN_PANES) ?? {}).filter(([, pane]) => panes().some((p) => p.pane === pane)),
+);
+
+// A run is a pane beside the work; opening it again focuses that pane and selects the task.
 export function openWorkflow(goalId, taskId = null) {
-  openOverlay({ mod: "relevo", kind: "window", key: `relevo-workflow-${goalId}${taskId ? `-${taskId}` : ""}`, width: 0.6, props: { role: "workflow", goalId, ...(taskId ? { taskId } : {}) } });
+  const pane = liveRunPanes()[goalId];
+  if (pane) {
+    setShared(RUN_REQUEST, { goalId, taskId, at: Date.now() });
+    run("pane.focus", { pane });
+    return;
+  }
+  run("pane.split", { direction: "right", mod: "relevo", props: { role: "workflow", goalId, ...(taskId ? { taskId } : {}) } });
 }

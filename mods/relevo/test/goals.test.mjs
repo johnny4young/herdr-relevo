@@ -90,9 +90,9 @@ test('new run saves one prompt-backed record then opens planned task setup witho
   assert.equal(saved.title, 'Improve search'); assert.equal(saved.criteria, 'Improve search\nKeep keyboard navigation intact.');
   assert.deepEqual(saved.steps, []); assert.equal(saved.state, 'active');
   assert.deepEqual(fake.closedOverlays, ['new-run']);
-  assert.equal(fake.overlays.at(-1).kind, 'window');
-  assert.equal(fake.overlays.at(-1).props.role, 'workflow');
-  assert.equal(fake.overlays.at(-1).props.goalId, saved.id);
+  assert.equal(fake.runs.findLast(([name]) => name === 'pane.split')[1].mod, 'relevo');
+  assert.equal(fake.runs.findLast(([name]) => name === 'pane.split')[1].props.role, 'workflow');
+  assert.equal(fake.runs.findLast(([name]) => name === 'pane.split')[1].props.goalId, saved.id);
   assert.deepEqual(fake.execs, []);
   assert.match(text(editor.render()), /New run/);
   editor.close();

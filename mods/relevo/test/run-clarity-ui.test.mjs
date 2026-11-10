@@ -119,7 +119,7 @@ test('R opens feedback and Command-Enter sends only nonempty changes for that re
   send(); await flush(); assert.equal(fake.execs.length, 1); view.close();
 });
 
-test('cancelling a change request restores window focus so Escape can close it', async () => {
+test('cancelling a change request restores pane focus and Escape keeps the pane open', async () => {
   const { view, cx } = await load(Workflow); let focused = false;
   view.h.focus = () => { focused = true; }; view.h.is_focused = () => focused;
   view.editDecisionNote(task, true, cx);
@@ -127,7 +127,7 @@ test('cancelling a change request restores window focus so Escape can close it',
   click(find(view.render(), 'workflow-decision-note-cancel'), cx);
   assert.equal(focused, true);
   find(view.render(), 'workflow-dialog').handlers.on_key_down({ key: 'escape' }, cx);
-  assert.ok(fake.closedOverlays.includes('o'));
+  assert.equal(fake.runs.some(([name]) => name === 'pane.close'), false);
   assert.equal(fake.execs.length, 0); view.close();
 });
 
