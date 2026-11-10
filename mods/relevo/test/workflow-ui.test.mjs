@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { fake, resetFake } from './fake/herdr.mjs';
 import { fakeCx, flush, find, click, text } from './fake/ui.mjs';
 const { Workflow, openWorkflow } = await import('../workflow.js');
-beforeEach(resetFake);
+beforeEach(() => { resetFake(); fake.stored['relevo.runs.mode'] = 'sessions'; });
 const agent = (address, title) => ({ address, title, status: 'idle', app: 'codex' });
 async function setup() { fake.props = { goalId: 'g', overlay: 'o' }; const v = new Workflow(), cx = fakeCx(); v.init({}, cx); await flush(); return { v, cx }; }
 
@@ -648,4 +648,34 @@ test('a run pane reloaded with the mod finds its registered pane even without fo
   const v = new Workflow(), cx = fakeCx(); v.init({}, cx); await flush();
   cx.timers.find((timer) => timer.ms === 300)?.fn(cx);
   assert.equal(v.pane, 'kept-pane'); assert.ok(find(v.render(), 'workflow-close')); v.close();
+});
+
+test('own worktree mode creates the checkout, opens both agents and starts once they are ready', async () => {
+  fake.stored['relevo.runs.mode'] = 'worktree';
+  const { v, cx } = await setup();
+  v.form.title.set_value('Fix search'); v.form.root.set_value('/work/app'); v.form.criteria.set_value('Search works');
+  assert.match(text(find(v.render(), 'workflow-task-setup')), /app · own worktree · Codex → /);
+  assert.equal(find(v.render(), 'workflow-create'), null, 'a worktree run starts; it is not saved for later');
+  const payloads = [];
+  fake.exec = async (_cmd, args) => {
+    const payload = JSON.parse(args.at(-1)); payloads.push(payload);
+    if (payload.action === 'prepare-worktree') return { code: 0, stdout: JSON.stringify({ result: { path: '/home/test/.herdr/worktrees/app/fix-search-abc123', branch: 'run/fix-search-abc123', base: '/work/app', copied: 0 } }) };
+    return { code: 0, stdout: '{"doc":{},"result":{"taskId":"new"}}' };
+  };
+  click(find(v.render(), 'workflow-start-new'), cx); await flush();
+  assert.deepEqual(payloads[0], { action: 'prepare-worktree', root: '/work/app', title: 'Fix search' });
+  const opened = () => fake.runs.filter(([name, args]) => ['tab.new', 'space.new'].includes(name) && args.folder === '/home/test/.herdr/worktrees/app/fix-search-abc123');
+  assert.equal(opened().length, 1);
+  v.launch.openedAt -= 2000; v.launchTick(cx);
+  assert.equal(opened().length, 2);
+  assert.deepEqual(opened().map(([, args]) => args.tab ?? args.name), ['fix-search-abc123 · build', 'fix-search-abc123 · review']);
+  fake.agents = [{ address: 't9', tab_name: 'fix-search-abc123 · build', status: 'idle' }, { address: 't10', tab_name: 'fix-search-abc123 · review', status: 'blocked' }];
+  v.launchTick(cx); assert.match(text(find(v.render(), 'workflow-launch-status')), /Answer the prompt in “fix-search-abc123 · review”/);
+  fake.agents[1].status = 'idle'; v.launchTick(cx); await flush();
+  const create = payloads.find((payload) => payload.action === 'create');
+  assert.equal(create.start, true); assert.equal(create.task.root, '/home/test/.herdr/worktrees/app/fix-search-abc123');
+  assert.deepEqual(create.task.worktree, { branch: 'run/fix-search-abc123', base: '/work/app' });
+  assert.deepEqual([create.task.executor.address, create.task.reviewer.address], ['t9', 't10']);
+  assert.equal(create.task.executor.label, 'Codex');
+  v.close();
 });

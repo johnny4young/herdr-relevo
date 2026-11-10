@@ -485,3 +485,11 @@ test("create with start makes the task ready and enables automation in one write
   await f.runtime.tick();
   assert.equal(f.sends.at(-1)[f.sends.at(-1).indexOf("--") + 1], "exec-2");
 });
+
+test("a task created in a run worktree records its branch and base", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const created = await f.runtime.command({ action: "create", task: { goalId: "g1", title: "Isolated", criteria: "Works", root: f.root,
+    executor: { address: "exec-3" }, reviewer: { address: "review-3" }, worktree: { branch: "run/isolated-abc123", base: "/work/app" } } });
+  const task = f.runtime.read().tasks.find((item) => item.id === created.result.taskId);
+  assert.deepEqual(task.worktree, { path: f.root, branch: "run/isolated-abc123", base: "/work/app" });
+});

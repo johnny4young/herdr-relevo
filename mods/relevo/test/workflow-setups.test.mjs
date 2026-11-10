@@ -5,7 +5,7 @@ import { fake, resetFake } from './fake/herdr.mjs';
 import { fakeCx, flush, find, click, text } from './fake/ui.mjs';
 const { Workflow } = await import('../workflow.js');
 const { SETUPS_KEY, savedSetups } = await import('../workflow-setups.js');
-beforeEach(resetFake);
+beforeEach(() => { resetFake(); fake.stored['relevo.runs.mode'] = 'sessions'; });
 const preset = () => ({ id: 'bounded', name: 'Small change', purpose: 'A focused implementation with independent review', root: '/work/app',
   executor: { address: 'build', label: 'Builder' }, reviewer: { address: 'review', label: 'Reviewer' },
   checks: [['npm', 'test']], maxRounds: 1, maxMinutes: 8 });

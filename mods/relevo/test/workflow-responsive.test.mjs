@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { fake, resetFake } from './fake/herdr.mjs';
 import { fakeCx, flush, find, click, text } from './fake/ui.mjs';
 const { Workflow } = await import('../workflow.js');
-beforeEach(resetFake);
+beforeEach(() => { resetFake(); fake.stored['relevo.runs.mode'] = 'sessions'; });
 
 async function setup() {
   fake.props = { goalId: 'g', overlay: 'o' };

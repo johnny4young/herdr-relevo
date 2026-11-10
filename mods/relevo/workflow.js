@@ -12,6 +12,11 @@ import { readGoals } from "./goals-store.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { ShortcutHelp } from "./shortcut-help.js";
 import { RUN_PANES, RUN_REQUEST, liveRunPanes } from "./workflow-window.js";
+import { ACCOUNTS, CODEX, accountOf, launchArgv, openInFolder } from "./accounts.js";
+import { accountFor } from "./context.js";
+
+const RUN_MODE = "relevo.runs.mode", RUN_ACCOUNTS = "relevo.runs.accounts";
+const LAUNCH_TIMEOUT = 180000;
 export { openWorkflow } from "./workflow-window.js";
 
 const STATES = { planned: "Planned", ready: "Ready", running: "In progress", needs_review: "Needs review", needs_you: "Needs you", accepted: "Completed", completed: "Completed", blocked: "Blocked", failed: "Failed", cancelled: "Cancelled" };
@@ -82,6 +87,7 @@ export class Workflow extends WorkflowDraftView {
     this.initDrafts();
     this.load(cx);
     cx.timer.every(3000, (cx) => this.load(cx));
+    cx.timer.every(1000, (cx) => this.launchTick(cx));
     cx.timer.after(30, (cx) => {
       if (this.closed) return;
       this.h.focus();
@@ -236,14 +242,15 @@ export class Workflow extends WorkflowDraftView {
     const submittedFields = JSON.stringify(this.taskDraftSnapshot());
     const title = this.form.title.value().trim();
     const root = this.form.root.value().trim();
+    const isolated = this.runMode() === "worktree";
     const executor = agents().find((agent) => agent.address === this.executor);
     const reviewer = agents().find((agent) => agent.address === this.reviewer);
     const criteria = this.form.criteria.value().trim();
     const maxRounds = Number(this.form.maxRounds.value()), maxMinutes = Number(this.form.maxMinutes.value());
     const dependsOn = [...(this.dependsOn ?? [])];
-    if (!title || !root || !/^\/(?:[^\0]*)$/.test(root) || !criteria || !executor || !reviewer || executor.address === reviewer.address) {
+    if (!title || !root || !/^\/(?:[^\0]*)$/.test(root) || !criteria || (!isolated && (!executor || !reviewer || executor.address === reviewer.address))) {
       this.taskSetupOpen = true;
-      this.error = "Enter a task title, absolute repository path, expected outcome, and two different connected agents.";
+      this.error = isolated ? "Enter a title, repository and prompt." : "Enter a task title, absolute repository path, expected outcome, and two different connected agents.";
       cx.notify();
       return;
     }
@@ -262,6 +269,7 @@ export class Workflow extends WorkflowDraftView {
       cx.notify();
       return;
     }
+    if (isolated) { this.launchWorktreeRun({ goalId: this.goalId, title, root, criteria, checks, dependsOn, maxRounds, maxMinutes }, cx); return; }
     this.command({ action: "create", task: {
       goalId: this.goalId, title, root, criteria,
       executor: { address: executor.address, label: agentLabel(executor) },
@@ -283,6 +291,73 @@ export class Workflow extends WorkflowDraftView {
       this.explicitNew = false;
       this.selected = response.result?.taskId ?? null;
       this.filter = "In progress";
+    });
+  }
+
+  runMode() { return shared(RUN_MODE) ?? "worktree"; }
+
+  runAccounts() {
+    const saved = shared(RUN_ACCOUNTS) ?? {};
+    const all = [...ACCOUNTS, CODEX].map((account) => account.key);
+    const executor = all.includes(saved.executor) ? saved.executor : CODEX.key;
+    const repoAccount = accountFor(this.form.root.value().trim());
+    const reviewer = all.includes(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer
+      : [repoAccount, ...all].find((key) => key && key !== executor && all.includes(key));
+    return { executor, reviewer };
+  }
+
+  accountPicker(t, role, label) {
+    const chosen = this.runAccounts();
+    return v_flex().w_full().min_w(0).gap(4).child(row(t, label))
+      .child(h_flex().flex_wrap().gap(4).children([...ACCOUNTS, CODEX].map((account) => button(t, `workflow-${role}-account-${account.key}`, account.label,
+        (cx) => { setShared(RUN_ACCOUNTS, { ...chosen, [role]: account.key }); cx.notify(); },
+        { kind: "ghost", size: "sm", selected: chosen[role] === account.key, disabled: chosen[role === "executor" ? "reviewer" : "executor"] === account.key }))));
+  }
+
+  // A worktree run: create the checkout, open both agents beside the repo's tabs, then start once both are ready.
+  launchWorktreeRun(fields, cx) {
+    const accounts = this.runAccounts();
+    this.busy = true; this.error = null; this.launch = { stage: "preparing", fields, accounts, at: Date.now() }; cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const result = await exec("node", [`${appHome()}/mods/relevo/runtime/cli.mjs`, "--home", appHome(), "command", JSON.stringify({ action: "prepare-worktree", root: fields.root, title: fields.title })]);
+        const response = JSON.parse(result.stdout || "{}");
+        if (response.error || result.code !== 0) throw Error(response.error || result.stderr || "Could not create the worktree");
+        const slug = response.result.branch.replace(/^run\//, "");
+        this.launch = { ...this.launch, stage: "opening", worktree: response.result, tabs: { executor: `${slug} · build`, reviewer: `${slug} · review` } };
+        openInFolder({ name: fields.root.split("/").pop(), folder: response.result.path, tab: this.launch.tabs.executor, argv: launchArgv(accounts.executor) });
+        this.launch.openedAt = Date.now();
+      } catch (error) {
+        if (!this.closed) { this.launch = null; this.busy = false; this.error = `Could not start the run: ${error.message ?? error}`; }
+      }
+      if (!this.closed) cx.notify();
+    });
+  }
+
+  launchTick(cx) {
+    const launch = this.launch;
+    if (this.closed || !launch?.worktree) return;
+    if (Date.now() - launch.at > LAUNCH_TIMEOUT) {
+      this.launch = null; this.busy = false;
+      this.error = `The agents did not get ready in time. The worktree is at ${launch.worktree.path}.`; cx.notify(); return;
+    }
+    if (launch.stage === "opening" && Date.now() - launch.openedAt > 1500) {
+      openInFolder({ name: launch.fields.root.split("/").pop(), folder: launch.worktree.path, tab: launch.tabs.reviewer, argv: launchArgv(launch.accounts.reviewer) });
+      launch.stage = "waiting";
+    }
+    if (launch.stage !== "waiting") return;
+    const found = Object.fromEntries(["executor", "reviewer"].map((role) => [role, agents().find((agent) => agent.tab_name === launch.tabs[role])]));
+    const waiting = Object.entries(found).filter(([, agent]) => !agent || !["idle", "done"].includes(agent.status));
+    const blocked = waiting.find(([, agent]) => agent?.status === "blocked");
+    const notice = blocked ? `Answer the prompt in “${launch.tabs[blocked[0]]}” to continue.` : `Starting agents · ${2 - waiting.length}/2 ready`;
+    if (this.launchNotice !== notice) { this.launchNotice = notice; cx.notify(); }
+    if (waiting.length) return;
+    this.launch = null; this.launchNotice = null; this.busy = false;
+    const label = (role) => accountOf(launch.accounts[role]).label;
+    this.command({ action: "create", start: true, task: { ...launch.fields, root: launch.worktree.path,
+      executor: { address: found.executor.address, label: label("executor") }, reviewer: { address: found.reviewer.address, label: label("reviewer") },
+      worktree: { branch: launch.worktree.branch, base: launch.worktree.base } } }, cx, (response) => {
+      this.explicitNew = false; this.selected = response.result?.taskId ?? null; this.filter = "In progress";
     });
   }
 
@@ -444,7 +519,8 @@ export class Workflow extends WorkflowDraftView {
     const previousRootName = previousSetup?.root?.split("/").filter(Boolean).at(-1) || "Unknown repository";
     const agentName = (address) => { const agent = agents().find((item) => item.address === address); return agent ? agentLabel(agent) : null; };
     const rootName = this.form.root.value().trim().split("/").filter(Boolean).at(-1);
-    const setupLabel = chosen === 2 ? [rootName, `${agentName(this.executor)} → ${agentName(this.reviewer)}`].filter(Boolean).join(" · ") : `Repository & agents · ${chosen}/2 selected`;
+    const isolated = this.runMode() === "worktree", accounts = this.runAccounts();
+    const setupLabel = isolated ? [rootName, "own worktree", `${accountOf(accounts.executor).label} → ${accountOf(accounts.reviewer).label}`].filter(Boolean).join(" · ") : chosen === 2 ? [rootName, `${agentName(this.executor)} → ${agentName(this.reviewer)}`].filter(Boolean).join(" · ") : `Repository & agents · ${chosen}/2 selected`;
     return v_flex().w_full().min_w(0).gap(12)
       .child(div().font_semibold().child(fromPrompt ? "Start run" : "New task"))
       .when(fromPrompt && !this.editRunPrompt, (el) => el.child(h_flex().gap(8).items_center()
@@ -470,8 +546,11 @@ export class Workflow extends WorkflowDraftView {
         .child(this.setupLibrary(t))
         .child(this.field(t, "root", "Repository path"))
         .child(this.repositoryPicker(t))
-        .child(this.agentPicker(t, "executor", "Implementer"))
-        .child(this.agentPicker(t, "reviewer", "Independent reviewer"))))
+        .child(h_flex().gap(4)
+          .child(button(t, "workflow-mode-worktree", "Own worktree", (cx) => { setShared(RUN_MODE, "worktree"); cx.notify(); }, { kind: "ghost", size: "sm", selected: isolated }))
+          .child(button(t, "workflow-mode-sessions", "Existing sessions", (cx) => { setShared(RUN_MODE, "sessions"); cx.notify(); }, { kind: "ghost", size: "sm", selected: !isolated })))
+        .when(isolated, (panel) => panel.child(this.accountPicker(t, "executor", "Implements")).child(this.accountPicker(t, "reviewer", "Reviews")))
+        .when(!isolated, (panel) => panel.child(this.agentPicker(t, "executor", "Implementer")).child(this.agentPicker(t, "reviewer", "Independent reviewer")))))
       .child(button(t, "workflow-task-advanced", `Checks, limits & dependencies · ${this.form.maxRounds.value()} rounds · ${this.form.maxMinutes.value()} min`, (context) => {
         this.taskAdvancedOpen = !this.taskAdvancedOpen; context.notify();
       }, { size: "sm", selected: Boolean(this.taskAdvancedOpen), tip: "Optional checks and prerequisites; limits always apply" }))
@@ -488,10 +567,12 @@ export class Workflow extends WorkflowDraftView {
           .map((task) => button(t, `workflow-dependency-${task.id}`, `${this.dependsOn?.includes(task.id) ? "☑" : "☐"} ${caption(task.title, 50)}`,
             (context) => { this.dependsOn ??= []; this.dependsOn = this.dependsOn.includes(task.id) ? this.dependsOn.filter((id) => id !== task.id) : [...this.dependsOn, task.id]; context.notify(); },
             { tip: `Wait for acceptance of ${task.title}` })))))
-      .child(h_flex().gap(6)
+      .child(h_flex().gap(6).items_center()
         .child(button(t, "workflow-start-new", this.busy ? "Starting…" : "Start", (context) => this.create(context, { start: true }),
           { kind: "solid", disabled: this.busy, tip: "⌘Enter" }))
-        .child(button(t, "workflow-create", "Save for later", (context) => this.create(context), { disabled: this.busy })));
+        .when(!isolated, (bar) => bar.child(button(t, "workflow-create", "Save for later", (context) => this.create(context), { disabled: this.busy })))
+        .when(Boolean(this.launch), (bar) => bar.child(div().id("workflow-launch-status").text_size(11).text_color(t.muted)
+          .child(this.launchNotice ?? (this.launch?.stage === "preparing" ? "Creating worktree…" : "Opening agents…")))));
   }
 
   taskActions(t, task, cx) {
@@ -660,6 +741,7 @@ export class Workflow extends WorkflowDraftView {
       pill(t, "workflow-chip-review", reviewText, !review ? t.muted : review.status === "completed" ? t.done : t.blocked),
       agents ? pill(t, "workflow-chip-agents", `${agents} · round ${task.round ?? 0}/${task.maxRounds ?? 2}`) : null,
       evidence ? pill(t, "workflow-chip-evidence", `${evidence} evidence`) : null,
+      task.worktree?.branch ? pill(t, "workflow-chip-worktree", task.worktree.branch) : null,
     ].filter(Boolean));
   }
 

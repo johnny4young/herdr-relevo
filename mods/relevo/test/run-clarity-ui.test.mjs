@@ -11,7 +11,7 @@ const { Workflow } = await import('../workflow.js');
 const path = '/home/test/.config/herdr-app/relevo-workflow/state.json';
 const task = { id: 't', goalId: 'g', title: 'Search result', state: 'needs_you', revision: 'r1', round: 1, maxRounds: 3 };
 const goal = () => ({ ...newGoal('g', 'Search'), decision: 'Accept search?', decisionLink: { taskId: 't', question: 'Accept search?' } });
-beforeEach(resetFake);
+beforeEach(() => { resetFake(); fake.stored['relevo.runs.mode'] = 'sessions'; });
 async function load(View, record = goal(), tasks = [task]) {
   fake.files[goalsPath()] = JSON.stringify(saveGoal(emptyGoals(), record, 0));
   fake.files[path] = JSON.stringify({ tasks, engine: { enabled: false } });

@@ -7,7 +7,7 @@ import { newGoal, saveGoal, emptyGoals } from '../lib/goals.js';
 const { Workflow } = await import('../workflow.js');
 const goalFile = '/home/test/.config/herdr-app/relevo-goals.json';
 const stateFile = '/home/test/.config/herdr-app/relevo-workflow/state.json';
-beforeEach(resetFake);
+beforeEach(() => { resetFake(); fake.stored['relevo.runs.mode'] = 'sessions'; });
 const goal = () => ({ ...newGoal('g', 'Ship an accessible queue'), criteria: 'Keyboard and pointer operations preserve decisions', steps: [
   { id: 'a', title: 'Implement queue navigation', state: 'working' },
   { id: 'b', title: 'Verify empty states', state: 'todo' },

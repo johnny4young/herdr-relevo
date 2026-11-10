@@ -5,7 +5,7 @@ import { fake, resetFake } from './fake/herdr.mjs';
 import { fakeCx, flush, find, click, text } from './fake/ui.mjs';
 const { Workflow } = await import('../workflow.js');
 const { createWorkflowDrafts } = await import('../workflow-drafts.js');
-beforeEach(resetFake);
+beforeEach(() => { resetFake(); fake.stored['relevo.runs.mode'] = 'sessions'; });
 async function setup(goalId = 'g') {
   fake.props = { goalId }; const v = new Workflow(), cx = fakeCx(); v.init({}, cx); await flush(); return { v, cx };
 }

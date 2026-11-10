@@ -3,6 +3,7 @@ import path from 'node:path';
 import { run } from './process.mjs';
 import { fingerprint, runChecks, attachArtifact, verifyArtifact, removeArtifact } from './evidence.mjs';
 import { readState, transaction, taskById, event, uid, stateDir, privateDir } from './store.mjs';
+import { prepareWorktree } from './worktree.mjs';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
 import { SKILLS } from '../config.js';
 
@@ -60,6 +61,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     return { id: uid(), goalId: input.goalId, title: input.title.trim(), criteria: input.criteria.trim(), root: fs.realpathSync(input.root),
       executor: { address: input.executor.address, label: input.executor.label || input.executor.address }, reviewer: { address: input.reviewer.address, label: input.reviewer.label || input.reviewer.address },
       checks: input.checks ?? [], dependsOn: dependencies, maxRounds, maxMinutes, round: 0, state: 'planned', paused: false,
+      ...(input.worktree ? { worktree: { path: fs.realpathSync(input.root), branch: String(input.worktree.branch ?? '').slice(0, 200), base: String(input.worktree.base ?? '').slice(0, 1000) } } : {}),
       attempts: [], messages: [], evidence: [], decisions: [], checksResult: [], revision: '', createdAt: new Date(clock()).toISOString(), error: null };
   }
   function planScopeIssue(task, doc) {
@@ -92,6 +94,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (!payload || typeof payload !== 'object') throw Error('Command required');
     const action = payload.action;
     if (action === 'read') return { doc: readState(home) };
+    if (action === 'prepare-worktree') return { result: await prepareWorktree({ root: payload.root, title: payload.title }) };
     if (action === 'create') {
       const task = validateTask(payload.task, readState(home));
       await fingerprintImpl(task.root);
