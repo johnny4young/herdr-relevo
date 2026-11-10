@@ -11,7 +11,7 @@ import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { openHandoff } from "./handoff.js";
 import { openReplies } from "./replies.js";
-import { button, sectionHeader, spinner, withKey, foldRow, FOLDS, saveFolds, shortcutBindings } from "./ui.js";
+import { button, sectionHeader, spinner, withKey, foldRow, FOLDS, shortcutBindings } from "./ui.js";
 import { ShortcutHelp } from "./shortcut-help.js";
 import { INBOX_SHORTCUT_ACTIONS } from "./lib/shortcut-help.js";
 import { agentPRs, seconds, recent } from "./lib/github.js";
@@ -30,9 +30,6 @@ import { LocalAddressed } from "./inbox-addressed.js";
 import { AwayViews } from "./inbox-away.js";
 import { DesktopViews } from "./inbox-desktop.js";
 import { LandViews, LANDING } from "./inbox-land.js";
-import { USAGE, readReport } from "./usage-scan.js";
-import { openUsage } from "./usage.js";
-import { compact, summarize } from "./lib/usage.js";
 import { isSettled } from "./lib/desktop.js";
 
 // How long a send waits for its dialog to go, in 250 ms reads.
@@ -137,45 +134,6 @@ export class Inbox {
   }
 
   // Today's tokens, read again when the sidebar's scan writes a new report.
-  todayTokens(cx) {
-    const at = shared(USAGE)?.updated ?? null;
-    if (at === this.tokensAt) return this.tokens;
-    this.tokensAt = at;
-    cx.spawn(async (cx) => {
-      const report = await readReport();
-      const total = report ? summarize(report, 1).total : null;
-      this.tokens = total ? total.write + total.output : null;
-      cx.notify();
-    });
-    return this.tokens;
-  }
-
-  // What waits on you at a glance; each number takes you to its part of the list.
-  summary(t, v, cx) {
-    const reviewEntries = this.reviewEntries();
-    const asks = reviewEntries.length + v.local.filter((i) => i.kind === "blocked").length + v.desktop.filter((s) => s.state === "blocked").length;
-    const tokens = this.todayTokens(cx);
-    const tile = (id, label, value, tip, go = null, hot = false) => v_flex().id(`sum-${id}`).flex_1().min_w(0).px(8).py(6).gap(1)
-      .rounded(8).bg(t.background).border_1().border_color(hot ? t.blocked : t.border).tooltip(tip)
-      .when(Boolean(go), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => go(cx)))
-      .child(div().text_size(13).font_semibold().text_color(hot ? t.blocked : t.foreground).child(value))
-      .child(div().truncate().text_size(11).text_color(t.dim).child(label));
-    const open = (key) => (cx) => {
-      this.expanded[key] = true;
-      saveFolds(this.expanded);
-      cx.notify();
-    };
-    return h_flex().id("inbox-summary").flex_none().gap(6)
-      .child(tile("asks", "need you", String(asks), "Run decisions, agents and Desktop sessions waiting on you", (cx) => {
-        if (reviewEntries.length) { this.sel = reviewEntries[0].id; this.h.focus(); cx.notify(); }
-        else run("relevo.next-waiting");
-      }, asks > 0))
-      .child(tile("reviews", "PR reviews", String(v.requested.filter(recent).length), "PRs waiting on your review, from the last 45 days"))
-      .child(tile("prs", "your PRs", String(v.mine.filter(recent).length), "Your PRs that need something, from the last 45 days"))
-      .child(tile("ready", "ready", String(v.ready.length), "Your PRs with nothing left but the merge", open("mine-ready")))
-      .child(tile("tokens", "today", tokens == null ? "…" : compact(tokens), "Tokens today: output and new context, all surfaces", () => openUsage()));
-  }
-
   loadQuotas(cx) {
     cx.spawn(async (cx) => {
       const quotas = await loadClaudeQuotas();
@@ -741,7 +699,6 @@ export class Inbox {
         .when(Boolean(this.localError), (el) => el.child(div().id("local-error").p(8).text_size(11).text_color(t.blocked).child(this.localError)))
         .when(!goalMode && !total && !this.error && Boolean(this.prsAt), (el) => el.child(
           div().p(12).text_size(13).text_color(t.dim).child("Nothing waiting")))
-        .when(view.above === 0 && !goalMode, (el) => el.child(this.summary(t, v, cx)))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
         .children(goalMode ? [] : part("away", this.awayGroup(t)))
         .children(goalMode ? [] : part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))

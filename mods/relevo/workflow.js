@@ -6,6 +6,7 @@ import { openReview } from "./review.js";
 import { focusedCwd } from "./panelbar.js";
 import { SKILLS as CONFIGURED_SKILLS } from "./config.js";
 import { workflowBucket, workflowItems, acceptanceEffect, queueSummary, workflowCheckSummary } from "./lib/workflow-navigation.js";
+import { linkedDecision } from "./lib/goal-workflow.js";
 import { readGoals } from "./goals-store.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { ShortcutHelp } from "./shortcut-help.js";
@@ -26,7 +27,7 @@ const caption = (value, limit = 42) => value.length > limit ? `${value.slice(0, 
 const TABS = ["Overview", "Changes", "Evidence", "Activity", "Preferences"];
 const WINDOW_SHORTCUTS = [
   ...TABS.map((tab, index) => ({ id: `view-${tab}`, label: ["Decision / summary", "Result / findings", "Evidence", "Activity", "Preferences"][index], fixedShortcut: String(index + 1), section: "Run window" })),
-  ...[["new", "New task", "n"], ["plan", "Plan work", "p"], ["tools", "Task actions and skills", "t"], ["next", "Next task", "down"], ["previous", "Previous task", "up"], ["help", "Keyboard help", "?"], ["close", "Return to queue focus, then close window", "escape"]]
+  ...[["accept", "Prepare acceptance (Enter confirms)", "a"], ["changes", "Write change request", "r"], ["new", "New task", "n"], ["plan", "Plan work", "p"], ["tools", "Task actions and skills", "t"], ["next", "Next task", "down"], ["previous", "Previous task", "up"], ["help", "Keyboard help", "?"], ["close", "Return to queue focus, then close window", "escape"]]
     .map(([id, label, fixedShortcut]) => ({ id, label, fixedShortcut, section: "Run window" })),
 ];
 
@@ -494,7 +495,8 @@ export class Workflow extends WorkflowDraftView {
     this.decisionDrafts ??= {};
     if (this.decisionNoteFor) this.decisionDrafts[this.decisionNoteFor] = this.form.decision.value();
     this.form.decision.set_value(this.decisionDrafts[task.id] ?? "");
-    this.decisionNoteFor = task.id; this.requestChangesFor = changes ? task.id : null; cx.notify();
+    this.decisionNoteFor = task.id; this.requestChangesFor = changes ? task.id : null; this.acceptIntent = null; cx.notify();
+    cx.timer.after(30, () => { if (!this.closed && this.decisionNoteFor === task.id) this.form.decision.focus(); });
   }
 
   prepareFollowUp(task, cx) {
@@ -527,29 +529,47 @@ export class Workflow extends WorkflowDraftView {
     cx.notify();
   }
 
-  decisions(t, task) {
-    if (task.state !== "needs_you") return null;
+  submitDecision(task, outcome, cx) {
+    if (this.busy || task.state !== "needs_you") return;
+    const current = this.tasks?.find((item) => item.id === task.id);
+    if (!current || current.revision !== task.revision || current.state !== "needs_you") return;
     const editing = this.decisionNoteFor === task.id;
-    const changes = this.requestChangesFor === task.id;
-    const submit = (outcome, cx) => this.command({ action: "decide", taskId: task.id,
+    if (outcome === "changes" && (!editing || !this.form.decision.value().trim())) return;
+    this.acceptIntent = null;
+    this.command({ action: "decide", taskId: task.id,
       outcome, text: editing ? this.form.decision.value() : "", revision: task.revision ?? "" }, cx, () => {
       if (this.decisionDrafts) delete this.decisionDrafts[task.id];
       this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null;
     });
+  }
+
+  decisions(t, task) {
+    if (task.state !== "needs_you") return null;
+    const editing = this.decisionNoteFor === task.id;
+    const changes = this.requestChangesFor === task.id;
+    const submit = (outcome, cx) => this.submitDecision(task, outcome, cx);
     return v_flex().id("workflow-decision-card").w_full().min_w(0).gap(10).p(14).rounded(8).bg(t.raised)
       .child(div().text_size(11).text_color(t.muted).child("YOUR DECISION"))
+      .when(Boolean(this.goal && linkedDecision(this.goal, this.tasks ?? []).task?.id === task.id), (el) => el.child(row(t, `Also resolves: ${this.goal.decision}`)))
       .child(h_flex().gap(5).flex_wrap()
-        .child(button(t, "workflow-decide-accept", "Accept result", (cx) => submit("accept", cx),
-          { kind: "solid", size: "lg", disabled: this.busy || changes, tip: "Accept this revision and allow dependent tasks to proceed. Does not approve or merge a PR." })
+        .child(button(t, "workflow-decide-accept", this.acceptIntent?.id === task.id && this.acceptIntent?.revision === task.revision ? "Confirm acceptance ↵" : "Accept result", (cx) => submit("accept", cx),
+          { kind: "solid", size: "lg", disabled: this.busy || changes, tip: "A then Enter: accept this revision and allow eligible dependent tasks to proceed. Does not approve or merge a PR." })
           .when(!this.busy && !changes, (el) => el.bg(t.accent).text_color(t.accent_foreground)))
         .child(button(t, "workflow-decide-changes", "Request changes", (cx) => this.editDecisionNote(task, true, cx),
-          { size: "lg", disabled: this.busy, tip: "Describe what needs to change before sending it to the executor" }))
+          { size: "lg", disabled: this.busy, tip: "R: describe what needs to change. Command/Ctrl+Enter sends the feedback." }))
         .child(button(t, "workflow-decide-defer", "Decide later", (cx) => submit("defer", cx),
           { size: "sm", disabled: this.busy, tip: "Keep the result pending and pause further work" })))
       .child(div().text_size(11).text_color(t.muted).child(acceptanceEffect(task, this.tasks ?? [], this.engine)))
       .when(!editing, (el) => el.child(button(t, "workflow-decision-note-toggle", "Add a note (optional)", (cx) => this.editDecisionNote(task, false, cx),
         { size: "sm", tip: "Record your reasoning with your decision" })))
-      .when(editing, (el) => el.child(this.field(t, "decision", changes ? "What should change?" : "Optional decision note", true))
+      .when(editing, (el) => el.child(this.field(t, "decision", changes ? "What should change?" : "Optional decision note", true).id("workflow-decision-editor")
+        .on_key_down((event, cx) => {
+          if (event.key !== "enter" || !(event.modifiers?.platform || event.modifiers?.control) || event.modifiers?.alt || !changes) return;
+          cx.stop_propagation();
+          if (this.busy || !this.form.decision.value().trim()) return;
+          if (task.round >= task.maxRounds) this.prepareFollowUp(task, cx);
+          else this.submitDecision(task, "changes", cx);
+        }))
         .when(changes, (panel) => panel.child(row(t, task.round >= task.maxRounds
           ? "This task reached its round limit. Prepare a follow-up with your feedback and review its settings. Nothing runs until you create and start it. The current result stays pending."
           : "Sending feedback starts another implementation and review round. The result will return here for your decision.")))
@@ -559,7 +579,7 @@ export class Workflow extends WorkflowDraftView {
             { kind: "solid", disabled: this.busy || !this.form.decision.value().trim(), tip: task.round >= task.maxRounds ? "Prefill a new task without starting or sending anything" : "Send these changes to the assigned executor" }) : null,
           button(t, "workflow-decision-note-cancel", changes ? "Cancel request" : "Remove note", (cx) => {
             if (this.decisionDrafts) delete this.decisionDrafts[task.id];
-            this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null; cx.notify();
+            this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null; this.h.focus(); cx.notify();
           }, { disabled: this.busy, tip: "Discard this unsent note" }),
         ].filter(Boolean))));
   }
@@ -874,6 +894,7 @@ export class Workflow extends WorkflowDraftView {
       .on_mouse_down("left", (_event, cx) => cx.stop_propagation())
       .on_key_down((event, cx) => {
         if (event.key === "escape") {
+          if (this.acceptIntent) { this.acceptIntent = null; this.h.focus(); cx.stop_propagation(); cx.notify(); return; }
           if (this.showHelp && this.shortcutHelp) { this.shortcutHelp.key(event, cx); return; }
           cx.stop_propagation();
           if (this.compact && this.compactQueueOpen) { this.compactQueueOpen = false; this.h.focus(); cx.notify(); return; }
@@ -884,6 +905,16 @@ export class Workflow extends WorkflowDraftView {
           closeOverlay(overlay); return;
         }
         if (!this.h.is_focused() || event.modifiers?.platform || event.modifiers?.alt || event.modifiers?.control) return;
+        if (task?.state === "needs_you" && !this.busy && this.tab === "Overview" && !this.showHelp) {
+          if (event.key === "a" && this.requestChangesFor !== task.id) {
+            this.acceptIntent = { id: task.id, revision: task.revision }; cx.stop_propagation(); cx.notify(); return;
+          }
+          if (event.key === "enter" && this.acceptIntent?.id === task.id && this.acceptIntent.revision === task.revision) {
+            this.submitDecision(task, "accept", cx); cx.stop_propagation(); return;
+          }
+          if (event.key === "r") { this.editDecisionNote(task, true, cx); cx.stop_propagation(); return; }
+        }
+        this.acceptIntent = null;
         if (["?", "n", "p", "t", "1", "2", "3", "4", "5", "down", "up"].includes(event.key)) cx.stop_propagation();
         if (event.key === "?") this.toggleHelp(cx);
         else if (event.key === "n") { this.compactQueueOpen = false; this.selected = null; this.explicitNew = true; this.tab = "Overview"; this.showHelp = false; cx.notify(); }

@@ -17,6 +17,8 @@ export function validateGoals(doc) {
         !["owner", "lead", "decision", "recommendation", "criteria"].every((k) => bounded(g[k])) ||
         !Array.isArray(g.sources) || g.sources.length > 100 || !Array.isArray(g.evidence) || g.evidence.length > 20 ||
         !Array.isArray(g.decisions) || g.decisions.length > 100) throw Error("Invalid goal");
+    if (g.decisionLink != null && (!bounded(g.decisionLink.taskId, 100) || !g.decisionLink.taskId ||
+        !bounded(g.decisionLink.question) || !g.decisionLink.question.trim())) throw Error("Invalid decision link");
     ids.add(g.id);
     if (!Object.hasOwn(GOAL_STATES, goalState(g)) || !Array.isArray(g.steps ?? []) || (g.steps?.length ?? 0) > 20) throw Error("Invalid goal plan");
     const steps = new Set();

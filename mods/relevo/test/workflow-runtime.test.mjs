@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { createRuntime } from "../runtime/coordinator.mjs";
+import { linkedDecision } from "../lib/goal-workflow.js";
 import { transaction } from "../runtime/store.mjs";
 import { runChecks } from "../runtime/evidence.mjs";
 
@@ -56,6 +57,8 @@ test("executor checks reviewer and explicit human acceptance complete the task",
   let current = f.runtime.read().tasks[0]; assert.equal(current.state, "needs_you");
   await f.runtime.command({ action: "decide", taskId: f.taskId, outcome: "accept", revision: current.revision });
   assert.equal(f.runtime.read().tasks[0].state, "accepted");
+  const question = { id: "g1", decision: "Accept the result?", decisionLink: { taskId: f.taskId, question: "Accept the result?" } };
+  assert.equal(linkedDecision(question, f.runtime.read().tasks).state, "resolved");
 });
 
 test("accepting a prerequisite automatically dispatches its already-started dependent task", async (t) => {

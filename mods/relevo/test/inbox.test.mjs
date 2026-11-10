@@ -988,15 +988,13 @@ test("the keyboard goes through review requests, then your PRs, then uncommitted
   assert.deepEqual(ids, ["pr-theirs", "pr-mine", "in-t1"]);
 });
 
-test("the summary counts the PRs its sections show, not the ones folded as older than 45 days", () => {
+test("Reviews navigation includes recent PRs and keeps older PRs folded", () => {
   const inbox = new Inbox(), now = new Date().toISOString(), old = "2020-01-01T00:00:00Z";
   inbox.expanded = {};
   const v = {
-    local: [], desktop: [], ready: [],
+    local: [], desktop: [], ready: [], worktrees: [],
     mine: [{ url: "m1", updatedAt: now }, { url: "m2", updatedAt: old }],
     requested: [{ url: "r1", updatedAt: old }],
   };
-  const ui = inbox.summary(theme(), v, fakeCx());
-  assert.match(text(find(ui, "sum-reviews")), /^0/);
-  assert.match(text(find(ui, "sum-prs")), /^1/);
+  assert.deepEqual(inbox.navItems(v).map((entry) => entry.id), ["pr-m1"]);
 });

@@ -4,6 +4,7 @@ import { agents, props, theme, openOverlay, closeOverlay, exec, readTextFile, ap
 import { button, overlayHeight } from "./ui.js";
 import { newGoal, webLink, GOAL_STATES, STEP_STATES, goalState } from "./lib/goals.js";
 import { readGoals, writeGoal } from "./goals-store.js";
+import { linkedDecision } from "./lib/goal-workflow.js";
 import { projectGoalPlan } from "./lib/goal-plan.js";
 import { openWorkflow } from "./workflow.js";
 
@@ -35,7 +36,9 @@ export class GoalEditor {
     this.fields = Object.fromEntries(Object.keys(labels).map((k) => [k, (multiline.has(k) ? TextareaState : InputState).new({
       value: "", placeholder: newRun && k === "criteria" ? "What would you like the agents to do?" : labels[k],
     })]));
-    this.fields.decision.on("change", (_event, cx) => cx.notify());
+    this.fields.decision.on("change", (_event, cx) => {
+      this.decisionTaskId = null; this.linkedResolution = null; this.resolvePending = false; cx.notify();
+    });
     this.response = TextareaState.new({ value: "", placeholder: "Decision or feedback (recorded, not sent automatically)" });
     this.link = InputState.new({ value: "", placeholder: "HTTPS link to a screenshot or video of this commit" });
     this.kind = "screenshot";
@@ -66,6 +69,9 @@ export class GoalEditor {
         for (const k of Object.keys(labels)) this.fields[k].set_value(this.goal[k]);
         this.reviewNotesOpen = Boolean(this.goal.decision?.trim() || this.goal.recommendation?.trim());
         this.workflowTasks = await workflowTasks().catch(() => []);
+        const linked = linkedDecision(this.goal, this.workflowTasks);
+        this.decisionTaskId = this.goal.decisionLink?.question === this.goal.decision.trim() ? this.goal.decisionLink.taskId : null;
+        if (linked.state === "resolved") { this.resolvePending = true; this.linkedResolution = this.goal; }
         if (this.closed) return;
       } catch (e) {
         if (this.closed) return;
@@ -122,6 +128,27 @@ export class GoalEditor {
       steps: this.steps.map(({ id, state, input }) => ({ id, state, title: input.value().trim() })) }, this.workflowTasks);
   }
 
+  decisionLinkControls(t) {
+    const tasks = (this.workflowTasks ?? []).filter((task) => task.goalId === this.goal.id && task.state !== "cancelled");
+    const linked = tasks.find((task) => task.id === this.decisionTaskId);
+    return v_flex().gap(5)
+      .when(Boolean(linked), (el) => el.child(row(`${this.linkedResolution ? "Resolved by your acceptance" : "Included with result"}: ${linked.title}`, t)))
+      .child(button(t, "goal-decision-link-toggle", this.decisionLinksOpen ? "Hide result choices" : linked ? "Change linked result…" : "Link to result…", (cx) => {
+        this.decisionLinksOpen = !this.decisionLinksOpen; cx.notify();
+      }, { size: "sm", disabled: this.busy, tip: "Include this question in one task review. Accepting that result also resolves this exact question." }))
+      .when(this.decisionLinksOpen, (el) => el
+        .child(button(t, "goal-decision-unlink", "Keep as a separate decision", (cx) => {
+          this.decisionTaskId = null; this.linkedResolution = null; this.resolvePending = false; this.decisionLinksOpen = false; cx.notify();
+        }, { disabled: this.busy }))
+        .children(tasks.map((task) => button(t, `goal-decision-link-${task.id}`, task.title, (cx) => {
+          this.decisionTaskId = task.id;
+          const candidate = { ...this.goal, decision: this.fields.decision.value().trim(), decisionLink: { taskId: task.id, question: this.fields.decision.value().trim() } };
+          this.linkedResolution = linkedDecision(candidate, this.workflowTasks).state === "resolved" ? candidate : null;
+          this.resolvePending = Boolean(this.linkedResolution); this.decisionLinksOpen = false; cx.notify();
+        }, { disabled: this.busy, tip: "Save links this question to this result; it does not accept or start work" })))
+        .when(!tasks.length, (content) => content.child(row("No tasks in this run yet. The question stays separate.", t))));
+  }
+
   save(cx) {
     if (this.closed || this.busy || !this.goal) return;
     this.planFocusRequest++;
@@ -141,8 +168,10 @@ export class GoalEditor {
     const accepted = this.projectedSteps().filter((item) => item.source === "workflow" && item.state === "done").map((item) => item.step.id);
     goal.steps = goal.steps.map((step) => accepted.includes(step.id) ? { ...step, state: "done" } : step);
     const response = this.response.value().trim(), url = this.link.value().trim(), kind = this.kind, source = props()?.source, overlay = props()?.overlay;
+    goal.decisionLink = this.decisionTaskId && goal.decision ? { taskId: this.decisionTaskId, question: goal.decision } : null;
+    const linkedResolution = this.resolvePending ? this.linkedResolution : null;
     const resolved = this.resolvePending ? goal.decision : "";
-    if (resolved) goal.decision = "";
+    if (resolved) { goal.decision = ""; goal.decisionLink = null; }
     // Validate the editable draft before any read, evidence lookup or write.
     // The store remains authoritative for versions and document invariants.
     const checks = [
@@ -182,6 +211,9 @@ export class GoalEditor {
     this.error = null;
     cx.spawn(async (cx) => {
       try {
+        if (linkedResolution && linkedDecision(linkedResolution, await workflowTasks()).state !== "resolved") {
+          throw Error("The linked acceptance changed. Reopen this run before resolving its question.");
+        }
         if (accepted.length) {
           const tasks = await workflowTasks();
           // Recheck the submitted outcomes against current evidence, using the
@@ -275,8 +307,11 @@ export class GoalEditor {
             .child(h_flex().gap(5).children([["screenshot", "Screenshot"], ["video", "Video"]].map(([kind, label]) =>
               choice(`goal-kind-${kind}`, label, this.kind === kind, (cx) => { this.kind = kind; cx.notify(); }, "The PR commit is checked again before attaching this link")))))
           .when(Boolean(this.fields.decision.value().trim()), (el) => el.child(choice("goal-resolve-decision", this.resolvePending ? "Decision resolved on save ✓" : "Resolve pending decision", this.resolvePending,
-            (cx) => { if (!this.closed && !this.busy && this.goal) { this.resolvePending = !this.resolvePending; cx.notify(); } },
+            (cx) => { if (!this.closed && !this.busy && this.goal) { this.resolvePending = !this.resolvePending;
+              if (!this.resolvePending && this.linkedResolution) { this.linkedResolution = null; this.decisionTaskId = null; }
+              cx.notify(); } },
             "Save clears the pending decision and keeps its text in the history. Click again to leave it pending.")))
+          .when(!isNewRun && this.reviewNotesOpen && Boolean(this.fields.decision.value().trim()), (el) => el.child(this.decisionLinkControls(t)))
           .when(!isNewRun && this.reviewNotesOpen, (el) => el.children((goal?.decisions ?? []).slice(-5).map((d) => row(`${d.at} · ${d.resolved ? "Resolved decision" : "Review note"}: ${d.text}`, t)))
             .child(row("To request changes, use Send to agent in Review or Message lead in Inbox.", t))))
         .when(this.panel === "plan", (el) => el

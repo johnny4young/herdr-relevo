@@ -130,3 +130,7 @@ The installer/rollback stops the local coordinator before runtime replacement an
 ### Runs and Reviews routing
 
 Runs contains assignments and progress only. Reviews owns PR/local review cards, workflow results in `needs_you`, and unresolved manual decisions. `inbox-goals.js` projects these read-only queues; `workflow.js` accepts an optional task ID and validates it belongs to the run before selecting it. Acceptance remains an explicit workflow action. Source linking, drafts, skills and addressed/Undo controls remain in Reviews. Do not restore duplicate source cards inside Runs.
+
+### Concise review flow
+
+Reviews no longer has summary tiles. `linkedDecision` in `lib/goal-workflow.js` derives duplicate-question suppression from an explicit question/task link and revision-matched acceptance; it never infers consent from prose or agent completion. `goals-editor.js` preserves unknown/old records and allows explicit linking or unlinking. New question text detaches an old acceptance. Run progress explains report/delivery state and prerequisites. Workflow A + Enter is a two-key acceptance intent bound to the selected task/revision; R and Command/Ctrl+Enter cover changes. Cancelling feedback restores window focus. Tests cover stale data, independent questions, input focus, acceptance progression and the isolated executor/check/reviewer/decision runtime cycle.

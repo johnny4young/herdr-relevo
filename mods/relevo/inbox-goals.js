@@ -8,7 +8,7 @@ import { readGoals, GOALS_CHANGED } from "./goals-store.js";
 import { emptyGoals, groupSources, sourceKey } from "./lib/goals.js";
 import { isAddressed } from "./lib/addressed.js";
 import { openReview } from "./review.js";
-import { reviewableWork, scopeGoals, missionNextAction } from "./lib/goal-workflow.js";
+import { reviewableWork, scopeGoals, missionNextAction, linkedDecision, runProgress } from "./lib/goal-workflow.js";
 import { openWorkflow } from "./workflow.js";
 
 export const GOAL_MODE = "relevo.goals.mode";
@@ -149,7 +149,7 @@ export class GoalViews {
   }
 
   decisionReviews() {
-    return (this.goalDoc?.goals ?? []).filter((goal) => goal.decision?.trim()).map((goal) => ({
+    return (this.goalDoc?.goals ?? []).filter((goal) => goal.decision?.trim() && linkedDecision(goal, this.workflowTasks ?? [], this.workflowError).state === "separate").map((goal) => ({
       id: `decision-${goal.id}`, title: goal.decision.trim(), detail: goal.title,
       go: () => openGoal(goal.id, null, "decision"),
     }));
@@ -175,12 +175,13 @@ export class GoalViews {
   showRunReviews(goal) {
     const task = !this.workflowError && (this.workflowTasks ?? []).find((task) => task.goalId === goal.id && task.state === "needs_you");
     const result = this.runReviews().find((entry) => entry.id === `result-${task?.id}`);
+    const decision = this.decisionReviews().find((entry) => entry.id === `decision-${goal.id}`);
     const source = this.goalSources(this.shown()).find((source) => goal.sources.includes(source.key) && !source.addressed && !source.draft);
-    if (!result && !goal.decision?.trim() && source?.kind === "pr") {
+    if (!result && !decision && source?.kind === "pr") {
       this.expanded[source.requested ? "requested" : "mine"] = true;
       if ((this.ready ?? []).some((pr) => pr.url === source.pr.url)) this.expanded["mine-ready"] = true;
     }
-    this.sel = result?.id ?? (goal.decision?.trim() ? `decision-${goal.id}` : source ? source.kind === "pr" ? `pr-${source.pr.url}` : `in-${source.item.agent.address}` : null);
+    this.sel = result?.id ?? (decision ? decision.id : source ? source.kind === "pr" ? `pr-${source.pr.url}` : `in-${source.item.agent.address}` : null);
     setShared(GOAL_MODE, false); this.h.focus();
   }
 
@@ -237,6 +238,7 @@ export class GoalViews {
         const tasks = (this.workflowTasks ?? []).filter((task) => task.goalId === goal.id);
         const reviewable = reviewableWork(items, this.clones);
         const next = missionNextAction(goal, tasks, this.workflowEngine, this.workflowError, reviewable.length);
+        const progress = runProgress(goal.id, tasks, this.workflowEngine, this.workflowError);
         const status = next.status.replace(/\bMission\b/g, "Run");
         const inReviews = next.action === "review" || next.action === "decision" || (!this.workflowError && tasks.some((task) => task.state === "needs_you"));
         const actionLabel = inReviews ? "View in Reviews" : next.label.replace(/\bmission\b/gi, "run");
@@ -249,7 +251,9 @@ export class GoalViews {
               .child(div().id(`goal-next-status-${goal.id}`).min_w(0).text_size(11).font_semibold().text_color(["Needs attention", "Status unavailable"].includes(next.status) ? t.blocked : t.accent).truncate().tooltip(status).child(status))
               .child(div().id(`goal-next-detail-${goal.id}`).min_w(0).text_size(13).truncate().tooltip(next.detail).child(next.detail)))
             .child(button(t, next.action === 'review' ? `goal-review-next-${goal.id}` : next.action === 'decision' ? `goal-decision-next-${goal.id}` : `goal-workflow-${goal.id}`, actionLabel, () => this.openMissionAction(goal),
-              { kind: "solid", tip: "Open the next step. This does not send work or accept a result." })));
+              { kind: "solid", tip: "Open the next step. This does not send work or accept a result." })))
+          .when(Boolean(progress), (el) => el.child(div().id(`goal-progress-${goal.id}`).text_size(11).text_color(t.muted)
+            .child(progress)));
       }),
       ...(!groups.length ? [line("Start with a prompt. Results will appear in Reviews when ready.", t)] : []),
     ];
