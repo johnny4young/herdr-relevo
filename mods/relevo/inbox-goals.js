@@ -10,6 +10,7 @@ import { isAddressed } from "./lib/addressed.js";
 import { openReview } from "./review.js";
 import { reviewableWork, scopeGoals, missionNextAction, linkedDecision, runProgress } from "./lib/goal-workflow.js";
 import { openWorkflow } from "./workflow.js";
+import { resultMeta } from "./lib/workflow-navigation.js";
 
 export const GOAL_MODE = "relevo.goals.mode";
 export const GOAL_SCOPE = "relevo.goals.scope";
@@ -143,7 +144,7 @@ export class GoalViews {
   runReviews() {
     if (this.workflowError) return [];
     return (this.workflowTasks ?? []).filter((task) => task.state === "needs_you").map((task) => ({
-      id: `result-${task.id}`, title: task.title, detail: this.goalDoc?.goals.find((goal) => goal.id === task.goalId)?.title ?? "Run result",
+      id: `result-${task.id}`, title: task.title, detail: this.goalDoc?.goals.find((goal) => goal.id === task.goalId)?.title ?? "Run result", meta: resultMeta(task),
       go: () => openWorkflow(task.goalId, task.id),
     }));
   }
@@ -192,9 +193,10 @@ export class GoalViews {
       ...(entries.length ? [sectionHeader(t, "READY FOR YOU", entries.length)] : []),
       ...entries.filter((entry) => !this.hiddenIds.has(entry.id)).map((entry) => this.card(t, entry.id, false,
         div().text_size(11).text_color(t.muted).truncate().tooltip(entry.detail).child(entry.detail),
-        div().text_size(13).font_semibold().child(entry.title),
+        v_flex().gap(3).child(div().text_size(13).font_semibold().child(entry.title))
+          .when(Boolean(entry.meta), (el) => el.child(div().id(`meta-${entry.id}`).text_size(11).text_color(t.muted).truncate().tooltip(entry.meta).child(entry.meta))),
         [button(t, `open-${entry.id}`, entry.id.startsWith("result-") ? "Review result" : "Review decision", entry.go,
-          { kind: "solid", tip: "Inspect the result and decide. Opening it does not approve anything." })])),
+          { kind: this.selected(entry.id) ? "solid" : "outline" })])),
     ];
   }
 

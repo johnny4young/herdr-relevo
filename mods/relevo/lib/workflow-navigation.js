@@ -56,3 +56,18 @@ export function queueSummary(tasks, engine) {
   if (!engine?.enabled || active.every((task) => task.paused)) return { title: "No decisions waiting", detail: "Work is paused. Your decisions are saved; resume a task when you want to continue." };
   return { title: "Work continues", detail: "The coordinator will bring the next result here. You can leave this screen." };
 }
+
+const VERDICT = { completed: 'review approved', changes_requested: 'changes requested', blocked: 'review blocked' };
+const since = (ms, now) => {
+  const s = Math.max(0, Math.floor((now - ms) / 1000));
+  return s < 60 ? 'now' : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`;
+};
+
+// What a reviewer needs before opening a result: who, how far, checks, verdict, age.
+export function resultMeta(task, now = Date.now()) {
+  const review = [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === 'reviewer' && attempt.report);
+  const agents = [task.executor?.label ?? task.executor?.address, task.reviewer?.label ?? task.reviewer?.address].filter(Boolean).join(' → ');
+  const at = Date.parse(review?.at ?? task.attempts?.at(-1)?.at ?? '');
+  return [agents, task.maxRounds ? `round ${task.round ?? 0}/${task.maxRounds}` : null, `checks ${workflowCheckSummary(task).label.toLowerCase()}`,
+    review ? VERDICT[review.report.status] ?? review.report.status : null, Number.isFinite(at) ? since(at, now) : null].filter(Boolean).join(' · ');
+}

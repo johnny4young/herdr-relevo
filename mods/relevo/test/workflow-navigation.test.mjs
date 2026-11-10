@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptanceEffect, queueSummary, workflowCheckSummary, workflowItems } from '../lib/workflow-navigation.js';
+import { acceptanceEffect, queueSummary, resultMeta, workflowCheckSummary, workflowItems } from '../lib/workflow-navigation.js';
 import { missionNextAction } from '../lib/goal-workflow.js';
 
 test('ready decisions appear before historical blockers without hiding or mutating either', () => {
@@ -56,4 +56,14 @@ test('a blocked implementation does not revive prior-round checks and cancellati
   assert.deepEqual(workflowCheckSummary({ checks, checksResult: [{ code: 'ENOENT' }] }), { label: '1 failed · 0/1 passed', tone: 'failure' });
   assert.deepEqual(workflowCheckSummary({ checks, checksResult: [{ code: 'cancelled' }] }), { label: '0/1 passed · incomplete', tone: 'muted' });
   assert.deepEqual(workflowCheckSummary({ checks: [], attempts: [{ role: 'executor', state: 'running' }] }), { label: 'Not configured', tone: 'muted' });
+});
+
+test('result meta names the agents, round, checks, verdict and age', () => {
+  const now = Date.parse('2026-01-01T12:00:00Z');
+  const task = { executor: { label: 'Codex' }, reviewer: { label: 'Claude' }, round: 1, maxRounds: 2, checks: [['npm', 'test']],
+    checksResult: [{ argv: ['npm', 'test'], code: 0 }],
+    attempts: [{ role: 'executor', state: 'reported', report: { status: 'completed' }, at: '2026-01-01T09:00:00Z' },
+      { role: 'reviewer', state: 'reported', report: { status: 'completed' }, at: '2026-01-01T10:00:00Z' }] };
+  assert.equal(resultMeta(task, now), 'Codex → Claude · round 1/2 · checks 1/1 passed · review approved · 2h ago');
+  assert.equal(resultMeta({ attempts: [] }, now), 'checks not configured');
 });

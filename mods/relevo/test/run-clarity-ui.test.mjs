@@ -130,3 +130,9 @@ test('cancelling a change request restores window focus so Escape can close it',
   assert.ok(fake.closedOverlays.includes('o'));
   assert.equal(fake.execs.length, 0); view.close();
 });
+
+test('a ready result card carries its meta line', async () => {
+  const { view, cx } = await load(Inbox, newGoal('g', 'Search'), [{ ...task, executor: { label: 'Codex' }, reviewer: { label: 'Claude' } }]);
+  const tree = view.render(cx);
+  assert.match(text(find(tree, 'meta-result-t')), /^Codex → Claude · round 1\/3/);
+});
