@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
-import { agents, panes, props, theme, exec, appHome, readTextFile, run, focused, shared, setShared } from "herdr";
+import { agents, panes, props, theme, exec, appHome, readTextFile, run, focused, shared, setShared, closeOverlay } from "herdr";
 import { button, onSubmitChord } from "./ui.js";
 import { openReview } from "./review.js";
 import { focusedCwd } from "./panelbar.js";
@@ -988,7 +988,7 @@ export class Workflow extends WorkflowDraftView {
           .child(button(t, "workflow-focus-queue", "?", (cx) => this.toggleHelp(cx), { tip: "Search keyboard shortcuts for this window", accessibleLabel: "Keyboard help" }))
           .when(Boolean(task), (el) => el.child(button(t, "workflow-task-tools", "Tools", (cx) => this.openTools(cx), { selected: this.tab === "Tools", tip: "T: find a skill, session or task action" })))
           .child(button(t, "workflow-tools-toggle", this.showTools ? "Hide settings" : "Settings", (cx) => { this.showTools = !this.showTools; cx.notify(); }, { tip: "Automation controls and saved preferences", selected: Boolean(this.showTools) }))
-          .when(Boolean(this.pane), (el) => el.child(button(t, "workflow-close", "Close", () => run("pane.close", { pane: this.pane }))))))
+          .when(Boolean(this.pane || props()?.overlay), (el) => el.child(button(t, "workflow-close", "Close", () => this.pane ? run("pane.close", { pane: this.pane }) : closeOverlay(props().overlay))))))
       .when(this.showTools, (el) => el.child(h_flex().gap(6)
         .child(button(t, "workflow-tab-Preferences", "Preferences", (cx) => { this.tab = "Preferences"; this.h.focus(); cx.notify(); }, { tip: "5: manage guidance for future work" }))
         .when(Boolean(this.engine?.enabled), (controls) => controls.child(button(t, "workflow-engine-stop", "Pause automation", (cx) => this.command({ action: "stop" }, cx), { disabled: this.busy, tip: "Stop future dispatches across every goal; current agent sessions keep running" })))))

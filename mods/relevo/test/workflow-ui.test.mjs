@@ -620,3 +620,10 @@ test('a run pane registers itself, is reused when opened again and closes with i
   assert.deepEqual(fake.runs.at(-1), ['pane.close', { pane: 'run-pane' }]);
   v.close(); assert.deepEqual(fake.stored['relevo.runs.open'], {});
 });
+
+test('a run window left open from an earlier version can still be closed', async () => {
+  fake.props = { goalId: 'g', overlay: 'old-window' };
+  const v = new Workflow(), cx = fakeCx(); v.init({}, cx); await flush();
+  click(find(v.render(), 'workflow-close'), cx);
+  assert.deepEqual(fake.closedOverlays, ['old-window']); v.close();
+});
