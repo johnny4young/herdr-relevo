@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
-import { agents, panes, props, theme, openOverlay, closeOverlay, exec, appHome, readTextFile, run } from "herdr";
+import { agents, panes, props, theme, closeOverlay, exec, appHome, readTextFile, run } from "herdr";
 import { button, overlayHeight } from "./ui.js";
 import { openReview } from "./review.js";
 import { focusedCwd } from "./panelbar.js";
@@ -10,20 +10,14 @@ import { linkedDecision } from "./lib/goal-workflow.js";
 import { readGoals } from "./goals-store.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { ShortcutHelp } from "./shortcut-help.js";
-
-export function openWorkflow(goalId, taskId = null) {
-  // Herdr dialogs consume Escape before mod handlers. A keyed window lets
-  // Workflow return focus from an input without discarding its draft.
-  // Fit content to avoid the host's fixed-height cache path omitting AX nodes.
-  // The rendered root supplies a viewport-bounded height instead.
-  openOverlay({ mod: "relevo", kind: "window", key: `relevo-workflow-${goalId}${taskId ? `-${taskId}` : ""}`, width: 0.6, props: { role: "workflow", goalId, ...(taskId ? { taskId } : {}) } });
-}
+export { openWorkflow } from "./workflow-window.js";
 
 const STATES = { planned: "Planned", ready: "Ready", running: "In progress", needs_review: "Needs review", needs_you: "Needs you", accepted: "Completed", completed: "Completed", blocked: "Blocked", failed: "Failed", cancelled: "Cancelled" };
 const row = (t, value) => div().w_full().min_w(0).text_size(13).text_color(t.muted).child(value);
 const taskState = (state) => STATES[state] ?? state ?? "Unknown";
 const reportState = (state) => ({ completed: "Completed", changes_requested: "Changes requested", blocked: "Blocked" }[state] ?? taskState(state));
 const caption = (value, limit = 42) => value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
+const SUMMARY_PREVIEW = 1200;
 const TABS = ["Overview", "Changes", "Evidence", "Activity", "Preferences"];
 const WINDOW_SHORTCUTS = [
   ...TABS.map((tab, index) => ({ id: `view-${tab}`, label: ["Decision / summary", "Result / findings", "Evidence", "Activity", "Preferences"][index], fixedShortcut: String(index + 1), section: "Run window" })),
@@ -567,6 +561,7 @@ export class Workflow extends WorkflowDraftView {
           .when(!this.busy && !changes, (el) => el.bg(t.accent).text_color(t.accent_foreground)))
         .child(button(t, "workflow-decide-changes", "Request changes", (cx) => this.editDecisionNote(task, true, cx),
           { size: "lg", disabled: this.busy, tip: "R: describe what needs to change. Command/Ctrl+Enter sends the feedback." }))
+        .child(button(t, "workflow-decision-diff", "Open diff", (cx) => this.openDiff(task, cx), { size: "sm", disabled: this.busy || !task.root }))
         .child(button(t, "workflow-decide-defer", "Decide later", (cx) => submit("defer", cx),
           { size: "sm", disabled: this.busy, tip: "Keep the result pending and pause further work" })))
       .child(div().text_size(11).text_color(t.muted).child(acceptanceEffect(task, this.tasks ?? [], this.engine)))
@@ -617,10 +612,13 @@ export class Workflow extends WorkflowDraftView {
   }
 
   overview(t, task, cx) {
-    const latest = (role) => [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === role && attempt.report)?.report;
-    const implementation = latest("executor"), review = latest("reviewer");
+    const reportedAttempt = (role) => [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === role && attempt.report);
+    const implementationAttempt = reportedAttempt("executor"), reviewAttempt = reportedAttempt("reviewer");
+    const implementation = implementationAttempt?.report, review = reviewAttempt?.report;
     const blocked = ["blocked", "failed"].includes(task.state);
     const primaryReport = blocked && review ? review : implementation;
+    const primaryId = (blocked && review ? reviewAttempt : implementationAttempt)?.id;
+    const summary = primaryReport?.summary ?? "Report available", longSummary = summary.length > SUMMARY_PREVIEW, summaryOpen = Boolean(this.expandedReports?.[primaryId]);
     const latestAttempt = task.attempts?.at(-1);
     const unresolvedAttempt = latestAttempt?.state === "running" || ["uncertain", "sending"].includes(latestAttempt?.delivery);
     const followUpAvailable = blocked && !unresolvedAttempt && ((task.round ?? 0) >= (task.maxRounds ?? 2) ||
@@ -646,7 +644,9 @@ export class Workflow extends WorkflowDraftView {
       ]))
       .when(this.decisionNoteFor !== task.id && Boolean(primaryReport), (el) => el.child(v_flex().gap(5)
         .child(div().text_size(11).text_color(t.muted).child(blocked && review ? "LATEST REVIEW FINDINGS" : "AGENT SUMMARY"))
-        .child(row(t, caption(primaryReport.summary ?? "Report available", 240)))))
+        .child(row(t, longSummary && !summaryOpen ? caption(summary, SUMMARY_PREVIEW) : summary))
+        .when(longSummary, (el) => el.child(button(t, "workflow-summary-toggle", summaryOpen ? "Show less" : "Read full report",
+          (cx) => { this.expandedReports ??= {}; this.expandedReports[primaryId] = !summaryOpen; cx.notify(); }, { size: "sm" })))))
       .when(followUpAvailable, (el) => el
         .child(button(t, "workflow-prepare-follow-up", "Prepare follow-up", (context) => this.prepareBlockedFollowUp(task, context),
           { kind: "solid", tip: "Prefill a new task with current findings and bounded settings; nothing is sent until you create and start it" })))
@@ -700,11 +700,7 @@ export class Workflow extends WorkflowDraftView {
   changes(t, task) {
     const latest = ["executor", "reviewer"].map((role) => [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === role && attempt.report)).filter(Boolean);
     return v_flex().w_full().min_w(0).gap(9)
-      .child(button(t, "workflow-review-diff", "Open native diff review", (cx) => {
-        const overlay = props()?.overlay;
-        cx.spawn(async (cx) => { try { await openReview(task.root, task.executor?.address); closeOverlay(overlay); }
-          catch (error) { if (!this.closed) { this.error = String(error.message ?? error); cx.notify(); } } });
-      }, { disabled: !task.root, tip: "Review changes in this task checkout" }))
+      .child(button(t, "workflow-review-diff", "Open diff", (cx) => this.openDiff(task, cx), { disabled: !task.root }))
       .child(div().font_semibold().child("Observed checks"))
       .when(!task.checksResult?.length, (el) => el.child(row(t, "No checks recorded for this task.")))
       .children((task.checksResult ?? []).map((check, index) => v_flex().w_full().min_w(0).gap(3)
@@ -740,6 +736,15 @@ export class Workflow extends WorkflowDraftView {
           `workflow-attach-${kind}`, `Attach ${kind}`, (context) => this.command({ action: "attach", taskId: task.id,
             source: this.form.path.value().trim(), kind, label: this.form.label.value().trim() || kind }, context),
           { disabled: this.busy || !this.form.path.value().trim(), tip: `Record a local ${kind} attachment` }))))));
+  }
+
+  // The diff is a pane under this window; it offers Back to decision for this task.
+  openDiff(task, cx) {
+    const overlay = props()?.overlay;
+    cx.spawn(async (cx) => {
+      try { await openReview(task.root, task.executor?.address, null, { goalId: task.goalId, taskId: task.id }); closeOverlay(overlay); }
+      catch (error) { if (!this.closed) { this.error = String(error.message ?? error); cx.notify(); } }
+    });
   }
 
   openTools(cx) {

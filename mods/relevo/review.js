@@ -7,6 +7,7 @@ import { ago } from "./lib/time.js";
 import { launchInRepo } from "./accounts.js";
 import { accountFor } from "./context.js";
 import { baseBranch } from "./worktrees.js";
+import { openWorkflow } from "./workflow-window.js";
 import { GIT_READ as READ } from "./lib/git.js";
 import { diffRows, lineKey, selectRange, lineComment, fileComment, commentId, rangeRows, reviewMessage } from "./lib/diff.js";
 
@@ -63,13 +64,13 @@ function agentIn(root) {
 
 // Without `pr` it reviews the uncommitted changes; with `pr` ({repo, number, url, base, head, ref}) the whole PR
 // against its base: the checkout's working tree, or the branch `ref` itself when it isn't checked out anywhere.
-export async function openReview(root = focusedCwd(), terminal = null, pr = null) {
+export async function openReview(root = focusedCwd(), terminal = null, pr = null, back = null) {
   if (!root) return;
   const top = (await exec("git", ["rev-parse", "--show-toplevel"], { cwd: root })).stdout.trim();
   if (!top) return notify({ title: "Not a git repository", level: "info" });
   const pane = shared(OPEN)?.[reviewKey(top, pr)];
   if (pane && panes().some((p) => p.pane === pane)) return run("pane.focus", { pane });
-  run("pane.split", { direction: "right", mod: "relevo", props: { role: "review-diff", root: top, terminal, pr } });
+  run("pane.split", { direction: "right", mod: "relevo", props: { role: "review-diff", root: top, terminal, pr, ...(back ? { back } : {}) } });
 }
 
 const reviewKey = (root, pr) => (pr ? `${root}#${pr.number}` : root);
@@ -86,6 +87,7 @@ export class ReviewDiff {
     this.root = p.root ?? null;
     this.terminal = p.terminal ?? null;
     this.pr = p.pr ?? null;
+    this.back = p.back ?? null;
     // Open panes and unsent comments are kept per checkout, and per PR when reviewing one.
     this.key = reviewKey(this.root, this.pr);
     // Without a PR: "uncommitted", or "all" for the branch's commits too; "pr" with one; "seen" since the mark.
@@ -420,6 +422,7 @@ export class ReviewDiff {
   header(t) {
     return v_flex().flex_none().px(12).py(6).gap(6).border_b(1).border_color(t.border)
       .child(h_flex().gap(8).items_center()
+      .when(Boolean(this.back), (el) => el.child(button(t, "rv-back-decision", "← Back to decision", () => openWorkflow(this.back.goalId, this.back.taskId), { size: "sm" })))
       .child(div().font_semibold().child("Review"))
       .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim)
         .child(this.pr

@@ -554,3 +554,19 @@ test('Save for later creates without starting', async () => {
   assert.equal(payload.action, 'create'); assert.equal(payload.start, undefined);
   v.close();
 });
+
+test('the decision shows the whole agent summary behind one toggle and opens the diff with a way back', async () => {
+  const long = `${'Detail. '.repeat(200)}Final line`;
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [{ id: 't', goalId: 'g', title: 'Result', state: 'needs_you', revision: 'r1', root: '/work/app',
+    executor: { address: 'agent:one' }, reviewer: { address: 'agent:two' }, checks: [], checksResult: [], evidence: [], round: 1, maxRounds: 2,
+    attempts: [{ id: 'a1', role: 'executor', state: 'reported', report: { status: 'completed', summary: long } }] }], events: [], preferences: [], engine: { enabled: false } });
+  const { v, cx } = await setup();
+  assert.doesNotMatch(text(v.render()), /Final line/);
+  click(find(v.render(), 'workflow-summary-toggle'), cx);
+  assert.match(text(v.render()), /Final line/);
+  fake.exec = async (cmd) => ({ stdout: cmd === 'git' ? '/work/app\n' : '' });
+  click(find(v.render(), 'workflow-decision-diff'), cx); await flush();
+  const split = fake.runs.find(([name]) => name === 'pane.split');
+  assert.deepEqual(split[1].props.back, { goalId: 'g', taskId: 't' });
+  v.close();
+});

@@ -63,3 +63,16 @@ test('sending remains disabled while a saved comment has an unfinished edit', ()
   assert.equal(find(v.render(), 'rv-send').isDisabled, true); v.cancelEdit(cx);
   assert.equal(find(v.render(), 'rv-send').isDisabled, false); assert.deepEqual(fake.execs, []); v.close();
 });
+
+test('a diff opened from a run decision offers Back to decision for that task', () => {
+  fake.props = { root: '/work/app', back: { goalId: 'g', taskId: 't' } };
+  const v = new ReviewDiff(), cx = fakeCx(); v.init({}, cx);
+  click(find(v.render(), 'rv-back-decision'), cx);
+  assert.equal(fake.overlays.at(-1).key, 'relevo-workflow-g-t');
+  assert.equal(fake.overlays.at(-1).props.taskId, 't');
+  v.close();
+  fake.props = { root: '/work/app' };
+  const plain = new ReviewDiff(); plain.init({}, fakeCx());
+  assert.equal(find(plain.render(), 'rv-back-decision'), null);
+  plain.close();
+});
