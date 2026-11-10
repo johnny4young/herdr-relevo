@@ -589,3 +589,19 @@ test('Command-Enter from the prompt or the change request field acts like the sh
   assert.equal(payloads.at(-1).action, 'decide'); assert.equal(payloads.at(-1).outcome, 'changes');
   second.v.close();
 });
+
+test('agents are named by program and tab, not their changing terminal title, and a preloaded setup stays folded', async () => {
+  const { newGoal, saveGoal, emptyGoals } = await import('../lib/goals.js');
+  fake.focused = { cwd: '/work/lab' }; fake.panes = [{ cwd: '/work/lab' }];
+  fake.agents = [
+    { address: 't1', title: 'lab | main | Ready', tab_name: '1', program: { name: 'Codex' }, status: 'idle', cwd: '/work/lab' },
+    { address: 't2', title: 'Review task setup', tab_name: 'Review · Team Haiku', program: { name: 'Claude Code' }, status: 'idle', cwd: '/work/lab' },
+  ];
+  fake.files['/home/test/.config/herdr-app/relevo-goals.json'] = JSON.stringify(saveGoal(emptyGoals(), { ...newGoal('g', 'Check'), criteria: 'Check' }, 0));
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [{ id: 'old', goalId: 'other', title: 'Earlier', state: 'accepted', root: '/work/lab',
+    executor: { address: 't1' }, reviewer: { address: 't2' }, checks: [['node', '--test']], maxRounds: 2, maxMinutes: 5 }], events: [], preferences: [], engine: { enabled: false } });
+  const { v } = await setup();
+  assert.match(text(find(v.render(), 'workflow-task-setup')), /^lab · Codex → Claude Code · Review · Team Haiku$/);
+  assert.equal(v.taskAdvancedOpen, false);
+  v.close();
+});

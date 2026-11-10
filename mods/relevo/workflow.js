@@ -18,6 +18,12 @@ const taskState = (state) => STATES[state] ?? state ?? "Unknown";
 const reportState = (state) => ({ completed: "Completed", changes_requested: "Changes requested", blocked: "Blocked" }[state] ?? taskState(state));
 const caption = (value, limit = 42) => value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 const SUMMARY_PREVIEW = 1200;
+// A terminal title follows the agent's state; the program and a named tab stay put.
+const agentLabel = (agent) => {
+  const name = agent.program?.name || agent.title || agent.app || agent.address;
+  const tab = agent.tab_name && !/^\d+$/.test(agent.tab_name) ? agent.tab_name : null;
+  return !tab ? name : tab.includes(name) ? tab : `${name} · ${tab}`;
+};
 const TABS = ["Overview", "Changes", "Evidence", "Activity", "Preferences"];
 const WINDOW_SHORTCUTS = [
   ...TABS.map((tab, index) => ({ id: `view-${tab}`, label: ["Decision / summary", "Result / findings", "Evidence", "Activity", "Preferences"][index], fixedShortcut: String(index + 1), section: "Run window" })),
@@ -234,8 +240,8 @@ export class Workflow extends WorkflowDraftView {
     }
     this.command({ action: "create", task: {
       goalId: this.goalId, title, root, criteria,
-      executor: { address: executor.address, label: executor.title || executor.address },
-      reviewer: { address: reviewer.address, label: reviewer.title || reviewer.address },
+      executor: { address: executor.address, label: agentLabel(executor) },
+      reviewer: { address: reviewer.address, label: agentLabel(reviewer) },
       checks, dependsOn, maxRounds, maxMinutes,
     }, ...(start ? { start: true } : {}) }, cx, (response) => {
       if (JSON.stringify(this.taskDraftSnapshot()) !== submittedFields) {
@@ -294,8 +300,8 @@ export class Workflow extends WorkflowDraftView {
     const executor = executorChoice?.agent, reviewer = reviewerChoice?.agent;
     this.executor = executor?.address ?? "";
     this.reviewer = reviewer && reviewer.address !== this.executor ? reviewer.address : "";
-    this.setupReuseWarning = [!executor ? `Implementer “${task.executor?.label ?? task.executor?.address ?? "unknown"}” is unavailable` : executorChoice.verifyRoot ? `Verify implementer repository for ${executor.title || executor.address}` : null,
-      !reviewer || reviewer.address === this.executor ? `Reviewer “${task.reviewer?.label ?? task.reviewer?.address ?? "unknown"}” is unavailable` : reviewerChoice.verifyRoot ? `Verify reviewer repository for ${reviewer.title || reviewer.address}` : null]
+    this.setupReuseWarning = [!executor ? `Implementer “${task.executor?.label ?? task.executor?.address ?? "unknown"}” is unavailable` : executorChoice.verifyRoot ? `Verify implementer repository for ${agentLabel(executor)}` : null,
+      !reviewer || reviewer.address === this.executor ? `Reviewer “${task.reviewer?.label ?? task.reviewer?.address ?? "unknown"}” is unavailable` : reviewerChoice.verifyRoot ? `Verify reviewer repository for ${agentLabel(reviewer)}` : null]
       .filter(Boolean).join(". ");
     this.form.maxRounds.set_value(String(task.maxRounds ?? 2));
     this.form.maxMinutes.set_value(String(task.maxMinutes ?? 20));
@@ -303,7 +309,7 @@ export class Workflow extends WorkflowDraftView {
     if (!checks.length) { this.checkPreset = "none"; this.form.checks.set_value(""); }
     else if (checks.length === 1 && checks[0]?.length === 2 && checks[0][0] === "npm" && checks[0][1] === "test") { this.checkPreset = "npm-test"; this.form.checks.set_value(""); }
     else { this.checkPreset = "custom"; this.form.checks.set_value(JSON.stringify(checks)); }
-    this.taskSetupOpen = !quiet || !this.executor || !this.reviewer; this.taskAdvancedOpen = this.checkPreset === "custom";
+    this.taskSetupOpen = !quiet || !this.executor || !this.reviewer; this.taskAdvancedOpen = !quiet && this.checkPreset === "custom";
     this.setupReuseNotice = quiet ? null : "Previous setup applied. Review repository and agents before creating.";
     cx.notify();
   }
@@ -381,7 +387,7 @@ export class Workflow extends WorkflowDraftView {
       const shortPath = cwd && cwd.length > 32 ? `…${cwd.slice(-30)}` : cwd;
       const cwdLabel = shortPath ? ` · ${shortPath}` : " · cwd unknown (server will check)";
       const detail = `${agent.title || agent.address} · ${agent.address}${agent.tab_name ? ` · ${agent.tab_name}` : ""}${cwd ? ` · ${cwd}` : " · cwd unknown; server will check"}`;
-      const fullCaption = `${agent.title || agent.address} · ${agent.address}${agent.tab_name ? ` · ${agent.tab_name}` : ""}${cwdLabel}`;
+      const fullCaption = `${agentLabel(agent)}${cwdLabel}`;
       return { agent, cwd, caption: caption(fullCaption), detail };
     }).filter(({ cwd, detail }) => (!selectedRoot || !cwd || cwd === selectedRoot) && (!query || detail.toLowerCase().includes(query)));
     return v_flex().w_full().min_w(0).gap(4).child(row(t, label))
@@ -414,7 +420,7 @@ export class Workflow extends WorkflowDraftView {
     const previousCheckLabel = !previousChecks.length ? "No automated checks"
       : previousChecks.length === 1 && previousChecks[0]?.length === 2 && previousChecks[0][0] === "npm" && previousChecks[0][1] === "test" ? "npm test" : "Custom checks";
     const previousRootName = previousSetup?.root?.split("/").filter(Boolean).at(-1) || "Unknown repository";
-    const agentName = (address) => { const agent = agents().find((item) => item.address === address); return agent ? agent.title || agent.address : null; };
+    const agentName = (address) => { const agent = agents().find((item) => item.address === address); return agent ? agentLabel(agent) : null; };
     const rootName = this.form.root.value().trim().split("/").filter(Boolean).at(-1);
     const setupLabel = chosen === 2 ? [rootName, `${agentName(this.executor)} → ${agentName(this.reviewer)}`].filter(Boolean).join(" · ") : `Repository & agents · ${chosen}/2 selected`;
     return v_flex().w_full().min_w(0).gap(12)
