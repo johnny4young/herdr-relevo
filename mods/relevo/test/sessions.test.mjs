@@ -111,9 +111,8 @@ test("a running session only hides the copy in its own account", async () => {
   assert.equal(fake.runs.at(-1)[1].argv[2], `${ACCOUNTS[1].launcher} --resume "$1"`);
 });
 
-
-test("the session detail shell keeps account copies separate, with spaces in their paths", async (t) => {
-  const root = mkdtempSync(join(tmpdir(), "relevo sessions "));
+test("the session detail shell keeps account copies separate, with spaces and pipes in their paths", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "relevo sessions | "));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const project = join(root, "app");
   mkdirSync(project);
@@ -137,15 +136,31 @@ test("the session detail shell keeps account copies separate, with spaces in the
   ]);
 });
 
-
 test("an account directory with a trailing slash still hides its running session", async (t) => {
   const original = ACCOUNTS[0].claudeDir;
   t.after(() => { ACCOUNTS[0].claudeDir = original; });
   ACCOUNTS[0].claudeDir = original + "/";
+  const other = ACCOUNTS[1].key;
+  const index = `${ACCT}\t200\t/r/app\t${id(5)}\n${other}\t100\t/r/app\t${id(5)}`;
+  const details = `${ACCT}/${id(5)}\t"file":true\n${other}/${id(5)}\t"file":true`;
+  fake.exec = (_cmd, args) => ({ stdout: args[1].includes("sessionId") ? index : args[1].includes("customTitle") ? details : "" });
 
   const { view } = await finder();
 
-  assert.ok(!view.rows().some((r) => r.id === id(5)));
+  assert.deepEqual(view.rows().map((r) => [r.account, r.id]), [[other, id(5)]]);
+});
+
+test("accounts that share a config dir all hide its running session", async (t) => {
+  const original = ACCOUNTS[1].claudeDir;
+  t.after(() => { ACCOUNTS[1].claudeDir = original; });
+  ACCOUNTS[1].claudeDir = ACCOUNTS[0].claudeDir;
+  const index = `${ACCT}\t200\t/r/app\t${id(5)}\n${ACCOUNTS[1].key}\t100\t/r/app\t${id(5)}`;
+  const details = `${ACCT}/${id(5)}\t"file":true\n${ACCOUNTS[1].key}/${id(5)}\t"file":true`;
+  fake.exec = (_cmd, args) => ({ stdout: args[1].includes("sessionId") ? index : args[1].includes("customTitle") ? details : "" });
+
+  const { view } = await finder();
+
+  assert.deepEqual(view.rows(), []);
 });
 
 test("a running transcript outside the configured roots is never offered for resume", async () => {

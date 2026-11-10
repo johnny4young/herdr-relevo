@@ -18,7 +18,7 @@ const INDEX = 'for s; do k=${s%%|*}; f=${s#*|}; [ -f "$f" ] || continue; '
 
 // Titles, branch and PR from the end of each session file, where Claude keeps rewriting them. BSD grep
 // takes at most 255 repeats, so a long prompt arrives cut and without its closing quote.
-const DETAILS = 'for s; do k=${s%%|*}; s=${s#*|}; d=${s%%|*}; id=${s#*|}; key="$k/$id"; for f in "$d"/projects/*/"$id".jsonl; do [ -f "$f" ] || continue; '
+const DETAILS = 'for s; do k=${s%%|*}; id=${s##*|}; d=${s#*|}; d=${d%|*}; key="$k/$id"; for f in "$d"/projects/*/"$id".jsonl; do [ -f "$f" ] || continue; '
   + 'printf \'%s\\t"file":true\\n\' "$key"; tail -c 262144 "$f" | LC_ALL=C grep -oE \'"(customTitle|lastPrompt|gitBranch)":"([^"\\\\]|\\\\.){0,200}"?|"prNumber":[0-9]+\' '
   + '| awk -v id="$key" \'{ print id "\\t" $0 }\'; done; done';
 
@@ -49,14 +49,17 @@ export class SessionFinder {
     cx.spawn(async (cx) => {
       const specs = ACCOUNTS.filter((a) => a.claudeDir).map((a) => `${a.key}|${home()}/${a.claudeDir}/history.jsonl`);
       const r = await exec("sh", ["-c", INDEX, "sh", ...specs]);
+      // Keyed by config dir, so accounts sharing one hide the same copy.
+      const rootOf = (a) => `${home()}/${a.claudeDir.replace(/\/+$/, "")}`;
+      const roots = ACCOUNTS.filter((a) => a.claudeDir).map(rootOf);
       const running = new Set(terminals().map((k) => {
         const transcript = k.labels?.["agent.transcript"] ?? "";
-        const account = ACCOUNTS.find((a) => a.claudeDir && transcript.startsWith(`${home()}/${a.claudeDir.replace(/\/+$/, "")}/projects/`));
         const id = /([0-9a-f-]{36})\.jsonl$/i.exec(transcript)?.[1];
         // An unrecognized path still hides that id rather than offering an active conversation.
-        return id ? keyOf({ account: account?.key ?? "*", id }) : null;
+        return id ? `${roots.find((d) => transcript.startsWith(`${d}/projects/`)) ?? "*"}/${id}` : null;
       }).filter(Boolean));
-      this.all = parseIndex(r.stdout ?? "").filter((s) => !running.has(keyOf(s)) && !running.has(`*/${s.id}`));
+      this.all = parseIndex(r.stdout ?? "")
+        .filter((s) => !running.has(`${rootOf(accountOf(s.account))}/${s.id}`) && !running.has(`*/${s.id}`));
       await this.loadDetails(cx);
     });
   }
