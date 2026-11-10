@@ -108,11 +108,13 @@ Use the installed Herdr executable if `herdr-app` is not on PATH. `check` does n
 
 ## Deployment and original-version rollback
 
-Use the [installer instructions](decision-inbox.md#try-in-the-current-herdr-session). Discover the existing backup manifest locally and verify installed hashes before replacing code. Restore the previous candidate to its originals before installing a new candidate if the fresh backup must directly restore pre-PR code. Otherwise document the entire backup chain. Never overwrite a backup directory.
+Use the [installer instructions](decision-inbox.md#try-in-the-current-herdr-session). Discover the existing backup manifest locally and verify installed hashes before replacing code. For subsequent candidates, use `update` with that original backup: it retains the baseline and only writes changed files. Do not roll back and reinstall the whole candidate on every iteration. New independent installations still need a fresh backup directory; preserve existing backup chains.
 
 ```sh
 # BACKUP is the verified local backup directory, not a path copied from another session.
 node scripts/live-relevo.mjs verify-installed --backup "$BACKUP"
+# After validating a newer candidate:
+node scripts/live-relevo.mjs update --backup "$BACKUP"
 # Only when intentionally restoring:
 node scripts/live-relevo.mjs rollback --backup "$BACKUP"
 node scripts/live-relevo.mjs verify-original --backup "$BACKUP"

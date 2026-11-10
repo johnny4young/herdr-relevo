@@ -76,6 +76,73 @@ export function deploy(source, target, backup, options = {}) {
   }
   return verify(backup, true);
 }
+export function update(source, backup, options = {}) {
+  source = path.resolve(source); backup = path.resolve(backup);
+  const manifestPath = path.join(backup, 'manifest.json');
+  const manifest = load(backup);
+  const target = manifest.target;
+  if (!fs.statSync(target).isDirectory() || fs.lstatSync(target).isSymbolicLink()) throw Error('Expected an existing mod directory');
+
+  const candidates = new Map(files(source)
+    .filter((rel) => /\.(?:m?js)$/.test(rel) && path.basename(rel) !== 'config.js')
+    .map((rel) => [rel, fs.readFileSync(path.join(source, rel))]));
+  const rels = [...new Set([...Object.keys(manifest.files), ...candidates.keys()])]
+    .sort((a, b) => Number(a === 'main.js') - Number(b === 'main.js') || a.localeCompare(b));
+  const plan = [];
+  for (const rel of rels) {
+    const dest = confined(target, rel), existing = manifest.files[rel];
+    const actual = digest(dest);
+    const bytes = candidates.get(rel);
+    const candidateHash = bytes ? crypto.createHash('sha256').update(bytes).digest('hex') : null;
+    if (!existing && actual !== null && actual !== candidateHash) throw Error(`Refusing to replace untracked file: ${rel}`);
+    const original = existing ? existing.original : actual;
+    const prior = existing ? [...new Set([...(existing.acceptedInstalled ?? []), existing.installed, existing.original])] : [actual];
+    if (!prior.includes(actual)) throw Error(`Local edit detected; refusing update: ${rel}`);
+    const expectedMode = existing ? (existing.originalMode ?? 0o644) : (actual === null ? null : fs.statSync(dest).mode & 0o777);
+    if (actual !== null && (fs.statSync(dest).mode & 0o777) !== expectedMode) throw Error(`Local mode change detected; refusing update: ${rel}`);
+    if (existing && original !== null && digest(path.join(backup, 'original', rel)) !== original) throw Error(`Backup checksum mismatch: ${rel}`);
+    const desired = bytes ? candidateHash : original;
+    const acceptedInstalled = [...new Set([...prior, desired])];
+    plan.push({ rel, dest, actual, bytes, desired, existing, original, acceptedInstalled });
+  }
+
+  for (const item of plan) {
+    if (!item.existing && item.original !== null) {
+      atomic(path.join(backup, 'original', item.rel), fs.readFileSync(item.dest));
+      item.originalMode = fs.statSync(item.dest).mode & 0o777;
+    }
+  }
+
+  // Commit the recovery hashes first. If interrupted while files are replaced,
+  // rollback still recognizes either the old managed version or the candidate.
+  for (const item of plan) {
+    manifest.files[item.rel] = {
+      original: item.original,
+      originalMode: item.existing ? item.existing.originalMode : item.originalMode ?? null,
+      installed: item.desired,
+      acceptedInstalled: item.acceptedInstalled,
+    };
+  }
+  if (plan.some((item) => item.actual !== item.desired)) {
+    stopCoordinator(options.appHome ?? path.dirname(path.dirname(target)), target, options.stopOptions);
+  }
+  atomic(path.join(backup, 'rollback.mjs'), fs.readFileSync(fileURLToPath(import.meta.url)));
+  atomic(manifestPath, JSON.stringify(manifest, null, 2));
+  const writeTarget = options.writeTarget ?? atomic;
+  for (const item of plan) {
+    const current = digest(item.dest);
+    if (current === item.desired) continue;
+    if (current !== item.actual) throw Error(`Concurrent edit; refusing update: ${item.rel}`);
+    if (item.desired === null) {
+      if (fs.existsSync(item.dest)) fs.unlinkSync(item.dest);
+    } else if (item.bytes) {
+      writeTarget(item.dest, item.bytes, item.existing?.originalMode ?? item.originalMode ?? 0o644);
+    } else {
+      writeTarget(item.dest, fs.readFileSync(path.join(backup, 'original', item.rel)), item.existing.originalMode ?? 0o644);
+    }
+  }
+  return verify(backup, true);
+}
 function load(backup) {
   const m = JSON.parse(fs.readFileSync(path.join(backup, 'manifest.json'), 'utf8'));
   if (m.version !== 1 || !path.isAbsolute(m.target) || !m.files) throw Error('Invalid manifest');
@@ -94,14 +161,16 @@ export function rollback(backup, options = {}) {
   const m = load(backup);
   stopCoordinator(options.appHome ?? path.dirname(path.dirname(m.target)), m.target, options.stopOptions);
   for (const [rel, hashes] of Object.entries(m.files)) {
-    if (![hashes.installed, hashes.original].includes(digest(confined(m.target, rel)))) throw Error(`New local edit preserved; resolve before rollback: ${rel}`);
+    if (![hashes.installed, hashes.original, ...(hashes.acceptedInstalled ?? [])].includes(digest(confined(m.target, rel)))) throw Error(`New local edit preserved; resolve before rollback: ${rel}`);
     if (hashes.original !== null && digest(path.join(backup, 'original', rel)) !== hashes.original) throw Error(`Backup checksum mismatch: ${rel}`);
   }
   const entries = Object.keys(m.files).sort((a, b) => Number(a !== 'main.js') - Number(b !== 'main.js') || Number(m.files[a].original === null) - Number(m.files[b].original === null));
   for (const rel of entries) {
     const dest = confined(m.target, rel);
     if (m.files[rel].original === null) { if (fs.existsSync(dest)) fs.unlinkSync(dest); }
-    else atomic(dest, fs.readFileSync(path.join(backup, 'original', rel)), m.files[rel].originalMode ?? 0o644);
+    else if (digest(dest) !== m.files[rel].original || (fs.statSync(dest).mode & 0o777) !== (m.files[rel].originalMode ?? 0o644)) {
+      atomic(dest, fs.readFileSync(path.join(backup, 'original', rel)), m.files[rel].originalMode ?? 0o644);
+    }
   }
   return verify(backup);
 }
@@ -114,9 +183,10 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
     if (!backup) throw Error('--backup is required');
     let n;
     if (command === 'install') n = deploy(options['--source'] ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../mods/relevo'), options['--target'] ?? path.join(os.homedir(), '.config/herdr-app/mods/relevo'), backup);
+    else if (command === 'update') n = update(options['--source'] ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../mods/relevo'), backup);
     else if (command === 'rollback') n = rollback(backup);
     else if (['verify-installed', 'verify-original'].includes(command)) n = verify(backup, command === 'verify-installed');
-    else throw Error('Use install, rollback, verify-installed or verify-original');
+    else throw Error('Use install, update, rollback, verify-installed or verify-original');
     console.log(JSON.stringify({ action: command, verifiedFiles: n, backup }));
   } catch (e) { console.error(e.message); process.exitCode = 1; }
 }

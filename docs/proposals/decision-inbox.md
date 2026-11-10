@@ -26,7 +26,7 @@ node scripts/live-relevo.mjs install --backup "$HOME/relevo-backups/decision-inb
 
 Use a **new backup path for each installation**. The installer verifies copied bytes, saves original checksums, and creates a standalone `rollback.command` inside that backup. It changes JavaScript files in `mods/relevo` only; it excludes `config.js`, tests, icons, other mods, layouts, keys and session files. Close any goal editor before changing versions. Mods reload in place.
 
-In Inbox choose **Goals**, then **+ Goal**, or **Link goal** on a work card. All existing direct actions remain available. The following app commands offer the same entry points:
+In Inbox choose **Missions**, then **+ Mission**, or **Link goal** on a work card. All existing direct actions remain available. The following app commands offer the same entry points:
 
 ```sh
 herdr-app do relevo.goals
@@ -36,16 +36,27 @@ herdr-app do relevo.goal-new
 herdr-app do "relevo.goal-<goal-id>"
 ```
 
+## Update the candidate
+
+Keep the backup created by the first installation. After validating the new candidate, close editors with unsaved drafts and run:
+
+```sh
+node scripts/live-relevo.mjs update --backup "$HOME/relevo-backups/decision-inbox-original"
+node scripts/live-relevo.mjs verify-installed --backup "$HOME/relevo-backups/decision-inbox-original"
+```
+
+Update preserves the original rollback bytes and replaces only changed candidate files. It refuses unrecognized local content or permission changes and never copies `config.js`. A file removed from the candidate returns to its original content or is removed if it was introduced by the candidate. Recovery metadata records managed versions before replacement so an interrupted update can still roll back. Review untracked files that differ before updating; do not overwrite them to force installation. A no-op update does not stop the coordinator. An update that changes candidate files stops it and does not resume work automatically.
+
 ## Rollback
 
-For the presentation only, click **Classic**. To restore the installed source version, close the editor and run the `rollback.command` inside the backup, or:
+For the original review queue, click **Reviews**. To restore the installed source version, close the editor and run the `rollback.command` inside the backup, or:
 
 ```sh
 node scripts/live-relevo.mjs rollback --backup "$HOME/relevo-backups/decision-inbox-original"
 node scripts/live-relevo.mjs verify-original --backup "$HOME/relevo-backups/decision-inbox-original"
 ```
 
-Rollback restores changed original files and removes only the newly installed files whose hashes still match. It refuses to overwrite later local edits. Goal metadata remains available for a future reinstall; accounts and sessions are not reset. If applying multiple versions, restore the previous version before installing a new candidate, or roll back backups in reverse order.
+Rollback restores changed original files and removes only the newly installed files whose hashes still match. It refuses to overwrite later local edits. Goal metadata remains available for a future reinstall; accounts and sessions are not reset. For subsequent candidates, use `update` with the original backup rather than restoring and reinstalling every file. Existing backup chains still need to be rolled back in reverse order.
 
 ## Bounded workflow increment
 
