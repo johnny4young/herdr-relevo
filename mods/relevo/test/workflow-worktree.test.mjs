@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { commitReviewedTree, commitWorktree, openPullRequest, prepareWorktree, removeRunWorktree, runSlug, snapshotTree, worktreePath, worktreeStatus } from '../runtime/worktree.mjs';
+import { commitReviewedTree, commitWorktree, copyListed, openPullRequest, prepareWorktree, removeRunWorktree, runSlug, snapshotTree, worktreePath, worktreeStatus } from '../runtime/worktree.mjs';
 
 function repo() {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'relevo-wt-'))), root = path.join(base, 'app'), home = path.join(base, 'home');
@@ -77,18 +77,19 @@ test('a draft PR without an origin remote says so in one line', async (t) => {
   await assert.rejects(openPullRequest(wt, 't', 'b', async () => ({ stdout: '' })), /^Error: This repository has no origin remote/);
 });
 
-test('an included file never lands outside the worktree through a tracked symlink', async (t) => {
-  const { base, root, home } = repo(); t.after(() => fs.rmSync(base, { recursive: true, force: true }));
-  const outside = path.join(base, 'outside'); fs.mkdirSync(outside);
-  fs.mkdirSync(path.join(root, 'cfg')); fs.writeFileSync(path.join(root, 'cfg', 'keep'), 'k');
-  fs.writeFileSync(path.join(root, '.worktreeinclude'), '.env\nlink/.env\n');
-  fs.symlinkSync(outside, path.join(root, 'link'));
-  execFileSync('git', ['-C', root, 'add', '.']); execFileSync('git', ['-C', root, 'commit', '-qm', 'link']);
-  fs.writeFileSync(path.join(outside, '.env'), 'X');
-  const wt = await prepareWorktree({ root, title: 'Linked', home });
-  assert.deepEqual(fs.readdirSync(outside), ['.env'], 'nothing new written outside');
-  assert.equal(fs.readFileSync(path.join(outside, '.env'), 'utf8'), 'X');
-  assert.ok(wt.copied >= 1);
+test('a listed file never lands outside the worktree through .. or a symlinked directory', (t) => {
+  const base = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'relevo-copy-')); t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const root = path.join(base, 'root'), dest = path.join(base, 'dest'), outside = path.join(base, 'outside');
+  for (const dir of [root, dest, outside, path.join(root, 'link', 'sub'), path.join(root, 'ok')]) fs.mkdirSync(dir, { recursive: true });
+  for (const rel of ['link/.env', 'link/sub/.env', 'ok/.env']) fs.writeFileSync(path.join(root, rel), rel);
+  fs.writeFileSync(path.join(base, 'escape'), 'e');
+  fs.symlinkSync(outside, path.join(dest, 'link'));
+  fs.symlinkSync(path.join(base, 'missing'), path.join(dest, 'dangling'));
+  const copied = copyListed(root, dest, ['link/.env', 'link/sub/.env', '../escape', 'dangling/x', 'ok/.env']);
+  assert.equal(copied, 1);
+  assert.equal(fs.readFileSync(path.join(dest, 'ok', '.env'), 'utf8'), 'ok/.env');
+  assert.deepEqual(fs.readdirSync(outside), [], 'no file or directory created through the symlink');
+  assert.equal(fs.existsSync(path.join(base, 'missing')), false);
 });
 
 test('the reviewed tree is what gets committed, and only run worktrees can be removed', async (t) => {
