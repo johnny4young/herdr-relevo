@@ -9,6 +9,7 @@ import { ago } from "./lib/time.js";
 import { parseIndex, parseDetails, titleOf, inRepo, matches } from "./lib/sessions.js";
 
 const SHOWN = 60, CHECKED = 150;
+const keyOf = (s) => `${s.account}/${s.id}`;
 
 // The last line per session in each account's history: "account\tms\tproject\tid".
 const INDEX = 'for s; do k=${s%%|*}; f=${s#*|}; [ -f "$f" ] || continue; '
@@ -17,9 +18,9 @@ const INDEX = 'for s; do k=${s%%|*}; f=${s#*|}; [ -f "$f" ] || continue; '
 
 // Titles, branch and PR from the end of each session file, where Claude keeps rewriting them. BSD grep
 // takes at most 255 repeats, so a long prompt arrives cut and without its closing quote.
-const DETAILS = 'for s; do d=${s%%|*}; id=${s#*|}; for f in "$d"/projects/*/"$id".jsonl; do [ -f "$f" ] || continue; '
-  + 'printf \'%s\\t"file":true\\n\' "$id"; tail -c 262144 "$f" | LC_ALL=C grep -oE \'"(customTitle|lastPrompt|gitBranch)":"([^"\\\\]|\\\\.){0,200}"?|"prNumber":[0-9]+\' '
-  + '| awk -v id="$id" \'{ print id "\\t" $0 }\'; done; done';
+const DETAILS = 'for s; do k=${s%%|*}; id=${s##*|}; d=${s#*|}; d=${d%|*}; key="$k/$id"; for f in "$d"/projects/*/"$id".jsonl; do [ -f "$f" ] || continue; '
+  + 'printf \'%s\\t"file":true\\n\' "$key"; tail -c 262144 "$f" | LC_ALL=C grep -oE \'"(customTitle|lastPrompt|gitBranch)":"([^"\\\\]|\\\\.){0,200}"?|"prNumber":[0-9]+\' '
+  + '| awk -v id="$key" \'{ print id "\\t" $0 }\'; done; done';
 
 const MISSING = 'for p; do [ -d "$p" ] || printf "%s\\n" "$p"; done';
 
@@ -48,9 +49,17 @@ export class SessionFinder {
     cx.spawn(async (cx) => {
       const specs = ACCOUNTS.filter((a) => a.claudeDir).map((a) => `${a.key}|${home()}/${a.claudeDir}/history.jsonl`);
       const r = await exec("sh", ["-c", INDEX, "sh", ...specs]);
-      const running = new Set(terminals().map((k) => /([0-9a-f-]{36})\.jsonl$/i.exec(k.labels?.["agent.transcript"] ?? "")?.[1])
-        .filter(Boolean));
-      this.all = parseIndex(r.stdout ?? "").filter((s) => !running.has(s.id));
+      // Keyed by config dir, so accounts sharing one hide the same copy.
+      const rootOf = (a) => `${home()}/${a.claudeDir.replace(/\/+$/, "")}`;
+      const roots = ACCOUNTS.filter((a) => a.claudeDir).map(rootOf);
+      const running = new Set(terminals().map((k) => {
+        const transcript = k.labels?.["agent.transcript"] ?? "";
+        const id = /([0-9a-f-]{36})\.jsonl$/i.exec(transcript)?.[1];
+        // An unrecognized path still hides that id rather than offering an active conversation.
+        return id ? `${roots.find((d) => transcript.startsWith(`${d}/projects/`)) ?? "*"}/${id}` : null;
+      }).filter(Boolean));
+      this.all = parseIndex(r.stdout ?? "")
+        .filter((s) => !running.has(`${rootOf(accountOf(s.account))}/${s.id}`) && !running.has(`*/${s.id}`));
       await this.loadDetails(cx);
     });
   }
@@ -63,24 +72,24 @@ export class SessionFinder {
   }
 
   async loadDetails(cx) {
-    const want = this.inScope().slice(0, CHECKED).filter((s) => !(s.id in this.details));
+    const want = this.inScope().slice(0, CHECKED).filter((s) => !(keyOf(s) in this.details));
     if (want.length) {
       const dir = (s) => `${home()}/${accountOf(s.account).claudeDir}`;
       const [d, m] = await Promise.all([
-        exec("sh", ["-c", DETAILS, "sh", ...want.map((s) => `${dir(s)}|${s.id}`)]),
+        exec("sh", ["-c", DETAILS, "sh", ...want.map((s) => `${s.account}|${dir(s)}|${s.id}`)]),
         exec("sh", ["-c", MISSING, "sh", ...new Set(want.map((s) => s.project))]),
       ]);
       const found = parseDetails(d.stdout ?? "");
       // Claude deletes old transcripts; without one there is nothing to resume.
-      for (const s of want) this.details[s.id] = found[s.id] ?? null;
+      for (const s of want) this.details[keyOf(s)] = found[keyOf(s)] ?? null;
       for (const p of (m.stdout ?? "").split("\n").filter(Boolean)) this.missing.add(p);
     }
     cx.notify();
   }
 
   rows() {
-    return this.inScope().slice(0, CHECKED).filter((s) => this.details[s.id]).slice(0, SHOWN).map((s) => {
-      const d = this.details[s.id];
+    return this.inScope().slice(0, CHECKED).filter((s) => this.details[keyOf(s)]).slice(0, SHOWN).map((s) => {
+      const d = this.details[keyOf(s)];
       return { ...s, title: titleOf(d) || s.project.split("/").pop(), branch: d?.gitBranch, pr: d?.prNumber, gone: this.missing.has(s.project) };
     }).filter((s) => matches(s, this.query));
   }
