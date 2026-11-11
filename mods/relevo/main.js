@@ -1,6 +1,7 @@
 import { View } from "gpui-kit";
 import { props, nextCommand } from "herdr";
 import { Sidebar } from "./sidebar.js";
+import { AccountStatus } from "./account-status.js";
 import { Inbox } from "./inbox.js";
 import { InboxButton, PanelToggle, showPanel } from "./toolbar.js";
 import { AccountMenu } from "./account-menu.js";
@@ -17,6 +18,7 @@ import { SessionFinder, openSessions } from "./sessions.js";
 import { UsageDialog, openUsage } from "./usage.js";
 
 const ROLES = {
+  "account-status": AccountStatus,
   accounts: Sidebar, inbox: Inbox, "inbox-button": InboxButton, "account-menu": AccountMenu,
   "panel-bar": PanelBar, "panel-toggle": PanelToggle, "find-file": FileFinder, "checkout-menu": CheckoutMenu,
   handoff: Handoff, "review-diff": ReviewDiff, "ledger-week": LedgerWeek, settings: Settings,
@@ -33,7 +35,7 @@ export default class Relevo extends View {
       cx.notify();
     });
     // keys.json "relevo.<command>"; only the sidebar copy listens, so each runs once.
-    if (role === "accounts") {
+    if (role === "accounts" || (role === "account-status" && this.part.detail !== true)) {
       cx.spawn(async (cx) => {
         for (;;) this.command(await nextCommand(), cx);
       });

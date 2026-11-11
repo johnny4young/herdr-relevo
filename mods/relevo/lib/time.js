@@ -28,10 +28,14 @@ export const duration = (s) => (s < 3600
 export function windowOf(pct, resets, length) {
   if (pct == null) return null;
   const now = Date.now() / 1000;
-  if (resets && resets < now) return { pct: 0, resets: null, pace: null };
+  const long = length > 8 * 86400 ? { span: length } : {};
+  if (resets && resets < now) return { pct: 0, resets: null, pace: null, ...long };
   const pace = resets ? Math.min(1, Math.max(0, 1 - (resets - now) / length)) : null;
-  return { pct: Math.round(pct), resets, pace };
+  return { pct: Math.round(pct), resets, pace, ...long };
 }
+
+// The long window is weekly for Claude; a provider can report a longer one (Codex: about 30 days).
+export const windowLabel = (w, fallback) => (w?.span > 8 * 86400 ? `${Math.round(w.span / 86400)}d` : fallback);
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const pad = (n) => String(n).padStart(2, "0");

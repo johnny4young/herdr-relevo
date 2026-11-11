@@ -8,8 +8,8 @@ export default [
     rules: { "no-undef": "error", "no-unused-vars": ["error", { args: "none", varsIgnorePattern: "^_" }] },
   },
   {
-    files: ["mods/**/*.mjs"],
-    languageOptions: { ecmaVersion: "latest", sourceType: "module", globals: { ...shared, process: "readonly" } },
+    files: ["mods/**/*.mjs", "scripts/**/*.mjs"],
+    languageOptions: { ecmaVersion: "latest", sourceType: "module", globals: { ...shared, process: "readonly", Buffer: "readonly" } },
     rules: { "no-undef": "error" },
   },
 ];

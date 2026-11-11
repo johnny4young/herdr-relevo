@@ -4,12 +4,12 @@ import { theme, run, focused, panes, setShared, notify, agents, terminals, share
 import { AgentWatch, BackgroundWatch, quotaAlerts } from "./alerts.js";
 import { ACCOUNTS, CODEX, API_QUOTAS, launchArgv, chip, loadClaudeQuotas } from "./accounts.js";
 import { FOCUS, focus, publishSetup, contextOfPath } from "./context.js";
-import { ago, resetText, resetClock, runsOut, clock, FIVE_HOURS, WEEK } from "./lib/time.js";
+import { ago, resetText, resetClock, runsOut, clock, FIVE_HOURS, WEEK, windowLabel } from "./lib/time.js";
 
 const LENGTH = { "5h": FIVE_HOURS, "7d": WEEK };
 // The reset, and when the window runs out first at the pace used so far.
 const meterTip = (w, label) => {
-  const out = runsOut(w, LENGTH[label]);
+  const out = runsOut(w, w?.span ?? LENGTH[label]);
   return out ? `${resetText(w)} · at this pace 100% at ${clock(out)}` : resetText(w);
 };
 import { collectQuotas } from "./quota.js";
@@ -31,6 +31,12 @@ const STALE = 30 * 60;
 export class Sidebar {
   init(_props, cx) {
     this.quota = {};
+    if (_props?.syntheticPreview === true) {
+      this.syntheticPreview = true;
+      this.width = 268;
+      this.loaded = true;
+      return;
+    }
     publishSetup([...ACCOUNTS, CODEX]);
     this.width = 268;
     // The snapshots on disk answer at once; the usage endpoints follow.
@@ -98,6 +104,7 @@ export class Sidebar {
   }
 
   launch(key) {
+    if (this.syntheticPreview) return;
     const f = focused();
     const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
     if (key === "best") key = this.best(pane?.cwd ?? f?.cwd);
@@ -110,7 +117,7 @@ export class Sidebar {
     const own = CONTEXTS.find((c) => c.key === contextOfPath(folder))?.account;
     const keys = [...new Set([own, ...FALLBACK, ...ACCOUNTS.map((a) => a.key)])].filter((k) => ACCOUNTS.some((a) => a.key === k));
     const pick = mostMargin(keys, this.quota), q = this.quota?.[pick.key];
-    const used = [q?.h5 && `5h ${q.h5.pct}%`, q?.d7 && `7d ${q.d7.pct}%`].filter(Boolean).join(" · ");
+    const used = [q?.h5 && `5h ${q.h5.pct}%`, q?.d7 && `${windowLabel(q.d7, "7d")} ${q.d7.pct}%`].filter(Boolean).join(" · ");
     notify({
       title: `Starting ${ACCOUNTS.find((a) => a.key === pick.key).label}`,
       body: pick.margin === null ? "No quota data yet: the folder's account" : `Most room left · ${used}`,
@@ -149,18 +156,19 @@ export class Sidebar {
         cx.notify();
       })
       .child(div().id(`account-name-${p.key}`).w(NAME_W).flex_none().flex().items_center().gap(8)
-        .tooltip(withKey(`${note}. Click to start ${app} here.`, `relevo.launch-${p.key}`))
+        .tooltip(withKey(this.syntheticPreview ? "Perfil aislado: cuentas y lanzadores desconectados" : `${note}. Click to start ${app} here.`, `relevo.launch-${p.key}`))
         .child(chip(div, p))
         .child(div().flex_1().min_w(0).truncate().text_size(13).font_medium().text_color(stale ? t.muted : t.foreground)
           .child(p.label)))
       .when(!this.loaded && !q, (el) => el.child(h_flex().flex_1().justify_center().child(spinner(t.dim, 10))))
       .when(this.loaded || Boolean(q), (el) => el
         .child(this.meter(t, `meter-5h-${p.key}`, "5h", q?.h5, barWidth, stale, hovered))
-        .child(this.meter(t, `meter-7d-${p.key}`, "7d", q?.d7, barWidth, stale, hovered)));
+        .child(this.meter(t, `meter-7d-${p.key}`, windowLabel(q?.d7, "7d"), q?.d7, barWidth, stale, hovered)));
   }
 
   // Hides the other context in the Inbox, folds its space folder and mutes its alerts.
   focusPicker(t) {
+    if (this.syntheticPreview) return div().text_size(11).text_color(t.ansi3).child("PREVIEW");
     const now = focus();
     return h_flex().id("focus").h(18).p(1).gap(1).rounded(5).bg(t.raised).text_size(11)
       .tooltip(withKey("Which context the Inbox and alerts show", "relevo.focus-next"))
@@ -183,7 +191,7 @@ export class Sidebar {
       const q = this.quota[p.key], w = [q?.h5, q?.d7].filter(Boolean).sort((a, b) => b.pct - a.pct)[0];
       const stale = !q || Date.now() / 1000 - q.updated > STALE;
       const level = !w || stale ? t.dim : w.pct >= 80 ? t.blocked : w.pct >= 50 ? t.ansi3 : t.accent;
-      const usage = [q?.h5 ? `5h ${q.h5.pct}%` : null, q?.d7 ? `7d ${q.d7.pct}%` : null]
+      const usage = [q?.h5 ? `5h ${q.h5.pct}%` : null, q?.d7 ? `${windowLabel(q.d7, "7d")} ${q.d7.pct}%` : null]
         .filter(Boolean).join(" · ") || "no data";
       return v_flex().id(`account-${p.key}`).w_full().py(3).gap(3).items_center().rounded(6)
         .cursor_pointer().hover((s) => s.bg(t.hover))
@@ -230,7 +238,7 @@ export class Sidebar {
             .tooltip(withKey("Settings", "relevo.settings"))
             .on_click((_e, cx) => {
               cx.stop_propagation();
-              openSettings();
+              if (!this.syntheticPreview) openSettings();
             })
             .child(svg("mods/relevo/settings.svg").size(11))))
         .child(this.focusPicker(t)))
