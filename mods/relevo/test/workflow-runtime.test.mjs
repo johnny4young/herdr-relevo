@@ -510,6 +510,7 @@ test("accepting a worktree run commits exactly the reviewed tree to its branch",
   fs.writeFileSync(path.join(f.root, "NOTES.md"), "notes\n");
   f.report("reviewer", "completed", "Fine", current().attempts.at(-1)); await f.runtime.tick();
   assert.equal(current().state, "needs_you");
+  assert.equal(current().worktree.reviewedRevision, current().revision, "the tree is stored with the revision it was read for");
   fs.writeFileSync(path.join(f.root, "LATE.md"), "late\n");
   await f.runtime.command({ action: "decide", taskId: id, outcome: "accept", revision: current().revision });
   assert.equal(current().state, "accepted");

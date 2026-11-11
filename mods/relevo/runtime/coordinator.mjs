@@ -301,8 +301,10 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       let sha = null, failure = null;
       try {
         // Only the reviewed revision is committed; anything an agent changed since then is left for a new review.
-        if (before.worktree.reviewedTree) sha = await commitReviewedTree(before.worktree, before.worktree.reviewedTree, before.title, before.criteria.slice(0, 2000));
-        else {
+        if (before.worktree.reviewedTree) {
+          if (before.worktree.reviewedRevision !== payload.revision) throw Error('The reviewed tree is not the accepted revision; nothing was committed');
+          sha = await commitReviewedTree(before.worktree, before.worktree.reviewedTree, before.title, before.criteria.slice(0, 2000));
+        } else {
           if (await fingerprintImpl(before.worktree.path) !== payload.revision) throw Error('The checkout changed after review; nothing was committed');
           sha = await commitWorktree(before.worktree, before.title, before.criteria.slice(0, 2000));
         }
@@ -534,8 +536,9 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         // explicit resume validates this same attempt without another round.
         if (controller.signal.aborted) return;
       }
-      const afterChecks = await fingerprintImpl(task.root);
+      // The reviewed tree is read between the two fingerprints, so it is stored only for an unchanged checkout.
       const reviewedTree = task.worktree && attempt.role === 'reviewer' && report.status === 'completed' ? await snapshotTree(task.root).catch(() => null) : null;
+      const afterChecks = await fingerprintImpl(task.root);
       update((doc) => {
         const t = taskById(doc, task.id), a = t.attempts.at(-1);
         if (a?.id !== attempt.id || a.state !== 'running' || terminalStates.has(t.state)) return;
@@ -556,7 +559,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         }
         t.revision = afterChecks;
         if (attempt.role === 'executor') { t.checksResult = checks; t.state = 'needs_review'; t.nextRole = 'reviewer'; log(doc, t, 'Checks observed', checks.length ? `${checks.length} checks passed` : 'No checks configured'); }
-        else { t.state = 'needs_you'; if (t.worktree) t.worktree.reviewedTree = reviewedTree; log(doc, t, 'Human review requested', 'Inspect changes and evidence, then accept, request changes or defer'); }
+        else { t.state = 'needs_you'; if (t.worktree) { t.worktree.reviewedTree = reviewedTree; t.worktree.reviewedRevision = afterChecks; } log(doc, t, 'Human review requested', 'Inspect changes and evidence, then accept, request changes or defer'); }
       });
       return;
     }
