@@ -10,6 +10,7 @@ import { workflowBucket, workflowItems, acceptanceEffect, queueSummary, workflow
 import { linkedDecision } from "./lib/goal-workflow.js";
 import { agentMarkdown } from "./lib/agent-markdown.js";
 import { readGoals } from "./goals-store.js";
+import { batchScope } from "./lib/workflow-preferences.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { ShortcutHelp } from "./shortcut-help.js";
 import { RUN_PANES, RUN_REQUEST, liveRunPanes } from "./workflow-window.js";
@@ -520,7 +521,7 @@ export class Workflow extends WorkflowDraftView {
           this.batchSnapshot = { ids, revisions, preview: response.preview ?? [] };
         });
       },
-        { disabled: this.busy || picked.length < 2 || new Set(picked.map((task) => task.root)).size > 1 || new Set(picked.map((task) => task.goalId)).size > 1, tip: "Preview explicit task ids and revisions before accepting" }))
+        { disabled: this.busy || picked.length < 2 || new Set(picked.map(batchScope)).size > 1 || new Set(picked.map((task) => task.goalId)).size > 1, tip: "Preview explicit task ids and revisions before accepting" }))
       .when(Boolean(this.batchSnapshot?.preview.length), (el) => el.child(v_flex().gap(3)
         .children(this.batchSnapshot.preview.map((item) => row(t, `${item.title}: ${item.nextEffect}`)))
         .child(button(t, "workflow-batch-confirm", "Apply bulk acceptance", (cx) => this.command({ action: "batch", ids: this.batchSnapshot.ids, outcome: "accept", revisions: this.batchSnapshot.revisions, preview: false }, cx,
