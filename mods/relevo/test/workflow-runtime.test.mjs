@@ -10,7 +10,7 @@ import { linkedDecision } from "../lib/goal-workflow.js";
 import { transaction } from "../runtime/store.mjs";
 import { runChecks } from "../runtime/evidence.mjs";
 
-async function fixture({ sendCode = 0, checkCode = 0, maxRounds = 3, checksImpl: injectedChecks, fingerprintImpl: injectedFingerprint, onSend } = {}) {
+async function fixture({ sendCode = 0, checkCode = 0, maxRounds = 3, checksImpl: injectedChecks, fingerprintImpl: injectedFingerprint, onSend, wake } = {}) {
   const base = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "relevo-runtime-"));
   const home = path.join(base, "home"), root = path.join(base, "repo");
   fs.mkdirSync(home); fs.mkdirSync(root);
@@ -30,7 +30,7 @@ async function fixture({ sendCode = 0, checkCode = 0, maxRounds = 3, checksImpl:
   };
   let now = Date.parse("2026-01-02T03:04:05Z");
   let revision = "checkout-r1";
-  const runtime = createRuntime({ home, runCommand, clock: () => now++, fingerprintImpl: injectedFingerprint ?? (async () => revision),
+  const runtime = createRuntime({ home, runCommand, wake, clock: () => now++, fingerprintImpl: injectedFingerprint ?? (async () => revision),
     checksImpl: injectedChecks ?? (async () => [{ argv: ["npm", "test"], code: checkCode, stdout: "", stderr: "" }]) });
   const task = { goalId: "g1", title: "Example task", criteria: "Expected behavior", root,
     executor: { address: "exec-agent", label: "Executor" }, reviewer: { address: "review-agent", label: "Reviewer" },
@@ -338,7 +338,9 @@ test("cancelling while required checks run aborts the in-flight check work", asy
   f.report("executor", "completed", "Implementation complete");
   const collecting = f.runtime.tick(); await hasStarted;
   await f.runtime.command({ action: "cancel", taskId: f.taskId });
-  const cancelled = observedSignal?.aborted;
+  // The serving process learns of the cancel from the state file.
+  await new Promise((resolve) => observedSignal.aborted ? resolve() : observedSignal.addEventListener("abort", resolve));
+  const cancelled = observedSignal.aborted;
   releaseChecks(); await collecting;
   assert.equal(f.runtime.read().tasks[0].state, "cancelled");
   assert.ok(cancelled, "cancel should abort the active check sequence");
@@ -543,4 +545,48 @@ test("a batch acceptance of worktree runs from one repo commits each run branch"
     assert.match(task.worktree.commit, /^[0-9a-f]{40}$/);
     assert.equal(execFileSync("git", ["-C", f.root, "log", "-1", "--format=%s", `run/${name}`], { encoding: "utf8" }).trim(), `Add ${name}`);
   }
+});
+
+test("slow checks finish in the background and wake the coordinator instead of holding the tick", async (t) => {
+  let releaseChecks, woke = 0;
+  const checksImpl = () => new Promise((resolve) => { releaseChecks = () => resolve([{ argv: ["npm", "test"], code: 0, stdout: "", stderr: "" }]); });
+  const f = await fixture({ checksImpl, wake: () => { woke++; } }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  f.report("executor", "completed", "Implementation complete");
+  await f.runtime.tick();
+  assert.equal(f.runtime.read().tasks[0].state, "running", "the tick returned while checks still run");
+  await f.runtime.tick();
+  releaseChecks(); await new Promise((resolve) => globalThis.setImmediate(resolve));
+  assert.equal(woke, 1);
+  await f.runtime.tick();
+  assert.deepEqual(f.runtime.read().tasks[0].attempts.map((a) => [a.role, a.state]), [["executor", "reported"], ["reviewer", "running"]], "checks passed and review was dispatched");
+});
+
+test("archive moves idle finished tasks to a monthly file and keeps what live work still needs", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const create = async (title, extra = {}) => (await f.runtime.command({ action: "create", task: { goalId: "g1", title, criteria: "Done", root: f.root,
+    executor: { address: "exec-agent" }, reviewer: { address: "review-agent" }, ...extra } })).result.taskId;
+  const parent = await create("Parent"), child = await create("Child", { dependsOn: [parent] });
+  const run = await create("Run", { worktree: { branch: "run/kept-1", base: f.root } });
+  transaction(f.home, (doc) => {
+    for (const task of doc.tasks) task.state = task.id === child ? "ready" : "accepted";
+  });
+  f.setNow(Date.parse("2026-01-20T00:00:00Z"));
+  const preview = await f.runtime.command({ action: "archive", preview: true });
+  assert.deepEqual(preview.result.taskIds, [f.taskId], "the parent of live work and an existing worktree stay");
+  assert.equal(f.runtime.read().tasks.length, 4, "a preview changes nothing");
+  const done = await f.runtime.command({ action: "archive" });
+  assert.equal(done.result.archived, 1);
+  assert.deepEqual(f.runtime.read().tasks.map((task) => task.id).sort(), [parent, child, run].sort());
+  assert.equal(f.runtime.read().events.some((e) => e.taskId === f.taskId), false);
+  const [line] = fs.readFileSync(path.join(f.home, "relevo-workflow", "archive", "2026-01.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.equal(line.task.id, f.taskId); assert.ok(line.events.length > 0);
+  assert.equal((await f.runtime.command({ action: "archive", olderThanDays: 30 })).result.archived, 0, "younger tasks stay");
+});
+
+test("a full queue refuses new tasks with a pointer to archiving", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  transaction(f.home, (doc) => { const base = doc.tasks[0]; for (let i = 1; i < 200; i++) doc.tasks.push({ ...base, id: `filler-${i}`, state: "accepted" }); });
+  await assert.rejects(f.runtime.command({ action: "create", task: { goalId: "g1", title: "One more", criteria: "c", root: f.root,
+    executor: { address: "exec-agent" }, reviewer: { address: "review-agent" } } }), /archive finished ones/);
 });

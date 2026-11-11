@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
+export const MAX_TASKS = 200;
+
 export const emptyState = () => ({ version: 1, revision: 0, tasks: [], events: [], preferences: [], engine: { enabled: false, maxConcurrent: 2 } });
 export const uid = () => crypto.randomUUID();
 export function stateDir(home) {
@@ -25,7 +27,7 @@ export function atomic(file, value) {
   } finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
 }
 export function validateState(doc) {
-  if (doc?.version !== 1 || !Number.isSafeInteger(doc.revision) || !Array.isArray(doc.tasks) || doc.tasks.length > 200 ||
+  if (doc?.version !== 1 || !Number.isSafeInteger(doc.revision) || !Array.isArray(doc.tasks) || doc.tasks.length > MAX_TASKS ||
       !Array.isArray(doc.events) || !Array.isArray(doc.preferences) || !doc.engine || typeof doc.engine.enabled !== 'boolean' ||
       !Number.isInteger(doc.engine.maxConcurrent) || doc.engine.maxConcurrent < 1 || doc.engine.maxConcurrent > 2 ||
       (doc.plans !== undefined && (!Array.isArray(doc.plans) || doc.plans.length > 200))) throw Error('Invalid workflow state; original file preserved');
@@ -64,32 +66,45 @@ const abandoned = (dir) => { try { return Date.now() - fs.lstatSync(dir).mtimeMs
 const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 let holding = false;
 
-function acquireWrite(dir) {
-  const lock = path.join(dir, 'write.lock'), guard = path.join(dir, 'write.acquire');
+// A lock directory owned by one live pid. The guard serializes reclamation, so a second
+// process never removes a new owner's lock. `errors` names each refusal for the caller.
+export function acquireOwned(dir, name, { pid = process.pid, reclaimAbandoned = false, errors }) {
+  const lock = path.join(dir, `${name}.lock`), guard = path.join(dir, `${name}.acquire`);
   try { fs.mkdirSync(guard, { mode: 0o700 }); }
   catch (e) {
-    if (e.code === 'EEXIST' && abandoned(guard)) try { fs.rmdirSync(guard); } catch { /* another writer reclaimed it */ }
-    throw Error(BUSY);
+    if (e.code !== 'EEXIST') throw e;
+    if (reclaimAbandoned && abandoned(guard)) try { fs.rmdirSync(guard); } catch { /* another process reclaimed it */ }
+    throw Error(errors.guard);
   }
   const token = uid();
   try {
     try { fs.mkdirSync(lock, { mode: 0o700 }); }
     catch (e) {
       if (e.code !== 'EEXIST') throw e;
-      if (fs.lstatSync(lock).isSymbolicLink()) throw Error('Unsafe workflow lock');
-      // Serialize reclamation: a second process must never remove a new owner's lock.
+      const stat = fs.lstatSync(lock);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) throw Error(errors.unsafe);
       const ownerFile = path.join(lock, 'owner.json');
       let owner = null;
-      try { if (fs.lstatSync(ownerFile).isSymbolicLink()) throw Error(); owner = JSON.parse(fs.readFileSync(ownerFile, 'utf8')); }
-      catch { if (fs.existsSync(ownerFile) || !abandoned(lock)) throw Error(BUSY); }
-      if (owner && alive(owner.pid)) throw Error(BUSY);
+      try { if (!fs.lstatSync(ownerFile).isFile()) throw Error(); owner = JSON.parse(fs.readFileSync(ownerFile, 'utf8')); }
+      catch { if (!reclaimAbandoned || fs.existsSync(ownerFile) || !abandoned(lock)) throw Error(errors.incomplete); }
+      if (owner && alive(owner.pid)) throw Error(errors.held);
       if (owner) fs.unlinkSync(ownerFile);
       fs.rmdirSync(lock); fs.mkdirSync(lock, { mode: 0o700 });
     }
-    fs.writeFileSync(path.join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, token }), { flag: 'wx', mode: 0o600 });
+    fs.writeFileSync(path.join(lock, 'owner.json'), JSON.stringify({ pid, token }), { flag: 'wx', mode: 0o600 });
   } finally { fs.rmdirSync(guard); }
   return { lock, token };
 }
+
+export function releaseOwned({ lock, token }) {
+  try {
+    const owner = JSON.parse(fs.readFileSync(path.join(lock, 'owner.json'), 'utf8'));
+    if (owner.token === token) { fs.unlinkSync(path.join(lock, 'owner.json')); fs.rmdirSync(lock); }
+  } catch { /* A replaced or incomplete lock must remain untouched. */ }
+}
+
+const WRITE_ERRORS = { guard: BUSY, unsafe: 'Unsafe workflow lock', incomplete: BUSY, held: BUSY };
+const acquireWrite = (dir) => acquireOwned(dir, 'write', { reclaimAbandoned: true, errors: WRITE_ERRORS });
 
 export function transaction(home, mutate, { waitMs = 2000 } = {}) {
   const dir = privateDir(stateDir(home));
@@ -103,7 +118,6 @@ export function transaction(home, mutate, { waitMs = 2000 } = {}) {
       pause(delay); delay = Math.min(delay * 2, 200);
     }
   }
-  const { lock, token } = acquired;
   holding = true;
   try {
     const doc = readState(home), result = mutate(doc);
@@ -115,8 +129,7 @@ export function transaction(home, mutate, { waitMs = 2000 } = {}) {
     return { doc, result };
   } finally {
     holding = false;
-    const owner = JSON.parse(fs.readFileSync(path.join(lock, 'owner.json'), 'utf8'));
-    if (owner.token === token) { fs.unlinkSync(path.join(lock, 'owner.json')); fs.rmdirSync(lock); }
+    releaseOwned(acquired);
   }
 }
 export function event(doc, task, type, detail, actor = 'Coordinator', now = Date.now()) {

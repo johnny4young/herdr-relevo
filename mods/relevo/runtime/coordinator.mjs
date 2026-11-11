@@ -5,6 +5,7 @@ import { fingerprint, runChecks, attachArtifact, verifyArtifact, removeArtifact 
 import { readState, transaction, taskById, event, uid, stateDir, privateDir } from './store.mjs';
 import { prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
 import { createHash } from 'node:crypto';
+import { archivable, archiveInto, MAX_TASKS } from './archive.mjs';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
 import { SKILLS } from '../config.js';
 
@@ -21,12 +22,15 @@ function checkoutBusy(doc, task, actor) {
   return active.length >= doc.engine.maxConcurrent ||
     active.some((other) => other.root === task.root || [other.executor.address, other.reviewer.address].includes(actor.address));
 }
+const roomFor = (doc, count) => { if (doc.tasks.length + count > MAX_TASKS) throw Error(`The queue holds ${MAX_TASKS} tasks; archive finished ones before adding more`); };
 const MAX_FEEDBACK = 8000, MAX_STORED_PROMPT = 12000;
 const failedChecks = (checks) => `Checks failed: ${JSON.stringify(checks.filter((check) => check.code !== 0).map((check) => ({
   argv: check.argv, code: check.code, stdout: String(check.stdout ?? '').slice(-2000), stderr: String(check.stderr ?? '').slice(-2000) })))}`.slice(0, MAX_FEEDBACK);
-export function createRuntime({ home, runCommand = run, clock = Date.now, fingerprintImpl = fingerprint, checksImpl = runChecks } = {}) {
+// Checks shorter than this finish inside the tick; longer ones finish in the background and wake the coordinator.
+const CHECK_GRACE_MS = 500;
+export function createRuntime({ home, runCommand = run, clock = Date.now, fingerprintImpl = fingerprint, checksImpl = runChecks, wake = () => {} } = {}) {
   const dir = privateDir(stateDir(home));
-  const activeChecks = new Map();
+  const checkRuns = new Map();
   privateDir(path.join(dir, 'reports'));
   const update = (fn) => transaction(home, fn);
   const log = (doc, task, type, detail, actor) => event(doc, task, type, detail, actor, clock());
@@ -100,13 +104,21 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (!payload || typeof payload !== 'object') throw Error('Command required');
     const action = payload.action;
     if (action === 'read') return { doc: readState(home) };
+    if (action === 'archive') {
+      const days = payload.olderThanDays ?? 7;
+      if (!Number.isInteger(days) || days < 0 || days > 365) throw Error('Choose an age between 0 and 365 days');
+      if (payload.preview === true) return { doc: readState(home), result: archivable(readState(home), { days, now: clock() }) };
+      return update((doc) => { const archived = archiveInto(doc, dir, archivable(doc, { days, now: clock() }), clock());
+        if (archived) log(doc, null, 'Tasks archived', `${archived} finished tasks moved to the archive`, 'Human');
+        return { archived }; });
+    }
     if (action === 'prepare-worktree') return { result: await prepareWorktree({ root: payload.root, title: payload.title }) };
     if (action === 'create') {
       const task = validateTask(payload.task, readState(home));
       await fingerprintImpl(task.root);
       await getActor(task.executor, task.root); await getActor(task.reviewer, task.root);
       return update((doc) => {
-        validateTask(payload.task, doc); doc.tasks.push(task); log(doc, task, 'Task created', 'Existing agents linked; no message sent', 'Human');
+        validateTask(payload.task, doc); roomFor(doc, 1); doc.tasks.push(task); log(doc, task, 'Task created', 'Existing agents linked; no message sent', 'Human');
         if (payload.start === true) { task.state = 'ready'; task.nextRole = 'executor'; doc.engine.enabled = true; log(doc, task, 'Task started', 'Ready work runs when dependencies and agents are available', 'Human'); }
         return { taskId: task.id };
       });
@@ -186,6 +198,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
           previous = task.id;
         }
         doc.plans ??= [];
+        roomFor(doc, planTasks.length);
         doc.tasks.push(...planTasks);
         doc.plans.push({ id: planId, goalId: payload.goalId, goalVersion: payload.goalVersion, taskIds: ids,
           stepIds: requestedOrder, state: 'planned', createdAt: new Date(clock()).toISOString() });
@@ -246,11 +259,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         return { planId: current.id, taskIds: current.taskIds, existing: false };
       });
     }
-    if (action === 'stop') { for (const controller of activeChecks.values()) controller.abort(); return update((doc) => {
+    if (action === 'stop') return update((doc) => {
       doc.engine.enabled = false;
       for (const task of doc.tasks.filter((t) => !terminalStates.has(t.state))) task.paused = true;
       log(doc, null, 'Coordinator stopped', 'No new dispatches. Running agents keep their sessions.', 'Human');
-    }); }
+    });
     if (action === 'preference-propose' || action === 'preference-update' || action === 'preference-delete') return update((doc) => {
       if (action === 'preference-propose') doc.preferences = proposePreference(doc.preferences, { ...payload.preference, id: uid() });
       else if (action === 'preference-update') doc.preferences = updatePreference(doc.preferences, payload.id, payload.patch);
@@ -337,7 +350,6 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       return { doc: readState(home) };
     }
     if (action === 'cancel') {
-      activeChecks.get(before.id)?.abort();
       const active = before.attempts.at(-1);
       let interruption;
       if (active?.delivery === 'acknowledged' && active.state === 'running') interruption = await interruptAttempt(before, active);
@@ -529,23 +541,18 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       // Wait until the reporting agent has stopped writing the checkout.
       if (state.status === 'working') break report;
       if (!['idle', 'done'].includes(state.status)) { block(task.id, `Agent stopped with ${state.status ?? state.state}`); return; }
-      const revision = await fingerprintImpl(task.root);
-      let checks = task.checksResult;
+      let revision, checks = task.checksResult;
       if (attempt.role === 'executor' && report.status === 'completed') {
-        const controller = new globalThis.AbortController(); activeChecks.set(task.id, controller);
-        const checkCancellation = () => {
-          try { const doc = readState(home); if (!doc.engine.enabled || taskById(doc, task.id).state === 'cancelled') controller.abort(); }
-          catch { controller.abort(); }
-        };
-        const watcher = fs.watch(dir, (_event, name) => { if (String(name) === 'state.json') checkCancellation(); });
-        checkCancellation();
-        // Checks get their own budget: a report near the attempt deadline must not fail them.
-        try { checks = await checksImpl(task.root, task.checks, { signal: controller.signal, timeoutMs: Math.min(task.maxMinutes, 10) * 60000 }); }
-        finally { watcher.close(); activeChecks.delete(task.id); }
+        const pending = checkRuns.get(attempt.id) ?? startChecks(task, attempt.id, await fingerprintImpl(task.root));
+        if (!pending.done) await Promise.race([pending.promise, new Promise((resolve) => globalThis.setTimeout(resolve, CHECK_GRACE_MS).unref?.())]);
+        if (!pending.done) return;
+        checkRuns.delete(attempt.id);
         // Stop/cancel is not a failed check. Keep the report available so an
         // explicit resume validates this same attempt without another round.
-        if (controller.signal.aborted) return;
-      }
+        if (pending.aborted) return;
+        if (pending.error) throw pending.error;
+        ({ revision, checks } = pending);
+      } else revision = await fingerprintImpl(task.root);
       // The reviewed tree is read between the two fingerprints, so it is stored only for an unchanged checkout.
       const reviewedTree = task.worktree && attempt.role === 'reviewer' && report.status === 'completed' ? await snapshotTree(task.root).catch(() => null) : null;
       const afterChecks = await fingerprintImpl(task.root);
@@ -579,6 +586,25 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         a.timedOut = true; a.delivery = 'uncertain'; t.state = 'blocked'; t.error = 'Attempt time limit reached; inspect and reconcile the agent before continuing'; log(doc, t, 'Attempt timed out', t.error); });
     }
   }
+  // Stop or cancel reaches this process only through the state file, so the watcher aborts the run.
+  function startChecks(task, attemptId, revision) {
+    const controller = new globalThis.AbortController();
+    const checkCancellation = () => {
+      try { const doc = readState(home); if (!doc.engine.enabled || taskById(doc, task.id).state === 'cancelled') controller.abort(); }
+      catch { controller.abort(); }
+    };
+    const watcher = fs.watch(dir, (_event, name) => { if (String(name) === 'state.json') checkCancellation(); });
+    checkCancellation();
+    const pending = { revision, done: false };
+    // Checks get their own budget: a report near the attempt deadline must not fail them.
+    pending.promise = Promise.resolve()
+      .then(() => checksImpl(task.root, task.checks, { signal: controller.signal, timeoutMs: Math.min(task.maxMinutes, 10) * 60000 }))
+      .then((checks) => { pending.checks = checks; }, (error) => { pending.error = error; })
+      .finally(() => { watcher.close(); pending.aborted = controller.signal.aborted; pending.done = true; wake(); });
+    checkRuns.set(attemptId, pending);
+    return pending;
+  }
+
   async function tick() {
     let doc = readState(home); if (!doc.engine.enabled) return;
     for (const task of doc.tasks) {

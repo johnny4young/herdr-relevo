@@ -35,3 +35,19 @@ test('batch review reuses the task list and previews only explicitly selected re
   assert.equal(fake.execs.length, 1, 'leaving selection never accepts results');
   view.close();
 });
+
+test('history offers archiving and reports how many tasks moved', async () => {
+  fake.props = { goalId: 'g', overlay: 'o' };
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [
+    { id: 'done', goalId: 'g', title: 'Done', root: '/repo', state: 'accepted', revision: 'r1' },
+  ] });
+  const view = new Workflow(), cx = fakeCx(); view.init({}, cx); await flush();
+  assert.equal(find(view.render(), 'workflow-archive'), null, 'only history offers it');
+  click(find(view.render(), 'workflow-filter-Completed'), cx); await flush();
+  let payload;
+  fake.exec = async (_cmd, args) => { payload = JSON.parse(args.at(-1)); return payload.action === 'archive' ? { stdout: '{"result":{"archived":1}}' } : null; };
+  click(find(view.render(), 'workflow-archive'), cx); await flush();
+  assert.deepEqual(payload.action === 'archive' ? payload : null, { action: 'archive', olderThanDays: 7 });
+  assert.equal(view.notice, '1 finished task archived.');
+  view.close();
+});

@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { run } from './process.mjs';
 import { createRuntime } from './coordinator.mjs';
-import { alive, privateDir, stateDir, transaction } from './store.mjs';
+import { acquireOwned, alive, privateDir, releaseOwned, stateDir, transaction } from './store.mjs';
 
 const cliPath = fileURLToPath(import.meta.url);
 const liveTerminal = (value) => ['live', 'idle', 'working'].includes(value?.state) || ['live', 'idle', 'working'].includes(value?.status);
@@ -26,39 +26,8 @@ export function parseArgs(argv) {
   return { home: path.resolve(home), action, payload };
 }
 
-function acquireLock(home, pid = process.pid, fsImpl = fs) {
-  const dir = privateDir(stateDir(home)), lock = path.join(dir, 'engine.lock'), guard = path.join(dir, 'engine.acquire');
-  try { fsImpl.mkdirSync(guard, { mode: 0o700 }); }
-  catch (error) { if (error.code === 'EEXIST') throw Error('Coordinator startup is already being resolved'); throw error; }
-  try {
-    try { fsImpl.mkdirSync(lock, { mode: 0o700 }); }
-    catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      const lockStat = fsImpl.lstatSync(lock);
-      if (!lockStat.isDirectory() || lockStat.isSymbolicLink()) throw Error('Coordinator lock path is unsafe');
-      let owner;
-      try {
-        const ownerPath = path.join(lock, 'owner.json'), ownerStat = fsImpl.lstatSync(ownerPath);
-        if (!ownerStat.isFile() || ownerStat.isSymbolicLink()) throw Error('Unsafe lock owner');
-        owner = JSON.parse(fsImpl.readFileSync(ownerPath, 'utf8'));
-      } catch { throw Error('Coordinator lock is incomplete; refusing to start a second engine'); }
-      if (alive(owner.pid)) throw Error('Coordinator is already running');
-      fsImpl.unlinkSync(path.join(lock, 'owner.json'));
-      fsImpl.rmdirSync(lock);
-      fsImpl.mkdirSync(lock, { mode: 0o700 });
-    }
-    const token = `${pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    fsImpl.writeFileSync(path.join(lock, 'owner.json'), JSON.stringify({ pid, token }), { flag: 'wx', mode: 0o600 });
-    return { lock, token };
-  } finally { fsImpl.rmdirSync(guard); }
-}
-
-function releaseLock({ lock, token }, fsImpl = fs) {
-  try {
-    const owner = JSON.parse(fsImpl.readFileSync(path.join(lock, 'owner.json'), 'utf8'));
-    if (owner.token === token) { fsImpl.unlinkSync(path.join(lock, 'owner.json')); fsImpl.rmdirSync(lock); }
-  } catch { /* A replaced or incomplete lock must remain untouched. */ }
-}
+const ENGINE_ERRORS = { guard: 'Coordinator startup is already being resolved', unsafe: 'Coordinator lock path is unsafe',
+  incomplete: 'Coordinator lock is incomplete; refusing to start a second engine', held: 'Coordinator is already running' };
 
 export async function ensureEngine(home, { runCommand = run, cli = cliPath, node = process.execPath } = {}) {
   home = path.resolve(home); cli = path.resolve(cli);
@@ -127,7 +96,7 @@ export async function waitForStop(home, { timeoutMs = 20000, fsImpl = fs, timers
 
 export async function serve(home, { runtimeFactory = createRuntime, fsImpl = fs, timers = globalThis, pid = process.pid, processRef = process,
   spawnImpl = spawn, eventWatch = watchAgents, intervalMs = 3000, debounceMs = 150 } = {}) {
-  const lock = acquireLock(home, pid, fsImpl);
+  const lock = acquireOwned(privateDir(stateDir(home)), 'engine', { pid, errors: ENGINE_ERRORS });
   let runtime, stopped = false, released = false, running = false, queued = false, timer, debounce, watcher, wakeWatcher, agentWatcher, settle;
   let watchedAddresses = '';
   const reports = path.join(stateDir(home), 'reports');
@@ -168,7 +137,7 @@ export async function serve(home, { runtimeFactory = createRuntime, fsImpl = fs,
     released = true;
     watcher?.close(); wakeWatcher?.close(); agentWatcher?.close();
     processRef.removeListener?.('SIGTERM', stop); processRef.removeListener?.('SIGINT', stop);
-    releaseLock(lock, fsImpl); settle();
+    releaseOwned(lock); settle();
   };
   const stop = () => {
     if (stopped) return;
@@ -181,7 +150,7 @@ export async function serve(home, { runtimeFactory = createRuntime, fsImpl = fs,
     schedule();
   };
   try {
-    runtime = runtimeFactory({ home });
+    runtime = runtimeFactory({ home, wake: schedule });
     runtime.recover();
     if (runtime.read().engine.error) transaction(home, (doc) => { delete doc.engine.error; });
     watcher = fsImpl.watch(reports, schedule); watcher.on?.('error', () => {});
@@ -224,7 +193,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     const continuesWork = (doc.tasks ?? []).some((task) => task.state === 'ready' && !task.paused &&
       task.dependsOn?.some((id) => acceptedIds.includes(id)) && task.dependsOn.every((id) => doc.tasks.some((parent) => parent.id === id && parent.state === 'accepted')));
     const keepsEngineBusy = ['message', 'skill'].includes(action);
-    const passive = ['read', 'create', 'refresh', 'suggest-preferences', 'prepare-worktree', 'worktree-status', 'worktree-pr', 'worktree-remove'].includes(action);
+    const passive = ['read', 'archive', 'create', 'refresh', 'suggest-preferences', 'prepare-worktree', 'worktree-status', 'worktree-pr', 'worktree-remove'].includes(action);
     const response = result ?? { doc };
     if (doc?.engine?.enabled && (startsWork || keepsEngineBusy || continuesWork)) {
       try { await (deps.ensureEngine ?? ensureEngine)(parsed.home, deps.engineOptions); }

@@ -498,7 +498,12 @@ export class Workflow extends WorkflowDraftView {
       .when(this.filter === "Needs you" && batchable.length > 1, (el) => el.child(button(t, "workflow-batch-toggle", selecting ? "Cancel selection" : "Review a batch", (cx) => {
         this.batchMode = !selecting; this.batchIds = []; this.batchSnapshot = null; this.batchPreview = null; cx.notify();
       }, { kind: "ghost", size: "sm", selected: Boolean(selecting) }).w_full()))
-      .when(selecting, (el) => el.child(this.batchPanel(t, batchable)));
+      .when(selecting, (el) => el.child(this.batchPanel(t, batchable)))
+      .when(this.filter === "Completed" && visible.length > 0, (el) => el.child(button(t, "workflow-archive", "Archive older than 7 days", (cx) =>
+        this.command({ action: "archive", olderThanDays: 7 }, cx, (response) => {
+          const count = response.result?.archived ?? 0;
+          this.notice = count ? `${count} finished ${count === 1 ? "task" : "tasks"} archived.` : "Nothing older than 7 days to archive.";
+        }), { kind: "ghost", size: "sm", disabled: this.busy, tip: "Moves finished tasks idle for a week out of the queue; open worktrees stay" }).w_full()));
   }
 
   toggleHelp(cx) {
