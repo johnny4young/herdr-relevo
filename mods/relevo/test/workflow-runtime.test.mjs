@@ -521,3 +521,26 @@ test("accepting a worktree run commits exactly the reviewed tree to its branch",
   assert.equal(execFileSync("git", ["-C", f.root, "status", "--porcelain"], { encoding: "utf8" }), "?? LATE.md\n");
   assert.doesNotMatch(JSON.stringify(f.runtime.read()), new RegExp(f.sends[0].at(-1).match(/"token":"([^"]+)"/)[1]), "no report token in state");
 });
+
+test("a batch acceptance of worktree runs from one repo commits each run branch", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const ids = [], paths = {};
+  for (const name of ["one", "two"]) {
+    const wt = path.join(f.base, `wt-${name}`);
+    execFileSync("git", ["-C", f.root, "worktree", "add", "-q", "-b", `run/${name}`, wt]);
+    fs.writeFileSync(path.join(wt, `${name}.md`), `${name}\n`);
+    const id = (await f.runtime.command({ action: "create", task: { goalId: "g1", title: `Add ${name}`, criteria: "Exists", root: f.root,
+      executor: { address: `exec-${name}` }, reviewer: { address: `review-${name}` }, worktree: { branch: `run/${name}`, base: f.root } } })).result.taskId;
+    ids.push(id); paths[id] = wt;
+  }
+  // The fake agents report the main checkout, so each task moves to its worktree here.
+  transaction(f.home, (doc) => { for (const id of ids) { const task = doc.tasks.find((item) => item.id === id);
+    Object.assign(task, { state: "needs_you", revision: "checkout-r1", root: paths[id] }); task.worktree.path = paths[id]; } });
+  await f.runtime.command({ action: "batch", ids, outcome: "accept", preview: false, revisions: Object.fromEntries(ids.map((id) => [id, "checkout-r1"])) });
+  for (const [index, name] of ["one", "two"].entries()) {
+    const task = f.runtime.read().tasks.find((item) => item.id === ids[index]);
+    assert.equal(task.state, "accepted");
+    assert.match(task.worktree.commit, /^[0-9a-f]{40}$/);
+    assert.equal(execFileSync("git", ["-C", f.root, "log", "-1", "--format=%s", `run/${name}`], { encoding: "utf8" }).trim(), `Add ${name}`);
+  }
+});

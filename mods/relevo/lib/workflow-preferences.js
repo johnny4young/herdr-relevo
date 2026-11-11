@@ -80,6 +80,9 @@ export function proposeFromDecisions(tasks, context = {}) {
   }));
 }
 
+// Worktree runs belong to the repository they branch from, not to their own checkout.
+export const batchScope = (t) => t.projectRoot ?? t.worktree?.base ?? t.root ?? t.project;
+
 export function decisionBatch(tasks, ids, outcome, revisions = {}) {
   if (!Array.isArray(ids) || !ids.length || new Set(ids).size !== ids.length) throw new TypeError("Select unique task ids");
   if (!Array.isArray(tasks)) throw new TypeError("Tasks must be an array");
@@ -87,7 +90,7 @@ export function decisionBatch(tasks, ids, outcome, revisions = {}) {
   const selected = ids.map((id) => tasks.find((t) => t.id === id));
   if (selected.some((t) => !t)) throw new TypeError("Selected task not found");
   if (selected.some((t) => t.state !== "needs_you")) throw new TypeError("Every selected task must need you");
-  const scopes = new Set(selected.map((t) => t.projectRoot ?? t.root ?? t.project));
+  const scopes = new Set(selected.map(batchScope));
   if (scopes.size !== 1) throw new TypeError("Batch cannot cross project scopes");
   const goals = new Set(selected.map((t) => t.goalId ?? t.goal?.id ?? null));
   if (goals.size !== 1) throw new TypeError("Batch cannot cross goal scopes");

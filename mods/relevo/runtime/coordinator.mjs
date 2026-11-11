@@ -262,10 +262,15 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       const before = readState(home), selected = decisionBatch(before.tasks, payload.ids, payload.outcome, payload.revisions);
       if (payload.preview !== false) return { doc: before, preview: selected };
       const fingerprints = Object.fromEntries(await Promise.all(selected.map(async (item) => { const task = taskById(before, item.taskId); return [task.id, await fingerprintImpl(task.root)]; })));
-      return update((doc) => {
+      const decided = update((doc) => {
         decisionBatch(doc.tasks, payload.ids, payload.outcome, payload.revisions);
         for (const item of selected) { const task = taskById(doc, item.taskId); decide(doc, task, { ...payload, revision: payload.revisions[task.id] }, fingerprints[task.id]); }
       });
+      if (payload.outcome !== 'accept') return decided;
+      const runs = selected.map((item) => taskById(before, item.taskId)).filter((task) => task.worktree);
+      const commits = [];
+      for (const task of runs) commits.push([task.id, await commitAccepted(task, payload.revisions[task.id])]);
+      return commits.length ? update((doc) => { for (const [id, result] of commits) logCommit(doc, taskById(doc, id), result); }) : decided;
     }
     const before = taskById(readState(home), payload.taskId);
     if (action === 'refresh') {
@@ -297,21 +302,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       const current = await fingerprintImpl(before.root);
       const decided = update((doc) => decide(doc, taskById(doc, before.id), payload, current));
       if (payload.outcome !== 'accept' || !before.worktree) return decided;
-      // Acceptance commits the run branch; a failed commit is reported and the acceptance stands.
-      let sha = null, failure = null;
-      try {
-        // Only the reviewed revision is committed; anything an agent changed since then is left for a new review.
-        if (before.worktree.reviewedTree) {
-          if (before.worktree.reviewedRevision !== payload.revision) throw Error('The reviewed tree is not the accepted revision; nothing was committed');
-          sha = await commitReviewedTree(before.worktree, before.worktree.reviewedTree, before.title, before.criteria.slice(0, 2000));
-        } else {
-          if (await fingerprintImpl(before.worktree.path) !== payload.revision) throw Error('The checkout changed after review; nothing was committed');
-          sha = await commitWorktree(before.worktree, before.title, before.criteria.slice(0, 2000));
-        }
-      } catch (e) { failure = String(e.stderr || e.message).slice(0, 500); }
-      return update((doc) => { const task = taskById(doc, before.id);
-        if (sha) { task.worktree.commit = sha; log(doc, task, 'Changes committed', `${task.worktree.branch} · ${sha.slice(0, 7)}`, 'Human'); }
-        if (failure) log(doc, task, 'Commit failed', failure, 'Human'); });
+      const result = await commitAccepted(before, payload.revision);
+      return update((doc) => logCommit(doc, taskById(doc, before.id), result));
     }
     if (action === 'worktree-status') return { result: await worktreeStatus(before.worktree) };
     if (action === 'worktree-pr' || action === 'worktree-remove') {
@@ -383,6 +375,24 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       log(doc, task, action === 'start' ? 'Task started' : 'Task resumed', 'Ready work runs when dependencies and agents are available', 'Human');
     });
   }
+  // Acceptance commits only the reviewed revision; a failed commit is reported and the acceptance stands.
+  async function commitAccepted(task, revision) {
+    try {
+      const wt = task.worktree, body = task.criteria.slice(0, 2000);
+      if (wt.reviewedTree) {
+        if (wt.reviewedRevision !== revision) throw Error('The reviewed tree is not the accepted revision; nothing was committed');
+        return { sha: await commitReviewedTree(wt, wt.reviewedTree, task.title, body) };
+      }
+      if (await fingerprintImpl(wt.path) !== revision) throw Error('The checkout changed after review; nothing was committed');
+      return { sha: await commitWorktree(wt, task.title, body) };
+    } catch (e) { return { failure: String(e.stderr || e.message).slice(0, 500) }; }
+  }
+
+  function logCommit(doc, task, { sha, failure }) {
+    if (sha) { task.worktree.commit = sha; log(doc, task, 'Changes committed', `${task.worktree.branch} · ${sha.slice(0, 7)}`, 'Human'); }
+    if (failure) log(doc, task, 'Commit failed', failure, 'Human');
+  }
+
   function decide(doc, task, payload, current) {
     if (task.state !== 'needs_you' || !task.revision || payload.revision !== task.revision || current !== task.revision) throw Error('This review is stale or no longer awaiting a decision. Refresh it.');
     if (!['accept', 'changes', 'defer'].includes(payload.outcome)) throw Error('Choose Accept result, Request changes or Defer');
