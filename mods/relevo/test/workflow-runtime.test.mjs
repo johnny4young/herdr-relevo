@@ -510,3 +510,21 @@ test("accepting a worktree run commits its changes to the run branch", async (t)
   assert.equal(execFileSync("git", ["-C", f.root, "log", "-1", "--format=%s"], { encoding: "utf8" }).trim(), "Add notes");
   assert.equal(execFileSync("git", ["-C", f.root, "status", "--porcelain"], { encoding: "utf8" }), "");
 });
+
+test("a worktree change made after review is never committed on acceptance", async (t) => {
+  let calls = 0, late = false;
+  const f = await fixture({ fingerprintImpl: async () => { calls++; return late ? "checkout-r2" : "checkout-r1"; } });
+  t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const created = await f.runtime.command({ action: "create", start: true, task: { goalId: "g1", title: "Late edit", criteria: "c", root: f.root,
+    executor: { address: "exec-5" }, reviewer: { address: "review-5" }, worktree: { branch: "main", base: f.root } } });
+  const id = created.result.taskId, current = () => f.runtime.read().tasks.find((item) => item.id === id);
+  await f.runtime.tick(); f.report("executor", "completed", "Done", current().attempts.at(-1)); await f.runtime.tick(); await f.runtime.tick();
+  f.report("reviewer", "completed", "Fine", current().attempts.at(-1)); await f.runtime.tick();
+  fs.writeFileSync(path.join(f.root, "LATE.md"), "late\n");
+  const before = calls, decision = f.runtime.command({ action: "decide", taskId: id, outcome: "accept", revision: current().revision });
+  late = true; await decision;
+  assert.ok(calls >= before + 2, "fingerprinted again right before committing");
+  assert.equal(current().state, "accepted"); assert.equal(current().worktree.commit, undefined);
+  assert.match(f.runtime.read().events.filter((e) => e.taskId === id).at(-1).detail, /changed after review/);
+  assert.match(execFileSync("git", ["-C", f.root, "status", "--porcelain"], { encoding: "utf8" }), /LATE\.md/);
+});

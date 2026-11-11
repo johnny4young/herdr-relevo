@@ -295,7 +295,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (payload.outcome !== 'accept' || !before.worktree) return decided;
       // Acceptance commits the run branch; a failed commit is reported and the acceptance stands.
       let sha = null, failure = null;
-      try { sha = await commitWorktree(before.worktree, before.title, before.criteria.slice(0, 2000)); } catch (e) { failure = String(e.stderr || e.message).slice(0, 500); }
+      try {
+        // Only the reviewed revision is committed; anything an agent changed since then is left for a new review.
+        if (await fingerprintImpl(before.worktree.path) !== payload.revision) throw Error('The checkout changed after review; nothing was committed');
+        sha = await commitWorktree(before.worktree, before.title, before.criteria.slice(0, 2000));
+      } catch (e) { failure = String(e.stderr || e.message).slice(0, 500); }
       return update((doc) => { const task = taskById(doc, before.id);
         if (sha) { task.worktree.commit = sha; log(doc, task, 'Changes committed', `${task.worktree.branch} · ${sha.slice(0, 7)}`, 'Human'); }
         if (failure) log(doc, task, 'Commit failed', failure, 'Human'); });
