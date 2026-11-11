@@ -37,10 +37,12 @@ async function fixture({ sendCode = 0, checkCode = 0, maxRounds = 3, checksImpl:
     checks: [["npm", "test"]], maxRounds, maxMinutes: 10 };
   const created = await runtime.command({ action: "create", task });
   const taskId = created.result.taskId;
+  // The state keeps only a hash; the token travels in the prompt sent to the agent.
+  const tokenFor = (attempt) => sends.map((args) => args.at(-1)).find((text) => text.includes(attempt.id))?.match(/"token":"([^"]+)"/)?.[1] ?? attempt.token;
   const report = (role, status, summary, attemptOverride) => {
     const current = runtime.read().tasks.find((t) => t.id === taskId), attempt = attemptOverride ?? current.attempts.at(-1);
     const reports = path.join(home, "relevo-workflow", "reports"); fs.mkdirSync(reports, { recursive: true });
-    fs.writeFileSync(path.join(reports, `${attempt.id}.json`), JSON.stringify({ attemptId: attempt.id, token: attempt.token, status, summary }));
+    fs.writeFileSync(path.join(reports, `${attempt.id}.json`), JSON.stringify({ attemptId: attempt.id, token: tokenFor(attempt), status, summary }));
     return attempt;
   };
   return { base, home, root, runtime, taskId, report, sends, interrupts, setActorStatus(address, status) { actorStatuses.set(address, status); }, setRevision(value) { revision = value; }, setNow(value) { now = value; }, get now() { return now; } };
@@ -489,42 +491,32 @@ test("create with start makes the task ready and enables automation in one write
 test("a task created in a run worktree records its branch and base", async (t) => {
   const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
   const created = await f.runtime.command({ action: "create", task: { goalId: "g1", title: "Isolated", criteria: "Works", root: f.root,
-    executor: { address: "exec-3" }, reviewer: { address: "review-3" }, worktree: { branch: "run/isolated-abc123", base: "/work/app" } } });
+    executor: { address: "exec-3" }, reviewer: { address: "review-3" }, worktree: { branch: "run/isolated-abc123", base: f.root } } });
   const task = f.runtime.read().tasks.find((item) => item.id === created.result.taskId);
-  assert.deepEqual(task.worktree, { path: f.root, branch: "run/isolated-abc123", base: "/work/app" });
+  assert.deepEqual(task.worktree, { path: f.root, branch: "run/isolated-abc123", base: f.root });
+  await assert.rejects(f.runtime.command({ action: "create", task: { goalId: "g1", title: "Bad", criteria: "c", root: f.root, executor: { address: "e" }, reviewer: { address: "r" },
+    worktree: { branch: "--upload-pack=x", base: f.root } } }), /run\/ branch/);
+  await assert.rejects(f.runtime.command({ action: "create", task: { goalId: "g1", title: "Bad", criteria: "c", root: f.root, executor: { address: "-x" }, reviewer: { address: "r" } } }), /different executor and reviewer/);
 });
 
-test("accepting a worktree run commits its changes to the run branch", async (t) => {
+test("accepting a worktree run commits exactly the reviewed tree to its branch", async (t) => {
   const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  execFileSync("git", ["-C", f.root, "checkout", "-q", "-b", "run/notes-1"]);
   const created = await f.runtime.command({ action: "create", start: true, task: { goalId: "g1", title: "Add notes", criteria: "Notes exist", root: f.root,
-    executor: { address: "exec-4" }, reviewer: { address: "review-4" }, worktree: { branch: "main", base: f.root } } });
+    executor: { address: "exec-4" }, reviewer: { address: "review-4" }, worktree: { branch: "run/notes-1", base: f.root } } });
   const id = created.result.taskId, current = () => f.runtime.read().tasks.find((item) => item.id === id);
   await f.runtime.tick();
   f.report("executor", "completed", "Done", current().attempts.at(-1)); await f.runtime.tick(); await f.runtime.tick();
+  fs.writeFileSync(path.join(f.root, "NOTES.md"), "notes\n");
   f.report("reviewer", "completed", "Fine", current().attempts.at(-1)); await f.runtime.tick();
   assert.equal(current().state, "needs_you");
-  fs.writeFileSync(path.join(f.root, "NOTES.md"), "notes\n");
+  fs.writeFileSync(path.join(f.root, "LATE.md"), "late\n");
   await f.runtime.command({ action: "decide", taskId: id, outcome: "accept", revision: current().revision });
   assert.equal(current().state, "accepted");
   assert.match(current().worktree.commit, /^[0-9a-f]{40}$/);
   assert.equal(execFileSync("git", ["-C", f.root, "log", "-1", "--format=%s"], { encoding: "utf8" }).trim(), "Add notes");
-  assert.equal(execFileSync("git", ["-C", f.root, "status", "--porcelain"], { encoding: "utf8" }), "");
-});
-
-test("a worktree change made after review is never committed on acceptance", async (t) => {
-  let calls = 0, late = false;
-  const f = await fixture({ fingerprintImpl: async () => { calls++; return late ? "checkout-r2" : "checkout-r1"; } });
-  t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
-  const created = await f.runtime.command({ action: "create", start: true, task: { goalId: "g1", title: "Late edit", criteria: "c", root: f.root,
-    executor: { address: "exec-5" }, reviewer: { address: "review-5" }, worktree: { branch: "main", base: f.root } } });
-  const id = created.result.taskId, current = () => f.runtime.read().tasks.find((item) => item.id === id);
-  await f.runtime.tick(); f.report("executor", "completed", "Done", current().attempts.at(-1)); await f.runtime.tick(); await f.runtime.tick();
-  f.report("reviewer", "completed", "Fine", current().attempts.at(-1)); await f.runtime.tick();
-  fs.writeFileSync(path.join(f.root, "LATE.md"), "late\n");
-  const before = calls, decision = f.runtime.command({ action: "decide", taskId: id, outcome: "accept", revision: current().revision });
-  late = true; await decision;
-  assert.ok(calls >= before + 2, "fingerprinted again right before committing");
-  assert.equal(current().state, "accepted"); assert.equal(current().worktree.commit, undefined);
-  assert.match(f.runtime.read().events.filter((e) => e.taskId === id).at(-1).detail, /changed after review/);
-  assert.match(execFileSync("git", ["-C", f.root, "status", "--porcelain"], { encoding: "utf8" }), /LATE\.md/);
+  const committed = execFileSync("git", ["-C", f.root, "show", "--name-only", "--format=", "HEAD"], { encoding: "utf8" });
+  assert.match(committed, /NOTES\.md/); assert.doesNotMatch(committed, /LATE\.md/, "an edit after review stays out");
+  assert.equal(execFileSync("git", ["-C", f.root, "status", "--porcelain"], { encoding: "utf8" }), "?? LATE.md\n");
+  assert.doesNotMatch(JSON.stringify(f.runtime.read()), new RegExp(f.sends[0].at(-1).match(/"token":"([^"]+)"/)[1]), "no report token in state");
 });

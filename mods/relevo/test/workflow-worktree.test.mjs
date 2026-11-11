@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { commitWorktree, openPullRequest, prepareWorktree, removeRunWorktree, runSlug, worktreePath, worktreeStatus } from '../runtime/worktree.mjs';
+import { commitReviewedTree, commitWorktree, openPullRequest, prepareWorktree, removeRunWorktree, runSlug, snapshotTree, worktreePath, worktreeStatus } from '../runtime/worktree.mjs';
 
 function repo() {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'relevo-wt-'))), root = path.join(base, 'app'), home = path.join(base, 'home');
@@ -75,4 +75,34 @@ test('a draft PR without an origin remote says so in one line', async (t) => {
   const wt = await prepareWorktree({ root, title: 'No remote', home });
   fs.writeFileSync(path.join(wt.path, 'N.md'), 'n\n'); await commitWorktree(wt, 'No remote', '');
   await assert.rejects(openPullRequest(wt, 't', 'b', async () => ({ stdout: '' })), /^Error: This repository has no origin remote/);
+});
+
+test('an included file never lands outside the worktree through a tracked symlink', async (t) => {
+  const { base, root, home } = repo(); t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const outside = path.join(base, 'outside'); fs.mkdirSync(outside);
+  fs.mkdirSync(path.join(root, 'cfg')); fs.writeFileSync(path.join(root, 'cfg', 'keep'), 'k');
+  fs.writeFileSync(path.join(root, '.worktreeinclude'), '.env\nlink/.env\n');
+  fs.symlinkSync(outside, path.join(root, 'link'));
+  execFileSync('git', ['-C', root, 'add', '.']); execFileSync('git', ['-C', root, 'commit', '-qm', 'link']);
+  fs.writeFileSync(path.join(outside, '.env'), 'X');
+  const wt = await prepareWorktree({ root, title: 'Linked', home });
+  assert.deepEqual(fs.readdirSync(outside), ['.env'], 'nothing new written outside');
+  assert.equal(fs.readFileSync(path.join(outside, '.env'), 'utf8'), 'X');
+  assert.ok(wt.copied >= 1);
+});
+
+test('the reviewed tree is what gets committed, and only run worktrees can be removed', async (t) => {
+  const { base, root, home } = repo(); t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const wt = await prepareWorktree({ root, title: 'Tree', home });
+  fs.writeFileSync(path.join(wt.path, 'A.md'), 'a\n');
+  const tree = await snapshotTree(wt.path);
+  fs.writeFileSync(path.join(wt.path, 'B.md'), 'b\n');
+  const sha = await commitReviewedTree(wt, tree, 'Tree', '');
+  assert.match(sha, /^[0-9a-f]{40}$/);
+  assert.equal(execFileSync('git', ['-C', wt.path, 'show', '--name-only', '--format=', 'HEAD'], { encoding: 'utf8' }).trim(), 'A.md');
+  assert.equal(execFileSync('git', ['-C', wt.path, 'status', '--porcelain'], { encoding: 'utf8' }), '?? B.md\n');
+  assert.equal(await commitReviewedTree(wt, sha && execFileSync('git', ['-C', wt.path, 'rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim(), 'Again', ''), null);
+  await assert.rejects(removeRunWorktree({ ...wt, path: root, branch: 'main' }), /uncommitted|not a run worktree/);
+  fs.rmSync(path.join(wt.path, 'B.md'));
+  await assert.rejects(removeRunWorktree({ ...wt, branch: 'main' }), /not a run worktree/);
 });
