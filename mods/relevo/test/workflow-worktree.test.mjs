@@ -69,3 +69,10 @@ test('removing an empty run deletes its branch and uncommitted work is never rem
   await assert.rejects(removeRunWorktree(dirty), /uncommitted/);
   await assert.rejects(openPullRequest(dirty, 't', 'b', async () => ({ stdout: '' })), /Commit the worktree/);
 });
+
+test('a draft PR without an origin remote says so in one line', async (t) => {
+  const { base, root, home } = repo(); t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const wt = await prepareWorktree({ root, title: 'No remote', home });
+  fs.writeFileSync(path.join(wt.path, 'N.md'), 'n\n'); await commitWorktree(wt, 'No remote', '');
+  await assert.rejects(openPullRequest(wt, 't', 'b', async () => ({ stdout: '' })), /^Error: This repository has no origin remote/);
+});

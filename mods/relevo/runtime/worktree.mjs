@@ -68,6 +68,7 @@ export async function openPullRequest(wt, title, body, run = execFile) {
   const status = await worktreeStatus(wt);
   if (!status.exists || status.dirty) throw Error('Commit the worktree before opening a PR');
   if (status.ahead === 0) throw Error('The run branch has no commits to propose');
+  try { await git(wt.path, ['remote', 'get-url', 'origin']); } catch { throw Error('This repository has no origin remote to push the run branch to'); }
   await git(wt.path, ['push', '-u', 'origin', wt.branch]);
   const { stdout } = await run('gh', ['pr', 'create', '--draft', '--head', wt.branch, ...(wt.baseBranch ? ['--base', wt.baseBranch] : []), '--title', title, '--body', body || title],
     { cwd: wt.path, encoding: 'utf8', timeout: 60000 });
