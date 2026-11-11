@@ -3,7 +3,7 @@ import "./fake/register.mjs";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { fake, resetFake } from "./fake/herdr.mjs";
-import { fakeCx, find, flush, text } from "./fake/ui.mjs";
+import { fakeCx, find, flush, text, click } from "./fake/ui.mjs";
 
 const { ReviewDiff } = await import("../review.js");
 const settled = async () => { for (let i = 0; i < 12; i++) await flush(); };
@@ -64,4 +64,17 @@ test("a PR review has no picker; a branch review does", async () => {
   const { v: pr } = await open({ pr: { repo: "me/app", number: 3, url: "u", base: "main" } });
   assert.equal(find(pr.header(fake.theme ?? {}), "rv-scope"), null);
   assert.match(text(pr.header(fake.theme ?? {})), /app #3 · against main/);
+});
+
+test("review scope is a named native keyboard control that changes comparison without accepting or sending", async () => {
+  const { v, cx } = await open();
+  const scope = find(v.render(), "rv-scope-all");
+  assert.equal(scope.kind, "button"); assert.equal(scope.tabIndex, 0);
+  assert.equal(scope.hasFocusStyle, true); assert.match(scope.accessibleLabel, /branch base/);
+  assert.equal(scope.isSelected, false);
+  click(scope, cx); await settled();
+  assert.equal(v.scope, "all"); assert.equal(find(v.render(), "rv-scope-all").isSelected, true);
+  assert.equal(diffs().at(-1), "abc123");
+  assert.equal(fake.execs.some((s) => s.startsWith("hc send ")), false);
+  assert.equal(v.seenMark(), null);
 });

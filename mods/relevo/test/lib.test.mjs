@@ -137,13 +137,15 @@ test("readPrompt: numbered lines that aren't a whole menu are flagged", () => {
 
 test("relevoKeys: the layout's section counts and wins over global", () => {
   const map = relevoKeys({
-    global: { "cmd-t": "tab.new", "cmd-g": "relevo.review" },
-    "layout:relevo": { "cmd-alt-d": "relevo.review", "cmd-j": "relevo.next-waiting" },
+    global: { "cmd-t": "tab.new", "cmd-g": "relevo.review", "cmd-x": "global.only" },
+    "layout:relevo": { "cmd-j": "relevo.next-waiting", "cmd-g": "relevo.next-waiting", "cmd-alt-d": "relevo.review" },
     terminal: { "cmd-c": "terminal.copy" },
   });
   assert.equal(map["relevo.review"], "cmd-alt-d");
   assert.equal(map["relevo.next-waiting"], "cmd-j");
+  assert.equal(map["global.only"], "cmd-x");
   assert.equal(map["tab.new"], "cmd-t");
+  assert.notEqual(map["relevo.review"], "cmd-g");
   assert.equal(map["terminal.copy"], undefined);
   assert.deepEqual(relevoKeys({}), {});
 });

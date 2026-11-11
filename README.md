@@ -9,6 +9,24 @@ alerts when a PR's CI or reviews change, and a ledger of agent time per ticket.
 
 *The preview and screenshots are mockups with demo data, drawn to match the layout.*
 
+## Live goals in the existing Inbox
+
+Choose **Goals** in Inbox to group PRs and local changes by an explicit goal, owner and priority. Link existing agents as leads and attach revision-bound screenshot/video links while retaining Relevo's review, reply, CI and Land controls. **Classic** switches back immediately. Goal metadata persists separately and does not grant approvals or send messages automatically.
+
+Track a goal's plan through pending, working, review and manually validated steps; pause, close or reopen it explicitly. Drafts and addressed work keep their original controls in expandable groups. See the [product goal and acceptance plan](docs/proposals/relevo-goal.md) for the complete scope and remaining work.
+
+Click the **Inbox** heading to focus its queue: **↑/↓** selects work, **G** reaches the next goal, **E** opens context, **S** opens the existing skill/account picker, and **R** opens review where available. **?** shows help; **Tab/Shift-Tab** moves between controls. Enter activates the focused control. Goal cards keep secondary **Criteria and feedback** in a keyboard-accessible fold while decisions, evidence and work controls stay visible. The goal editor separates **Decision**, **Plan** and **Ownership**, retains edits across sections, and saves with **⌘S**. Skills still run through the existing account and worktree flow. See the [keyboard interaction guide](docs/proposals/goal-ux.md).
+
+Open **Workflow** on a goal (**W** with the goal selected) to assign existing executor/reviewer sessions, follow durable handoffs, inspect local evidence and act on reviewed results. The bounded local coordinator runs through `hc`; human acceptance, GitHub approvals and merges remain distinct. Preferences require explicit acceptance, and native text fields accept system dictation before sending. See the [workflow guide and limits](docs/proposals/workflow-runtime.md).
+
+See [installation and rollback](docs/proposals/decision-inbox.md). The reversible installer preserves accounts, layouts, keys and sessions and creates a standalone rollback launcher that stops the coordinator before restoring code.
+
+## Native Decision Inbox preview
+
+Try the goal-aware Inbox inside the real Herdr app, in an isolated local profile with fictional data. See the [native preview instructions](docs/previews/native-decision-inbox.md). It keeps the existing Inbox and does not change your installed configuration or connect to real agents.
+
+To inspect your actual saved workspace/tab metadata without connecting the preview to live agents, use the separate [local metadata snapshot](scripts/SNAPSHOT.md). It keeps real names and relationships, marks missing goals and states as unknown, and does not import accounts or credentials.
+
 ## What it does
 
 ### Answer agents without leaving your work
@@ -128,7 +146,7 @@ Mods reload by themselves. `--exclude config.js` keeps your accounts; copying th
   `~/Library/Application Support/Claude/claude-code-sessions` (title, folder, and whether a session asks or waits for
   a review). Keeps the counts in `~/.local/state/relevo/usage/`.
 - Merges, updates and marks PRs ready only when you click (`gh pr merge`, `gh pr update-branch`, `gh pr ready`), and
-  re-runs failed jobs with `gh run rerun --failed`. **Mark seen** stores a git tree under `refs/relevo/seen/` in the repo.
+  re-runs failed jobs with `gh run rerun --failed`. **Save checkpoint** stores a git tree under `refs/relevo/seen/` for **Since I looked**. **Mark file viewed** and **Mark all viewed** track reviewed file contents separately.
 - Shows macOS notifications with `terminal-notifier` when installed, else `osascript`.
 - Writes `~/relevo-backups/deletions.log` (each worktree it removes: time, repo, path, branch and commit),
   `~/.local/state/relevo/ledger.jsonl` (agent time), `~/.local/state/relevo/replies.json` (how often you send

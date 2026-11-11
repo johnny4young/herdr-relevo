@@ -7,6 +7,7 @@ import { ago } from "./lib/time.js";
 import { launchInRepo } from "./accounts.js";
 import { accountFor } from "./context.js";
 import { baseBranch } from "./worktrees.js";
+import { openWorkflow } from "./workflow-window.js";
 import { GIT_READ as READ } from "./lib/git.js";
 import { diffRows, lineKey, selectRange, lineComment, fileComment, commentId, rangeRows, reviewMessage } from "./lib/diff.js";
 
@@ -63,13 +64,13 @@ function agentIn(root) {
 
 // Without `pr` it reviews the uncommitted changes; with `pr` ({repo, number, url, base, head, ref}) the whole PR
 // against its base: the checkout's working tree, or the branch `ref` itself when it isn't checked out anywhere.
-export async function openReview(root = focusedCwd(), terminal = null, pr = null) {
+export async function openReview(root = focusedCwd(), terminal = null, pr = null, back = null) {
   if (!root) return;
   const top = (await exec("git", ["rev-parse", "--show-toplevel"], { cwd: root })).stdout.trim();
   if (!top) return notify({ title: "Not a git repository", level: "info" });
   const pane = shared(OPEN)?.[reviewKey(top, pr)];
   if (pane && panes().some((p) => p.pane === pane)) return run("pane.focus", { pane });
-  run("pane.split", { direction: "right", mod: "relevo", props: { role: "review-diff", root: top, terminal, pr } });
+  run("pane.split", { direction: "right", mod: "relevo", props: { role: "review-diff", root: top, terminal, pr, ...(back ? { back } : {}) } });
 }
 
 const reviewKey = (root, pr) => (pr ? `${root}#${pr.number}` : root);
@@ -81,10 +82,12 @@ const live = () => Object.fromEntries(
 
 export class ReviewDiff {
   init(_props, cx) {
+    this.focus = cx.focus_handle();
     const p = props() ?? {};
     this.root = p.root ?? null;
     this.terminal = p.terminal ?? null;
     this.pr = p.pr ?? null;
+    this.back = p.back ?? null;
     // Open panes and unsent comments are kept per checkout, and per PR when reviewing one.
     this.key = reviewKey(this.root, this.pr);
     // Without a PR: "uncommitted", or "all" for the branch's commits too; "pr" with one; "seen" since the mark.
@@ -114,6 +117,8 @@ export class ReviewDiff {
   }
 
   close() {
+    this.closed = true;
+    this.focus.release();
     this.input.release();
     if (this.pane && shared(OPEN)?.[this.key] === this.pane) {
       const { [this.key]: _, ...rest } = live();
@@ -219,8 +224,9 @@ export class ReviewDiff {
     // Widening a fresh line comment into a range keeps what was typed.
     const widening = lines && target !== "file" && target.start !== target.end;
     this.input.set_value(saved ?? (widening ? this.input.value() : ""));
+    this.note = null;
     this.editing = target;
-    this.input.focus();
+    cx.timer.after(30, () => { if (!this.closed && this.editing === target) this.input.focus(); });
     cx.notify();
   }
 
@@ -231,11 +237,36 @@ export class ReviewDiff {
       this.editing = null;
       return cx.notify();
     }
+    if (!text) { this.note = "Enter a comment, or use Delete comment to remove it."; return cx.notify(); }
     const c = e === "file" ? fileComment(this.open.path, text) : lineComment(this.open.path, this.rows, e.start, e.end, text);
     const kept = this.comments.filter((x) => !(x.file === c.file && commentId(x) === commentId(c)));
     this.setComments([...kept, ...(text ? [c] : [])]);
+    this.note = "Comment saved locally";
+    this.cancelEdit(cx);
+  }
+
+  editingComment() {
+    const e = this.editing;
+    if (e === null || !this.open) return null;
+    if (e !== "file" && (!this.rows[e.start] || !this.rows[e.end])) return null;
+    const id = e === "file" ? "file" : commentId(lineComment("", this.rows, e.start, e.end, ""));
+    return this.comments.find((c) => c.file === this.open.path && commentId(c) === id) ?? null;
+  }
+
+  cancelEdit(cx) {
     this.editing = null;
+    this.anchor = null;
+    this.input.set_value("");
+    this.focus.focus();
     cx.notify();
+  }
+
+  deleteComment(cx) {
+    const comment = this.editingComment();
+    if (!comment) return;
+    this.setComments(this.comments.filter((c) => c !== comment));
+    this.note = "Comment deleted";
+    this.cancelEdit(cx);
   }
 
   setComments(list) {
@@ -261,10 +292,11 @@ export class ReviewDiff {
   async markSeen(cx) {
     const tree = await this.snapshot();
     if (!tree) {
-      this.note = "Could not mark it seen";
+      this.note = "Could not save a review checkpoint";
       return cx.notify();
     }
-    await exec("git", ["update-ref", seenRef(this.key), tree], { cwd: this.root });
+    const result = await exec("git", ["update-ref", seenRef(this.key), tree], { cwd: this.root });
+    if (result.code !== 0) { this.note = "Could not save a review checkpoint"; return cx.notify(); }
     setShared(SEEN, { ...(shared(SEEN) ?? {}), [this.key]: { tree, at: Math.round(Date.now() / 1000) } });
     cx.notify();
   }
@@ -275,6 +307,7 @@ export class ReviewDiff {
   }
 
   toggleViewed(path, cx) {
+    if (!this.hashes.get(path)) return;
     const all = { ...(shared(VIEWED) ?? {}) }, mine = { ...(all[this.key] ?? {}) };
     if (this.viewed(path)) delete mine[path];
     else mine[path] = this.hashes.get(path);
@@ -282,6 +315,12 @@ export class ReviewDiff {
     const listed = new Set(this.files.map((f) => f.path));
     all[this.key] = Object.fromEntries(Object.entries(mine).filter(([p]) => listed.has(p)));
     setShared(VIEWED, all);
+    cx.notify();
+  }
+
+  markAllViewed(cx) {
+    const mine = Object.fromEntries(this.files.flatMap(({ path }) => this.hashes.get(path) ? [[path, this.hashes.get(path)]] : []));
+    setShared(VIEWED, { ...(shared(VIEWED) ?? {}), [this.key]: mine });
     cx.notify();
   }
 
@@ -327,12 +366,10 @@ export class ReviewDiff {
     });
   }
 
-  key(e, cx) {
+  handleKey(e, cx) {
     if (e.key === "escape" && this.editing !== null) {
-      this.editing = null;
-      this.anchor = null;
       cx.stop_propagation();
-      cx.notify();
+      this.cancelEdit(cx);
     }
   }
 
@@ -353,8 +390,7 @@ export class ReviewDiff {
     if (!editing && !notes.length) return line;
     return v_flex().w_full().flex_none()
       .child(line)
-      .children(notes.map((note) => this.noteBox(t, note, font)))
-      .when(editing, (el) => el.child(this.field(t, font)));
+      .children(notes.map((note) => this.noteBox(t, note, font)));
   }
 
   noteBox(t, note, font) {
@@ -367,33 +403,50 @@ export class ReviewDiff {
     return div().mx(10).my(4).h(30).px(8).flex().items_center()
       .rounded(6).border_1().border_color(t.accent).bg(t.background)
       .font_family(font).text_size(13)
-      .child(Input.new(this.input).h_full());
+      .child(Input.new(this.input).id("rv-comment-input").accessibility_label("Review comment").h_full());
+  }
+
+  commentEditor(t, font) {
+    const e = this.editing, saved = this.editingComment();
+    const where = e === "file" ? "whole file" : `line ${this.rows[e?.start]?.number ?? ""}${e?.start !== e?.end ? `–${this.rows[e?.end]?.number ?? ""}` : ""}`;
+    // Retained inputs and action handlers live outside the virtual diff rows.
+    return v_flex().id("rv-comment-editor").flex_none().py(6).gap(4).border_t(1).border_color(t.accent)
+      .child(div().px(10).text_size(11).child(`${saved ? "Edit" : "Add"} comment · ${this.open?.path} · ${where}`))
+      .child(this.field(t, font))
+      .child(h_flex().px(10).gap(6).flex_wrap()
+        .child(button(t, "rv-comment-save", "Save comment", (cx) => this.save(cx), { kind: "solid", tip: "Enter saves locally. Send to agent delivers saved comments." }))
+        .child(button(t, "rv-comment-cancel", "Cancel", (cx) => this.cancelEdit(cx), { tip: "Esc discards this edit and keeps any previously saved comment" }))
+        .when(Boolean(saved), (el) => el.child(button(t, "rv-comment-delete", "Delete comment", (cx) => this.deleteComment(cx), { kind: "danger", tip: "Remove only this saved comment" }))));
   }
 
   header(t) {
-    return h_flex().h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
+    return v_flex().flex_none().px(12).py(6).gap(6).border_b(1).border_color(t.border)
+      .child(h_flex().gap(8).items_center()
+      .when(Boolean(this.back), (el) => el.child(button(t, "rv-back-decision", "← Back to decision", () => openWorkflow(this.back.goalId, this.back.taskId), { size: "sm" })))
       .child(div().font_semibold().child("Review"))
       .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim)
         .child(this.pr
           ? `${this.pr.repo.split("/")[1]} #${this.pr.number} · against ${this.pr.base}`
-          : `${this.root?.split("/").pop() ?? "No folder"}${this.scope === "all" && this.mergeBase ? ` · against ${this.baseName}` : ""}`))
+          : `${this.root?.split("/").pop() ?? "No folder"}${this.scope === "all" && this.mergeBase ? ` · against ${this.baseName}` : ""}`)))
+      .child(h_flex().flex_wrap().gap(8).items_center()
       .when(!this.pr || Boolean(this.seenMark()), (el) => el.child(this.scopePicker(t)))
       .when(this.files.length > 0, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim)
         .child(`${this.files.filter((f) => this.viewed(f.path)).length} of ${this.files.length} viewed`)))
-      .child(button(t, "rv-mark-seen", "Mark seen", (cx) => cx.spawn(async (cx) => {
+      .child(button(t, "rv-mark-all-viewed", "Mark all viewed", (cx) => this.markAllViewed(cx),
+        { size: "sm", disabled: !this.files.some((f) => this.hashes.get(f.path) && !this.viewed(f.path)), tip: "Mark every file in this review as viewed. Changed files become unviewed again." }))
+      .child(button(t, "rv-mark-seen", "Save checkpoint", (cx) => cx.spawn(async (cx) => {
         await this.markSeen(cx);
-      }), { size: "sm", tip: "What changes after this shows under Since I looked. Sending comments marks it too" }));
+      }), { size: "sm", tip: "Set the baseline for Since I looked. This does not mark files viewed. Sending comments saves a checkpoint too." })));
   }
 
   scopePicker(t) {
-    const pick = (scope, label) => div().id(`rv-scope-${scope}`).px(7).h(18).flex().items_center().rounded(4).cursor_pointer()
-      .text_size(11).text_color(this.scope === scope ? t.foreground : t.muted)
-      .when(this.scope === scope, (el) => el.bg(t.selected))
-      .on_click((_e, cx) => this.setScope(scope, cx))
-      .child(label);
+    const tips = { pr: "Review the entire PR against its base", uncommitted: "Review working tree changes, including new files",
+      all: "Review committed and uncommitted changes against the branch base", seen: "Review changes since your last saved checkpoint" };
+    const pick = (scope, label) => button(t, `rv-scope-${scope}`, label, (cx) => this.setScope(scope, cx),
+      { size: "sm", selected: this.scope === scope, kind: this.scope === scope ? "solid" : "outline", tip: tips[scope] });
     const options = this.pr ? [["pr", "Whole PR"]] : [["uncommitted", "Uncommitted"], ["all", "All changes"]];
     if (this.seenMark()) options.push(["seen", "Since I looked"]);
-    return h_flex().id("rv-scope").flex_none().p(1).gap(1).rounded(5).bg(t.raised)
+    return h_flex().id("rv-scope").flex_wrap().min_w(0).p(1).gap(3).rounded(5).bg(t.raised)
       .children(options.map(([scope, label]) => pick(scope, label)));
   }
 
@@ -407,17 +460,18 @@ export class ReviewDiff {
   fileBar(t, font) {
     const note = this.comments.find((c) => c.file === this.open?.path && commentId(c) === "file");
     return v_flex().flex_none().border_b(1).border_color(t.border)
-      .child(h_flex().h(30).px(12).gap(8).items_center()
+      .child(h_flex().min_h(30).px(12).gap(8).flex_wrap().items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.open.path))
+        .child(button(t, "rv-file-viewed", this.viewed(this.open.path) ? "Mark unviewed" : "Mark file viewed", (cx) => this.toggleViewed(this.open.path, cx),
+          { size: "sm", disabled: !this.hashes.get(this.open.path), tip: "Change the viewed status of the selected file" }))
         .child(button(t, "rv-file-comment", "Comment on file", (cx) => this.edit("file", cx), { size: "sm" })))
-      .when(this.editing === "file", (el) => el.child(this.field(t, font)))
       .when(Boolean(note) && this.editing !== "file", (el) => el.child(this.noteBox(t, note, font)
         .id("rv-file-note").cursor_pointer()
         .on_click((_e, cx) => this.edit("file", cx))));
   }
 
   fileList(t) {
-    return v_flex().id("rv-files").flex_none().max_h(150).overflow_y_scrollbar().p(4).border_b(1).border_color(t.border)
+    return v_flex().id("rv-files").flex_none().h(Math.min(150, Math.max(40, this.files.length * 24 + 9))).overflow_y_scrollbar().p(4).border_b(1).border_color(t.border)
       .when(!this.files.length, (el) => el.child(div().p(8).text_color(t.dim).child(this.pr ? "No changes" : this.empty())))
       .children(this.files.map((f) => {
         const count = this.comments.filter((c) => c.file === f.path).length;
@@ -428,13 +482,8 @@ export class ReviewDiff {
           .on_click((_e, cx) => cx.spawn(async (cx) => {
             await this.pick(f, cx);
           }))
-          .child(div().id(`rv-viewed-${f.path}`).w(14).flex_none().text_size(11).text_color(seen ? t.accent : t.dim)
-            .tooltip(seen ? "Viewed: unmarks itself if the file changes" : "Mark viewed")
-            .on_click((_e, cx) => {
-              cx.stop_propagation();
-              this.toggleViewed(f.path, cx);
-            })
-            .child(seen ? "☑" : "☐"))
+          .child(button(t, `rv-viewed-${f.path}`, seen ? "☑" : "☐", (cx) => this.toggleViewed(f.path, cx),
+            { size: "sm", selected: seen, disabled: !this.hashes.get(f.path), accessibleLabel: `${seen ? "Mark unviewed" : "Mark viewed"}: ${f.path}`, tip: "Viewed files become unviewed if their contents change" }))
           .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(seen ? t.dim : t.foreground).child(f.path))
           .when(count > 0, (el) => el.child(div().text_size(11).text_color(t.accent).child(`● ${count}`)))
           .when(f.untracked, (el) => el.child(div().text_size(11).text_color(t.ansi2).child("new")))
@@ -475,18 +524,22 @@ export class ReviewDiff {
         else this.clearing = true;
         cx.notify();
       }, { size: "lg", kind: this.clearing ? "danger" : "outline" })))
-      .child(button(t, "rv-send", "Send to agent", (cx) => this.send(cx), { kind: "solid", size: "lg", disabled: !ready }));
+      .child(button(t, "rv-send", "Send to agent", (cx) => this.send(cx), { kind: "solid", size: "lg", disabled: !ready,
+        tip: this.editing !== null ? "Save or cancel the current edit before sending comments" : "Send saved review comments to the agent" }));
   }
 
   render() {
-    const t = theme(), agent = this.target(), n = this.comments.length, ready = Boolean((agent || this.pr) && n);
+    const t = theme(), agent = this.target(), n = this.comments.length, ready = Boolean((agent || this.pr) && n && this.editing === null);
     const font = settings().ui_font_family ?? "Inter";
     return v_flex().id("relevo-review").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
-      .on_key_down((e, cx) => this.key(e, cx))
+      .track_focus(this.focus)
+      .on_key_down((e, cx) => this.handleKey(e, cx))
+      .on_key_up((e, cx) => this.handleKey(e, cx))
       .child(this.header(t))
       .child(this.fileList(t))
       .when(Boolean(this.open), (el) => el.child(this.fileBar(t, font)))
       .child(this.diff(t, font))
+      .when(this.editing !== null, (el) => el.child(this.commentEditor(t, font)))
       .child(this.footer(t, agent, n, ready));
   }
 }

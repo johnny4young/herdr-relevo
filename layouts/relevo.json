@@ -107,7 +107,7 @@
               "id": "inbox-button",
               "type": "block",
               "size": {
-                "px": 92
+                "px": 184
               },
               "window_drag": true,
               "content": {
@@ -203,7 +203,8 @@
                     "props": {
                       "role": "panel-bar"
                     }
-                  }
+                  },
+                  "hidden": true
                 },
                 {
                   "id": "panel-body",

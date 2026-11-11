@@ -445,11 +445,11 @@ const PRS = /^gh api graphql[\s\S]*review-requested/;
 test("a first PR scan spins while pending and stops when gh fails", async () => {
   const answer = holdPRs();
   const { inbox, ui } = await open();
-  assert.match(text(ui()), /loading/);
+  assert.match(find(ui(), "inbox-refresh").tip, /loading/);
   assert.equal(spinners(ui()), 1);
   answer({ code: 1, stderr: "offline\ndetail" });
   await flush();
-  assert.match(text(ui()), /PRs unavailable/);
+  assert.match(find(ui(), "inbox-refresh").tip, /PRs unavailable/);
   assert.equal(spinners(ui()), 0);
   assert.equal(inbox.error, "offline");
 });
@@ -459,7 +459,7 @@ test("a cut answer from GitHub, read again and still cut, says so and stops the 
   const { inbox, ui } = await open();
   answer({ stdout: "not json" });
   await flush();
-  assert.match(text(ui()), /PRs unavailable/);
+  assert.match(find(ui(), "inbox-refresh").tip, /PRs unavailable/);
   assert.equal(spinners(ui()), 0);
   assert.equal(inbox.error, "GitHub's answer was cut short");
 });
@@ -476,7 +476,7 @@ test("a 502 is read again, and the second answer counts", async () => {
   const { inbox, ui } = await open();
   await flush();
   assert.equal(inbox.error, null);
-  assert.match(text(ui()), /PRs now/);
+  assert.match(find(ui(), "inbox-refresh").tip, /PRs now/);
 });
 
 test("gh failing with blank stderr still shows an error", async () => {
@@ -487,13 +487,13 @@ test("gh failing with blank stderr still shows an error", async () => {
   assert.equal(inbox.error, "gh failed");
 });
 
-test("refreshing an existing PR snapshot keeps the header still", async () => {
+test("refreshing an existing PR snapshot retains its age in the refresh tooltip", async () => {
   const { cx, ui } = await open();
-  assert.match(text(ui()), /PRs now/);
+  assert.match(find(ui(), "inbox-refresh").tip, /PRs now/);
   holdPRs();
   click(find(ui(), "inbox-refresh"), cx);
   await flush();
-  assert.match(text(ui()), /PRs now/);
+  assert.match(find(ui(), "inbox-refresh").tip, /PRs now/);
   assert.equal(spinners(ui()), 0);
 });
 
@@ -523,7 +523,7 @@ test("PR data that arrived stays dated when a later step fails", async () => {
   };
   const { inbox, ui } = await open();
   assert.match(inbox.error, /^PRs: no git/);
-  assert.match(text(ui()), /PRs now/);
+  assert.match(find(ui(), "inbox-refresh").tip, /PRs now/);
   assert.equal(inbox.mine.length, 1);
 });
 
@@ -988,15 +988,13 @@ test("the keyboard goes through review requests, then your PRs, then uncommitted
   assert.deepEqual(ids, ["pr-theirs", "pr-mine", "in-t1"]);
 });
 
-test("the summary counts the PRs its sections show, not the ones folded as older than 45 days", () => {
+test("Reviews navigation includes recent PRs and keeps older PRs folded", () => {
   const inbox = new Inbox(), now = new Date().toISOString(), old = "2020-01-01T00:00:00Z";
   inbox.expanded = {};
   const v = {
-    local: [], desktop: [], ready: [],
+    local: [], desktop: [], ready: [], worktrees: [],
     mine: [{ url: "m1", updatedAt: now }, { url: "m2", updatedAt: old }],
     requested: [{ url: "r1", updatedAt: old }],
   };
-  const ui = inbox.summary(theme(), v, fakeCx());
-  assert.match(text(find(ui, "sum-reviews")), /^0/);
-  assert.match(text(find(ui, "sum-prs")), /^1/);
+  assert.deepEqual(inbox.navItems(v).map((entry) => entry.id), ["pr-m1"]);
 });

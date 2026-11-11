@@ -156,10 +156,11 @@ test("an agent that starts asking reaches macOS once", async () => {
   assert.match(calls(/^osascript /)[0], /fix needs you/);
 });
 
-test("the summary counts what needs you, Desktop included", async () => {
+test("Reviews keeps Desktop requests without the redundant summary tiles", async () => {
   fake.stored[DESKTOP] = [session({ at: Date.now() / 1000 })];
   const { ui } = await inbox();
-  assert.match(text(find(ui(), "sum-asks")), /^1 need you$/);
+  assert.equal(find(ui(), "inbox-summary"), null);
+  assert.ok(find(ui(), "dk-local_1"));
 });
 
 test("a click runs the alert's own Herdr command, quoted for the shell", () => {
