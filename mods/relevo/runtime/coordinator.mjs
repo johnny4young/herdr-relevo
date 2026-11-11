@@ -3,13 +3,16 @@ import path from 'node:path';
 import { run } from './process.mjs';
 import { fingerprint, runChecks, attachArtifact, verifyArtifact, removeArtifact } from './evidence.mjs';
 import { readState, transaction, taskById, event, uid, stateDir, privateDir } from './store.mjs';
-import { prepareWorktree, worktreeStatus, commitWorktree, openPullRequest, removeRunWorktree } from './worktree.mjs';
+import { prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
+import { createHash } from 'node:crypto';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
 import { SKILLS } from '../config.js';
 
 const terminalStates = new Set(['accepted', 'cancelled']);
 const text = (value, max = 4000) => typeof value === 'string' && value.trim() && value.length <= max;
-const recipient = (actor) => actor && /^[-a-zA-Z0-9_/]+$/.test(actor.address ?? '');
+const recipient = (actor) => actor && /^[a-zA-Z0-9][-a-zA-Z0-9_/]*$/.test(actor.address ?? '');
+// Reports prove their attempt with a token only the prompt carries; state keeps its hash.
+const tokenHash = (token) => createHash('sha256').update(String(token)).digest('hex');
 const statusOf = (actor) => typeof actor.status === 'string' ? actor.status : actor.status?.state;
 // An unreported attempt keeps its checkout and agents until it reports or a human reconciles it.
 const holdsCheckout = (task) => task.attempts.at(-1)?.state === 'running';
@@ -57,13 +60,14 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (!Array.isArray(dependencies) || new Set(dependencies).size !== dependencies.length || dependencies.some((id) =>
       !doc.tasks.some((t) => t.id === id && t.goalId === input.goalId) && !allowedNewDependencies.includes(id))) throw Error('Dependencies must be existing tasks in this goal');
     const maxRounds = input.maxRounds ?? 2, maxMinutes = input.maxMinutes ?? 20;
+    if (input.worktree && (!RUN_BRANCH.test(input.worktree.branch ?? '') || !path.isAbsolute(input.worktree.base ?? ''))) throw Error('A worktree run needs its run/ branch and repository');
     if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5 || !Number.isInteger(maxMinutes) || maxMinutes < 1 || maxMinutes > 120) throw Error('Use 1–5 attempts and a 1–120 minute limit');
     return { id: uid(), goalId: input.goalId, title: input.title.trim(), criteria: input.criteria.trim(), root: fs.realpathSync(input.root),
       executor: { address: input.executor.address, label: input.executor.label || input.executor.address }, reviewer: { address: input.reviewer.address, label: input.reviewer.label || input.reviewer.address },
       checks: input.checks ?? [], dependsOn: dependencies, maxRounds, maxMinutes, round: 0, state: 'planned', paused: false,
-      ...(input.worktree ? { worktree: { path: fs.realpathSync(input.root), branch: String(input.worktree.branch ?? '').slice(0, 200), base: String(input.worktree.base ?? '').slice(0, 1000),
+      ...(input.worktree ? { worktree: { path: fs.realpathSync(input.root), branch: String(input.worktree.branch ?? ''), base: fs.realpathSync(input.worktree.base),
         ...(/^[0-9a-f]{40}$/.test(input.worktree.baseCommit ?? '') ? { baseCommit: input.worktree.baseCommit } : {}),
-        ...(input.worktree.baseBranch ? { baseBranch: String(input.worktree.baseBranch).slice(0, 200) } : {}) } } : {}),
+        ...(BASE_BRANCH.test(input.worktree.baseBranch ?? '') ? { baseBranch: input.worktree.baseBranch } : {}) } } : {}),
       attempts: [], messages: [], evidence: [], decisions: [], checksResult: [], revision: '', createdAt: new Date(clock()).toISOString(), error: null };
   }
   function planScopeIssue(task, doc) {
@@ -297,8 +301,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       let sha = null, failure = null;
       try {
         // Only the reviewed revision is committed; anything an agent changed since then is left for a new review.
-        if (await fingerprintImpl(before.worktree.path) !== payload.revision) throw Error('The checkout changed after review; nothing was committed');
-        sha = await commitWorktree(before.worktree, before.title, before.criteria.slice(0, 2000));
+        if (before.worktree.reviewedTree) sha = await commitReviewedTree(before.worktree, before.worktree.reviewedTree, before.title, before.criteria.slice(0, 2000));
+        else {
+          if (await fingerprintImpl(before.worktree.path) !== payload.revision) throw Error('The checkout changed after review; nothing was committed');
+          sha = await commitWorktree(before.worktree, before.title, before.criteria.slice(0, 2000));
+        }
       } catch (e) { failure = String(e.stderr || e.message).slice(0, 500); }
       return update((doc) => { const task = taskById(doc, before.id);
         if (sha) { task.worktree.commit = sha; log(doc, task, 'Changes committed', `${task.worktree.branch} · ${sha.slice(0, 7)}`, 'Human'); }
@@ -444,9 +451,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (!['idle', 'done'].includes(observed.status)) return;
     const revision = await fingerprintImpl(task.root);
     if (role === 'reviewer' && task.revision !== revision) { block(task.id, 'Checkout changed after checks. Start a fresh attempt.'); return; }
-    const attempt = { id: uid(), role, address: actor.address, token: uid(), delivery: 'sending', state: 'running', at: new Date(clock()).toISOString(), revision, startedTurn: observed.turn };
-    const fullPrompt = prompt(task, attempt, preferencesFor(doc.preferences, { goalId: task.goalId, root: task.root }));
-    attempt.prompt = fullPrompt.length > MAX_STORED_PROMPT ? `${fullPrompt.slice(0, MAX_STORED_PROMPT)}…` : fullPrompt;
+    const token = uid();
+    const attempt = { id: uid(), role, address: actor.address, tokenHash: tokenHash(token), delivery: 'sending', state: 'running', at: new Date(clock()).toISOString(), revision, startedTurn: observed.turn };
+    const fullPrompt = prompt(task, { ...attempt, token }, preferencesFor(doc.preferences, { goalId: task.goalId, root: task.root }));
+    const stored = fullPrompt.split(token).join('<token>');
+    attempt.prompt = stored.length > MAX_STORED_PROMPT ? `${stored.slice(0, MAX_STORED_PROMPT)}…` : stored;
     update((next) => {
       const t = taskById(next, task.id);
       // Human controls can change while the agent and checkout are inspected.
@@ -500,7 +509,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 32768) { block(task.id, 'Invalid agent report file'); return; }
       let report;
       try { report = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { break report; }
-      if (report.attemptId !== attempt.id || report.token !== attempt.token || !['completed', 'changes_requested', 'blocked'].includes(report.status) || !text(report.summary, 10000)) { block(task.id, 'Invalid or mismatched agent report'); return; }
+      if (report.attemptId !== attempt.id || (attempt.tokenHash ? tokenHash(report.token) !== attempt.tokenHash : report.token !== attempt.token) || !['completed', 'changes_requested', 'blocked'].includes(report.status) || !text(report.summary, 10000)) { block(task.id, 'Invalid or mismatched agent report'); return; }
       const actor = await hc(['get', '--json', attempt.address]);
       if (actor.code !== 0) { block(task.id, 'Agent disconnected before its report could be verified'); return; }
       const state = JSON.parse(actor.stdout);
@@ -526,6 +535,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         if (controller.signal.aborted) return;
       }
       const afterChecks = await fingerprintImpl(task.root);
+      const reviewedTree = task.worktree && attempt.role === 'reviewer' && report.status === 'completed' ? await snapshotTree(task.root).catch(() => null) : null;
       update((doc) => {
         const t = taskById(doc, task.id), a = t.attempts.at(-1);
         if (a?.id !== attempt.id || a.state !== 'running' || terminalStates.has(t.state)) return;
@@ -546,7 +556,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         }
         t.revision = afterChecks;
         if (attempt.role === 'executor') { t.checksResult = checks; t.state = 'needs_review'; t.nextRole = 'reviewer'; log(doc, t, 'Checks observed', checks.length ? `${checks.length} checks passed` : 'No checks configured'); }
-        else { t.state = 'needs_you'; log(doc, t, 'Human review requested', 'Inspect changes and evidence, then accept, request changes or defer'); }
+        else { t.state = 'needs_you'; if (t.worktree) t.worktree.reviewedTree = reviewedTree; log(doc, t, 'Human review requested', 'Inspect changes and evidence, then accept, request changes or defer'); }
       });
       return;
     }
