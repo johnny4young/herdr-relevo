@@ -493,3 +493,20 @@ test("a task created in a run worktree records its branch and base", async (t) =
   const task = f.runtime.read().tasks.find((item) => item.id === created.result.taskId);
   assert.deepEqual(task.worktree, { path: f.root, branch: "run/isolated-abc123", base: "/work/app" });
 });
+
+test("accepting a worktree run commits its changes to the run branch", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const created = await f.runtime.command({ action: "create", start: true, task: { goalId: "g1", title: "Add notes", criteria: "Notes exist", root: f.root,
+    executor: { address: "exec-4" }, reviewer: { address: "review-4" }, worktree: { branch: "main", base: f.root } } });
+  const id = created.result.taskId, current = () => f.runtime.read().tasks.find((item) => item.id === id);
+  await f.runtime.tick();
+  f.report("executor", "completed", "Done", current().attempts.at(-1)); await f.runtime.tick(); await f.runtime.tick();
+  f.report("reviewer", "completed", "Fine", current().attempts.at(-1)); await f.runtime.tick();
+  assert.equal(current().state, "needs_you");
+  fs.writeFileSync(path.join(f.root, "NOTES.md"), "notes\n");
+  await f.runtime.command({ action: "decide", taskId: id, outcome: "accept", revision: current().revision });
+  assert.equal(current().state, "accepted");
+  assert.match(current().worktree.commit, /^[0-9a-f]{40}$/);
+  assert.equal(execFileSync("git", ["-C", f.root, "log", "-1", "--format=%s"], { encoding: "utf8" }).trim(), "Add notes");
+  assert.equal(execFileSync("git", ["-C", f.root, "status", "--porcelain"], { encoding: "utf8" }), "");
+});

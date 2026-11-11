@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
-import { agents, panes, props, theme, exec, appHome, readTextFile, run, focused, shared, setShared, closeOverlay } from "herdr";
+import { agents, panes, props, theme, exec, appHome, readTextFile, run, focused, shared, setShared, closeOverlay, spaces } from "herdr";
 import { button, onSubmitChord, pill, tabButton } from "./ui.js";
 import { openReview } from "./review.js";
 import { focusedCwd } from "./panelbar.js";
@@ -227,6 +227,11 @@ export class Workflow extends WorkflowDraftView {
         this.notice = accepted ? "Acceptance saved. The queue has advanced." : "Feedback saved. The next result will return for your review.";
         this.tab = "Overview"; this.h.focus();
       }
+      // A worktree run stays in view after acceptance: its branch has a commit to propose or remove.
+      if (accepted && payload.action === "decide" && this.tasks?.find((task) => task.id === payload.taskId)?.worktree) {
+        this.selected = payload.taskId; this.filter = "Completed"; delete this.worktreeInfo?.[payload.taskId];
+        this.notice = "Accepted and committed to its run branch.";
+      }
       afterSuccess?.(response, cx);
       if (response.suggestions) this.suggestions = response.suggestions;
       if (response.preview) this.batchPreview = response.preview;
@@ -341,7 +346,40 @@ export class Workflow extends WorkflowDraftView {
     });
   }
 
+  // The accepted run's worktree state is read once per task and again after each worktree action.
+  refreshWorktreeInfo(cx) {
+    const task = this.tasks?.find((item) => item.id === this.selected);
+    if (!task?.worktree || task.state !== "accepted" || task.worktree.removed || this.busy) return;
+    this.worktreeInfo ??= {};
+    if (this.worktreeInfo[task.id] !== undefined) return;
+    this.worktreeInfo[task.id] = null;
+    this.command({ action: "worktree-status", taskId: task.id }, cx, (response) => { this.worktreeInfo[task.id] = response.result ?? { exists: false }; });
+  }
+
+  worktreeAction(task, action, cx) {
+    if (action === "worktree-remove") {
+      const slug = task.worktree.branch.replace(/^run\//, "");
+      for (const tab of spaces().flatMap((space) => space.tabs ?? []).filter((tab) => tab.name.startsWith(`${slug} · `))) run("tab.close", { id: tab.id, confirmed: true });
+    }
+    this.command({ action, taskId: task.id }, cx, () => { delete this.worktreeInfo?.[task.id]; });
+  }
+
+  worktreePanel(t, task) {
+    const wt = task.worktree, info = this.worktreeInfo?.[task.id];
+    const gone = wt.removed || info?.exists === false;
+    const state = gone ? "worktree removed" : !info ? "checking…" : info.dirty ? "uncommitted changes" : wt.commit ? `committed ${wt.commit.slice(0, 7)}` : info.ahead ? `${info.ahead} commits` : "no changes";
+    const canPropose = !gone && info && !info.dirty && info.ahead !== 0 && !wt.pr;
+    return v_flex().id("workflow-worktree").w_full().min_w(0).gap(6).p(10).rounded(8).bg(t.raised)
+      .child(div().text_size(11).text_color(t.muted).truncate().child(`${wt.branch} · ${state}`))
+      .child(h_flex().gap(6).flex_wrap()
+        .when(Boolean(wt.pr), (el) => el.child(button(t, "workflow-worktree-open-pr", "Open PR", () => exec("open", [wt.pr]), { kind: "solid", tip: wt.pr })))
+        .when(canPropose, (el) => el.child(button(t, "workflow-worktree-pr", "Open draft PR", (cx) => this.worktreeAction(task, "worktree-pr", cx), { kind: "solid", disabled: this.busy, tip: "Pushes the run branch and opens a draft PR" })))
+        .when(!gone && Boolean(info) && !info.dirty, (el) => el.child(button(t, "workflow-worktree-remove", "Remove worktree", (cx) => this.worktreeAction(task, "worktree-remove", cx),
+          { kind: "ghost", disabled: this.busy, tip: info?.ahead === 0 ? "Closes its tabs and removes the worktree and its empty branch" : "Closes its tabs and removes the worktree; the branch stays" }))));
+  }
+
   launchTick(cx) {
+    this.refreshWorktreeInfo(cx);
     const launch = this.launch;
     if (this.closed || !launch?.worktree) return;
     if (launch.stage === "stalled") return;
@@ -365,7 +403,7 @@ export class Workflow extends WorkflowDraftView {
     const label = (role) => accountOf(launch.accounts[role]).label;
     this.command({ action: "create", start: true, task: { ...launch.fields, root: launch.worktree.path,
       executor: { address: found.executor.address, label: label("executor") }, reviewer: { address: found.reviewer.address, label: label("reviewer") },
-      worktree: { branch: launch.worktree.branch, base: launch.worktree.base } } }, cx, (response) => {
+      worktree: { branch: launch.worktree.branch, base: launch.worktree.base, baseCommit: launch.worktree.baseCommit, baseBranch: launch.worktree.baseBranch } } }, cx, (response) => {
       this.explicitNew = false; this.selected = response.result?.taskId ?? null; this.filter = "In progress";
     });
   }
@@ -774,6 +812,7 @@ export class Workflow extends WorkflowDraftView {
         .child(div().text_size(13).font_semibold().w_full().min_w(0).tooltip(task.title).accessibility_label(task.title).child(caption(task.title, 115)))
         .child(this.statusChips(t, task, review))
         .when(task.state !== "needs_you", (el) => el.child(row(t, this.nextStep(task)))))
+      .when(Boolean(task.worktree) && task.state === "accepted", (el) => el.child(this.worktreePanel(t, task)))
       .when(Boolean(task.error), (el) => el.child(div().role("alert").text_color(t.blocked).child(task.error)))
       .when(Boolean(primaryReport), (el) => el.child(v_flex().id("workflow-summary").w_full().min_w(0).gap(6)
         .child(div().text_size(11).text_color(t.muted).child(blocked && review ? "Latest review findings" : "Summary"))

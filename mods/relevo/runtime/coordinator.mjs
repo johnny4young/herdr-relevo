@@ -3,7 +3,7 @@ import path from 'node:path';
 import { run } from './process.mjs';
 import { fingerprint, runChecks, attachArtifact, verifyArtifact, removeArtifact } from './evidence.mjs';
 import { readState, transaction, taskById, event, uid, stateDir, privateDir } from './store.mjs';
-import { prepareWorktree } from './worktree.mjs';
+import { prepareWorktree, worktreeStatus, commitWorktree, openPullRequest, removeRunWorktree } from './worktree.mjs';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
 import { SKILLS } from '../config.js';
 
@@ -61,7 +61,9 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     return { id: uid(), goalId: input.goalId, title: input.title.trim(), criteria: input.criteria.trim(), root: fs.realpathSync(input.root),
       executor: { address: input.executor.address, label: input.executor.label || input.executor.address }, reviewer: { address: input.reviewer.address, label: input.reviewer.label || input.reviewer.address },
       checks: input.checks ?? [], dependsOn: dependencies, maxRounds, maxMinutes, round: 0, state: 'planned', paused: false,
-      ...(input.worktree ? { worktree: { path: fs.realpathSync(input.root), branch: String(input.worktree.branch ?? '').slice(0, 200), base: String(input.worktree.base ?? '').slice(0, 1000) } } : {}),
+      ...(input.worktree ? { worktree: { path: fs.realpathSync(input.root), branch: String(input.worktree.branch ?? '').slice(0, 200), base: String(input.worktree.base ?? '').slice(0, 1000),
+        ...(/^[0-9a-f]{40}$/.test(input.worktree.baseCommit ?? '') ? { baseCommit: input.worktree.baseCommit } : {}),
+        ...(input.worktree.baseBranch ? { baseBranch: String(input.worktree.baseBranch).slice(0, 200) } : {}) } } : {}),
       attempts: [], messages: [], evidence: [], decisions: [], checksResult: [], revision: '', createdAt: new Date(clock()).toISOString(), error: null };
   }
   function planScopeIssue(task, doc) {
@@ -289,7 +291,25 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     }
     if (action === 'decide') {
       const current = await fingerprintImpl(before.root);
-      return update((doc) => decide(doc, taskById(doc, before.id), payload, current));
+      const decided = update((doc) => decide(doc, taskById(doc, before.id), payload, current));
+      if (payload.outcome !== 'accept' || !before.worktree) return decided;
+      // Acceptance commits the run branch; a failed commit is reported and the acceptance stands.
+      let sha = null, failure = null;
+      try { sha = await commitWorktree(before.worktree, before.title, before.criteria.slice(0, 2000)); } catch (e) { failure = String(e.stderr || e.message).slice(0, 500); }
+      return update((doc) => { const task = taskById(doc, before.id);
+        if (sha) { task.worktree.commit = sha; log(doc, task, 'Changes committed', `${task.worktree.branch} · ${sha.slice(0, 7)}`, 'Human'); }
+        if (failure) log(doc, task, 'Commit failed', failure, 'Human'); });
+    }
+    if (action === 'worktree-status') return { result: await worktreeStatus(before.worktree) };
+    if (action === 'worktree-pr' || action === 'worktree-remove') {
+      if (!before.worktree || before.state !== 'accepted') throw Error('Only an accepted worktree run can do this');
+      if (action === 'worktree-pr') {
+        const url = await openPullRequest(before.worktree, before.title, before.criteria.slice(0, 4000));
+        return update((doc) => { const task = taskById(doc, before.id); task.worktree.pr = url.slice(0, 500); log(doc, task, 'Draft PR opened', url, 'Human'); });
+      }
+      const removed = await removeRunWorktree(before.worktree);
+      return update((doc) => { const task = taskById(doc, before.id); task.worktree.removed = true;
+        log(doc, task, 'Worktree removed', removed.branchDeleted ? `${task.worktree.branch} deleted with it` : `${task.worktree.branch} kept`, 'Human'); });
     }
     if (action === 'retry-review') {
       const current = await fingerprintImpl(before.root);

@@ -706,3 +706,25 @@ test('a worktree launch starts with no first message, accepts a working agent an
   assert.equal(payloads[0].action, 'create'); assert.equal(payloads[0].task.root, '/wt');
   v.close();
 });
+
+test('an accepted worktree run offers a draft PR, and removing it closes its tabs first', async () => {
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [{ id: 't', goalId: 'g', title: 'Notes', state: 'accepted', revision: 'r', root: '/wt',
+    executor: { address: 'a', label: 'Codex' }, reviewer: { address: 'b', label: 'Personal' }, checks: [], checksResult: [], evidence: [], round: 1, maxRounds: 2, attempts: [],
+    worktree: { path: '/wt', branch: 'run/notes-1', base: '/work/app', commit: 'a'.repeat(40) } }], events: [], preferences: [], engine: { enabled: false } });
+  fake.spaces = [{ id: 's', tabs: [{ id: 'tab-build', name: 'notes-1 · build' }, { id: 'tab-review', name: 'notes-1 · review' }, { id: 'other', name: 'notes-10 · build' }] }];
+  const payloads = [];
+  fake.exec = async (_cmd, args) => { const p = JSON.parse(args.at(-1)); payloads.push(p);
+    return { code: 0, stdout: JSON.stringify(p.action === 'worktree-status' ? { result: { exists: true, dirty: false, ahead: 1 } } : { result: {} }) }; };
+  const { v, cx } = await setup(); v.selected = 't';
+  v.launchTick(cx); await flush();
+  assert.deepEqual(payloads[0], { action: 'worktree-status', taskId: 't' });
+  const tree = v.render();
+  assert.match(text(find(tree, 'workflow-worktree')), /run\/notes-1 · committed aaaaaaa/);
+  click(find(tree, 'workflow-worktree-pr'), cx); await flush();
+  assert.equal(payloads.at(-1).action, 'worktree-pr');
+  v.launchTick(cx); await flush();
+  click(find(v.render(), 'workflow-worktree-remove'), cx); await flush();
+  assert.deepEqual(fake.runs.filter(([name]) => name === 'tab.close').map(([, args]) => args.id), ['tab-build', 'tab-review']);
+  assert.equal(payloads.at(-1).action, 'worktree-remove');
+  v.close();
+});
