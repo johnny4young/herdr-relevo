@@ -15,9 +15,9 @@ export function scopeGoals(projection, id) {
 }
 
 // Task records drive the next action; saved free-form notes never override them.
-export function missionNextAction(goal, tasks, engine, error, reviewCount = 0) {
+export function runNextAction(goal, tasks, engine, error, reviewCount = 0) {
   const current = tasks.filter((task) => task.goalId === goal.id && !['accepted', 'cancelled'].includes(task.state));
-  if (error) return { status: 'Status unavailable', detail: 'Open mission control to reload task status.', label: 'Open mission', action: 'workflow', attention: true };
+  if (error) return { status: 'Status unavailable', detail: 'Open the run to reload task status.', label: 'Open run', action: 'workflow', attention: true };
   const attention = current.find((task) => task.state === 'needs_you') ?? current.find((task) => ['blocked', 'failed'].includes(task.state));
   if (attention) return { status: attention.state === 'needs_you' ? 'Ready for your review' : 'Needs attention', detail: attention.title,
     label: attention.state === 'needs_you' ? 'Review result' : 'Resolve blocker', action: 'workflow', attention: true };
@@ -30,10 +30,10 @@ export function missionNextAction(goal, tasks, engine, error, reviewCount = 0) {
       label: planned ? 'Review plan' : paused ? 'Continue work' : 'View progress', action: 'workflow' };
   }
   if (tasks.some((task) => task.goalId === goal.id && task.state === 'accepted')) return {
-    status: 'Results accepted', detail: 'Review remaining outcomes or plan the next task.', label: 'Open mission', action: 'workflow' };
+    status: 'Results accepted', detail: 'Review remaining outcomes or plan the next task.', label: 'Open run', action: 'workflow' };
   if (goal.decision?.trim() && linkedDecision(goal, tasks, error).state === "separate") return { status: 'Decision needed', detail: goal.decision.trim(), label: 'Review decision', action: 'decision', attention: true };
   if (reviewCount) return { status: 'Changes to review', detail: `${reviewCount} linked ${reviewCount === 1 ? 'change' : 'changes'}`, label: 'Review changes', action: 'review' };
-  return { status: goal.state === 'completed' ? 'Mission completed' : 'Ready to plan',
+  return { status: goal.state === 'completed' ? 'Run completed' : 'Ready to plan',
     detail: goal.state === 'completed' ? 'Saved outcomes and decisions remain available.' : 'Set the outcome. Assign agents. Review their result.',
     label: goal.state === 'completed' ? 'View history' : 'Plan agent work', action: 'workflow' };
 }

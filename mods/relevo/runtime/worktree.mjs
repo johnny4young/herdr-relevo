@@ -26,14 +26,28 @@ async function copyIncluded(root, dest) {
   const list = path.join(root, '.worktreeinclude');
   if (!fs.existsSync(list)) return 0;
   const { stdout } = await git(root, ['ls-files', '-z', '--others', '--ignored', `--exclude-from=${list}`]);
-  const realDest = fs.realpathSync(dest), inside = (p) => p.startsWith(`${realDest}${path.sep}`);
+  return copyListed(root, dest, stdout.split('\0').filter((name) => name && !name.endsWith('/')));
+}
+
+// A listed path never lands outside dest, through ".." or a symlinked directory inside it.
+const isLink = (p) => { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } };
+
+export function copyListed(root, dest, rels) {
+  const realDest = fs.realpathSync(dest), within = (p) => p === realDest || p.startsWith(`${realDest}${path.sep}`);
+  // The nearest existing ancestor is resolved before mkdir, which would otherwise follow a symlink out.
+  const resolvedAncestor = (p) => {
+    while (!fs.existsSync(p) && !isLink(p)) { if (p === realDest) return null; p = path.dirname(p); }
+    try { return fs.realpathSync(p); } catch { return null; }
+  };
   let copied = 0;
-  for (const rel of stdout.split('\0').filter((name) => name && !name.endsWith('/'))) {
+  for (const rel of rels) {
     const target = path.resolve(realDest, rel);
-    if (!inside(target)) continue;
+    if (!within(path.dirname(target)) || target === realDest) continue;
     try { fs.lstatSync(target); continue; } catch { /* free to copy */ }
+    const ancestor = resolvedAncestor(path.dirname(target));
+    if (!ancestor || !within(ancestor)) continue;
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-    if (!inside(path.join(fs.realpathSync(path.dirname(target)), path.basename(target)))) continue;
+    if (!within(fs.realpathSync(path.dirname(target)))) continue;
     fs.cpSync(path.join(root, rel), target, { recursive: true, verbatimSymlinks: true, errorOnExist: true, force: false });
     copied++;
   }
