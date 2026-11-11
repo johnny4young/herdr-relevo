@@ -39,8 +39,11 @@ function environment() {
 function run(args, extraction = false, capture = false) {
   return spawnSync('/usr/bin/sandbox-exec', ['-f', join(extraction ? 'extract.sb' : 'preview.sb'), ...args], { env: environment(), cwd: join('home'), encoding: 'utf8', stdio: capture ? 'pipe' : 'inherit' });
 }
+// The root sits at a predictable /tmp path, so it is reused only when this user created it privately.
 function ensure() {
-  if (fs.lstatSync(ROOT).isSymbolicLink() || fs.readFileSync(join('.snapshot-owner'), 'utf8').trim() !== String(process.getuid())) throw Error('Snapshot ownership marker differs');
+  const root = fs.lstatSync(ROOT);
+  if (root.isSymbolicLink() || !root.isDirectory() || root.uid !== process.getuid() || (root.mode & 0o777) !== 0o700) throw Error('Snapshot directory is not private to this user');
+  if (fs.readFileSync(join('.snapshot-owner'), 'utf8').trim() !== String(process.getuid())) throw Error('Snapshot ownership marker differs');
 }
 function inactive() {
   if (fs.existsSync(join('preview.sb')) && run([APP, 'status'], false, true).status === 0) throw Error('Snapshot app is running; no state overwritten');
