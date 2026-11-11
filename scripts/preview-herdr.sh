@@ -11,7 +11,9 @@ PROFILE="$ROOT/preview.sb"
 NODE_RUNTIME="$(node -p 'require("node:fs").realpathSync(process.execPath)')"
 MARKER="$ROOT/.relevo-preview-owner"
 case "$REAL_HOME" in *'"'*|*'\\'*) echo 'Unsupported home path' >&2; exit 1;; esac
-require_setup() { test -f "$MARKER" && test "$(cat "$MARKER")" = "$(id -u)" || { echo 'Run setup first' >&2; exit 1; }; }
+# The root sits at a predictable /tmp path, so it is reused only when this user created it privately.
+owned() { test ! -L "$ROOT" && test -d "$ROOT" && test "$(stat -f '%u %Lp' "$ROOT")" = "$(id -u) 700"; }
+require_setup() { owned && test -f "$MARKER" && test "$(cat "$MARKER")" = "$(id -u)" || { echo 'Run setup first' >&2; exit 1; }; }
 isolated() (
   cd "$ROOT/home"
   /usr/bin/env -i HOME="$ROOT/home" USER="$(id -un)" LOGNAME="$(id -un)" \
@@ -28,7 +30,7 @@ case "${1:-help}" in
 setup)
   test -x "$APP" && test -x "$CORE"
   test -f "$REPO/layouts/relevo-preview.json" || { echo 'Missing layouts/relevo-preview.json' >&2; exit 1; }
-  if test -e "$ROOT"; then require_setup; else mkdir -m 700 "$ROOT"; id -u > "$MARKER"; fi
+  if test -e "$ROOT" || test -L "$ROOT"; then require_setup; else mkdir -m 700 "$ROOT"; id -u > "$MARKER"; fi
   test ! -L "$ROOT" || exit 1
   if test -f "$PROFILE" && isolated "$APP" status >/dev/null 2>&1; then
     echo 'Preview is running. Stop it before setup; no state was overwritten.' >&2; exit 1
