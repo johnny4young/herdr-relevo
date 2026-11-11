@@ -82,7 +82,7 @@ export class WorkflowPlan {
       .child(div().font_semibold().child(this.goal.title))
       .child(row(t, goal.steps.length ? `${projected.filter((item) => item.state === "done").length}/${projected.length} outcomes validated` : "Work from brief"))
       .when(!goal.steps.length, (el) => el
-        .child(row(t, "Accepting a task does not close this mission."))
+        .child(row(t, "Accepting a task does not close this run."))
         .when(standaloneTasks.length > 0, (list) => list
           .child(div().font_semibold().child("Tasks from the brief"))
           .children(standaloneTasks.map((task) => v_flex().gap(4)
@@ -131,13 +131,13 @@ export class WorkflowPlan {
         this.planMoreOpen = !this.planMoreOpen; cx.notify();
       }, { accessibleLabel: `${this.planMoreOpen ? "Hide" : "Show"} outcome selection for another plan` })))
       .when(showBuilder, (el) => el
-      .when(!draftRows.length, (empty) => empty.child(row(t, "This mission has no outcomes. Create tasks from its title and criteria, or add outcomes in the mission editor."))
+      .when(!draftRows.length, (empty) => empty.child(row(t, "This run has no outcomes. Create tasks from its title and criteria, or add outcomes in the run details."))
         .child(button(t, "workflow-plan-create-first-task", standaloneTasks.length ? "Add task" : "Create first task", (cx) => {
           this.form.title.set_value(goal.title);
           this.form.criteria.set_value(goal.criteria ?? "");
           this.dependsOn = []; this.explicitNew = true; this.selected = null; this.tab = "Overview";
           this.taskSetupOpen = true; this.h.focus(); cx.notify();
-        }, { disabled: this.busy || stale || !active, tip: "Open the task form with this mission's title and criteria prefilled; nothing starts automatically" })))
+        }, { disabled: this.busy || stale || !active, tip: "Open the task form with this run's title and criteria prefilled; nothing starts automatically" })))
       .when(stale, (el) => el.child(row(t, "The goal changed while you were planning. Refresh before saving.")))
       .when(stale || draftRows.length > 0, (el) => el.child(button(t, "workflow-plan-refresh", "Refresh plan selection", (cx) => this.openPlan(cx, true), { disabled: this.busy, tip: "Reload current outcomes and default selection; keep your repository and agent choices" })))
       .when(draftRows.length > 0, (el) => el

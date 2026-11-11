@@ -16,7 +16,7 @@ async function setup() {
   return { view, cx };
 }
 
-test('compact mission keeps the decision visible and opens the queue without losing selection or notes', async () => {
+test('compact run keeps the decision visible and opens the queue without losing selection or notes', async () => {
   const { view, cx } = await setup();
   view.form.decision.set_value('Check the edge case');
   find(view.render(), 'workflow-dialog').handlers.on_size_change({ width: 540, height: 620 }, cx);

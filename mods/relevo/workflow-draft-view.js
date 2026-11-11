@@ -69,7 +69,7 @@ export class WorkflowDraftView extends WorkflowSetup {
       .child(div().text_size(11).text_color(t.muted).child(draft.root || "Repository not selected"))
       .child(h_flex().gap(6).flex_wrap()
         .child(button(t, "workflow-resume-draft", "Resume draft", (cx) => this.resumeDraft(cx),
-          { disabled: this.busy, tip: "Restore the brief and setup for this mission. Check connected agents again; no work is sent." }))
+          { disabled: this.busy, tip: "Restore the brief and setup for this run. Check connected agents again; no work is sent." }))
         .child(button(t, "workflow-discard-saved-draft", "Discard", (cx) => this.discardDraft(cx),
           { size: "sm", disabled: this.busy, tip: "Remove only this unsent draft; existing tasks and decisions stay unchanged" })));
   }

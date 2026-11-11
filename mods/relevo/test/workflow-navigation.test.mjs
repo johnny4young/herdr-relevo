@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { acceptanceEffect, queueSummary, resultMeta, workflowCheckSummary, workflowItems } from '../lib/workflow-navigation.js';
-import { missionNextAction } from '../lib/goal-workflow.js';
+import { runNextAction } from '../lib/goal-workflow.js';
 
 test('ready decisions appear before historical blockers without hiding or mutating either', () => {
   const tasks = [
@@ -11,7 +11,7 @@ test('ready decisions appear before historical blockers without hiding or mutati
     { id: 'review2', goalId: 'g', state: 'needs_you', title: 'Second result' },
   ];
   assert.deepEqual(workflowItems(tasks, 'Needs you').map(task => task.id), ['review', 'review2', 'blocked', 'failed']);
-  assert.equal(missionNextAction({ id: 'g' }, tasks, { enabled: true }).detail, 'Current result');
+  assert.equal(runNextAction({ id: 'g' }, tasks, { enabled: true }).detail, 'Current result');
   assert.deepEqual(tasks.map(task => task.id), ['blocked', 'review', 'failed', 'review2']);
 });
 
