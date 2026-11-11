@@ -56,6 +56,8 @@ test("batch preview refuses stale, non-needing and cross-project selections", ()
   assert.throws(() => decisionBatch([{ ...tasks[0], state: "running" }], ["1"], "accept", { "1": "a" }), /need you/);
   assert.throws(() => decisionBatch([tasks[0], { ...tasks[1], project: "/y" }], ["1", "2"], "accept"), /cross project/);
   assert.throws(() => decisionBatch([tasks[0], { ...tasks[1], goalId: "g2" }], ["1", "2"], "accept", { "1": "a", "2": "b" }), /cross goal/);
+  const runs = [{ ...tasks[0], project: undefined, root: "/wt/a", worktree: { base: "/x" } }, { ...tasks[1], project: undefined, root: "/wt/b", worktree: { base: "/x" } }];
+  assert.equal(decisionBatch(runs, ["1", "2"], "accept", { "1": "a", "2": "b" }).length, 2, "worktree runs batch by the repo they branch from");
 });
 
 test("skill prompt keeps injected text literal and cannot grant tools", () => {
