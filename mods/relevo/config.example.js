@@ -33,3 +33,6 @@ export const SKILLS = { review: "review", fix: "fix-ci", comments: "address-comm
 
 // What the quick replies menu offers to send an agent (⌥⌘S, or ↩ beside an agent).
 export const REPLIES = ["Continue", "Tested and it works: commit and push", "Fix all of it"];
+
+// The Codex model a run's agents start with (`codex -m`).
+export const RUN_CODEX_MODEL = "gpt-6-luna";

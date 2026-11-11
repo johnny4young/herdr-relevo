@@ -679,3 +679,10 @@ test('own worktree mode creates the checkout, opens both agents and starts once 
   assert.equal(create.task.executor.label, 'Codex');
   v.close();
 });
+
+test('run agents start with their model, sandbox and access to the report folder', async () => {
+  const { runAgentArgs } = await import('../workflow.js');
+  assert.deepEqual(runAgentArgs('codex', 'executor', '/r'), ['-m', 'gpt-6-luna', '--sandbox', 'workspace-write', '--ask-for-approval', 'on-request', '--add-dir', '/r']);
+  assert.deepEqual(runAgentArgs('personal', 'reviewer', '/r'), ['--add-dir', '/r', '--permission-mode', 'acceptEdits', '--tools', 'Read,Write,Grep,Glob']);
+  assert.deepEqual(runAgentArgs('personal', 'executor', '/r'), ['--add-dir', '/r', '--permission-mode', 'acceptEdits']);
+});

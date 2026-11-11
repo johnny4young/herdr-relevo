@@ -4,7 +4,8 @@ import { agents, panes, props, theme, exec, appHome, readTextFile, run, focused,
 import { button, onSubmitChord, pill, tabButton } from "./ui.js";
 import { openReview } from "./review.js";
 import { focusedCwd } from "./panelbar.js";
-import { SKILLS as CONFIGURED_SKILLS } from "./config.js";
+import * as config from "./config.js";
+const CONFIGURED_SKILLS = config.SKILLS;
 import { workflowBucket, workflowItems, acceptanceEffect, queueSummary, workflowCheckSummary } from "./lib/workflow-navigation.js";
 import { linkedDecision } from "./lib/goal-workflow.js";
 import { agentMarkdown } from "./lib/agent-markdown.js";
@@ -17,6 +18,12 @@ import { accountFor } from "./context.js";
 
 const RUN_MODE = "relevo.runs.mode", RUN_ACCOUNTS = "relevo.runs.accounts";
 const LAUNCH_TIMEOUT = 180000;
+const RUN_PRIME = "Wait for a Relevo task in this worktree. Do not change files until it arrives.";
+// Run agents write their report outside the worktree, so each gets that folder; the reviewer only reads and reports.
+export function runAgentArgs(key, role, reports) {
+  if (key === CODEX.key) return ["-m", config.RUN_CODEX_MODEL ?? "gpt-6-luna", "--sandbox", "workspace-write", "--ask-for-approval", "on-request", "--add-dir", reports];
+  return ["--add-dir", reports, "--permission-mode", "acceptEdits", ...(role === "reviewer" ? ["--tools", "Read,Write,Grep,Glob"] : [])];
+}
 export { openWorkflow } from "./workflow-window.js";
 
 const STATES = { planned: "Planned", ready: "Ready", running: "In progress", needs_review: "Needs review", needs_you: "Needs you", accepted: "Completed", completed: "Completed", blocked: "Blocked", failed: "Failed", cancelled: "Cancelled" };
@@ -325,7 +332,7 @@ export class Workflow extends WorkflowDraftView {
         if (response.error || result.code !== 0) throw Error(response.error || result.stderr || "Could not create the worktree");
         const slug = response.result.branch.replace(/^run\//, "");
         this.launch = { ...this.launch, stage: "opening", worktree: response.result, tabs: { executor: `${slug} · build`, reviewer: `${slug} · review` } };
-        openInFolder({ name: fields.root.split("/").pop(), folder: response.result.path, tab: this.launch.tabs.executor, argv: launchArgv(accounts.executor) });
+        openInFolder({ name: fields.root.split("/").pop(), folder: response.result.path, tab: this.launch.tabs.executor, argv: launchArgv(accounts.executor, RUN_PRIME, runAgentArgs(accounts.executor, "executor", `${appHome()}/relevo-workflow/reports`)) });
         this.launch.openedAt = Date.now();
       } catch (error) {
         if (!this.closed) { this.launch = null; this.busy = false; this.error = `Could not start the run: ${error.message ?? error}`; }
@@ -342,7 +349,7 @@ export class Workflow extends WorkflowDraftView {
       this.error = `The agents did not get ready in time. The worktree is at ${launch.worktree.path}.`; cx.notify(); return;
     }
     if (launch.stage === "opening" && Date.now() - launch.openedAt > 1500) {
-      openInFolder({ name: launch.fields.root.split("/").pop(), folder: launch.worktree.path, tab: launch.tabs.reviewer, argv: launchArgv(launch.accounts.reviewer) });
+      openInFolder({ name: launch.fields.root.split("/").pop(), folder: launch.worktree.path, tab: launch.tabs.reviewer, argv: launchArgv(launch.accounts.reviewer, RUN_PRIME, runAgentArgs(launch.accounts.reviewer, "reviewer", `${appHome()}/relevo-workflow/reports`)) });
       launch.stage = "waiting";
     }
     if (launch.stage !== "waiting") return;
