@@ -18,7 +18,6 @@ import { accountFor } from "./context.js";
 
 const RUN_MODE = "relevo.runs.mode", RUN_ACCOUNTS = "relevo.runs.accounts";
 const LAUNCH_TIMEOUT = 180000;
-const RUN_PRIME = "Wait for a Relevo task in this worktree. Do not change files until it arrives.";
 // Run agents write their report outside the worktree, so each gets that folder; the reviewer only reads and reports.
 export function runAgentArgs(key, role, reports) {
   if (key === CODEX.key) return ["-m", config.RUN_CODEX_MODEL ?? "gpt-6-luna", "--sandbox", "workspace-write", "--ask-for-approval", "on-request", "--add-dir", reports];
@@ -245,6 +244,7 @@ export class Workflow extends WorkflowDraftView {
   }
 
   create(cx, { start = false } = {}) {
+    if (this.launch?.stage === "stalled") { Object.assign(this.launch, { stage: "waiting", at: Date.now() }); this.busy = true; this.error = null; cx.notify(); return; }
     if (this.pendingDraft) { this.error = "Resume or discard the saved draft before creating another task."; cx.notify(); return; }
     const submittedFields = JSON.stringify(this.taskDraftSnapshot());
     const title = this.form.title.value().trim();
@@ -332,7 +332,7 @@ export class Workflow extends WorkflowDraftView {
         if (response.error || result.code !== 0) throw Error(response.error || result.stderr || "Could not create the worktree");
         const slug = response.result.branch.replace(/^run\//, "");
         this.launch = { ...this.launch, stage: "opening", worktree: response.result, tabs: { executor: `${slug} · build`, reviewer: `${slug} · review` } };
-        openInFolder({ name: fields.root.split("/").pop(), folder: response.result.path, tab: this.launch.tabs.executor, argv: launchArgv(accounts.executor, RUN_PRIME, runAgentArgs(accounts.executor, "executor", `${appHome()}/relevo-workflow/reports`)) });
+        openInFolder({ name: fields.root.split("/").pop(), folder: response.result.path, tab: this.launch.tabs.executor, argv: launchArgv(accounts.executor, null, runAgentArgs(accounts.executor, "executor", `${appHome()}/relevo-workflow/reports`)) });
         this.launch.openedAt = Date.now();
       } catch (error) {
         if (!this.closed) { this.launch = null; this.busy = false; this.error = `Could not start the run: ${error.message ?? error}`; }
@@ -344,19 +344,21 @@ export class Workflow extends WorkflowDraftView {
   launchTick(cx) {
     const launch = this.launch;
     if (this.closed || !launch?.worktree) return;
+    if (launch.stage === "stalled") return;
     if (Date.now() - launch.at > LAUNCH_TIMEOUT) {
-      this.launch = null; this.busy = false;
-      this.error = `The agents did not get ready in time. The worktree is at ${launch.worktree.path}.`; cx.notify(); return;
+      launch.stage = "stalled"; this.busy = false; this.launchNotice = null;
+      this.error = `The agents are not ready yet. Start keeps waiting on ${launch.worktree.branch}.`; cx.notify(); return;
     }
     if (launch.stage === "opening" && Date.now() - launch.openedAt > 1500) {
-      openInFolder({ name: launch.fields.root.split("/").pop(), folder: launch.worktree.path, tab: launch.tabs.reviewer, argv: launchArgv(launch.accounts.reviewer, RUN_PRIME, runAgentArgs(launch.accounts.reviewer, "reviewer", `${appHome()}/relevo-workflow/reports`)) });
+      openInFolder({ name: launch.fields.root.split("/").pop(), folder: launch.worktree.path, tab: launch.tabs.reviewer, argv: launchArgv(launch.accounts.reviewer, null, runAgentArgs(launch.accounts.reviewer, "reviewer", `${appHome()}/relevo-workflow/reports`)) });
       launch.stage = "waiting";
     }
     if (launch.stage !== "waiting") return;
     const found = Object.fromEntries(["executor", "reviewer"].map((role) => [role, agents().find((agent) => agent.tab_name === launch.tabs[role])]));
-    const waiting = Object.entries(found).filter(([, agent]) => !agent || !["idle", "done"].includes(agent.status));
-    const blocked = waiting.find(([, agent]) => agent?.status === "blocked");
-    const notice = blocked ? `Answer the prompt in “${launch.tabs[blocked[0]]}” to continue.` : `Starting agents · ${2 - waiting.length}/2 ready`;
+    // The coordinator waits for a free agent itself; here an agent only has to exist and not wait on a prompt.
+    const waiting = Object.entries(found).filter(([, agent]) => !agent || !["idle", "done", "working"].includes(agent.status));
+    const stuck = waiting.find(([, agent]) => agent?.status === "blocked" || (!agent && Date.now() - launch.openedAt > 10000));
+    const notice = stuck ? `Answer the prompt in “${launch.tabs[stuck[0]]}” to continue.` : `Starting agents · ${2 - waiting.length}/2 ready`;
     if (this.launchNotice !== notice) { this.launchNotice = notice; cx.notify(); }
     if (waiting.length) return;
     this.launch = null; this.launchNotice = null; this.busy = false;

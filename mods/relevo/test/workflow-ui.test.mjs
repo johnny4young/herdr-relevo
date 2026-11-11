@@ -686,3 +686,23 @@ test('run agents start with their model, sandbox and access to the report folder
   assert.deepEqual(runAgentArgs('personal', 'reviewer', '/r'), ['--add-dir', '/r', '--permission-mode', 'acceptEdits', '--tools', 'Read,Write,Grep,Glob']);
   assert.deepEqual(runAgentArgs('personal', 'executor', '/r'), ['--add-dir', '/r', '--permission-mode', 'acceptEdits']);
 });
+
+test('a worktree launch starts with no first message, accepts a working agent and Start resumes a stalled wait', async () => {
+  const { launchArgv } = await import('../accounts.js');
+  assert.deepEqual(launchArgv('codex', null, ['-m', 'x']), ['zsh', '-ilc', 'codex "$1" "$2"', 'zsh', '-m', 'x']);
+  fake.stored['relevo.runs.mode'] = 'worktree';
+  const { v, cx } = await setup();
+  v.launch = { stage: 'stalled', fields: { goalId: 'g', title: 'T', root: '/work/app', criteria: 'c', checks: [], dependsOn: [], maxRounds: 2, maxMinutes: 5 },
+    accounts: { executor: 'codex', reviewer: 'personal' }, at: 0, openedAt: 0,
+    worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 't-1 · build', reviewer: 't-1 · review' } };
+  const payloads = [];
+  fake.exec = async (_cmd, args) => { payloads.push(JSON.parse(args.at(-1))); return { code: 0, stdout: '{"doc":{},"result":{"taskId":"new"}}' }; };
+  v.create(cx, { start: true });
+  assert.equal(v.launch.stage, 'waiting'); assert.equal(payloads.length, 0, 'no second worktree');
+  fake.agents = [{ address: 't1', tab_name: 't-1 · build', status: 'working' }];
+  v.launchTick(cx); assert.match(text(find(v.render(), 'workflow-launch-status')), /Answer the prompt in “t-1 · review”/);
+  fake.agents.push({ address: 't2', tab_name: 't-1 · review', status: 'idle' });
+  v.launchTick(cx); await flush();
+  assert.equal(payloads[0].action, 'create'); assert.equal(payloads[0].task.root, '/wt');
+  v.close();
+});

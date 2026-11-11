@@ -14,8 +14,9 @@ export const accountOf = (key) => [...ACCOUNTS, CODEX].find((p) => p.key === key
 
 // `args` go before the prompt as positional parameters, never into the shell text.
 export function launchArgv(key, prompt, args = []) {
-  const p = accountOf(key), refs = args.map((_, i) => ` "$${i + 2}"`).join("");
-  return prompt ? ["zsh", "-ilc", `${p.launcher}${refs} "$1"`, "zsh", prompt, ...args] : ["zsh", "-ilc", p.launcher];
+  const p = accountOf(key), first = prompt ? 2 : 1, refs = args.map((_, i) => ` "$${i + first}"`).join("");
+  if (!prompt && !args.length) return ["zsh", "-ilc", p.launcher];
+  return ["zsh", "-ilc", `${p.launcher}${refs}${prompt ? ' "$1"' : ""}`, "zsh", ...(prompt ? [prompt] : []), ...args];
 }
 
 
