@@ -14,7 +14,7 @@ function fill(v, cx) {
   v.executor = 'build'; v.reviewer = 'review'; v.form.maxRounds.type('1', cx); v.form.maxMinutes.type('8', cx);
 }
 
-test('closing and reopening offers the local draft without replacing another mission or dispatching', async () => {
+test('closing and reopening offers the local draft without replacing another run or dispatching', async () => {
   const first = await setup(); fill(first.v, first.cx); first.v.close();
   const other = await setup('other'); assert.equal(find(other.v.render(), 'workflow-resume-draft'), null); other.v.close();
   const second = await setup();

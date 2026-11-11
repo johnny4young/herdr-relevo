@@ -19,14 +19,14 @@ test('draft survives close and reopen as a per-goal local record', () => {
   assert.match(fake.stored[workflowDraftKey('goal-a')], /"version":1/);
 });
 
-test('each mission has an isolated draft key', () => {
+test('each run has an isolated draft key', () => {
   resetFake();
   const drafts = createWorkflowDrafts();
-  drafts.save('goal/a', draft({ title: 'First mission' }));
-  drafts.save('goal-b', draft({ title: 'Second mission' }));
+  drafts.save('goal/a', draft({ title: 'First run' }));
+  drafts.save('goal-b', draft({ title: 'Second run' }));
   assert.notEqual(workflowDraftKey('goal/a'), workflowDraftKey('goal-b'));
-  assert.equal(drafts.load('goal/a').title, 'First mission');
-  assert.equal(drafts.load('goal-b').title, 'Second mission');
+  assert.equal(drafts.load('goal/a').title, 'First run');
+  assert.equal(drafts.load('goal-b').title, 'Second run');
 });
 
 test('loading an empty editor does not overwrite an existing candidate', () => {
@@ -40,13 +40,13 @@ test('loading an empty editor does not overwrite an existing candidate', () => {
   assert.equal(fake.stored[workflowDraftKey('goal-a')], before);
 });
 
-test('explicit discard and successful-create cleanup clear only the selected mission draft', () => {
+test('explicit discard and successful-create cleanup clear only the selected run draft', () => {
   resetFake();
   const drafts = createWorkflowDrafts();
-  drafts.save('goal-a', draft()); drafts.save('goal-b', draft({ title: 'Other mission' }));
+  drafts.save('goal-a', draft()); drafts.save('goal-b', draft({ title: 'Other run' }));
   drafts.clear('goal-a');
   assert.equal(drafts.load('goal-a'), null);
-  assert.equal(drafts.load('goal-b').title, 'Other mission');
+  assert.equal(drafts.load('goal-b').title, 'Other run');
   drafts.clear('goal-b'); // Workflow calls this only after successful task creation.
   assert.equal(drafts.load('goal-b'), null);
 });

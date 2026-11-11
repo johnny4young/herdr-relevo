@@ -74,11 +74,11 @@ test('plan checks use a simple preset and reveal JSON only for custom checks', a
   v.close();
 });
 
-test('a mission without outcomes can open one prefilled task without dispatching', async () => {
+test('a run without outcomes can open one prefilled task without dispatching', async () => {
   const { v, cx } = await setup();
   v.goal = { ...v.goal, steps: [] }; v.planDraftGoal = v.goal; v.planStepIds = [];
   let tree = v.render();
-  assert.match(text(tree), /This mission has no outcomes/);
+  assert.match(text(tree), /This run has no outcomes/);
   click(find(tree, 'workflow-plan-create-first-task'), cx);
   tree = v.render();
   assert.equal(v.tab, 'Overview');
@@ -91,7 +91,7 @@ test('a mission without outcomes can open one prefilled task without dispatching
   v.close();
 });
 
-test('missions without outcomes show brief work and existing standalone tasks separately', async () => {
+test('runs without outcomes show brief work and existing standalone tasks separately', async () => {
   const { v, cx } = await setup();
   v.goal = { ...v.goal, steps: [] }; v.planDraftGoal = v.goal; v.planStepIds = [];
   let tree = v.render();

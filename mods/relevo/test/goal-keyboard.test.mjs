@@ -79,7 +79,7 @@ test('editor sections retain all edits; long text wraps; Command-S saves without
   assert.deepEqual(fake.execs, []); assert.ok(fake.files[goalsPath()]); e.close();
 });
 
-test('new mission leads with its title and acceptance criteria while saved decisions remain editable', async () => {
+test('new run leads with its title and acceptance criteria while saved decisions remain editable', async () => {
   const fresh = new GoalEditor(), freshCx = fakeCx(); fresh.init({}, freshCx); await flush();
   let tree = fresh.render();
   assert.match(text(tree), /Brief/); assert.match(text(tree), /Outcomes/);
@@ -88,7 +88,7 @@ test('new mission leads with its title and acceptance criteria while saved decis
   assert.equal(find(tree, 'goal-resolve-decision'), null); assert.equal(find(tree, 'goal-review-steps'), null);
   fresh.close();
 
-  const existing = { ...newGoal('g-saved', 'Saved mission'), decision: 'Accept the current result?',
+  const existing = { ...newGoal('g-saved', 'Saved run'), decision: 'Accept the current result?',
     recommendation: 'Keep the change focused.', criteria: 'Search returns matching items.' };
   fake.files[goalsPath()] = JSON.stringify(saveGoal(emptyGoals(), existing, 0));
   fake.props = { goalId: existing.id, panel: 'decision', overlay: 'goal-editor' };
@@ -106,7 +106,7 @@ test('new mission leads with its title and acceptance criteria while saved decis
 
 test('validation of a folded decision opens the notes panel before focusing the field', async () => {
   const e = new GoalEditor(), cx = fakeCx(); e.init({}, cx); await flush();
-  e.fields.title.set_value('A mission'); e.fields.decision.set_value('x'.repeat(2001));
+  e.fields.title.set_value('A run'); e.fields.decision.set_value('x'.repeat(2001));
   let focused = 0; e.fields.decision.focus = () => { focused++; };
   e.save(cx);
   assert.equal(e.panel, 'decision'); assert.equal(e.reviewNotesOpen, true);

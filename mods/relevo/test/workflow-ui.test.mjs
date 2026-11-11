@@ -48,7 +48,7 @@ test('agent setup searches the selected repository and prevents choosing one age
   v.close();
 });
 
-test('reuse copies only this mission’s latest successful setup after an explicit click', async () => {
+test('reuse copies only this run’s latest successful setup after an explicit click', async () => {
   const { v, cx } = await setup();
   const old = { id: 'old', goalId: 'g', title: 'Earlier result', state: 'accepted', root: '/work/app',
     executor: { address: 'builder', label: 'Builder' }, reviewer: { address: 'reviewer', label: 'Reviewer' },
@@ -151,7 +151,7 @@ test('blocked and review states remain reachable and shortcuts do not steal inpu
   assert.ok(find(v.render(), 'shortcut-help-search')); v.close();
 });
 
-test('Mission shortcut search filters actual window actions and Escape clears then closes help', async () => {
+test('Run shortcut search filters actual window actions and Escape clears then closes help', async () => {
   const { v, cx } = await setup();
   click(find(v.render(), 'workflow-focus-queue'), cx);
   v.shortcutHelp.input.type('evidence', cx);

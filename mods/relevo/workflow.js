@@ -609,7 +609,7 @@ export class Workflow extends WorkflowDraftView {
       .when(Boolean(previousSetup), (el) => el.child(v_flex().gap(4).id("workflow-previous-setup")
         .child(row(t, `Previous setup · ${previousRootName} · ${previousSetup.executor?.label ?? previousSetup.executor?.address ?? "Implementer unavailable"} + ${previousSetup.reviewer?.label ?? previousSetup.reviewer?.address ?? "Reviewer unavailable"}`))
         .child(button(t, "workflow-use-previous-setup", "Use previous setup", (context) => this.usePreviousSetup(context),
-          { disabled: this.busy, tip: `Copy setup from ${previousSetup.title} in this mission: ${previousSetup.root}; ${previousSetup.maxRounds ?? 2} rounds; ${previousSetup.maxMinutes ?? 20} minutes; ${previousCheckLabel} (${JSON.stringify(previousChecks)}). Title and outcome stay as drafted; nothing starts.` }))))
+          { disabled: this.busy, tip: `Copy setup from ${previousSetup.title} in this run: ${previousSetup.root}; ${previousSetup.maxRounds ?? 2} rounds; ${previousSetup.maxMinutes ?? 20} minutes; ${previousCheckLabel} (${JSON.stringify(previousChecks)}). Title and outcome stay as drafted; nothing starts.` }))))
       .when(Boolean(this.setupReuseNotice), (el) => el.child(row(t, this.setupReuseNotice)))
       .when(Boolean(this.setupReuseWarning), (el) => el.child(row(t, this.setupReuseWarning)))
       .child(button(t, "workflow-task-setup", setupLabel, (context) => {
