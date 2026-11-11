@@ -19,10 +19,16 @@ import { accountFor } from "./context.js";
 
 const RUN_MODE = "relevo.runs.mode", RUN_ACCOUNTS = "relevo.runs.accounts";
 const LAUNCH_TIMEOUT = 180000;
-// Run agents write their report outside the worktree, so each gets that folder; the reviewer only reads and reports.
-export function runAgentArgs(key, role, reports) {
+// Agents write only their checkout and the reports folder. Codex gets that from workspace-write; Claude runs
+// Bash in the OS sandbox and its file tools may not edit the app (its state, locks, mods or settings).
+export function runAgentArgs(key, role, home) {
+  const reports = `${home}/relevo-workflow/reports`;
   if (key === CODEX.key) return ["-m", config.RUN_CODEX_MODEL ?? "gpt-6-luna", "--sandbox", "workspace-write", "--ask-for-approval", "on-request", "--add-dir", reports];
-  return ["--add-dir", reports, "--permission-mode", "acceptEdits", ...(role === "reviewer" ? ["--tools", "Read,Write,Grep,Glob"] : [])];
+  // A bare "*" would also match the reports folder: app files all carry an extension, folders are listed.
+  const deny = ["*.*", "relevo-workflow/*.*", ...["mods", "data", "layouts", "themes", "icons", "frame", "telemetry", "relevo-workflow/artifacts", "relevo-workflow/archive"].map((dir) => `${dir}/**`)]
+    .map((glob) => `Edit(/${home}/${glob})`);
+  const settings = { sandbox: { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true }, permissions: { deny } };
+  return ["--add-dir", reports, "--permission-mode", "acceptEdits", "--settings", JSON.stringify(settings), ...(role === "reviewer" ? ["--tools", "Read,Write,Grep,Glob"] : [])];
 }
 export { openWorkflow } from "./workflow-window.js";
 
@@ -352,7 +358,7 @@ export class Workflow extends WorkflowDraftView {
         if (response.error || result.code !== 0) throw Error(response.error || result.stderr || "Could not create the worktree");
         const slug = response.result.branch.replace(/^run\//, "");
         this.launch = { ...this.launch, stage: "opening", worktree: response.result, tabs: { executor: `${slug} · build`, reviewer: `${slug} · review` } };
-        openInFolder({ name: fields.root.split("/").pop(), folder: response.result.path, tab: this.launch.tabs.executor, argv: launchArgv(accounts.executor, null, runAgentArgs(accounts.executor, "executor", `${appHome()}/relevo-workflow/reports`)) });
+        openInFolder({ name: fields.root.split("/").pop(), folder: response.result.path, tab: this.launch.tabs.executor, argv: launchArgv(accounts.executor, null, runAgentArgs(accounts.executor, "executor", appHome())) });
         this.launch.openedAt = Date.now();
       } catch (error) {
         if (!this.closed) { this.launch = null; this.busy = false; this.error = `Could not start the run: ${error.message ?? error}`; }
@@ -403,7 +409,7 @@ export class Workflow extends WorkflowDraftView {
       this.error = `The agents are not ready yet. Start keeps waiting on ${launch.worktree.branch}.`; cx.notify(); return;
     }
     if (launch.stage === "opening" && Date.now() - launch.openedAt > 1500) {
-      openInFolder({ name: launch.fields.root.split("/").pop(), folder: launch.worktree.path, tab: launch.tabs.reviewer, argv: launchArgv(launch.accounts.reviewer, null, runAgentArgs(launch.accounts.reviewer, "reviewer", `${appHome()}/relevo-workflow/reports`)) });
+      openInFolder({ name: launch.fields.root.split("/").pop(), folder: launch.worktree.path, tab: launch.tabs.reviewer, argv: launchArgv(launch.accounts.reviewer, null, runAgentArgs(launch.accounts.reviewer, "reviewer", appHome())) });
       launch.stage = "waiting";
     }
     if (launch.stage !== "waiting") return;

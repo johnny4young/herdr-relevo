@@ -682,9 +682,16 @@ test('own worktree mode creates the checkout, opens both agents and starts once 
 
 test('run agents start with their model, sandbox and access to the report folder', async () => {
   const { runAgentArgs } = await import('../workflow.js');
-  assert.deepEqual(runAgentArgs('codex', 'executor', '/r'), ['-m', 'gpt-6-luna', '--sandbox', 'workspace-write', '--ask-for-approval', 'on-request', '--add-dir', '/r']);
-  assert.deepEqual(runAgentArgs('personal', 'reviewer', '/r'), ['--add-dir', '/r', '--permission-mode', 'acceptEdits', '--tools', 'Read,Write,Grep,Glob']);
-  assert.deepEqual(runAgentArgs('personal', 'executor', '/r'), ['--add-dir', '/r', '--permission-mode', 'acceptEdits']);
+  const reports = '/h/relevo-workflow/reports';
+  assert.deepEqual(runAgentArgs('codex', 'executor', '/h'), ['-m', 'gpt-6-luna', '--sandbox', 'workspace-write', '--ask-for-approval', 'on-request', '--add-dir', reports]);
+  const reviewer = runAgentArgs('personal', 'reviewer', '/h'), executor = runAgentArgs('personal', 'executor', '/h');
+  assert.deepEqual(reviewer.slice(-2), ['--tools', 'Read,Write,Grep,Glob']);
+  assert.equal(executor.includes('--tools'), false);
+  const settings = JSON.parse(executor[executor.indexOf('--settings') + 1]);
+  assert.deepEqual(settings.sandbox, { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true }, 'Bash cannot leave the sandbox');
+  assert.ok(settings.permissions.deny.includes('Edit(//h/relevo-workflow/*.*)'), 'state and locks are not editable');
+  assert.ok(!settings.permissions.deny.some((rule) => rule.includes('reports')), 'reports stay writable');
+  assert.deepEqual(executor.slice(0, 4), ['--add-dir', reports, '--permission-mode', 'acceptEdits']);
 });
 
 test('a worktree launch starts with no first message, accepts a working agent and Start resumes a stalled wait', async () => {
