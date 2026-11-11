@@ -1,6 +1,7 @@
 export const QUOTA_STALE_SECONDS = 30 * 60;
 export const QUOTA_WARN = 80;
 const DOT_COUNT = 20;
+import { windowLabel } from './time.js';
 const WINDOW_LABEL = { h5: '5h', d7: '7d' };
 
 export function quotaRingDots(pct) {
@@ -27,5 +28,5 @@ export function quotaStatusText(quota, freshness = quotaFreshness(quota)) {
   const window = tightestWindow(quota);
   if (!window) return 'Usage unavailable';
   const reset = Number.isFinite(window.resets) ? ` · resets ${new Date(window.resets * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : '';
-  return `${WINDOW_LABEL[window.name]} ${Math.round(window.pct)}% used${freshness === 'stale' ? ' (stale)' : ''}${reset}`;
+  return `${windowLabel(window, WINDOW_LABEL[window.name])} ${Math.round(window.pct)}% used${freshness === 'stale' ? ' (stale)' : ''}${reset}`;
 }

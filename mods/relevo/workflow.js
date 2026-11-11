@@ -13,7 +13,7 @@ import { readGoals } from "./goals-store.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { ShortcutHelp } from "./shortcut-help.js";
 import { RUN_PANES, RUN_REQUEST, liveRunPanes } from "./workflow-window.js";
-import { ACCOUNTS, CODEX, accountOf, launchArgv, openInFolder } from "./accounts.js";
+import { ACCOUNTS, CODEX, accountOf, launchArgv, openInFolder, loadClaudeQuotas, full } from "./accounts.js";
 import { accountFor } from "./context.js";
 
 const RUN_MODE = "relevo.runs.mode", RUN_ACCOUNTS = "relevo.runs.accounts";
@@ -93,6 +93,8 @@ export class Workflow extends WorkflowDraftView {
     this.initDrafts();
     this.load(cx);
     cx.timer.every(3000, (cx) => this.load(cx));
+    this.loadQuotas(cx);
+    cx.timer.every(60000, (cx) => this.loadQuotas(cx));
     cx.timer.every(1000, (cx) => this.launchTick(cx));
     cx.timer.after(30, (cx) => {
       if (this.closed) return;
@@ -187,6 +189,9 @@ export class Workflow extends WorkflowDraftView {
     } else if (!this.navigationInitialized) {
       const initial = workflowItems(this.tasks, "Needs you")[0] ?? workflowItems(this.tasks, "In progress")[0];
       this.selected = initial?.id ?? null; this.filter = initial ? workflowBucket(initial) : "Needs you";
+    } else if (selected && previous && workflowBucket(previous) === this.filter && workflowBucket(selected) !== this.filter) {
+      // The list follows the shown task when its state moves it to another list.
+      this.filter = workflowBucket(selected);
     } else if (!selected) {
       this.selected = workflowItems(this.tasks, this.filter)[0]?.id ?? null;
     }
@@ -308,20 +313,29 @@ export class Workflow extends WorkflowDraftView {
 
   runMode() { return shared(RUN_MODE) ?? "worktree"; }
 
+  loadQuotas(cx) {
+    cx.spawn(async (cx) => {
+      try { this.quotas = await loadClaudeQuotas(); } catch { this.quotas = {}; }
+      if (!this.closed) cx.notify();
+    });
+  }
+
   runAccounts() {
     const saved = shared(RUN_ACCOUNTS) ?? {};
     const all = [...ACCOUNTS, CODEX].map((account) => account.key);
-    const executor = all.includes(saved.executor) ? saved.executor : CODEX.key;
+    const open = (key) => all.includes(key) && !full(this.quotas?.[key]);
+    const executor = all.includes(saved.executor) ? saved.executor : [CODEX.key, ...all].find(open) ?? CODEX.key;
     const repoAccount = accountFor(this.form.root.value().trim());
     const reviewer = all.includes(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer
-      : [repoAccount, ...all].find((key) => key && key !== executor && all.includes(key));
+      : [repoAccount, ...all].find((key) => key && key !== executor && open(key)) ?? all.find((key) => key !== executor);
     return { executor, reviewer };
   }
 
   accountPicker(t, role, label) {
     const chosen = this.runAccounts();
     return v_flex().w_full().min_w(0).gap(4).child(row(t, label))
-      .child(h_flex().flex_wrap().gap(4).children([...ACCOUNTS, CODEX].map((account) => button(t, `workflow-${role}-account-${account.key}`, account.label,
+      .child(h_flex().flex_wrap().gap(4).children([...ACCOUNTS, CODEX].map((account) => button(t, `workflow-${role}-account-${account.key}`,
+        full(this.quotas?.[account.key]) ? `${account.label} · ${full(this.quotas[account.key])} full` : account.label,
         (cx) => { setShared(RUN_ACCOUNTS, { ...chosen, [role]: account.key }); cx.notify(); },
         { kind: "ghost", size: "sm", selected: chosen[role] === account.key, disabled: chosen[role === "executor" ? "reviewer" : "executor"] === account.key }))));
   }

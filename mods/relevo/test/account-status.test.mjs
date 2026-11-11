@@ -98,3 +98,14 @@ test('status bar names only the focused account, shows stale readings and flags 
   assert.equal(find(tree, `account-status-ring-${focused.key}-marker`), null, 'a stale reading stays visible');
   assert.match(find(tree, `account-status-${focused.key}`).tip, /stale.*read 4d ago/);
 });
+
+test('a provider window longer than a week is labeled by its real length', async () => {
+  const { fromClaude } = await import('../accounts.js');
+  const { windowLabel } = await import('../lib/time.js');
+  const now = Date.now() / 1000;
+  const codex = fromClaude({ updated: now, rate_limits: { seven_day: { used_percentage: 1, resets_at: now + 25 * 86400, window_seconds: 30 * 86400 } } });
+  assert.equal(windowLabel(codex.d7, '7d'), '30d');
+  assert.match(quotaStatusText(codex), /^30d 1% used/);
+  const claude = fromClaude({ updated: now, rate_limits: { seven_day: { used_percentage: 40, resets_at: now + 86400 } } });
+  assert.equal(windowLabel(claude.d7, '7d'), '7d');
+});

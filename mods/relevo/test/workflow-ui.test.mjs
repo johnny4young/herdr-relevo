@@ -728,3 +728,26 @@ test('an accepted worktree run offers a draft PR, and removing it closes its tab
   assert.equal(payloads.at(-1).action, 'worktree-remove');
   v.close();
 });
+
+test('worktree setup skips an account at its limit by default and marks it in the picker', async () => {
+  fake.stored['relevo.runs.mode'] = 'worktree';
+  const { v } = await setup();
+  v.form.root.set_value('/work/app');
+  v.quotas = { codex: { h5: { pct: 100 }, d7: null } };
+  const { executor } = v.runAccounts();
+  assert.notEqual(executor, 'codex');
+  v.taskSetupOpen = true; v.form.title.set_value('t'); v.form.criteria.set_value('c');
+  assert.match(text(find(v.render(), 'workflow-executor-account-codex')), /Codex · 5h full/);
+  v.close();
+});
+
+test('the task list follows the shown task when its state moves it to another list', async () => {
+  const { v } = await setup();
+  const base = { id: 't', goalId: 'g', title: 'Run', attempts: [], checks: [], checksResult: [], evidence: [] };
+  v.explicitNew = false;
+  v.applyState({ tasks: [{ ...base, state: 'running' }], events: [], preferences: [], engine: { enabled: true } });
+  v.selected = 't'; v.filter = 'In progress';
+  v.applyState({ tasks: [{ ...base, state: 'needs_you' }], events: [], preferences: [], engine: { enabled: true } });
+  assert.equal(v.selected, 't'); assert.equal(v.filter, 'Needs you');
+  v.close();
+});

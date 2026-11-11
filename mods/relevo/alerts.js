@@ -2,7 +2,7 @@ import { agents, exec, panes, terminals, playSound, notify as toast, shared, set
 import { ACCOUNTS, CODEX, accountOf } from "./accounts.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { CONTEXTS } from "./config.js";
-import { runsOut, clock, FIVE_HOURS, WEEK } from "./lib/time.js";
+import { runsOut, clock, FIVE_HOURS, WEEK, windowLabel } from "./lib/time.js";
 
 const ALERTED = "relevo.alerted";
 const KNOWN = "relevo.reviews.known";
@@ -111,10 +111,10 @@ export function quotaAlerts(quotas) {
       if (first || (context && !inFocus(context.key))) continue;
       playSound("sounds/quota.mp3");
       const handoff = full && [...ACCOUNTS, CODEX].some((p) => p.key === key);
-      const out = runsOut(w, name === "5h" ? FIVE_HOURS : WEEK);
+      const out = runsOut(w, name === "5h" ? FIVE_HOURS : w.span ?? WEEK);
       const when = w.pct >= 100 ? "" : out ? ` · 100% at ${clock(out)}` : "";
       notify({
-        title: `${accountOf(key).label} at ${w.pct}% (${name})${when}`,
+        title: `${accountOf(key).label} at ${w.pct}% (${name === "5h" ? name : windowLabel(w, name)})${when}`,
         level: "warning",
         ...(handoff
           ? { body: "Click to continue its agent with another account", action: { name: `relevo.handoff-from-${key}` } }

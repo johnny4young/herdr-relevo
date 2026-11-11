@@ -1,6 +1,6 @@
 import { home, readTextFile, run, spaces, shared } from "herdr";
 import { ACCOUNTS as CONFIGURED, CODEX as CODEX_ACCOUNT, FALLBACK } from "./config.js";
-import { FIVE_HOURS, WEEK, windowOf } from "./lib/time.js";
+import { FIVE_HOURS, WEEK, windowOf, windowLabel } from "./lib/time.js";
 import { accountFor } from "./context.js";
 
 export const API_QUOTAS = "relevo.quota.api";
@@ -25,7 +25,7 @@ export function fromClaude(json) {
   return {
     updated: json?.updated ?? 0,
     h5: windowOf(r.five_hour?.used_percentage, r.five_hour?.resets_at, FIVE_HOURS),
-    d7: windowOf(r.seven_day?.used_percentage, r.seven_day?.resets_at, WEEK),
+    d7: windowOf(r.seven_day?.used_percentage, r.seven_day?.resets_at, r.seven_day?.window_seconds ?? WEEK),
   };
 }
 
@@ -60,7 +60,7 @@ export async function loadClaudeQuotas() {
   return out;
 }
 
-const full = (q) => (q?.h5?.pct >= 100 ? "5h" : q?.d7?.pct >= 100 ? "7d" : null);
+export const full = (q) => (q?.h5?.pct >= 100 ? "5h" : q?.d7?.pct >= 100 ? windowLabel(q.d7, "7d") : null);
 
 // The repo's account unless it is out of quota; Team is the shared fallback.
 export function pickAccount(repo, quotas) {

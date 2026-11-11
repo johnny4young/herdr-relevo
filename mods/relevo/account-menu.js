@@ -1,6 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, Button } from "gpui-base";
 import { theme, props, closeOverlay } from "herdr";
+import { windowLabel } from "./lib/time.js";
 import { ACCOUNTS, CODEX, accountOf, chip, loadClaudeQuotas } from "./accounts.js";
 import { accountFor } from "./context.js";
 import { SKILLS, configuredSkill, launchSkill } from "./skills.js";
@@ -96,7 +97,7 @@ export class AccountMenu {
     if (!p?.pr) return div();
     const base = accountFor(p.pr.repo), acct = accountOf(this.account), claude = this.account !== CODEX.key;
     const q = this.quotas?.[this.account];
-    const usage = [q?.h5 ? `5h ${q.h5.pct}%` : null, q?.d7 ? `7d ${q.d7.pct}%` : null].filter(Boolean).join(" · ");
+    const usage = [q?.h5 ? `5h ${q.h5.pct}%` : null, q?.d7 ? `${windowLabel(q.d7, "7d")} ${q.d7.pct}%` : null].filter(Boolean).join(" · ");
     const pickChip = (a) => Button.new(`menu-acct-${a.key}`).id(`menu-acct-${a.key}`).tab_index(0)
       .accessibility_label(`Use ${a.label}${a.key === base ? ", repository default" : ""}`).selected(a.key === this.account)
       .disabled(Boolean(this.opening || this.busy)).focus((s) => s.border_2().border_color(t.accent))

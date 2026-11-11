@@ -6,7 +6,7 @@ import { ACCOUNTS, CODEX, chip } from './accounts.js';
 import { accountFor } from './context.js';
 import { openSettings } from './settings.js';
 import { button, overlayHeight } from './ui.js';
-import { ago, resetText } from './lib/time.js';
+import { ago, resetText, windowLabel } from './lib/time.js';
 import { QUOTA_WARN, quotaFreshness, quotaRingDots, quotaStatusText, tightestWindow } from './lib/account-status.js';
 
 const ACCOUNTS_ALL = [...ACCOUNTS, CODEX];
@@ -71,7 +71,7 @@ export class AccountStatus extends Sidebar {
   }
 
   usageWindow(t, account, name, value, stale) {
-    const label = name === 'h5' ? '5h window' : '7d window';
+    const label = name === 'h5' ? '5h window' : `${windowLabel(value, '7d')} window`;
     const percent = Number.isFinite(value?.pct) ? `${Math.round(value.pct)}% used` : 'Usage unavailable';
     const reset = value ? resetText(value) : null;
     return v_flex().id(`account-status-${account.key}-${name}`).w(150).min_w(0).gap(2)
