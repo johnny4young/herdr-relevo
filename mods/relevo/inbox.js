@@ -168,7 +168,7 @@ export class Inbox {
 
   publish(v = this.shown()) {
     const open = (list) => list.filter((p) => recent(p) && !this.seen(p) && !(this.launchedMap()[p.url] && this.prBusy(p))).length;
-    const n = this.reviewEntries().length + v.local.length + v.desktop.filter((s) => s.state === "blocked").length + open(v.mine) + open(v.requested);
+    const n = this.openReviews().length + v.local.length + v.desktop.filter((s) => s.state === "blocked").length + open(v.mine) + open(v.requested);
     if (shared(COUNT) !== n) setShared(COUNT, n);
     this.publishReasons();
     this.publishAgentPRs();
@@ -667,7 +667,7 @@ export class Inbox {
     const view = goalMode ? this.goalViewport() : this.viewport();
     this.hiddenIds = view.hidden;
     const part = (key, els) => (view.sections.has(key) ? [] : els.filter(Boolean));
-    const total = this.reviewEntries().length + v.local.length + v.desktop.length + v.mine.length + v.requested.length;
+    const total = this.openReviews().length + v.local.length + v.desktop.length + v.mine.length + v.requested.length;
     return v_flex().id("relevo-inbox").size_full().min_w(0).min_h(0).rounded(10).overflow_hidden()
       .on_size_change((size, context) => {
         const narrow = size.width < 350;

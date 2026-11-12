@@ -47,18 +47,25 @@ export function validateGoals(doc) {
 
 export function parseGoals(raw) { return raw === null ? emptyGoals() : validateGoals(JSON.parse(raw)); }
 
-export function saveGoal(doc, goal, expectedVersion, at = new Date().toISOString()) {
+export function saveGoal(doc, goal, expectedVersion, at = new Date().toISOString(), { close = false } = {}) {
   validateGoals(doc);
   const old = doc.goals.find((g) => g.id === goal.id);
   if ((old?.version ?? 0) !== expectedVersion) throw Error("This goal changed. Close and reopen it before saving.");
-  if (goalState(goal) === "completed" && (goal.decision.trim() || (goal.steps ?? []).some((s) => s.state !== "done"))) {
+  if (!close && goalState(goal) === "completed" && (goal.decision.trim() || (goal.steps ?? []).some((s) => s.state !== "done"))) {
     throw Error("Resolve the pending decision and validate the plan steps before closing.");
   }
   const next = { ...goal, version: expectedVersion + 1 };
   const result = { ...doc, revision: doc.revision + 1,
     goals: old ? doc.goals.map((g) => g.id === next.id ? next : g) : [...doc.goals, next],
-    history: [...doc.history, { goal: next.id, version: next.version, at, action: old ? "updated" : "created", state: goalState(next) }] };
+    history: [...doc.history, { goal: next.id, version: next.version, at, action: close ? "closed" : old ? "updated" : "created", state: goalState(next) }] };
   return validateGoals(result);
+}
+
+// Closing gives up on open work: a pending question is kept as unresolved, steps keep their state.
+export function closeGoal(goal, at = new Date().toISOString()) {
+  const question = goal.decision.trim();
+  return { ...goal, state: "completed", decision: "", decisionLink: null,
+    decisions: question ? [...goal.decisions, { text: question, resolved: false, at, revisions: [] }].slice(-100) : goal.decisions };
 }
 
 export function newGoal(id, title = "", sources = []) {

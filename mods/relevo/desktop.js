@@ -47,7 +47,7 @@ export class DesktopWatch {
         title: s.state === "blocked" ? `${s.project} needs you in Desktop` : `${s.project} finished in Desktop`,
         body: s.needs || s.title,
         level: s.state === "blocked" ? "warning" : "success",
-        action: { name: "relevo.panel-inbox" },
+        action: { name: "relevo.panel-reviews" },
       });
     }
     this.before = now;

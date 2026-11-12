@@ -116,7 +116,7 @@ export class LandViews {
     const at = runsPhase(JSON.parse(r.stdout), e.mergedAt, now);
     const name = `${e.repo.split("/")[1]} #${e.number}`;
     if (at.phase === "failed") {
-      notify({ title: `${at.failed.name} failed · ${name}`, body: "After the merge", level: "warning", action: { name: "relevo.panel-inbox" } });
+      notify({ title: `${at.failed.name} failed · ${name}`, body: "After the merge", level: "warning", action: { name: "relevo.panel-reviews" } });
       return this.setLanding(url, { ...at, done: Math.round(now) });
     }
     if (at.phase === "ci") return this.setLanding(url, at);

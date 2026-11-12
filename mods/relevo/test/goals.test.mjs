@@ -304,7 +304,57 @@ test('decision-only goals are keyboard reachable and completed goals never hide 
   tree = view.render(cx);
   assert.ok(find(tree, `pr-${key.slice(3)}`));
   fake.stored[GOAL_MODE] = true;
+  tree = view.render(cx);
+  assert.doesNotMatch(text(tree), /Run completed/);
+  click(find(tree, 'runs-closed-fold'), cx);
   assert.match(text(view.render(cx)), /Run completed/);
+});
+
+test('closing a run cancels its open tasks after confirmation and folds it', async () => {
+  const { view, cx } = await inbox();
+  fake.files[goalsPath()] = JSON.stringify(commit({ ...goal('g1', []), decision: 'Ship it?' }));
+  view.goalDoc = (await readGoals()).doc;
+  view.workflowTasks = [{ id: 'k1', goalId: 'g1', state: 'needs_you', title: 'A' }, { id: 'k2', goalId: 'g1', state: 'blocked', title: 'B' },
+    { id: 'k3', goalId: 'g1', state: 'accepted', title: 'C' }];
+  fake.stored[GOAL_MODE] = true;
+  let tree = view.render(cx);
+  click(find(tree, 'goal-close-g1'), cx); tree = view.render(cx);
+  assert.match(text(tree), /Cancel 2 open tasks and close this run\?/);
+  assert.equal(calls(/cli\.mjs/).length, 0);
+  click(find(tree, 'goal-close-yes-g1'), cx); await flush();
+  const cancels = calls(/"action":"cancel"/);
+  assert.deepEqual(cancels.map((c) => /"taskId":"(\w+)"/.exec(c)[1]), ['k1', 'k2']);
+  const saved = (await readGoals()).doc.goals[0];
+  assert.equal(saved.state, 'completed'); assert.equal(saved.decision, '');
+  assert.deepEqual(saved.decisions.at(-1).text, 'Ship it?'); assert.equal(saved.decisions.at(-1).resolved, false);
+});
+
+test('a failed task cancel keeps the run open and reports it', async () => {
+  const { view, cx } = await inbox();
+  fake.files[goalsPath()] = JSON.stringify(commit(goal('g1', [])));
+  view.goalDoc = (await readGoals()).doc;
+  view.workflowTasks = [{ id: 'k1', goalId: 'g1', state: 'running', title: 'A' }];
+  fake.exec = (cmd, args) => cmd === 'node' ? { code: 1, stderr: 'locked' } : null;
+  fake.stored[GOAL_MODE] = true;
+  click(find(view.render(cx), 'goal-close-g1'), cx);
+  click(find(view.render(cx), 'goal-close-yes-g1'), cx); await flush();
+  assert.equal((await readGoals()).doc.goals[0].state, 'active');
+  assert.match(text(view.render(cx)), /Could not close the run: locked/);
+});
+
+test('a ready result hides with its check until it returns a new revision', async () => {
+  const { view, cx } = await inbox();
+  view.goalDoc = commit(goal('g1', []));
+  view.workflowTasks = [{ id: 'k1', goalId: 'g1', state: 'needs_you', title: 'Verify queue', revision: 'r1', round: 1 }];
+  view.prsAt = Date.now() / 1000; fake.stored[GOAL_MODE] = false;
+  let tree = view.render(cx);
+  assert.ok(find(tree, 'result-k1'));
+  click(find(tree, 'addressed-result-k1'), cx); tree = view.render(cx);
+  assert.equal(find(tree, 'result-k1'), null);
+  assert.match(text(tree), /1 addressed/);
+  assert.equal(view.workflowTasks[0].state, 'needs_you');
+  view.workflowTasks = [{ ...view.workflowTasks[0], revision: 'r2', round: 2 }];
+  assert.ok(find(view.render(cx), 'result-k1'));
 });
 
 test('run cards keep the next action and editor while hiding lead provenance', async () => {

@@ -50,7 +50,7 @@ export class InboxButton {
         .text_color(active ? t.foreground : t.muted).when(active, (el) => el.bg(t.selected))
         .hover((s) => s.bg(t.hover)).focus((s) => s.border_2().border_color(t.accent))
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-        .tooltip(isRuns ? "Launch prompts and follow their results" : withKey("Review changes and decisions", "relevo.panel-inbox"))
+        .tooltip(isRuns ? withKey("Launch prompts and follow their results", "relevo.panel-runs") : withKey("Review changes and decisions", "relevo.panel-reviews"))
         .on_click(() => { setShared(GOAL_MODE, isRuns); showPanel("inbox"); })
         .child(label)
         .when(!isRuns && n > 0, (el) => el.child(div().px(5).rounded(8).bg(t.blocked)

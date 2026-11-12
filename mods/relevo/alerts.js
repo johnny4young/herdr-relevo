@@ -153,11 +153,11 @@ export function mergedAlert(e, tree, contextOf) {
   if (!inFocus(contextOf(e.repo))) return;
   const note = !tree ? undefined : tree.dirty ? `${tree.branch}: its worktree has uncommitted changes`
     : `${tree.branch}: its worktree can go, Remove is in the Inbox`;
-  notify({ title: e.title, body: note, level: "success", action: { name: "relevo.panel-inbox" } });
+  notify({ title: e.title, body: note, level: "success", action: { name: "relevo.panel-reviews" } });
 }
 
 export function prAlerts(events, contextOf) {
   const shown = events.filter((e) => inFocus(contextOf(e.repo)));
   if (shown.some((e) => LOUD.has(e.kind))) playSound("sounds/review.mp3");
-  for (const e of shown) notify({ title: e.title, level: LEVEL[e.kind], action: { name: "relevo.panel-inbox" } });
+  for (const e of shown) notify({ title: e.title, level: LEVEL[e.kind], action: { name: "relevo.panel-reviews" } });
 }
