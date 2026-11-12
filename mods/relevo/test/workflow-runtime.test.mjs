@@ -695,3 +695,26 @@ test("in a batch, one run whose commit fails does not lose the other run's commi
   assert.equal(bad.state, "accepted"); assert.equal(bad.worktree.commit, undefined);
   assert.ok(f.runtime.read().events.some((e) => e.taskId === bad.id && e.type === "Commit failed"));
 });
+
+test("an accepted run whose commit never landed can commit the accepted revision later", async (t) => {
+  let revision = "checkout-r1";
+  const f = await fixture({ fingerprintImpl: async () => revision }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const wt = path.join(f.base, "wt-late");
+  execFileSync("git", ["-C", f.root, "worktree", "add", "-q", "-b", "run/late", wt]);
+  fs.writeFileSync(path.join(wt, "late.md"), "late\n");
+  const id = await agedTask(f, "Add late", { worktree: { branch: "run/late", base: f.root } });
+  // The state an interrupted acceptance leaves: accepted and decided, with no commit recorded.
+  transaction(f.home, (doc) => { const task = doc.tasks.find((item) => item.id === id);
+    Object.assign(task, { state: "accepted", revision: "checkout-r1", root: wt }); task.worktree.path = wt;
+    task.decisions.push({ id: "d1", outcome: "accept", text: "", revision: "checkout-r1", at: "2026-01-02T03:04:05Z" }); });
+  const current = () => f.runtime.read().tasks.find((task) => task.id === id);
+  revision = "checkout-r2";
+  await assert.rejects(f.runtime.command({ action: "worktree-commit", taskId: id }), /changed after review/);
+  assert.equal(current().worktree.commit, undefined);
+  revision = "checkout-r1";
+  await f.runtime.command({ action: "worktree-commit", taskId: id });
+  assert.match(current().worktree.commit, /^[0-9a-f]{40}$/);
+  assert.equal(execFileSync("git", ["-C", f.root, "log", "-1", "--format=%s", "run/late"], { encoding: "utf8" }).trim(), "Add late");
+  await assert.rejects(f.runtime.command({ action: "worktree-commit", taskId: id }), /already committed/);
+  await assert.rejects(f.runtime.command({ action: "worktree-commit", taskId: f.taskId }), /Only an accepted worktree run/);
+});

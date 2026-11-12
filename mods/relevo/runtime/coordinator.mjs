@@ -332,6 +332,16 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       return update((doc) => logCommit(doc, taskById(doc, before.id), result));
     }
     if (action === 'worktree-status') return { result: await worktreeStatus(before.worktree) };
+    // An acceptance whose commit never landed (the process died, or git failed) commits the same accepted revision.
+    if (action === 'worktree-commit') {
+      const accepted = before.decisions.at(-1);
+      if (!before.worktree || before.state !== 'accepted' || accepted?.outcome !== 'accept') throw Error('Only an accepted worktree run can do this');
+      if (before.worktree.commit) throw Error('This run is already committed');
+      const result = await commitAccepted(before, accepted.revision);
+      const saved = update((doc) => logCommit(doc, taskById(doc, before.id), result));
+      if (result.failure) throw Error(result.failure);
+      return saved;
+    }
     if (action === 'worktree-pr' || action === 'worktree-remove') {
       // A cancelled run has nothing to propose; its worktree can only be discarded, with whatever it left uncommitted.
       const discard = action === 'worktree-remove' && before.state === 'cancelled';

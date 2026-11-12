@@ -195,7 +195,7 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     const continuesWork = (doc.tasks ?? []).some((task) => task.state === 'ready' && !task.paused &&
       task.dependsOn?.some((id) => acceptedIds.includes(id)) && task.dependsOn.every((id) => doc.tasks.some((parent) => parent.id === id && parent.state === 'accepted')));
     const keepsEngineBusy = ['message', 'skill'].includes(action);
-    const passive = ['read', 'archive', 'create', 'refresh', 'suggest-preferences', 'prepare-worktree', 'worktree-status', 'worktree-pr', 'worktree-remove'].includes(action);
+    const passive = ['read', 'archive', 'create', 'refresh', 'suggest-preferences', 'prepare-worktree', 'worktree-status', 'worktree-commit', 'worktree-pr', 'worktree-remove'].includes(action);
     const response = result ?? { doc };
     if (doc?.engine?.enabled && (startsWork || keepsEngineBusy || continuesWork)) {
       try { await (deps.ensureEngine ?? ensureEngine)(parsed.home, deps.engineOptions); }
