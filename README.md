@@ -9,17 +9,28 @@ alerts when a PR's CI or reviews change, and a ledger of agent time per ticket.
 
 *The preview and screenshots are mockups with demo data, drawn to match the layout.*
 
-## Live goals in the existing Inbox
+## Runs: hand a task to two agents
 
-Choose **Goals** in Inbox to group PRs and local changes by an explicit goal, owner and priority. Link existing agents as leads and attach revision-bound screenshot/video links while retaining Relevo's review, reply, CI and Land controls. **Classic** switches back immediately. Goal metadata persists separately and does not grant approvals or send messages automatically.
+The panel has two views. **Reviews** is the Inbox described below. **Runs** is for work you hand off: one agent implements, your checks run, a second agent reviews, and the result waits for your decision.
 
-Track a goal's plan through pending, working, review and manually validated steps; pause, close or reopen it explicitly. Drafts and addressed work keep their original controls in expandable groups. See the [product goal and acceptance plan](docs/proposals/relevo-goal.md) for the complete scope and remaining work.
+1. **+ Run** takes a prompt. Its first line names the run.
+2. Pick the repository, the checks (none, `npm test` or your own commands) and who implements and who reviews. Accounts at 100% are skipped.
+3. **Start**. By default the run gets its own worktree, `run/<slug>` under `~/.herdr/worktrees/<repo>/`, and both agents open there in two tabs. **Existing sessions** uses agents you already have open in the repository instead.
+4. The result appears under **Ready for you** with its agents, round, checks, verdict and age. Open it to read the summary, the diff and the evidence, then accept (**A**, then Enter), request changes (**R**) or defer.
 
-Click the **Inbox** heading to focus its queue: **↑/↓** selects work, **G** reaches the next goal, **E** opens context, **S** opens the existing skill/account picker, and **R** opens review where available. **?** shows help; **Tab/Shift-Tab** moves between controls. Enter activates the focused control. Goal cards keep secondary **Criteria and feedback** in a keyboard-accessible fold while decisions, evidence and work controls stay visible. The goal editor separates **Decision**, **Plan** and **Ownership**, retains edits across sections, and saves with **⌘S**. Skills still run through the existing account and worktree flow. See the [keyboard interaction guide](docs/proposals/goal-ux.md).
+**What accepting does.** In a worktree run, acceptance commits exactly the tree the reviewer saw to the run branch, without running hooks. Anything changed after the review stays uncommitted. From there the run offers **Open draft PR** (pushes the branch and runs `gh pr create --draft`) and **Remove worktree**, which keeps a branch that has commits. A cancelled run offers **Discard worktree**. Accepting never approves, merges or pushes anything by itself.
 
-Open **Workflow** on a goal (**W** with the goal selected) to assign existing executor/reviewer sessions, follow durable handoffs, inspect local evidence and act on reviewed results. The bounded local coordinator runs through `hc`; human acceptance, GitHub approvals and merges remain distinct. Preferences require explicit acceptance, and native text fields accept system dictation before sending. See the [workflow guide and limits](docs/proposals/workflow-runtime.md).
+**Files a worktree needs.** A new worktree has only tracked files. List the ignored files a run needs, such as `.env`, in a `.worktreeinclude` at the repository root, in `.gitignore` syntax; they are copied into each run's worktree.
 
-See [installation and rollback](docs/proposals/decision-inbox.md). The reversible installer preserves accounts, layouts, keys and sessions and creates a standalone rollback launcher that stops the coordinator before restoring code.
+**What a run agent can touch.** Its worktree and its own report, nothing else. Codex runs with `workspace-write`; set `RUN_CODEX_MODEL` in `config.js` to choose its model. Claude runs Bash in the system sandbox, and its file tools cannot edit Relevo's state, mods or settings. A Claude reviewer has no shell at all.
+
+**Limits.** Each run has a maximum number of correction rounds and minutes per attempt, and two runs work at a time. A message Relevo cannot confirm was delivered is never sent again: the run waits for you to look at the agent and reconcile it.
+
+**More than one result.** **Review a batch** previews and accepts several results of one repository at once. **History** keeps finished tasks; **Archive older than 7 days** moves the ones the run no longer needs to `relevo-workflow/archive/`.
+
+**Keys.** Click the panel heading to focus the queue: **↑/↓** selects, **G** goes to the next run, **F** shows one run or all, **W** opens the run, **E** opens its details, **R** opens review where there is one, **?** lists every shortcut. In the run: **1–5** switch views, **N** starts a task, **P** opens the plan, and Command-Enter submits the prompt or a change request.
+
+A run can also carry a plan of steps, an owner and a priority, and group the PRs and local changes that belong to it. See [how the coordinator works and its limits](docs/proposals/workflow-runtime.md), the [keyboard guide](docs/proposals/goal-ux.md) and [installation and rollback](docs/proposals/decision-inbox.md).
 
 ## Native Decision Inbox preview
 
@@ -147,6 +158,7 @@ Mods reload by themselves. `--exclude config.js` keeps your accounts; copying th
   a review). Keeps the counts in `~/.local/state/relevo/usage/`.
 - Merges, updates and marks PRs ready only when you click (`gh pr merge`, `gh pr update-branch`, `gh pr ready`), and
   re-runs failed jobs with `gh run rerun --failed`. **Save checkpoint** stores a git tree under `refs/relevo/seen/` for **Since I looked**. **Mark file viewed** and **Mark all viewed** track reviewed file contents separately.
+- Runs keep their state in `~/.config/herdr-app/relevo-workflow/` (tasks, attempts, agent reports, evidence up to 100 MB, and the archive) and run metadata in `~/.config/herdr-app/relevo-goals.json`. While a run is working, a coordinator (`node`, started with `hc run --bg`) sends each agent its task with `hc send`, runs the checks you configured in the run's checkout, and stops when nothing is left to do. A worktree run adds a worktree under `~/.herdr/worktrees/` and a `run/…` branch; it commits to that branch only when you accept, and pushes it and runs `gh pr create --draft` only when you click **Open draft PR**.
 - Shows macOS notifications with `terminal-notifier` when installed, else `osascript`.
 - Writes `~/relevo-backups/deletions.log` (each worktree it removes: time, repo, path, branch and commit),
   `~/.local/state/relevo/ledger.jsonl` (agent time), `~/.local/state/relevo/replies.json` (how often you send
