@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1 · 2026-11-11
+
+- **Clear what's done.** A result or decision under **Ready for you** has a ✓ that hides it until the task returns a new revision or the question changes. Nothing is accepted. Hidden ones fold under "▸ N addressed" with **Undo**.
+- **Close a run.** **Close** on a run asks first, cancels its open tasks and closes it. A pending decision stays in its history as unresolved. Closed runs fold under "▸ N closed runs". The worktrees of cancelled tasks stay; remove them from the run window.
+- **A key for Runs.** ⌘⌥3 opens Reviews, ⌘⌥4 Runs and ⌘⌥5 Issues. Notifications open Reviews. Merge the three lines from `keys.json` into yours.
+
 ## 0.7.0 · 2026-11-11
 
 - **Runs: hand a task to two agents and decide on the result.** The panel now has two views, **Reviews** and **Runs**. **+ Run** takes a prompt; one agent implements, your checks run, a second agent reviews, and the result waits for you under **Ready for you** with its agents, round, checks, verdict and age. Accept with **A** then Enter, ask for changes with **R**, or defer. Rounds, minutes and concurrency are bounded, and nothing is sent twice: a delivery Relevo cannot confirm waits for you to reconcile it.
