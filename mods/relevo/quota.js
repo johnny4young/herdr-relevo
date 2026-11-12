@@ -48,6 +48,7 @@ async function codex() {
     out[(w.limit_window_seconds ?? 0) <= 18000 ? "five_hour" : "seven_day"] = {
       used_percentage: w.used_percent,
       resets_at: epoch(w.reset_at),
+      ...(w.limit_window_seconds ? { window_seconds: w.limit_window_seconds } : {}),
     };
   }
   return out;

@@ -1,6 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, exec, run, home, agents, panes, terminals, notify, props, openOverlay, closeOverlay } from "herdr";
+import { windowLabel } from "./lib/time.js";
 import { ACCOUNTS, CODEX, accountOf, launchArgv, loadClaudeQuotas, chip } from "./accounts.js";
 import { spinner } from "./ui.js";
 import { GIT_READ } from "./lib/git.js";
@@ -157,7 +158,7 @@ export class Handoff {
   render() {
     const t = theme(), p = props();
     if (!p?.terminal) return div();
-    const usage = (q) => [q?.h5 ? `5h ${q.h5.pct}%` : null, q?.d7 ? `7d ${q.d7.pct}%` : null]
+    const usage = (q) => [q?.h5 ? `5h ${q.h5.pct}%` : null, q?.d7 ? `${windowLabel(q.d7, "7d")} ${q.d7.pct}%` : null]
       .filter(Boolean).join(" · ") || "no data";
     return v_flex().id("handoff").size_full().p(4).gap(1).bg(t.popover ?? t.surface).text_color(t.foreground)
       .child(div().px(8).pt(4).pb(6).text_size(11).text_color(this.error ? t.blocked : t.dim).truncate()

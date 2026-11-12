@@ -58,7 +58,7 @@ test("a session that can't open says why and leaves the card as it was", async (
   launchSkill(PR, "conflicts", "personal", "/work/app");
   await flush();
   assert.match(fake.notices.at(-1).body, /already exists/);
-  assert.equal(fake.stored[LAUNCHED][PR.url], undefined);
+  assert.equal(fake.stored[LAUNCHED]?.[PR.url], undefined);
 });
 
 test("a conflicts skill in Settings is optional", () => {
