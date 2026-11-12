@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.2 · 2026-11-11
+## 0.7.2 · 2026-11-12
 
 - **A PR you just opened stays in sight.** For its first day, a PR of yours shows under **YOUR PRS** as "new, CI passed", "new, CI running" or "new", even when it only waits for the merge. It stays out of the badge count. Before, one with green CI went straight into "▸ N ready to merge" and one with CI still running showed nowhere.
 
