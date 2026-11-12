@@ -29,14 +29,22 @@ export class GoalViews {
     this.goalsLoading = true;
     cx.spawn(async (cx) => {
       try {
-        this.goalDoc = (await readGoals()).doc;
+        // Nothing is parsed or redrawn while neither file moved; every tenth poll reads the state regardless.
+        const [goals, rev] = await Promise.all([readGoals(), readTextFile(`${appHome()}/relevo-workflow/state.rev`).catch(() => null)]);
+        this.goalPolls = (this.goalPolls ?? 0) + 1;
+        const key = `${rev}\0${goals.raw}`;
+        const quiet = key === this.goalsKey && !this.goalsError && !this.workflowError && this.goalChange === shared(GOALS_CHANGED);
+        if (quiet && rev != null && this.goalPolls % 10 !== 0) { this.goalsLoading = false; return; }
+        this.goalDoc = goals.doc;
         try {
           const raw = await readTextFile(`${appHome()}/relevo-workflow/state.json`);
+          if (quiet && raw === this.workflowRaw) { this.goalsLoading = false; return; }
+          this.workflowRaw = raw;
           const workflow = raw ? JSON.parse(raw) : { tasks: [], engine: { enabled: false } };
           if (!Array.isArray(workflow.tasks)) throw Error('Invalid task state');
           this.workflowTasks = workflow.tasks;
           this.workflowEngine = workflow.engine;
-          this.workflowError = null;
+          this.workflowError = null; this.goalsKey = key;
         } catch { this.workflowError = "Workflow status unavailable; open Workflow to retry."; }
         this.goalsError = null;
       } catch (e) { this.goalsError = `Runs: ${e.message ?? e}. Reviews is still available.`; }

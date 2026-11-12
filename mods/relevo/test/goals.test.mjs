@@ -362,3 +362,19 @@ test('Command-Enter inside the prompt saves the run once and drops the line brea
   const doc = (await readGoals()).doc;
   assert.equal(doc.goals.length, 1); assert.equal(doc.goals[0].criteria, 'Read the README');
 });
+
+test('the Inbox neither parses nor redraws while the goals and the workflow revision stay the same', async () => {
+  const dir = '/home/test/.config/herdr-app/relevo-workflow';
+  fake.files[`${dir}/state.json`] = JSON.stringify({ tasks: [{ id: 't1', goalId: 'g', state: 'ready' }], engine: { enabled: true } });
+  fake.files[`${dir}/state.rev`] = '3';
+  const { view, cx } = await inbox();
+  assert.equal(view.workflowTasks[0].state, 'ready');
+  const drawn = cx.notified, tasks = view.workflowTasks;
+  cx.fire(5000); await flush();
+  assert.equal(cx.notified, drawn); assert.equal(view.workflowTasks, tasks, 'the parsed tasks are reused');
+  fake.files[`${dir}/state.json`] = JSON.stringify({ tasks: [{ id: 't1', goalId: 'g', state: 'accepted' }], engine: { enabled: true } });
+  fake.files[`${dir}/state.rev`] = '4';
+  cx.fire(5000); await flush();
+  assert.equal(view.workflowTasks[0].state, 'accepted'); assert.ok(cx.notified > drawn);
+  fake.files[`${dir}/state.json`] = null; fake.files[`${dir}/state.rev`] = null;
+});

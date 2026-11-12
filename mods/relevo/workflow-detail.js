@@ -203,7 +203,7 @@ export class WorkflowDetail extends WorkflowRuns {
         .child(div().text_size(13).font_semibold().w_full().min_w(0).tooltip(task.title).accessibility_label(task.title).child(caption(task.title, 115)))
         .child(this.statusChips(t, task, review))
         .when(task.state !== "needs_you", (el) => el.child(row(t, this.nextStep(task)))))
-      .when(Boolean(task.worktree) && task.state === "accepted", (el) => el.child(this.worktreePanel(t, task)))
+      .when(Boolean(task.worktree) && ["accepted", "cancelled"].includes(task.state), (el) => el.child(this.worktreePanel(t, task)))
       .when(Boolean(task.error), (el) => el.child(div().role("alert").text_color(t.blocked).child(task.error)))
       .when(Boolean(primaryReport), (el) => el.child(v_flex().id("workflow-summary").w_full().min_w(0).gap(6)
         .child(div().text_size(11).text_color(t.muted).child(blocked && review ? "Latest review findings" : "Summary"))
