@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.2 · 2026-11-12
+
+- **A PR you just opened stays in sight.** For its first day, a PR of yours shows under **YOUR PRS** as "new, CI passed", "new, CI running" or "new", even when it only waits for the merge. It stays out of the badge count. Before, one with green CI went straight into "▸ N ready to merge" and one with CI still running showed nowhere.
+
 ## 0.7.1 · 2026-11-11
 
 - **Clear what's done.** A result or decision under **Ready for you** has a ✓ that hides it until the task returns a new revision or the question changes. Nothing is accepted. Hidden ones fold under "▸ N addressed" with **Undo**.
