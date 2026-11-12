@@ -167,7 +167,7 @@ export class Inbox {
   }
 
   publish(v = this.shown()) {
-    const open = (list) => list.filter((p) => recent(p) && !this.seen(p) && !(this.launchedMap()[p.url] && this.prBusy(p))).length;
+    const open = (list) => list.filter((p) => recent(p) && !p.fresh && !this.seen(p) && !(this.launchedMap()[p.url] && this.prBusy(p))).length;
     const n = this.openReviews().length + v.local.length + v.desktop.filter((s) => s.state === "blocked").length + open(v.mine) + open(v.requested);
     if (shared(COUNT) !== n) setShared(COUNT, n);
     this.publishReasons();
