@@ -2,7 +2,7 @@
 
 const ROLLUP = "statusCheckRollup { state contexts(first: 50) { pageInfo { hasNextPage } nodes { ... on CheckRun { conclusion } ... on StatusContext { state } } } }";
 
-const MINE_FIELDS = `number title url isDraft updatedAt reviewDecision headRefName baseRefName isCrossRepository headRefOid additions deletions mergeable mergeStateStatus
+const MINE_FIELDS = `number title url isDraft createdAt updatedAt reviewDecision headRefName baseRefName isCrossRepository headRefOid additions deletions mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     repository { nameWithOwner viewerDefaultMergeMethod squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed autoMergeAllowed }
     commits(last: 1) { nodes { commit { committedDate ${ROLLUP} } } }
@@ -70,7 +70,10 @@ export function cancelledRuns(checks, states = RETRIED) {
 }
 
 // Your open PRs that need something: failing CI, changes requested, new reviews or open threads.
-export function mapMine(data) {
+// A PR opened in the last day stays in sight even when it only waits for the merge.
+export const NEW_FOR = 86400;
+
+export function mapMine(data, now = Date.now() / 1000) {
   const me = data.viewer.login;
   const list = data.viewer.pullRequests.nodes.filter((p) => !p.isDraft).map((p) => {
     const last = p.commits.nodes[0]?.commit, ci = ciOf(p);
@@ -93,7 +96,9 @@ export function mapMine(data) {
     if (p.reviewDecision === "CHANGES_REQUESTED") reasons.push("changes requested");
     if (reviewers.length) reasons.push(`review from ${reviewers.join(", ")}`);
     if (p.reviewDecision === "CHANGES_REQUESTED" || reviewers.length || threads) skills.push("comments");
-    return { ...p, repo: p.repository.nameWithOwner, reasons, skills, threads, hot: skills.includes("fix") };
+    const fresh = !reasons.length && !threads && now - seconds(p.createdAt) < NEW_FOR;
+    if (fresh) reasons.push(ci === "SUCCESS" ? "new, CI passed" : ci === "PENDING" || ci === "EXPECTED" ? "new, CI running" : "new");
+    return { ...p, repo: p.repository.nameWithOwner, reasons, skills, threads, fresh, hot: skills.includes("fix") };
   }).filter((p) => p.reasons.length || p.threads);
   return list.sort(newest);
 }

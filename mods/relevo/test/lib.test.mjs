@@ -189,6 +189,20 @@ test("mapMine: only PRs that need something, with why and which skill", () => {
   assert.deepEqual(byUrl.review.reasons, ["review from copilot"]);
 });
 
+test("mapMine: a PR opened in the last day shows even when it only waits for the merge", () => {
+  const now = Date.parse("2026-10-30T12:00:00Z") / 1000;
+  const data = { viewer: { login: "me", pullRequests: { nodes: [
+    pr({ url: "new", createdAt: "2026-10-30T03:00:00Z" }),
+    pr({ url: "running", createdAt: "2026-10-30T03:00:00Z", commits: { nodes: [{ commit: { committedDate: "2026-10-30T09:00:00Z", statusCheckRollup: { state: "PENDING" } } }] } }),
+    pr({ url: "old", createdAt: "2026-10-28T03:00:00Z" }),
+  ] } } };
+  const byUrl = Object.fromEntries(mapMine(data, now).map((p) => [p.url, p]));
+  assert.deepEqual(Object.keys(byUrl).sort(), ["new", "running"]);
+  assert.deepEqual(byUrl.new.reasons, ["new, CI passed"]);
+  assert.deepEqual(byUrl.running.reasons, ["new, CI running"]);
+  assert.equal(byUrl.new.fresh, true);
+});
+
 const rolled = (state, ends, more = false) => ({ commits: { nodes: [{ commit: { committedDate: "2026-10-30T09:00:00Z", statusCheckRollup: {
   state, contexts: { pageInfo: { hasNextPage: more }, nodes: ends.map((e) => (e === "red" ? { state: "FAILURE" } : e === null ? { conclusion: null } : { conclusion: e })) },
 } } }] } });
