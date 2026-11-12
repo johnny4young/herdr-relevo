@@ -2,10 +2,10 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { run, exec, shared, setShared, readTextFile, appHome } from "herdr";
 import { accountFor, inFocus } from "./context.js";
-import { button, sectionHeader } from "./ui.js";
+import { button, sectionHeader, foldRow } from "./ui.js";
 import { openGoal } from "./goals-editor.js";
-import { readGoals, GOALS_CHANGED } from "./goals-store.js";
-import { emptyGoals, groupSources, sourceKey } from "./lib/goals.js";
+import { readGoals, writeGoal, GOALS_CHANGED } from "./goals-store.js";
+import { emptyGoals, groupSources, sourceKey, closeGoal, goalState } from "./lib/goals.js";
 import { isAddressed } from "./lib/addressed.js";
 import { openReview } from "./review.js";
 import { reviewableWork, scopeGoals, runNextAction, linkedDecision, runProgress } from "./lib/goal-workflow.js";
@@ -14,6 +14,15 @@ import { resultMeta } from "./lib/workflow-navigation.js";
 
 export const GOAL_MODE = "relevo.goals.mode";
 export const GOAL_SCOPE = "relevo.goals.scope";
+// A mark hides a review until its task returns a new revision or the question changes.
+const textKey = (s) => [...s].reduce((h, c) => (h * 31 + c.codePointAt(0)) >>> 0, 7).toString(36);
+const workflowCommand = async (payload) => {
+  const result = await exec("node", [`${appHome()}/mods/relevo/runtime/cli.mjs`, "--home", appHome(), "command", JSON.stringify(payload)]);
+  let response = {};
+  try { response = JSON.parse(result.stdout || result.stderr || "{}"); } catch { /* reported below */ }
+  if (response.error || result.code !== 0) throw Error(response.error || result.stderr || "Workflow command failed");
+  return response;
+};
 const line = (s, t, attention = false) => div().text_size(11).text_color(attention ? t.blocked : t.muted).child(s);
 
 export class GoalViews {
@@ -47,6 +56,7 @@ export class GoalViews {
           this.workflowError = null; this.goalsKey = key;
         } catch { this.workflowError = "Workflow status unavailable; open Workflow to retry."; }
         this.goalsError = null;
+        if (!this.workflowError) this.pruneReviewMarks();
       } catch (e) { this.goalsError = `Runs: ${e.message ?? e}. Reviews is still available.`; }
       this.goalChange = shared(GOALS_CHANGED);
       this.goalsLoading = false;
@@ -152,14 +162,14 @@ export class GoalViews {
   runReviews() {
     if (this.workflowError) return [];
     return (this.workflowTasks ?? []).filter((task) => task.state === "needs_you").map((task) => ({
-      id: `result-${task.id}`, title: task.title, detail: this.goalDoc?.goals.find((goal) => goal.id === task.goalId)?.title ?? "Run result", meta: resultMeta(task),
+      id: `result-${task.id}`, mark: `review:result-${task.id}@${task.revision ?? ""}:${task.round ?? 0}`, title: task.title, detail: this.goalDoc?.goals.find((goal) => goal.id === task.goalId)?.title ?? "Run result", meta: resultMeta(task),
       go: () => openWorkflow(task.goalId, task.id),
     }));
   }
 
   decisionReviews() {
     return (this.goalDoc?.goals ?? []).filter((goal) => goal.decision?.trim() && linkedDecision(goal, this.workflowTasks ?? [], this.workflowError).state === "separate").map((goal) => ({
-      id: `decision-${goal.id}`, title: goal.decision.trim(), detail: goal.title,
+      id: `decision-${goal.id}`, mark: `review:decision-${goal.id}@${textKey(goal.decision.trim())}`, title: goal.decision.trim(), detail: goal.title,
       go: () => openGoal(goal.id, null, "decision"),
     }));
   }
@@ -180,12 +190,30 @@ export class GoalViews {
   }
 
   reviewEntries() { return [...this.runReviews(), ...this.decisionReviews()]; }
+  openReviews() { return this.reviewEntries().filter((entry) => !this.addressed?.[entry.mark]); }
+  doneReviews() { return this.reviewEntries().filter((entry) => this.addressed?.[entry.mark]); }
+
+  setReviewAddressed(entry, on, cx) {
+    const next = { ...this.addressed };
+    if (on) next[entry.mark] = Math.ceil(Date.now() / 1000);
+    else delete next[entry.mark];
+    this.saveAddressed(next);
+    this.publish();
+    cx.notify();
+  }
+
+  pruneReviewMarks() {
+    const live = new Set(this.reviewEntries().map((entry) => entry.mark));
+    const marks = Object.fromEntries(Object.entries(this.addressed ?? {}).filter(([key]) => !key.startsWith("review:") || live.has(key)));
+    if (Object.keys(marks).length !== Object.keys(this.addressed ?? {}).length) this.saveAddressed(marks);
+  }
 
   showRunReviews(goal) {
     const task = !this.workflowError && (this.workflowTasks ?? []).find((task) => task.goalId === goal.id && task.state === "needs_you");
     const result = this.runReviews().find((entry) => entry.id === `result-${task?.id}`);
     const decision = this.decisionReviews().find((entry) => entry.id === `decision-${goal.id}`);
     const source = this.goalSources(this.shown()).find((source) => goal.sources.includes(source.key) && !source.addressed && !source.draft);
+    if ([result, decision].some((entry) => entry && this.addressed?.[entry.mark])) this.expanded["results-done"] = true;
     if (!result && !decision && source?.kind === "pr") {
       this.expanded[source.requested ? "requested" : "mine"] = true;
       if ((this.ready ?? []).some((pr) => pr.url === source.pr.url)) this.expanded["mine-ready"] = true;
@@ -195,16 +223,21 @@ export class GoalViews {
   }
 
   runReviewRows(t) {
-    const entries = this.reviewEntries();
+    const open = this.openReviews(), done = this.doneReviews();
+    const draw = (entry, addressed = false) => this.card(t, entry.id, false,
+      div().text_size(11).text_color(t.muted).truncate().tooltip(entry.detail).child(entry.detail),
+      v_flex().gap(3).child(div().text_size(13).font_semibold().child(entry.title))
+        .when(Boolean(entry.meta), (el) => el.child(div().id(`meta-${entry.id}`).text_size(11).text_color(t.muted).truncate().tooltip(entry.meta).child(entry.meta))),
+      [button(t, `open-${entry.id}`, entry.id.startsWith("result-") ? "Review result" : "Review decision", entry.go,
+        { kind: this.selected(entry.id) ? "solid" : "outline" }),
+      addressed
+        ? button(t, `undo-${entry.id}`, "Undo", (cx) => this.setReviewAddressed(entry, false, cx), { tip: "Back to the list" })
+        : button(t, `addressed-${entry.id}`, "✓", (cx) => this.setReviewAddressed(entry, true, cx), { tip: "Hide until it changes. Nothing is accepted." })]);
     return [
       ...(this.workflowError ? [line(this.workflowError, t, true)] : []),
-      ...(entries.length ? [sectionHeader(t, "READY FOR YOU", entries.length)] : []),
-      ...entries.filter((entry) => !this.hiddenIds.has(entry.id)).map((entry) => this.card(t, entry.id, false,
-        div().text_size(11).text_color(t.muted).truncate().tooltip(entry.detail).child(entry.detail),
-        v_flex().gap(3).child(div().text_size(13).font_semibold().child(entry.title))
-          .when(Boolean(entry.meta), (el) => el.child(div().id(`meta-${entry.id}`).text_size(11).text_color(t.muted).truncate().tooltip(entry.meta).child(entry.meta))),
-        [button(t, `open-${entry.id}`, entry.id.startsWith("result-") ? "Review result" : "Review decision", entry.go,
-          { kind: this.selected(entry.id) ? "solid" : "outline" })])),
+      ...(open.length ? [sectionHeader(t, "READY FOR YOU", open.length)] : []),
+      ...open.filter((entry) => !this.hiddenIds.has(entry.id)).map((entry) => draw(entry)),
+      ...this.addressedFold(t, "results", done, (entry) => draw(entry, true)),
     ];
   }
 
@@ -224,7 +257,9 @@ export class GoalViews {
     const scoped = scopeGoals({ sources, ...groupSources(this.goalDoc ?? emptyGoals(), sources) }, shared(GOAL_SCOPE));
     const { groups, unlinked } = scoped;
     const waiting = unlinked.filter((s) => s.blocked), other = unlinked.filter((s) => !s.blocked);
-    return { ...scoped, sources, groups, waiting, other, ordered: groups.map((g) => ({ kind: "goal", goal: g.goal })) };
+    const closed = (g) => !scoped.scope && goalState(g.goal) === "completed";
+    const shown = [...groups.filter((g) => !closed(g)), ...(this.expanded["runs-closed"] ? groups.filter(closed) : [])];
+    return { ...scoped, sources, groups, waiting, other, ordered: shown.map((g) => ({ kind: "goal", goal: g.goal })) };
   }
 
   goalViewport() {
@@ -233,8 +268,40 @@ export class GoalViews {
     return { hidden: new Set(this.nav.slice(0, above).map((n) => n.id)), sections: new Set(), above };
   }
 
+  openTasks(goalId) {
+    return (this.workflowTasks ?? []).filter((task) => task.goalId === goalId && !["accepted", "cancelled"].includes(task.state));
+  }
+
+  closeRun(goal, cx) {
+    if (this.closingRun) return;
+    this.closingRun = goal.id; this.runCloseError = null; cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        for (const task of this.openTasks(goal.id)) await workflowCommand({ action: "cancel", taskId: task.id });
+        const current = (await readGoals()).doc.goals.find((item) => item.id === goal.id);
+        if (current && goalState(current) !== "completed") await writeGoal(closeGoal(current), current.version, { close: true });
+        this.confirmClose = null;
+      } catch (e) { this.runCloseError = `Could not close the run: ${e.message ?? e}`; }
+      this.closingRun = null;
+      this.loadGoals(cx);
+      cx.notify();
+    });
+  }
+
+  closeConfirm(t, goal) {
+    const open = this.openTasks(goal.id).length, busy = this.closingRun === goal.id;
+    return h_flex().id(`goal-close-confirm-${goal.id}`).flex_wrap().gap(6).items_center().role("alert")
+      .child(div().flex_1().min_w(0).text_size(11).text_color(t.blocked)
+        .child(open ? `Cancel ${open} open ${open === 1 ? "task" : "tasks"} and close this run?` : "Close this run?"))
+      .child(button(t, `goal-close-keep-${goal.id}`, "Keep", (cx) => { this.confirmClose = null; cx.notify(); }, { size: "sm", disabled: busy }))
+      .child(button(t, `goal-close-yes-${goal.id}`, busy ? "Closing…" : "Close run", (cx) => this.closeRun(goal, cx), { kind: "solid", size: "sm", disabled: busy }));
+  }
+
   goalsGroup(t) {
-    const { groups, scope, outsideCount, outsideBlockers } = this.goalProjection;
+    const { groups: all, scope, outsideCount, outsideBlockers } = this.goalProjection;
+    const closed = scope ? [] : all.filter((g) => goalState(g.goal) === "completed");
+    const groups = all.filter((g) => !closed.includes(g));
+    const draw = (g) => this.goalCard(t, g);
     return [
       ...(scope ? [(this.narrowInbox ? v_flex() : h_flex()).w_full().min_w(0).gap(5)
         .child(button(t, "goal-all-work", "← All runs", (cx) => this.focusGoal(null, cx), { size: "sm", tip: "F: show all runs" }))
@@ -243,27 +310,35 @@ export class GoalViews {
           .min_w(0).tooltip(`${outsideCount} other items outside this run`)))]
         : []),
       ...(this.goalsError ? [div().text_size(11).text_color(t.blocked).child(this.goalsError)] : []),
-      ...groups.filter((g) => !this.hiddenIds.has(`goal-${g.goal.id}`)).map(({ goal, items, urgency }) => {
-        const tasks = (this.workflowTasks ?? []).filter((task) => task.goalId === goal.id);
-        const reviewable = reviewableWork(items, this.clones);
-        const next = runNextAction(goal, tasks, this.workflowEngine, this.workflowError, reviewable.length);
-        const progress = runProgress(goal.id, tasks, this.workflowEngine, this.workflowError);
-        const status = next.status;
-        const inReviews = next.action === "review" || next.action === "decision" || (!this.workflowError && tasks.some((task) => task.state === "needs_you"));
-        const actionLabel = inReviews ? "View in Reviews" : next.label;
-        return v_flex().id(`goal-${goal.id}`).w_full().min_w(0).p(6).gap(4).rounded(8).bg(t.background).border_1().border_color(this.selected(`goal-${goal.id}`) ? t.accent : urgency === 0 ? t.blocked : t.border)
-          .child(h_flex().gap(5).items_center().child(div().flex_1().min_w(0).text_size(13).font_semibold().child(goal.title))
-            .child(button(t, `goal-edit-${goal.id}`, "Edit", () => openGoal(goal.id), { kind: "ghost", size: "sm", tip: "E · F focuses this run" })))
-          .child(h_flex().id(`goal-next-row-${goal.id}`).min_w(0).gap(8).p(6).items_center().rounded(6).bg(t.raised)
-            .child(v_flex().id(`goal-next-copy-${goal.id}`).flex_1().min_w(0).gap(2)
-              .child(div().id(`goal-next-status-${goal.id}`).min_w(0).text_size(11).font_semibold().text_color(["Needs attention", "Status unavailable"].includes(next.status) ? t.blocked : t.accent).truncate().tooltip(status).child(status))
-              .child(div().id(`goal-next-detail-${goal.id}`).min_w(0).text_size(13).truncate().tooltip(next.detail).child(next.detail)))
-            .child(button(t, next.action === 'review' ? `goal-review-next-${goal.id}` : next.action === 'decision' ? `goal-decision-next-${goal.id}` : `goal-workflow-${goal.id}`, actionLabel, () => this.openRunAction(goal),
-              { kind: this.selected(`goal-${goal.id}`) ? "solid" : "outline" })))
-          .when(Boolean(progress), (el) => el.child(div().id(`goal-progress-${goal.id}`).text_size(11).text_color(t.muted)
-            .child(progress)));
-      }),
-      ...(!groups.length ? [line("No runs yet", t)] : []),
+      ...(this.runCloseError ? [line(this.runCloseError, t, true)] : []),
+      ...groups.filter((g) => !this.hiddenIds.has(`goal-${g.goal.id}`)).map(draw),
+      ...(!groups.length && !closed.length ? [line("No runs yet", t)] : []),
+      ...(closed.length ? [foldRow(this, t, "runs-closed-fold", "runs-closed", `${closed.length} closed ${closed.length === 1 ? "run" : "runs"}`)] : []),
+      ...(this.expanded["runs-closed"] ? closed.filter((g) => !this.hiddenIds.has(`goal-${g.goal.id}`)).map(draw) : []),
     ];
+  }
+
+  goalCard(t, { goal, items, urgency }) {
+    const tasks = (this.workflowTasks ?? []).filter((task) => task.goalId === goal.id);
+    const reviewable = reviewableWork(items, this.clones);
+    const next = runNextAction(goal, tasks, this.workflowEngine, this.workflowError, reviewable.length);
+    const progress = runProgress(goal.id, tasks, this.workflowEngine, this.workflowError);
+    const status = next.status;
+    const inReviews = next.action === "review" || next.action === "decision" || (!this.workflowError && tasks.some((task) => task.state === "needs_you"));
+    const actionLabel = inReviews ? "View in Reviews" : next.label;
+    return v_flex().id(`goal-${goal.id}`).w_full().min_w(0).p(6).gap(4).rounded(8).bg(t.background).border_1().border_color(this.selected(`goal-${goal.id}`) ? t.accent : urgency === 0 ? t.blocked : t.border)
+      .child(h_flex().gap(5).items_center().child(div().flex_1().min_w(0).text_size(13).font_semibold().child(goal.title))
+        .child(button(t, `goal-edit-${goal.id}`, "Edit", () => openGoal(goal.id), { kind: "ghost", size: "sm", tip: "E · F focuses this run" }))
+        .when(goalState(goal) !== "completed", (el) => el.child(button(t, `goal-close-${goal.id}`, "Close", (cx) => { this.confirmClose = goal.id; cx.notify(); },
+          { kind: "ghost", size: "sm", disabled: Boolean(this.closingRun), tip: "Cancel open tasks and close this run" }))))
+      .when(this.confirmClose === goal.id, (el) => el.child(this.closeConfirm(t, goal)))
+      .child(h_flex().id(`goal-next-row-${goal.id}`).min_w(0).gap(8).p(6).items_center().rounded(6).bg(t.raised)
+        .child(v_flex().id(`goal-next-copy-${goal.id}`).flex_1().min_w(0).gap(2)
+          .child(div().id(`goal-next-status-${goal.id}`).min_w(0).text_size(11).font_semibold().text_color(["Needs attention", "Status unavailable"].includes(next.status) ? t.blocked : t.accent).truncate().tooltip(status).child(status))
+          .child(div().id(`goal-next-detail-${goal.id}`).min_w(0).text_size(13).truncate().tooltip(next.detail).child(next.detail)))
+        .child(button(t, next.action === 'review' ? `goal-review-next-${goal.id}` : next.action === 'decision' ? `goal-decision-next-${goal.id}` : `goal-workflow-${goal.id}`, actionLabel, () => this.openRunAction(goal),
+          { kind: this.selected(`goal-${goal.id}`) ? "solid" : "outline" })))
+      .when(Boolean(progress), (el) => el.child(div().id(`goal-progress-${goal.id}`).text_size(11).text_color(t.muted)
+        .child(progress)));
   }
 }

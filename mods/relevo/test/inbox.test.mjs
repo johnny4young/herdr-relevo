@@ -673,7 +673,7 @@ test("a merged PR alerts once, and the Inbox shortcut lands on its worktree", as
   const said = fake.notices.filter((n) => n.title === "Merged · app #7");
   assert.equal(said.length, 1);
   assert.match(said[0].body, /feat\/x: its worktree can go/);
-  assert.deepEqual(said[0].action, { name: "relevo.panel-inbox" });
+  assert.deepEqual(said[0].action, { name: "relevo.panel-reviews" });
   fake.stored["relevo.inbox.focus"] = { at: 1, pane: null };
   inbox.render(cx);
   assert.equal(inbox.sel, "wt-/wt/x");

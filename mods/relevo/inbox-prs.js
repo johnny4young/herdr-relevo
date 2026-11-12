@@ -128,6 +128,7 @@ export class PrViews {
     }
     const live = new Set([...this.mine, ...this.ready, ...this.requested].map((p) => p.url));
     for (const s of shared(DESKTOP) ?? []) live.add(desktopKey(s));
+    for (const key of Object.keys(this.addressed)) if (key.startsWith("review:")) live.add(key);
     const marks = keepListed(this.addressed, live);
     if (Object.keys(marks).length !== Object.keys(this.addressed).length) this.saveAddressed(marks);
     const kept = Object.entries(this.launchedMap()).filter(([url]) => live.has(url));

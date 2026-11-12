@@ -33,7 +33,7 @@ export class KeyNav {
     for (const s of v.desktop.filter((x) => x.state === "blocked" || this.expanded["desktop-review"])) {
       items.push({ id: `dk-${s.id}`, section: "desktop", go: () => openDesktop(s.id) });
     }
-    items.push(...this.reviewEntries().map((entry) => ({ id: entry.id, section: "results", go: entry.go })));
+    items.push(...[...this.openReviews(), ...(this.expanded["results-done"] ? this.doneReviews() : [])].map((entry) => ({ id: entry.id, section: "results", go: entry.go })));
     for (const [key, list] of [["requested", v.requested], ["mine", v.mine]]) {
       const shownPRs = [...list.filter(recent), ...(this.expanded[key] ? list.filter((p) => !recent(p)) : [])];
       if (key === "mine" && this.expanded["mine-ready"]) shownPRs.push(...v.ready);

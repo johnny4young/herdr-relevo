@@ -87,6 +87,7 @@ export default class Relevo extends View {
     else if (name === "respond-pr") cx.spawn(async () => { await respondPR(); });
     else if (name.startsWith("worktree-")) worktrees(name.slice(9));
     else if (name === "panel-inbox") focusInbox();
+    else if (name === "panel-reviews" || name === "panel-runs") { setShared(GOAL_MODE, name === "panel-runs"); focusInbox(); }
     else if (name.startsWith("panel-")) showPanel(name.slice(6));
     else if (name.startsWith("launch-")) this.part.launch(name.slice(7));
   }
