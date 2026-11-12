@@ -1,8 +1,8 @@
-# PR #40: goal and continuation guide
+# Runs: goal and continuation guide
 
-Read this first when continuing [PR #40](https://github.com/johnny4young/herdr-relevo/pull/40), then inspect the actual checkout, current PR head and local runtime state. Every code or documentation commit changes the checkout fingerprint; old evidence must not silently become evidence for a new revision.
+Read this first when continuing this work, then inspect the actual checkout, current PR head and local runtime state. It started as [PR #40](https://github.com/johnny4young/herdr-relevo/pull/40), which stays open as a reference, and is split into three stacked PRs: [#41](https://github.com/johnny4young/herdr-relevo/pull/41) (account usage in the status bar), [#42](https://github.com/johnny4young/herdr-relevo/pull/42) (the coordinator) and [#43](https://github.com/johnny4young/herdr-relevo/pull/43) (the Runs UI). #43 has the same content as #40. Every code or documentation commit changes the checkout fingerprint; old evidence must not silently become evidence for a new revision.
 
-The current UI is **Reviews + Runs**, with a prompt-first start and compact account usage in the status bar. Read [Runs UX](runs-ux.md) for the latest changes and follow-up ideas; older research uses Goals/Missions for the same stored goal records.
+The current UI is **Reviews + Runs**, with a prompt-first start and compact account usage in the status bar. Read [how runs work](workflow-runtime.md) for current behavior and [Runs UX](runs-ux.md) for the design rationale and follow-up ideas. The UI says run; the research records use Goals or Missions for the same stored goal records.
 
 ## Product goal
 
@@ -12,7 +12,7 @@ Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, dr
 
 ## Working agreements
 
-- Continue in branch `feat/review-command-center` and the same draft PR. No merge or release is authorized by this handoff.
+- A change goes to the PR that owns its files: `mods/relevo/runtime` and its tests to #42, the UI and documentation to #43, and #40's branch (`feat/review-command-center`) is kept identical to #43. No merge or release is authorized by this handoff.
 - Work through implementation, integration, bug fixes and validation continuously. Intermediate milestones are internal checks; present the integrated PR for one complete human review instead of asking the user to approve each iteration.
 - Keep public research, design rationale, generic code and regression tests in the PR. Keep local project/session names, captures, reports, workflow state and exercise results outside Git and PR text.
 - Inspect existing worktrees and instructions before editing. Do not assume an older preview checkout is authoritative or overwrite unrelated work.
@@ -28,6 +28,9 @@ Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, dr
 | One Inbox | Reviews/Runs, focus/All runs, linked PR/local work and existing actions | Keep everyday comprehension and density part of native validation. |
 | Goal progress | Owner, priority, optional lead, criteria, manual steps, workflow-derived outcomes | Goal closure remains human; assigning a lead does not create a chief of staff. |
 | Coordination | Durable local `hc` executor → checks → independent reviewer → human flow; bounded corrections | Automatic decomposition, global orchestration and remote checkout execution are out of scope. |
+| Worktree runs | A worktree and `run/<slug>` branch per run, `.worktreeinclude`, acceptance commits the reviewed tree without hooks, draft PR, remove or discard, batch acceptance | **Open draft PR** has only been exercised on its failure path; try it against a real remote. |
+| Containment | Codex with `workspace-write`; Claude with sandboxed Bash and Edit deny rules over the app's files | Existing sessions keep their own permissions. A same-user process outside the sandbox can still edit local state. |
+| Housekeeping | Archive per run with staged records, a 200-task queue limit, a revision file for polling, checks off the coordinator tick | Archived tasks cannot be read from the app. |
 | Continuation | Acceptance advances the queue and releases already-started eligible dependents | Never start a planned task or override a stop merely because an earlier result was accepted. |
 | Controls/recovery | Pause/resume/stop/cancel, attempt correlation, uncertain-send reconciliation, revision checks | Keep pause/stop regression coverage and distinguish independent source review from native end-to-end verification. |
 | Review | Existing diff; explicit comment Save/Cancel/Delete; selected/all viewed controls; separate checkpoint | Verify keyboard/focus behavior through the native app, not only render tests. |
@@ -35,26 +38,26 @@ Preserve spaces, terminals, agents, accounts, GitHub, PRs, CI, reviews, Land, dr
 | Activity | Actual assignment, delivery and report provenance; expandable prompts/logs | Do not call model routing or external-chat coordination autonomous agent delegation. |
 | Evidence | Revision-bound local artifacts with hashes and quota; PR evidence references | Automatic screenshot/video production and richer archival are not implemented. |
 | Preferences/input | Pending scoped preference proposals, explicit acceptance, editable system dictation, decision batches | No built-in speech capture; reduced corrections must be measured, not asserted. |
-| Accessibility | Native keyboard controls, visible help/tooltips, focus-aware shortcuts; content-sized Mission overlays with viewport-bounded roots avoid the host's fixed-height cache path | Full screen-reader acceptance remains open, including native input names and noninteractive content. |
+| Accessibility | Native keyboard controls, visible help/tooltips, focus-aware shortcuts; the run opens as a pane beside the work | Full screen-reader acceptance remains open, including native input names and noninteractive content. |
 | Rollback | Checksummed installer and standalone rollback launcher | Verify the selected backup really restores the original version and preserve later local edits. |
 
 The [research record](workflow-research.md) explains the source ideas and their limits. Do not treat every proposal there as implemented.
 
-The [Paseo follow-up](paseo-research.md) adds a pinned source comparison and adoption priorities. Mission check summaries now distinguish no checks, unrun checks, partial evidence and explicit failures, including timeouts. Prior results are suppressed while a fresh executor attempt runs or reports that implementation did not complete; cancellation stays incomplete. Searchable shortcut help uses current effective bindings and modifier aliases. Unsent task briefs can be resumed or discarded per mission; resume rechecks live agent/root availability and does not dispatch. Saved setups are local and repository-scoped; applying one fills the form for review and never starts work or routes to a model/provider.
+The [Paseo follow-up](paseo-research.md) adds a pinned source comparison and adoption priorities. Check summaries distinguish no checks, unrun checks, partial evidence and explicit failures, including timeouts. Prior results are suppressed while a fresh executor attempt runs or reports that implementation did not complete; cancellation stays incomplete. Searchable shortcut help uses current effective bindings and modifier aliases. Unsent task briefs can be resumed or discarded per run; resume rechecks live agent/root availability and does not dispatch. Saved setups are local and repository-scoped; applying one fills the form for review and never starts work or routes to a model/provider.
 
 ## Normal user journey
 
 1. Open Reviews for existing changes, or Runs → + Run to enter a prompt. Choose agents saves the brief and opens setup with the repository's last agents filled in; Start creates and starts the task. Existing runs open their current result or recovery action. Stored records remain compatible.
 2. Read Result and inspect changes/Evidence as necessary. Activity answers who assigned what; Tools contains secondary actions and configured skills.
-3. Accept result, Request changes or Decide later. Acceptance records the current revision and explains the next effect. It is not GitHub approval, merge, or goal closure.
+3. Accept, Request changes or Later. Acceptance records the current revision and explains the next effect. It is not GitHub approval, merge, or goal closure.
 4. Already-started eligible work proceeds through an enabled coordinator. If work is stopped, blocked, missing evidence or out of budget, explain that state and the specific recovery action.
 5. Accepted work stays in History. Close the goal only after its actual outcomes and outstanding decisions have been reviewed by the user.
 
 The guiding UX question is: can the user understand what to do here and what will happen after one action? Do not solve confusion by adding more counters, explanatory paragraphs or duplicate buttons to the main card. Derive status from current records; manually written next-decision/recommendation text can become stale after acceptance and needs attention.
 
-Task setup can explicitly reuse the latest successful setup in the same mission while retaining the new title, criteria and dependencies. Unavailable or incompatible sessions are not restored. Compact Mission control switches between Tasks and the selected work, and batch review selects entries in the existing queue rather than creating a second list. Missions without predefined outcomes show Work from brief and their actual task states instead of a misleading 0/0 counter. Finish mission is the sole closure action; accepting a task does not close the mission.
+Task setup can explicitly reuse the latest successful setup in the same run while retaining the new title, criteria and dependencies. Unavailable or incompatible sessions are not restored. A narrow run window switches between the task list and the selected work, and batch review selects entries in the existing queue rather than creating a second list. Runs without predefined outcomes show Work from brief and their actual task states instead of a misleading 0/0 counter. Finish run is the sole closure action; accepting a task does not finish the run.
 
-The current usability iteration derives the card's primary action from live tasks, keeps saved prose and outcome progress behind Edit, and offers a bounded follow-up when a settled blocked attempt has exhausted its budget. Run cards show a compact current-action row; Edit retains the full plan and context. File search now exposes its result list and loading/error/empty states. Worktree creation remains explicit; there is no automatic per-task worktree creation. Continue validating these native interactions before broadening the feature set; a render-unit test cannot prove popup sizing or screen-reader exposure.
+The current usability iteration derives the card's primary action from live tasks, keeps saved prose and outcome progress behind Edit, and offers a bounded follow-up when a settled blocked attempt has exhausted its budget. Run cards show a compact current-action row; Edit retains the full plan and context. File search now exposes its result list and loading/error/empty states. A run creates its worktree when you press Start with **Own worktree** selected; nothing creates one before that. Continue validating these native interactions before broadening the feature set; a render-unit test cannot prove popup sizing or screen-reader exposure.
 
 ## Resume engineering work
 
@@ -73,9 +76,12 @@ The PR is the portable product/engineering handoff. Private task state, agent re
 | Concern | Entry points |
 | --- | --- |
 | Inbox and goal UI | `mods/relevo/main.js`, `goals-editor.js`, `inbox-goals.js`, `goals-store.js`, `lib/decision-inbox.js`, `lib/goals.js` |
-| Workflow UI, Tools and Activity | `mods/relevo/workflow.js`, `lib/workflow-navigation.js` |
+| Run window: queue and task form | `mods/relevo/workflow.js`, `workflow-window.js`, `lib/workflow-navigation.js` |
+| Run window: launch, accounts and worktree panel | `mods/relevo/workflow-runs.js` |
+| Run window: decision, activity, evidence, Tools | `mods/relevo/workflow-detail.js`, `workflow-labels.js`, `lib/agent-markdown.js` |
 | Plan and completion projection | `mods/relevo/workflow-plan.js`, `lib/goal-plan.js`, `lib/goal-workflow.js` |
-| Coordinator, command boundary, durable state | `mods/relevo/runtime/coordinator.mjs`, `cli.mjs`, `store.mjs` |
+| Coordinator, command boundary, durable state and locks | `mods/relevo/runtime/coordinator.mjs`, `cli.mjs`, `store.mjs` |
+| Worktrees and archive | `mods/relevo/runtime/worktree.mjs`, `archive.mjs` |
 | Check execution, fingerprint and evidence | `mods/relevo/runtime/evidence.mjs`, `process.mjs` |
 | Preferences | `mods/relevo/lib/workflow-preferences.js` |
 | Diff/comment interaction | `mods/relevo/review.js` and its tests |
@@ -129,7 +135,7 @@ The installer/rollback stops the local coordinator before runtime replacement an
 
 ### Runs and Reviews routing
 
-Runs contains assignments and progress only. Reviews owns PR/local review cards, workflow results in `needs_you`, and unresolved manual decisions. `inbox-goals.js` projects these read-only queues; `workflow.js` accepts an optional task ID and validates it belongs to the run before selecting it. Acceptance remains an explicit workflow action. Source linking, drafts, skills and addressed/Undo controls remain in Reviews. Do not restore duplicate source cards inside Runs.
+Runs contains assignments and progress only. Reviews owns PR/local review cards, workflow results in `needs_you`, and unresolved manual decisions. `inbox-goals.js` projects these read-only queues; the run window (`workflow.js`) accepts an optional task ID and validates it belongs to the run before selecting it. Acceptance remains an explicit workflow action. Source linking, drafts, skills and addressed/Undo controls remain in Reviews. Do not restore duplicate source cards inside Runs.
 
 ### Concise review flow
 
