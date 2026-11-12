@@ -1,5 +1,7 @@
 # Workflow research and design decisions
 
+*A research record, kept as written. It uses Goals or Missions for what the UI now calls runs, and some ideas here were later built or dropped; [how runs work](workflow-runtime.md) describes current behavior.*
+
 Research collected on 2026-11-09; consolidated on 2026-11-10 for [PR #40](https://github.com/johnny4young/herdr-relevo/pull/40). This combines documentary research, a bounded source review and product reasoning, not a comparative hands-on benchmark. The supplied tier image selected the 16 products below (B and above); its ranks are personal opinions, not evidence of quality. No competing product needs to be installed to continue this PR.
 
 The application column records our design inference. Implementation status belongs to the [continuation guide](workflow-continuation.md) and the code, not to a competitor's feature list. Sources can change; preserve the distinction between historical research and newly verified capabilities.

@@ -1,5 +1,7 @@
 # Paseo: useful patterns for Relevo
 
+*A research record, kept as written. It uses Goals or Missions for what the UI now calls runs, and some ideas here were later built or dropped; [how runs work](workflow-runtime.md) describes current behavior.*
+
 Reviewed on 2026-11-10 for [PR #40](https://github.com/johnny4young/herdr-relevo/pull/40). Scope: official documentation, the public website's Parallel agents / Code review / Pull requests previews, and selected source at [11d7267](https://github.com/getpaseo/paseo/tree/11d7267e3311ec7e90bf52e82df1d098f9ea309c). The website previews illustrate the product; they are not a connected agent session. Paseo was not installed or benchmarked. This is comparative research, not a complete usability or accessibility audit.
 
 ## What fits this goal
