@@ -126,6 +126,7 @@ export function transaction(home, mutate, { waitMs = 2000 } = {}) {
     validateState(doc);
     if (JSON.stringify(doc).length > 8 * 1024 * 1024) throw Error('Workflow history is full; archive tasks before continuing');
     atomic(path.join(dir, 'state.json'), doc);
+    try { fs.writeFileSync(path.join(dir, 'state.rev'), String(doc.revision), { mode: 0o600 }); } catch { /* views fall back to the full file */ }
     return { doc, result };
   } finally {
     holding = false;

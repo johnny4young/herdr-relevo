@@ -110,11 +110,16 @@ export class Workflow extends WorkflowDetail {
     const request = this.loadVersion = (this.loadVersion ?? 0) + 1;
     cx.spawn(async (cx) => {
       try {
-        const [raw, goalResult] = await Promise.all([
-          readTextFile(`${appHome()}/relevo-workflow/state.json`),
+        const [rev, goalResult] = await Promise.all([
+          readTextFile(`${appHome()}/relevo-workflow/state.rev`).catch(() => null),
           readGoals().catch((error) => ({ error: error.message ?? String(error) })),
         ]);
         if (this.closed || request !== this.loadVersion) return;
+        this.polls = (this.polls ?? 0) + 1;
+        const fresh = this.loadedOnce && rev != null && rev === this.lastRev && this.polls % 10 !== 0;
+        const raw = fresh ? this.lastLoadedRaw : await readTextFile(`${appHome()}/relevo-workflow/state.json`);
+        if (this.closed || request !== this.loadVersion) return;
+        this.lastRev = rev;
         const goalRaw = goalResult.raw ?? goalResult.error;
         if (this.loadedOnce && raw === this.lastLoadedRaw && goalRaw === this.lastGoalRaw && !this.error?.startsWith("Could not load workflow:")) return;
         this.lastGoalRaw = goalRaw;
@@ -369,10 +374,10 @@ export class Workflow extends WorkflowDetail {
       }, { kind: "ghost", size: "sm", selected: Boolean(selecting) }).w_full()))
       .when(selecting, (el) => el.child(this.batchPanel(t, batchable)))
       .when(this.filter === "Completed" && visible.length > 0, (el) => el.child(button(t, "workflow-archive", "Archive older than 7 days", (cx) =>
-        this.command({ action: "archive", olderThanDays: 7 }, cx, (response) => {
+        this.command({ action: "archive", olderThanDays: 7, goalId: this.goalId }, cx, (response) => {
           const count = response.result?.archived ?? 0;
           this.notice = count ? `${count} finished ${count === 1 ? "task" : "tasks"} archived.` : "Nothing older than 7 days to archive.";
-        }), { kind: "ghost", size: "sm", disabled: this.busy, tip: "Moves finished tasks idle for a week out of the queue; open worktrees stay" }).w_full()));
+        }), { kind: "ghost", size: "sm", disabled: this.busy, tip: "Moves this run's finished tasks idle for a week out of the queue; open worktrees stay" }).w_full()));
   }
 
   toggleHelp(cx) {

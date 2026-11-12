@@ -117,13 +117,13 @@ export async function openPullRequest(wt, title, body, run = execFile) {
 }
 
 // Uncommitted work is never removed; a branch with no commits of its own goes with its worktree.
-export async function removeRunWorktree(wt) {
+export async function removeRunWorktree(wt, { discard = false } = {}) {
   const status = await worktreeStatus(wt);
   if (!status.exists) return { removed: false, branchDeleted: false };
-  if (status.dirty) throw Error('The worktree has uncommitted changes');
+  if (status.dirty && !discard) throw Error('The worktree has uncommitted changes');
   const listed = (await git(wt.base, ['worktree', 'list', '--porcelain'])).stdout.split('\n').includes(`worktree ${wt.path}`);
   if (!RUN_BRANCH.test(wt.branch ?? '') || !listed) throw Error('This is not a run worktree of its repository');
-  await git(wt.base, ['worktree', 'remove', wt.path]);
+  await git(wt.base, ['worktree', 'remove', ...(discard ? ['--force'] : []), wt.path]);
   const drop = status.ahead === 0;
   if (drop) await git(wt.base, ['branch', '-D', wt.branch]);
   return { removed: true, branchDeleted: drop };

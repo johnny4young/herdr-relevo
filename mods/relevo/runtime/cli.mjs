@@ -142,6 +142,8 @@ export async function serve(home, { runtimeFactory = createRuntime, fsImpl = fs,
   const stop = () => {
     if (stopped) return;
     stopped = true; timers.clearInterval(timer); timers.clearTimeout(debounce);
+    // Checks outlive the tick; without this they would keep the checkout busy after the lock is released.
+    runtime?.stopChecks?.();
     finish();
   };
   const onWake = (_event, filename) => {
