@@ -8,7 +8,7 @@ import { openDesktop } from "./desktop.js";
 
 // A request to focus the Inbox, with the pane to give the keyboard back to on Esc.
 export const INBOX_FOCUS = "relevo.inbox.focus";
-const SECTIONS = ["away", "waiting", "desktop", "landing", "requested", "mine", "local", "today", "trees"];
+const SECTIONS = ["away", "waiting", "desktop", "landing", "results", "requested", "mine", "local", "linked", "today", "trees"];
 
 export function focusInbox() {
   showPanel("inbox");
@@ -33,14 +33,20 @@ export class KeyNav {
     for (const s of v.desktop.filter((x) => x.state === "blocked" || this.expanded["desktop-review"])) {
       items.push({ id: `dk-${s.id}`, section: "desktop", go: () => openDesktop(s.id) });
     }
+    items.push(...this.reviewEntries().map((entry) => ({ id: entry.id, section: "results", go: entry.go })));
     for (const [key, list] of [["requested", v.requested], ["mine", v.mine]]) {
       const shownPRs = [...list.filter(recent), ...(this.expanded[key] ? list.filter((p) => !recent(p)) : [])];
       if (key === "mine" && this.expanded["mine-ready"]) shownPRs.push(...v.ready);
-      for (const pr of shownPRs) items.push({ id: `pr-${pr.url}`, section: key, go: () => this.runPR(pr) });
+      if (key === "mine" && this.expanded["mine-drafts"]) shownPRs.push(...(this.drafts ?? []));
+      if (this.expanded[`${key}-done`]) shownPRs.push(...(key === "mine" ? v.mineDone ?? [] : v.requestedDone ?? []));
+      for (const pr of new Map(shownPRs.map((pr) => [pr.url, pr])).values()) items.push({ id: `pr-${pr.url}`, section: key, go: () => pr.isDraft ? exec("open", [pr.url]) : this.runPR(pr) });
     }
-    for (const i of v.local.filter((x) => x.kind === "diff")) {
+    for (const i of [...v.local.filter((x) => x.kind === "diff"), ...(this.expanded["local-done"] ? v.localDone ?? [] : [])]) {
       items.push({ id: `in-${i.agent.address}`, section: "local", go: () => openReview(i.top, i.agent.address) });
     }
+    items.push(...this.linkedReviews(v).filter((source) => !source.addressed || this.expanded["linked-done"]).map((source) => ({
+      id: `pr-${source.pr.url}`, section: "linked", go: () => source.draft ? exec("open", [source.pr.url]) : this.runPR(source.pr),
+    })));
     for (const w of v.worktrees.filter((x) => x.merged && this.inSight(x))) {
       items.push({ id: `wt-${w.path}`, section: "trees", go: () => this.openTree(w) });
     }
@@ -97,6 +103,12 @@ export class KeyNav {
   }
 
   navKey(e, cx) {
+    // Help search owns keyboard input while open, including Escape when focus
+    // has moved to another Inbox control.
+    if (this.goalHelp) {
+      if (e.key === "escape") this.shortcutHelp?.key(e, cx);
+      return;
+    }
     // While a reply is typed, the field owns the keys; Esc drops the reply.
     if (this.replying) {
       if (e.key !== "escape") return;
@@ -104,11 +116,18 @@ export class KeyNav {
       cx.stop_propagation();
       return cx.notify();
     }
+    // A focused button/input owns its keys. Never run a selected card's action
+    // as a side effect of activating a descendant control with Enter.
+    if (!this.h.is_focused()) return;
     const items = this.nav ?? [];
     const at = items.findIndex((i) => i.id === this.sel);
     const held = e.modifiers?.platform || e.modifiers?.control || e.modifiers?.alt;
-    if (/^[1-9]$/.test(e.key) && held) return;
-    if (/^[1-9]$/.test(e.key) && items[at]?.choose) {
+    if (held) return;
+    if (this.goalAction?.(e.key, cx)) {
+      // These commands only apply while the queue itself has keyboard focus.
+    } else if (e.key === "home" || e.key === "end") {
+      this.sel = items[e.key === "home" ? 0 : items.length - 1]?.id ?? null;
+    } else if (/^[1-9]$/.test(e.key) && items[at]?.choose) {
       items[at].choose(Number(e.key), cx);
     } else if (e.key === "down" || e.key === "up") {
       const next = at < 0 ? 0 : Math.min(items.length - 1, Math.max(0, at + (e.key === "down" ? 1 : -1)));

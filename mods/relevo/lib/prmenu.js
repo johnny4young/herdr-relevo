@@ -16,7 +16,7 @@ export function rankSkills(recommended, skills, uses, also = []) {
     .filter((verb) => verb !== recommended && (also.includes(verb) || (uses[skills[verb].name] ?? 0) > 0))
     .sort((a, b) => Number(also.includes(b)) - Number(also.includes(a)) || (uses[skills[b].name] ?? 0) - (uses[skills[a].name] ?? 0))
     .slice(0, 2);
-  return [recommended, ...others].map((verb) => ({ verb, uses: uses[skills[verb].name] ?? 0 }));
+  return [...(Object.hasOwn(skills, recommended) ? [recommended] : []), ...others].map((verb) => ({ verb, uses: uses[skills[verb].name] ?? 0 }));
 }
 
 // Same layout as the worktree mod: <home>/.herdr/worktrees/<repo>/<branch, unsafe characters as dashes>.

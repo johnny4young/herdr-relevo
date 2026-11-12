@@ -1,58 +1,95 @@
-# Local goal workflows
+# How runs work
 
-Open **Missions** in Inbox, then use the mission's primary action to open **Mission control**. **Reviews** retains the original PR, CI, review, account and worktree controls. Missions are the existing goal records under a clearer UI name; no migration is needed. A workflow task adds an explicit expected outcome, local checkout, executor and independent reviewer. It links existing agent sessions; it does not create accounts or infer that a terminal's idle state means its task succeeded.
+Open **Runs** in the panel, then open a run to see its window. **Reviews** keeps the original PR, CI, review, account and worktree controls. A run is stored as a goal record; older records open without migration. A task in a run has an expected outcome, a checkout, an implementer and an independent reviewer. An idle terminal is never taken as proof that its task succeeded.
 
-The queue opens on work needing attention. **Review** summarizes the result, recorded checks and independent review. Review changes and evidence as needed, then choose **Accept result**, **Request changes** or **Decide later**. Sessions, messages and skills live under **Tools**; configuration lives under **Settings**. Reading reports does not require opening an agent session. Decision controls also appear after the detailed reports so you can act where you finish reviewing.
+The run window opens on work that needs you. The result shows the agent's summary, the recorded checks and the independent review. Read the changes and evidence as needed, then choose **Accept**, **Request changes** or **Later**. Sessions, messages and skills are under **Tools**. Reading a report does not require opening the agent's session.
 
-Acceptance saves the decision and automatically opens the next pending item. When no decision remains, the queue shows a confirmation describing ongoing, paused or completed work. Accepted tasks remain available in **History**. There is no manual Next step action. Before accepting, the UI explains whether a follow-up is defined and eligible to continue. Already-started, unpaused dependencies continue through an enabled coordinator; acceptance can recover that coordinator if its process was lost. It does not start merely planned tasks or override an explicit stop. Goal-level criteria and GitHub approval remain separate from individual task acceptance.
+Accepting saves the decision and opens the next pending result. When nothing is waiting, the queue says what is still running, paused or finished. Accepted tasks stay in **History**. Before you accept, the window says whether a follow-up task will continue. Tasks that were already started and not paused continue through the coordinator; acceptance can restart a coordinator whose process was lost. It does not start tasks that were only planned, and it does not override a stop. The run's own criteria and any GitHub approval stay separate from accepting a task.
 
-Request changes opens a feedback draft before anything is sent. If the round limit is exhausted, **Prepare follow-up** prefills a separate task for you to review, create and start explicitly; the existing result remains pending. Optional decision notes can be discarded without sending, and drafts stay separate between tasks.
+**Request changes** opens a draft before anything is sent. If the round limit is used up, **Prepare follow-up** prefills a separate task for you to review and start; the existing result stays pending. A decision note can be discarded without sending, and drafts are kept per task.
 
-Blocked tasks lead with the latest independent review findings. Retry and Resume are offered only when the recorded budget and attempt state permit them; the runtime still rechecks the live checkout. Exhausted, settled attempts offer **Prepare follow-up**, preserving existing prerequisites and including the review findings. An unresolved live or uncertain attempt must be inspected and reconciled first. Preparing a follow-up neither sends work nor changes the earlier task's decision.
+A blocked task leads with the latest review findings. **Retry** and **Resume** appear only when the recorded budget and attempt state allow them, and the coordinator checks the live checkout again. An attempt whose delivery is uncertain must be inspected and reconciled first.
 
 ## Execution and decisions
 
-Create records a planned task. Start enables a local coordinator process under `hc`. The coordinator sends the executor a bounded assignment, observes the configured checks, sends the matching revision to the reviewer, and returns the result for human review. Reviewer findings can trigger another implementation attempt within the configured round limit. Dependent tasks wait for explicit acceptance. One active attempt owns a checkout at a time; at most two tasks run concurrently.
+Creating a task records it as planned. **Start** enables a local coordinator process, run through `hc`. The coordinator sends the implementer a bounded assignment, runs the configured checks, sends the same revision to the reviewer, and returns the result for your decision. Reviewer findings can trigger another implementation attempt within the round limit. Dependent tasks wait for your acceptance. One active attempt owns a checkout at a time, and at most two tasks run at once.
 
-Activity records assignment, delivery acknowledgement, attempt report and human decision separately. A transport acknowledgement is not completion. Each agent writes an attempt-specific local JSON report; the coordinator validates its identity and waits for the reporting session to stop working. Checks are separately observed command results. The UI can open the existing diff reviewer and agent session.
+Activity records assignment, delivery, report and decision separately. A delivery acknowledgement is not completion. Each agent writes a JSON report for its attempt; the coordinator checks the report's attempt id and token (only the token's hash is stored) and waits for the agent to stop working.
 
-- **Accept result** records acceptance of the current checkout fingerprint and permits dependent work. It does not approve or merge a GitHub PR or validate the goal's manual steps.
-- **Request changes** sends the recorded correction to the assigned executor on the next available attempt, then requires independent review again.
-- **Defer** leaves the decision pending and pauses new work.
-- **Pause** stops new assignments; an already running agent can finish.
-- **Stop coordinator** prevents new dispatches and aborts in-flight checks without treating the interruption as a test failure. Explicit resume can validate the same saved executor report without another implementation round. A pause/stop during dispatch preparation does not send the prepared assignment or mark the task blocked.
-- **Cancel** cancels the workflow and requests an interrupt only when the assigned turn can still be identified. Inspect the session if stopping was not confirmed.
+- **Accept** records acceptance of the current checkout fingerprint and lets dependent work continue. It does not approve or merge a GitHub PR or mark the run's manual steps as validated.
+- **Request changes** sends your correction to the implementer on the next attempt, then requires an independent review again.
+- **Later** leaves the decision pending and pauses new work.
+- **Pause** stops new assignments; an agent already working can finish.
+- **Pause automation** stops new dispatches and aborts checks in progress without counting that as a failed check. Resuming validates the same saved report without another implementation round.
+- **Cancel** cancels the task and asks the agent to stop only when the assigned turn can still be identified. Inspect the session if the stop was not confirmed.
 
-Queue a follow-up to wait for a safe idle point; **Send now** targets the current executor through `hc`. During an active independent review it stays queued to preserve the checkout. Exact status guards are used for idle/working sessions; `hc` has no exact done guard, so a freshly observed done session uses normal delivery. No send bypasses a permission prompt. A follow-up invalidates a pending review. Uncertain deliveries are never resent automatically: wait for the correlated report, or inspect the session and explicitly reconcile the stopped attempt before starting another.
+A queued follow-up waits for the agent to be idle; **Send now** targets the implementer through `hc`. During an independent review it stays queued so the checkout does not change. No send bypasses a permission prompt. A follow-up invalidates a pending review. An uncertain delivery is never sent again: wait for the report, or inspect the session and reconcile the attempt.
+
+### Checks
+
+Checks are **No automated checks**, **npm test** or **Custom** (JSON argument lists). No command is inferred from the repository, and choosing a preset does not run it. Each check runs in its own process group, keeps the end of its output, and has its own time budget of up to 10 minutes. Checks that take longer than half a second finish in the background and wake the coordinator, so one slow suite does not hold other tasks. Pausing automation, cancelling the task, stopping the coordinator or starting a newer attempt aborts them.
+
+## Worktree runs
+
+By default a run gets its own worktree. **Start** creates the branch `run/<slug>` from HEAD under `~/.herdr/worktrees/<repo>/`, opens the implementer and reviewer accounts you chose in two tabs there, and starts once both exist. **Existing sessions** uses agents already open in the repository instead.
+
+- **`.worktreeinclude`** at the repository root lists ignored files the run needs, in `.gitignore` syntax. They are copied into the worktree; a path is never written outside it through `..` or a symlinked directory.
+- **Accepting** commits exactly the tree the reviewer saw to the run branch, without running hooks. The tree is recorded between two fingerprints of the checkout, so it is used only if the checkout did not change while it was read. Anything changed after the review stays uncommitted.
+- **Commit accepted changes** appears when an acceptance was saved but its commit did not land, and commits that same accepted revision.
+- **Open draft PR** pushes the run branch and runs `gh pr create --draft` against the branch the run started from.
+- **Remove worktree** closes the run's tabs and removes the worktree. It refuses while there are uncommitted changes and keeps a branch that has commits.
+- **Discard worktree** is offered on a cancelled run and deletes its worktree with whatever it left uncommitted.
+- **Review a batch** accepts several results at once. Runs from the same repository can go in one batch; each run is committed to its own branch and each commit is recorded as it lands.
+
+### What a run agent can touch
+
+A run agent can write its worktree and its own report, and nothing else in the app.
+
+- **Codex** starts with `--sandbox workspace-write` and the reports folder as an extra writable directory. `RUN_CODEX_MODEL` in `config.js` sets its model.
+- **Claude** starts with Bash in the operating system's sandbox and no way to run a command outside it. Edit deny rules keep its file tools off Relevo's state, locks, mods and settings. A Claude reviewer gets only Read, Write, Grep and Glob.
+
+These limits apply to agents Relevo starts for a worktree run. An existing session keeps whatever permissions it already has.
 
 ## Local state and evidence
 
-State is stored under the app home in `relevo-workflow/`, separate from the repository. Writes are locked and atomic. The coordinator survives closing the workflow dialog. Terminal events and local report events drive progress; a lightweight timer checks deadlines. A restart reconciles unfinished deliveries without repeating effects.
+State lives under the app home in `relevo-workflow/`, separate from the repository. Writes are locked and atomic; the coordinator and the writers share one lock implementation. The coordinator keeps running when the run window closes. Terminal events and report files drive progress; a timer only checks deadlines. A restart reconciles unfinished deliveries without sending anything twice.
 
-The fingerprint includes HEAD, tracked changes and nonignored untracked bytes. Review and decisions fail closed if that fingerprint changes. Local screenshots, videos and reports are copied into private artifact storage, hashed and bound to the reviewed fingerprint. Attachment limits are 20 MiB per file and 100 MiB total; remove an artifact from Evidence to reclaim its copy. Original files are retained. Nothing in the workflow publishes evidence or session results.
+Each write also updates `state.rev`, a few bytes holding the state's revision. The run window and the Inbox poll that file and read the full state only when it changes.
 
-Checks offer **No automated checks**, **npm test**, or **Custom**. The npm preset explicitly configures `["npm", "test"]`; Custom reveals JSON argument lists and retains the custom draft when switching presets. The same choice is used by individual tasks and plans. No command is inferred from the repository, and selecting a preset does not run it. Local repositories and local agent addresses are supported. Remote checkouts, automatic account/model selection and provider-enforced monetary limits are not implemented. Round, concurrency and per-attempt time limits bound work; provider spend remains unknown where no verified usage is available.
+The fingerprint covers HEAD, tracked changes and untracked files that are not ignored. Review and decisions fail closed if it changes. Screenshots, videos and reports you attach are copied into private storage, hashed and bound to the reviewed fingerprint. The limits are 20 MiB per file and 100 MiB in total. Nothing here publishes evidence or session results.
+
+Round, concurrency and per-attempt time limits bound the work. Remote checkouts, automatic account or model selection and provider spending limits are not implemented.
+
+### Archive
+
+The queue holds up to 200 tasks. **Archive older than 7 days**, in a run's **History**, moves that run's finished tasks that have been idle for a week to `relevo-workflow/archive/<month>.jsonl`, with their events, and removes their evidence and reports from disk. A task stays in the queue while:
+
+- its run is open and still reads it: an accepted task linked to a plan step, or the task a decision is linked to;
+- another task that is not being archived depends on it, or its plan has unfinished tasks;
+- its worktree still exists.
+
+Records are written to a pending file first and join the monthly file only after the state is saved. A reported attempt keeps the first 2,000 characters of its prompt.
 
 ## Preferences, skills and input
 
-Configured skills remain explicit actions. A workflow skill message includes the selected task context and accepted preferences; invoking a skill is not proof that it completed successfully. Existing PR skill/account controls remain available.
+Configured skills are explicit actions. A skill message carries the selected task's context and accepted preferences; sending a skill is not proof that it completed. The PR skill and account controls in Reviews are unchanged.
 
-Preferences have a goal or project scope and remain pending until accepted. Recurring matching corrections can suggest a preference; one-off notes are not silently learned. Accepted guidance appears in subsequent task prompts and never grants permissions. Preferences can be edited, rejected or removed.
+A preference has a run or project scope and stays pending until you accept it. Repeated matching corrections can suggest one; a one-off note is not learned. Accepted guidance appears in later task prompts and never grants permissions.
 
-Native text fields accept system dictation as editable text. The user reviews the text and invokes Send; there is no automatic voice-command execution or built-in speech service.
+Native text fields accept system dictation as editable text. Nothing is sent until you send it.
 
 ## Installation and rollback
 
-Use `scripts/live-relevo.mjs` to install the mod with a fresh backup path. It preserves `config.js`, accounts, layouts, keys, goals and sessions. Its standalone rollback launcher stops the local coordinator before restoring code. Running agent sessions are not killed, and private state/evidence stay on disk for inspection. An edit made after installation blocks rollback before code is overwritten.
+`scripts/live-relevo.mjs` installs the mod with a backup path. It preserves `config.js`, accounts, layouts, keys, run records and sessions. Its rollback launcher stops the coordinator before restoring code. Running agent sessions are not killed, and private state and evidence stay on disk. See [installation and rollback](decision-inbox.md).
 
-This is a bounded task coordinator, not an autonomous chief of staff. Goal decomposition and role selection remain explicit. Human goal acceptance stays separate from test execution and workflow completion.
+This is a bounded coordinator for one task at a time per checkout. Breaking a goal into tasks and choosing agents stay with you, and accepting a result is always your action.
 
-For the complete product goal, research sources, remaining work and engineering handoff, start with the [continuation guide](workflow-continuation.md).
+For the product goal, the research behind it and the engineering handoff, see the [continuation guide](workflow-continuation.md).
 
-### Everyday use
+## Everyday use
 
-Open a mission's primary action to see **Needs you** first. Read **Result** and **Evidence**, then choose **Accept result** or **Request changes**. Acceptance advances the queue; dependent tasks continue only when their prerequisites are accepted and automation is enabled.
+Open a run to see **Needs you** first. Read the result and the evidence, then **Accept** or **Request changes**. Accepting advances the queue; dependent tasks continue only when their prerequisites are accepted and automation is on.
 
-Use **Tools** (**T** with the workflow focused) to search task actions, configured skills, and agent sessions. Selecting a skill previews its command and recipient; **Queue skill** submits it explicitly. Queued work can change a pending result, so inspect new changes before accepting. **Activity** explains who received each assignment and what they reported. Full assignments and the technical event log expand on demand.
+**Tools** (**T** in the run window) searches task actions, configured skills and agent sessions. Choosing a skill previews its command and recipient; **Queue skill** sends it. Queued work can change a pending result, so look at new changes before accepting. **Activity** shows who received each assignment and what they reported.
 
-**New task** starts with the desired outcome. Expand **Repository & agents** to search connected sessions for the chosen checkout; checks, limits and dependencies have a separate section. A mission with no outcomes offers **Create first task** with its brief already filled in. **Start** creates and starts the task in one write; **Save for later** keeps it planned. Input drafts survive switching sections and validation errors. Escape in Tools returns to the previous view; elsewhere it first leaves a text field, then closes the workflow when its root has focus.
+**New task** starts from the outcome you want. A run with no outcomes offers **Create first task** with its prompt filled in. **Start** creates and starts the task in one step; **Save for later** keeps it planned. Drafts survive switching sections and validation errors. Escape leaves a text field first, then returns to the queue, then closes the window.

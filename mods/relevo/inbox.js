@@ -1,4 +1,7 @@
+import { GoalViews, GOAL_MODE } from "./inbox-goals.js";
 import { div } from "gpui-kit";
+import { PreviewInbox } from "./decision-preview.js";
+import { SnapshotInbox } from "./snapshot-preview.js";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { theme, exec, run, notify, settings, agents, panes, terminals, shared, setShared } from "herdr";
 import { loadClaudeQuotas } from "./accounts.js";
@@ -8,7 +11,9 @@ import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { openHandoff } from "./handoff.js";
 import { openReplies } from "./replies.js";
-import { button, sectionHeader, spinner, withKey, foldRow, FOLDS, saveFolds } from "./ui.js";
+import { button, sectionHeader, spinner, withKey, foldRow, FOLDS, shortcutBindings } from "./ui.js";
+import { ShortcutHelp } from "./shortcut-help.js";
+import { INBOX_SHORTCUT_ACTIONS } from "./lib/shortcut-help.js";
 import { agentPRs, seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
 import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
@@ -25,9 +30,6 @@ import { LocalAddressed } from "./inbox-addressed.js";
 import { AwayViews } from "./inbox-away.js";
 import { DesktopViews } from "./inbox-desktop.js";
 import { LandViews, LANDING } from "./inbox-land.js";
-import { USAGE, readReport } from "./usage-scan.js";
-import { openUsage } from "./usage.js";
-import { compact, summarize } from "./lib/usage.js";
 import { isSettled } from "./lib/desktop.js";
 
 // How long a send waits for its dialog to go, in 250 ms reads.
@@ -57,8 +59,18 @@ function savedSince() {
 
 export class Inbox {
   init(_props, cx) {
+    if (_props?.syntheticPreview === true) {
+      this.preview = _props?.snapshotPreview === true ? new SnapshotInbox() : new PreviewInbox();
+      this.preview.init(_props, cx);
+      return;
+    }
     this.local = [];
     this.h = cx.focus_handle();
+    this.shortcutHelp = new ShortcutHelp();
+    this.shortcutHelp.init({
+      actions: INBOX_SHORTCUT_ACTIONS,
+      onClose: (cx) => { this.goalHelp = false; this.h.focus(); cx.notify(); },
+    }, cx);
     this.sel = null;
     // An old request must not steal the keyboard when this copy starts.
     this.focusAt = shared(INBOX_FOCUS)?.at ?? null;
@@ -94,6 +106,7 @@ export class Inbox {
     if (!panels.includes("inbox")) setShared("workspace.panels", [...panels, "inbox"]);
     this.labelling = {};
     this.terms = new Map();
+    this.startGoals(cx);
     this.startLive(cx);
     this.scanLocal(cx);
     this.loadAddressed(cx);
@@ -121,41 +134,6 @@ export class Inbox {
   }
 
   // Today's tokens, read again when the sidebar's scan writes a new report.
-  todayTokens(cx) {
-    const at = shared(USAGE)?.updated ?? null;
-    if (at === this.tokensAt) return this.tokens;
-    this.tokensAt = at;
-    cx.spawn(async (cx) => {
-      const report = await readReport();
-      const total = report ? summarize(report, 1).total : null;
-      this.tokens = total ? total.write + total.output : null;
-      cx.notify();
-    });
-    return this.tokens;
-  }
-
-  // What waits on you at a glance; each number takes you to its part of the list.
-  summary(t, v, cx) {
-    const asks = v.local.filter((i) => i.kind === "blocked").length + v.desktop.filter((s) => s.state === "blocked").length;
-    const tokens = this.todayTokens(cx);
-    const tile = (id, label, value, tip, go = null, hot = false) => v_flex().id(`sum-${id}`).flex_1().min_w(0).px(8).py(6).gap(1)
-      .rounded(8).bg(t.background).border_1().border_color(hot ? t.blocked : t.border).tooltip(tip)
-      .when(Boolean(go), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => go(cx)))
-      .child(div().text_size(13).font_semibold().text_color(hot ? t.blocked : t.foreground).child(value))
-      .child(div().truncate().text_size(11).text_color(t.dim).child(label));
-    const open = (key) => (cx) => {
-      this.expanded[key] = true;
-      saveFolds(this.expanded);
-      cx.notify();
-    };
-    return h_flex().id("inbox-summary").flex_none().gap(6)
-      .child(tile("asks", "need you", String(asks), "Agents and Desktop sessions waiting on an answer", () => run("relevo.next-waiting"), asks > 0))
-      .child(tile("reviews", "reviews", String(v.requested.filter(recent).length), "PRs waiting on your review, from the last 45 days"))
-      .child(tile("prs", "your PRs", String(v.mine.filter(recent).length), "Your PRs that need something, from the last 45 days"))
-      .child(tile("ready", "ready", String(v.ready.length), "Your PRs with nothing left but the merge", open("mine-ready")))
-      .child(tile("tokens", "today", tokens == null ? "…" : compact(tokens), "Tokens today: output and new context, all surfaces", () => openUsage()));
-  }
-
   loadQuotas(cx) {
     cx.spawn(async (cx) => {
       const quotas = await loadClaudeQuotas();
@@ -190,7 +168,7 @@ export class Inbox {
 
   publish(v = this.shown()) {
     const open = (list) => list.filter((p) => recent(p) && !this.seen(p) && !(this.launchedMap()[p.url] && this.prBusy(p))).length;
-    const n = v.local.length + v.desktop.filter((s) => s.state === "blocked").length + open(v.mine) + open(v.requested);
+    const n = this.reviewEntries().length + v.local.length + v.desktop.filter((s) => s.state === "blocked").length + open(v.mine) + open(v.requested);
     if (shared(COUNT) !== n) setShared(COUNT, n);
     this.publishReasons();
     this.publishAgentPRs();
@@ -369,7 +347,9 @@ export class Inbox {
   }
 
   close() {
+    if (this.preview) return this.preview.close();
     this.reply.release();
+    this.shortcutHelp?.close();
     this.wanted.clear();
   }
 
@@ -636,6 +616,7 @@ export class Inbox {
           kind: "solid", tip: withKey("Comment on the diff line by line", "relevo.review"),
         }),
         button(t, `agent-${a.address}`, "Agent", goAgent),
+        this.sourceContextButton(t, `local:${item.top || a.address}`),
         button(t, `diff-${a.address}`, "View diff", () => {
           run("pane.focus", { pane: a.pane });
           showPanel("changes");
@@ -664,6 +645,7 @@ export class Inbox {
   }
 
   render(cx) {
+    if (this.preview) return this.preview.render(cx);
     this.snap = { launched: launched(), landing: shared(LANDING) ?? {} };
     try {
       return this.draw(cx);
@@ -676,54 +658,64 @@ export class Inbox {
     const t = theme(), v = this.shown();
     this.publish(v);
     this.takeFocus(cx);
-    this.nav = this.navItems(v);
+    this.refreshGoals(cx);
+    const goalMode = shared(GOAL_MODE) === true;
+    this.goalProjection = this.projectGoals(v);
+    this.nav = goalMode ? this.goalNav(this.goalProjection.ordered) : this.navItems(v);
     this.keyboard = this.h.is_focused();
     if (this.sel && !this.nav.some((i) => i.id === this.sel)) this.sel = null;
-    const view = this.viewport();
+    const view = goalMode ? this.goalViewport() : this.viewport();
     this.hiddenIds = view.hidden;
     const part = (key, els) => (view.sections.has(key) ? [] : els.filter(Boolean));
-    const total = v.local.length + v.desktop.length + v.mine.length + v.requested.length;
-    return v_flex().id("relevo-inbox").size_full().min_h(0).rounded(10).overflow_hidden()
+    const total = this.reviewEntries().length + v.local.length + v.desktop.length + v.mine.length + v.requested.length;
+    return v_flex().id("relevo-inbox").size_full().min_w(0).min_h(0).rounded(10).overflow_hidden()
+      .on_size_change((size, context) => {
+        const narrow = size.width < 350;
+        if (this.narrowInbox !== narrow) { this.narrowInbox = narrow; context.notify(); }
+      })
       .bg(t.surface ?? t.chrome).border_1().border_color(this.keyboard ? t.accent : t.border).text_color(t.foreground)
       .track_focus(this.h)
-      .on_mouse_down("left", () => this.h.focus())
+      .tab_index(0).role("group").accessibility_label(`${goalMode ? "Runs" : "Reviews"}. Arrow keys select work; Enter opens its primary action. Tab moves through controls.`)
       .on_key_down((e, cx) => this.navKey(e, cx))
-      .child(h_flex().h(36).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
-        .child(div().font_semibold().text_size(13).child("Inbox"))
-        .child(h_flex().gap(5).items_center().text_size(11).text_color(t.dim)
-          .when(!this.prsAt && this.scanningPRs, (el) => el.child(spinner(t.dim, 10)))
-          .when(Boolean(this.error), (el) => el.text_color(t.blocked).id("prs-state").tooltip(this.error))
-          .child(this.error && this.prsAt ? `PRs ${ago(this.prsAt)} · last read failed` : this.prsAt ? `PRs ${ago(this.prsAt)}` : this.scanningPRs ? "loading" : "PRs unavailable"))
+      .child(h_flex().h(38).flex_none().px(8).gap(6).items_center()
+        .when(goalMode, (el) => el.child(this.goalNewButton(t)))
         .child(div().flex_1())
-        .child(div().id("inbox-refresh").px(6).rounded(5).cursor_pointer().text_color(t.muted)
-          .hover((s) => s.bg(t.hover)).tooltip("Refresh")
-          .on_click((_e, cx) => {
-            this.scanLocal(cx);
-            this.scanPRs(cx);
-            this.scanTrees(cx, true);
-          })
-          .child("↻")))
+        .child(button(t, "inbox-focus-list", "↕", () => this.h.focus(), { size: "sm", accessibleLabel: "Focus work queue", tip: "Focus the queue: arrow keys select, Enter opens" }))
+        .child(button(t, "goal-key-help", "?", (cx) => {
+          this.goalHelp = !this.goalHelp;
+          if (this.goalHelp) this.shortcutHelp.focus();
+          else this.h.focus();
+          cx.notify();
+        }, { size: "sm", tip: "Search keyboard shortcuts", accessibleLabel: "Keyboard help" }))
+        .child(button(t, "inbox-refresh", !this.prsAt && this.scanningPRs ? [spinner(t.dim, 10)] : "↻", (cx) => {
+          this.scanLocal(cx); this.scanPRs(cx); this.scanTrees(cx, true); this.loadGoals(cx);
+        }, { size: "sm", accessibleLabel: "Refresh work", tip: `Refresh · ${this.prsAt ? `PRs ${ago(this.prsAt)}` : this.scanningPRs ? "PRs loading" : "PRs unavailable"}${this.error ? ` · ${this.error}` : ""}` })))
+      .when(this.goalHelp, (el) => {
+        this.shortcutHelp.setData(INBOX_SHORTCUT_ACTIONS, shortcutBindings());
+        return el.child(this.shortcutHelp.render(t, cx));
+      })
       .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().p(8).gap(6)
         .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
         .when(Boolean(this.localError), (el) => el.child(div().id("local-error").p(8).text_size(11).text_color(t.blocked).child(this.localError)))
-        .when(!total && !this.error && Boolean(this.prsAt), (el) => el.child(
+        .when(!goalMode && !total && !this.error && Boolean(this.prsAt), (el) => el.child(
           div().p(12).text_size(13).text_color(t.dim).child("Nothing waiting")))
-        .when(view.above === 0, (el) => el.child(this.summary(t, v, cx)))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
-        .children(part("away", this.awayGroup(t)))
-        .children(part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
-        .children(part("desktop", this.desktopGroup(t, v.desktop, v.desktopDone)))
-        .children(part("landing", this.landingGroup(t)))
-        .children(part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true, v.requestedDone)))
-        .children(part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone, v.ready)))
-        .children(part("local", this.localGroup(t, "local", "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"), v.localDone)))
-        .children(part("today", this.todayGroup(t, v.today)))
-        .children(part("trees", this.treeGroups(t, v.worktrees))));
+        .children(goalMode ? [] : part("away", this.awayGroup(t)))
+        .children(goalMode ? [] : part("waiting", this.localGroup(t, "waiting", "WAITING ON YOU", v.local.filter((i) => i.kind === "blocked"))))
+        .children(goalMode ? [] : part("desktop", this.desktopGroup(t, v.desktop, v.desktopDone)))
+        .children(goalMode ? [] : part("landing", this.landingGroup(t)))
+        .children(goalMode ? this.goalsGroup(t) : part("results", this.runReviewRows(t)))
+        .children(goalMode ? [] : part("requested", this.prGroup(t, "requested", "REVIEW REQUESTS", v.requested, true, v.requestedDone)))
+        .children(goalMode ? [] : part("mine", this.prGroup(t, "mine", "YOUR PRS", v.mine, false, v.mineDone, v.ready)))
+        .children(goalMode ? [] : part("local", this.localGroup(t, "local", "UNCOMMITTED WORK", v.local.filter((i) => i.kind === "diff"), v.localDone)))
+        .children(goalMode ? [] : part("linked", this.linkedReviewRows(t, v)))
+        .children(goalMode ? [] : part("today", this.todayGroup(t, v.today)))
+        .children(goalMode ? [] : part("trees", this.treeGroups(t, v.worktrees))));
   }
 }
 
 
-for (const views of [PrViews, TreeViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews]) {
+for (const views of [PrViews, TreeViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews, GoalViews]) {
   for (const name of Object.getOwnPropertyNames(views.prototype)) {
     if (name !== "constructor") Inbox.prototype[name] = views.prototype[name];
   }

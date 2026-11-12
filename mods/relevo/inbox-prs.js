@@ -1,12 +1,12 @@
 // The Inbox's pull requests: fetch, cards, skill buttons. Mixed into Inbox, so `this` is the Inbox.
 import { div, svg } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
+import { h_flex, v_flex, Button } from "gpui-base";
 import { home, exec, run, notify, shared, setShared, openOverlay, readTextFile } from "herdr";
 import { accountOf, pickAccount, chip } from "./accounts.js";
 import { contextFor } from "./context.js";
 import { reviewAlerts, prAlerts, mergedAlert } from "./alerts.js";
 import { REPOS_ROOT } from "./config.js";
-import { LAUNCHED, SKILLS, launched, launchSkill } from "./skills.js";
+import { LAUNCHED, SKILLS, configuredSkill, launched, launchSkill } from "./skills.js";
 import { button, sectionHeader, spinner, withKey, foldRow } from "./ui.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
@@ -149,44 +149,47 @@ export class PrViews {
     mergedAlert(e, tree, contextKey);
   }
 
+  openSkillMenu(pr, skill = pr.skills?.[0] ?? "review") {
+    if (!this.clones[pr.repo]) return;
+    const current = pickAccount(pr.repo, this.quotas).key;
+    openOverlay({ mod: "relevo", kind: "popup", width: 360, height: 170 + 34 * Object.keys(SKILLS).length,
+      props: { role: "account-menu", pr: { url: pr.url, number: pr.number, repo: pr.repo, updatedAt: pr.updatedAt, title: pr.title,
+        headRefName: pr.headRefName, baseRefName: pr.baseRefName, isCrossRepository: pr.isCrossRepository, untrusted: Boolean(pr.untrusted) },
+      skill, folder: this.clones[pr.repo], current } });
+  }
+
   // The left part runs the skill with the picked account; ▾ picks the account, other skills or a new session.
   skillButton(t, pr, skill, solid) {
-    const folder = this.clones[pr.repo];
+    const folder = this.clones[pr.repo], action = configuredSkill(skill), available = Boolean(action);
     const pick = pickAccount(pr.repo, this.quotas), acct = accountOf(pick.key);
-    const tip = pick.note ?? `Runs with ${acct.label}, the account for ${pr.repo.split("/")[0]}`;
+    const tip = available ? pick.note ?? `Runs with ${acct.label}, the account for ${pr.repo.split("/")[0]}` : "This action is no longer configured. Choose another action from the picker.";
     const fg = solid ? t.solid_foreground : t.foreground;
     return h_flex().id(`skill-${skill}-${pr.url}`).h(24).flex_none().rounded(6).overflow_hidden()
       .when(solid, (el) => el.bg(t.solid))
       .when(!solid, (el) => el.border_1().border_color(t.border))
-      .child(h_flex().id(`run-${skill}-${pr.url}`).h_full().pl(9).pr(7).gap(5).items_center().cursor_pointer()
-        .text_size(11).text_color(fg)
+      .child(Button.new(`run-${skill}-${pr.url}`).id(`run-${skill}-${pr.url}`).tab_index(0)
+        .disabled(!available).tab_stop(available)
+        .accessibility_label(available ? `Run ${action.name} with ${acct.label}. ${tip}` : `Skill unavailable. ${tip}`).focus((s) => s.border_2().border_color(t.accent))
+        .flex().h_full().pl(9).pr(7).gap(5).items_center().cursor_pointer()
+        .text_size(11).text_color(available ? fg : t.dim)
         .tooltip(tip).hover((s) => s.bg(solid ? t.solid : t.hover))
-        .on_click((_e, cx) => {
+        .when(available, (el) => el.on_click((_e, cx) => {
           cx.stop_propagation();
           launchSkill(pr, skill, pick.key, folder);
           this.publish();
           cx.notify();
-        })
-        .child(SKILLS[skill].name)
+        }))
+        .child(action?.name ?? "Skill unavailable")
         .child(chip(div, acct, 15)))
-      .child(div().id(`pick-${skill}-${pr.url}`).h_full().px(6).flex().items_center().cursor_pointer()
+      .child(Button.new(`pick-${skill}-${pr.url}`).id(`pick-${skill}-${pr.url}`).tab_index(0)
+        .accessibility_label("Choose skill and account").focus((s) => s.border_2().border_color(t.accent))
+        .h_full().px(6).flex().items_center().cursor_pointer()
         .text_size(11).text_color(fg)
         .border_l(1).border_color(solid ? t.solid_foreground : t.border)
         .hover((s) => s.bg(solid ? t.solid : t.hover)).tooltip("Choose the account")
         .on_click((_e, cx) => {
           cx.stop_propagation();
-          openOverlay({
-            mod: "relevo", kind: "popup", width: 320, height: 150 + 30 * Object.keys(SKILLS).length,
-            props: {
-              role: "account-menu",
-              pr: {
-                url: pr.url, number: pr.number, repo: pr.repo, updatedAt: pr.updatedAt, title: pr.title,
-                headRefName: pr.headRefName, baseRefName: pr.baseRefName,
-                isCrossRepository: pr.isCrossRepository, untrusted: Boolean(pr.untrusted),
-              },
-              skill, folder, current: pick.key,
-            },
-          });
+          this.openSkillMenu(pr, skill);
         })
         .child("▾"));
   }
@@ -255,6 +258,8 @@ export class PrViews {
       [
         button(t, `ready-${pr.url}`, "Ready for review", (cx) => this.prCommand(pr, ["ready"], "Ready for review", cx)),
         button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url])),
+        this.sourceContextButton(t, `pr:${pr.url}`),
+        button(t, `source-skills-pr:${pr.url}`, "Skills…", () => this.openSkillMenu(pr), { size: "sm", disabled: !this.clones[pr.repo], tip: "Choose a skill and account before running" }),
       ]);
   }
 
@@ -271,7 +276,7 @@ export class PrViews {
   }
 
   agentLine(pr, agent) {
-    const l = this.launchedMap()[pr.url], name = SKILLS[l.skill].name, bg = this.backgroundOf(agent);
+    const l = this.launchedMap()[pr.url], name = configuredSkill(l.skill)?.name ?? "Previous skill", bg = this.backgroundOf(agent);
     if (!agent) return `${name} ran ${ago(l.at)}`;
     if (agent.status === "working") return `${name} working…`;
     if (bg !== null && agent.status !== "blocked") return `${name} waiting in the background${bg ? ` · ${bg}` : ""}`;
@@ -319,6 +324,8 @@ export class PrViews {
       }));
     }
     if (!actions.includes(openPR)) actions.push(openPR);
+    const context = this.sourceContextButton(t, `pr:${pr.url}`);
+    if (context) actions.push(context);
     const mark = addressed
       ? button(t, `undo-${pr.url}`, "Undo", (cx) => this.setAddressed(pr, false, cx), { tip: "Back to the list" })
       : button(t, `addressed-${pr.url}`, "✓", (cx) => this.setAddressed(pr, true, cx), {

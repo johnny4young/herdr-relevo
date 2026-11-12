@@ -17,6 +17,7 @@ const HOUR = 3600e3;
 // Only short single-line prompts reach the parser; the history files run to megabytes.
 const SHORT = 'for f; do [ -f "$f" ] && LC_ALL=C grep -E \'^\\{"display":"[^"\\\\/!\\[][^"\\\\]{5,160}",\' "$f"; done';
 const suggested = new Map();
+let openingRequest = 0;
 
 // Per context, so a work prompt never shows on a personal agent; read at most once an hour.
 async function suggestionsFor(cwd) {
@@ -46,14 +47,22 @@ async function countUse(text) {
 }
 
 export async function openReplies(address = agents().find((a) => a.focused)?.address) {
+  const request = ++openingRequest;
   const a = agents().find((x) => x.address === address);
   if (!a) return notify({ title: "No agent in focus", level: "info", timeout: 2000 });
   const cwd = panes().find((p) => p.pane === a.pane)?.cwd ?? a.cwd;
+  const context = contextOfPath(cwd);
   const [{ usage }, history] = await Promise.all([readUsage(), suggestionsFor(cwd).catch(() => [])]);
+  // Optional history must not reopen an older recipient over a newer request.
+  if (request !== openingRequest) return;
+  const current = agents().find((x) => x.address === address);
+  if (!current) return notify({ title: "Agent no longer available", body: "Open replies for a connected agent.", level: "info" });
+  const currentCwd = panes().find((p) => p.pane === current.pane)?.cwd ?? current.cwd;
+  if (contextOfPath(currentCwd) !== context) return notify({ title: "Agent context changed", body: "Open replies again to refresh the suggestions.", level: "info" });
   const list = rankReplies(replies(), usage, history, Date.now());
   openOverlay({
-    mod: "relevo", kind: "dialog", width: 480, height: 92 + 30 * list.length,
-    props: { role: "quick-replies", address: a.address, name: nameOf(a), replies: list },
+    mod: "relevo", kind: "dialog", width: 480, height: 148 + 30 * list.length,
+    props: { role: "quick-replies", address, name: nameOf(current), replies: list },
   });
 }
 
@@ -73,6 +82,9 @@ export async function sendTo(address, name, text) {
 // arrows for itself, so its Enter sends what was typed.
 export class QuickReplies {
   init(_props, cx) {
+    this.closed = false;
+    this.sending = false;
+    this.error = null;
     this.at = 0;
     this.h = cx.focus_handle();
     this.input = InputState.new({ value: "", placeholder: "Type to write a message" });
@@ -80,11 +92,14 @@ export class QuickReplies {
     this.input.on("submit", (_e, cx) => this.send(this.input.value().trim() || this.list()[this.at]?.text, cx));
     this.h.focus();
     cx.timer.after(300, () => {
-      if (!this.input.value()) this.h.focus();
+      if (!this.closed && !this.sending && !this.input.value()) this.h.focus();
     });
   }
 
   close() {
+    if (this.closed) return;
+    this.closed = true;
+    this.h.release();
     this.input.release();
   }
 
@@ -93,18 +108,32 @@ export class QuickReplies {
   }
 
   send(text, cx) {
-    const p = props();
-    if (!text || this.sending) return;
+    if (this.closed || !text || this.sending) return;
+    const { address, name, overlay } = props();
     this.sending = true;
-    cx.spawn(async () => {
-      if (await sendTo(p.address, p.name, text)) closeOverlay(p.overlay);
+    this.error = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const sent = await sendTo(address, name, text);
+        if (this.closed) return;
+        if (sent) closeOverlay(overlay);
+        else this.error = "Delivery not confirmed. Check the agent before sending again.";
+      } catch {
+        if (this.closed) return;
+        this.error = "Delivery not confirmed. Check the agent before sending again.";
+      }
+      if (this.closed) return;
       this.sending = false;
+      cx.notify();
     });
   }
 
   key(e, cx) {
+    if (this.closed) return;
     const list = this.list().map((r) => r.text), n = list.length, held = e.modifiers?.platform || e.modifiers?.control || e.modifiers?.alt;
     if (e.key === "escape") return closeOverlay(props().overlay);
+    if (this.sending || held) return;
     if ((e.key === "down" || e.key === "up") && n) this.at = (this.at + (e.key === "down" ? 1 : n - 1)) % n;
     else if (e.key === "enter") this.send(list[this.at], cx);
     else if (/^[1-9]$/.test(e.key) && !held && Number(e.key) <= n) this.send(list[Number(e.key) - 1], cx);
@@ -122,15 +151,18 @@ export class QuickReplies {
     return v_flex().id("quick-replies").size_full().p(12).gap(8)
       .bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
       .child(div().text_size(11).text_color(t.dim).truncate().child(`To ${p?.name ?? ""}`))
-      .child(Input.new(this.input).h(32).px(10).items_center().rounded(6).border(1).border_color(t.accent).bg(t.background))
+      .child(Input.new(this.input).id("reply-input").disabled(this.sending).h(32).px(10).items_center().rounded(6).border(1).border_color(t.accent).bg(t.background))
+      .when(this.sending, (el) => el.child(div().id("reply-send-status").role("status").text_size(11).text_color(t.muted)
+        .child("Sending… Closing does not cancel a submitted message.")))
+      .when(Boolean(this.error), (el) => el.child(div().id("reply-send-error").role("alert").text_size(11).text_color(t.blocked).child(this.error)))
       // Not around the field: its keys would reach this handler too.
       .child(v_flex().id("quick-replies-list").flex_none().track_focus(this.h).on_key_down((e, cx) => this.key(e, cx))
         .children(this.list().map(({ text, uses }, i) => h_flex().id(`reply-${i}`).h(30).px(8).gap(8).flex_none().items_center().rounded(6)
-          .cursor_pointer()
+          .when(!this.sending, (el) => el.cursor_pointer())
           .when(i === this.at && !typed, (el) => el.bg(t.selected))
           .hover((s) => s.bg(t.hover))
           .when(Boolean(uses), (el) => el.tooltip(`From your history · ${uses} times`))
-          .on_click((_e, cx) => this.send(text, cx))
+          .when(!this.sending, (el) => el.on_click((_e, cx) => this.send(text, cx)))
           .child(div().w(10).flex_none().text_size(11).text_color(t.dim).child(i < 9 ? String(i + 1) : ""))
           .child(div().flex_1().min_w(0).truncate().child(text)))));
   }
