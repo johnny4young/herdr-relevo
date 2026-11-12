@@ -88,3 +88,20 @@ test('a cancelled run offers to discard its worktree and nothing to propose', as
   assert.deepEqual(payloads.at(-1), { action: 'worktree-remove', taskId: 'gone' });
   view.close();
 });
+
+test('an accepted run with uncommitted changes and no commit offers to commit them', async () => {
+  fake.props = { goalId: 'g', overlay: 'o' };
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [
+    { id: 'late', goalId: 'g', title: 'Late', root: '/wt', state: 'accepted', revision: 'r1', worktree: { path: '/wt', branch: 'run/late-1', base: '/repo' } },
+  ] });
+  const payloads = [];
+  fake.exec = async (_cmd, args) => { const payload = JSON.parse(args.at(-1)); payloads.push(payload);
+    return payload.action === 'worktree-status' ? { stdout: '{"result":{"exists":true,"dirty":true,"ahead":0}}' } : null; };
+  const view = new Workflow(), cx = fakeCx(); view.init({}, cx); await flush();
+  click(find(view.render(), 'workflow-filter-Completed'), cx); await flush();
+  cx.fire(1000); await flush();
+  assert.equal(find(view.render(), 'workflow-worktree-remove'), null);
+  click(find(view.render(), 'workflow-worktree-commit'), cx); await flush();
+  assert.deepEqual(payloads.find((payload) => payload.action === 'worktree-commit'), { action: 'worktree-commit', taskId: 'late' });
+  view.close();
+});

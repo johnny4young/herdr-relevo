@@ -93,12 +93,15 @@ export class WorkflowRuns extends WorkflowDraftView {
     const wt = task.worktree, info = this.worktreeInfo?.[task.id];
     const gone = wt.removed || info?.exists === false, cancelled = task.state === "cancelled";
     const state = gone ? "worktree removed" : !info ? "checking…" : info.dirty ? "uncommitted changes" : wt.commit ? `committed ${wt.commit.slice(0, 7)}` : info.ahead ? `${info.ahead} commits` : "no changes";
+    const canCommit = !cancelled && !gone && Boolean(info?.dirty) && !wt.commit;
     const canPropose = !cancelled && !gone && info && !info.dirty && info.ahead !== 0 && !wt.pr;
     return v_flex().id("workflow-worktree").w_full().min_w(0).gap(6).p(10).rounded(8).bg(t.raised)
       .child(div().text_size(11).text_color(t.muted).truncate().child(`${wt.branch} · ${state}`))
       .child(h_flex().gap(6).flex_wrap()
         .when(Boolean(wt.pr), (el) => el.child(button(t, "workflow-worktree-open-pr", "Open PR", () => exec("open", [wt.pr]), { kind: "solid", tip: wt.pr })))
         .when(canPropose, (el) => el.child(button(t, "workflow-worktree-pr", "Open draft PR", (cx) => this.worktreeAction(task, "worktree-pr", cx), { kind: "solid", disabled: this.busy, tip: "Pushes the run branch and opens a draft PR" })))
+        .when(canCommit, (el) => el.child(button(t, "workflow-worktree-commit", "Commit accepted changes", (cx) => this.worktreeAction(task, "worktree-commit", cx),
+          { kind: "solid", disabled: this.busy, tip: "The acceptance was saved but its commit did not land; this commits the accepted revision" })))
         .when(cancelled && !gone && Boolean(info), (el) => el.child(button(t, "workflow-worktree-discard", "Discard worktree", (cx) => this.worktreeAction(task, "worktree-remove", cx),
           { kind: "ghost", disabled: this.busy, tip: info?.dirty ? "Closes its tabs and deletes the worktree with its uncommitted changes" : "Closes its tabs and removes the worktree" })))
         .when(!cancelled && !gone && Boolean(info) && !info.dirty, (el) => el.child(button(t, "workflow-worktree-remove", "Remove worktree", (cx) => this.worktreeAction(task, "worktree-remove", cx),
