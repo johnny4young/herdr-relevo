@@ -590,3 +590,108 @@ test("a full queue refuses new tasks with a pointer to archiving", async (t) => 
   await assert.rejects(f.runtime.command({ action: "create", task: { goalId: "g1", title: "One more", criteria: "c", root: f.root,
     executor: { address: "exec-agent" }, reviewer: { address: "review-agent" } } }), /archive finished ones/);
 });
+
+const agedTask = async (f, title, extra = {}) => (await f.runtime.command({ action: "create", task: { goalId: extra.goalId ?? "g1", title, criteria: "Done", root: f.root,
+  executor: { address: "exec-agent" }, reviewer: { address: "review-agent" }, ...extra } })).result.taskId;
+
+test("an open run keeps the tasks its plan and decision still read; finishing the run frees them", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const goalsFile = path.join(f.home, "relevo-goals.json");
+  let linked = null;
+  const writeGoals = (state) => fs.writeFileSync(goalsFile, JSON.stringify({ goals: [{ id: "g1", state, decisionLink: { taskId: linked } }, { id: "g2", state: "open" }] }));
+  writeGoals("open");
+  const step = await agedTask(f, "Step work"), other = await agedTask(f, "Other run", { goalId: "g2" });
+  linked = await agedTask(f, "Decision work"); writeGoals("open");
+  transaction(f.home, (doc) => { for (const task of doc.tasks) task.state = "accepted"; doc.tasks.find((task) => task.id === step).goalStep = { id: "s1" }; });
+  f.setNow(Date.parse("2026-02-01T00:00:00Z"));
+  const preview = async (extra = {}) => (await f.runtime.command({ action: "archive", preview: true, ...extra })).result.taskIds.sort();
+  assert.deepEqual(await preview(), [f.taskId, other].sort(), "the step's task and the decision's task stay");
+  assert.deepEqual(await preview({ goalId: "g1" }), [f.taskId], "a run archives only its own tasks");
+  writeGoals("completed");
+  assert.deepEqual(await preview({ goalId: "g1" }), [f.taskId, step, linked].sort());
+  fs.writeFileSync(goalsFile, "{ not json");
+  assert.deepEqual(await preview(), [], "an unreadable goals file archives nothing");
+});
+
+test("archiving removes the tasks' evidence and reports and leaves no pending file", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const dir = path.join(f.home, "relevo-workflow"), evidence = path.join(dir, "artifacts", f.taskId);
+  fs.mkdirSync(evidence, { recursive: true }); fs.writeFileSync(path.join(evidence, "shot.png"), "x");
+  transaction(f.home, (doc) => { doc.tasks[0].state = "accepted"; doc.tasks[0].attempts.push({ id: "attempt-1", role: "executor", state: "reported", at: "2026-01-02T03:04:05Z" }); });
+  fs.writeFileSync(path.join(dir, "reports", "attempt-1.json"), "{}");
+  f.setNow(Date.parse("2026-02-01T00:00:00Z"));
+  assert.equal((await f.runtime.command({ action: "archive" })).result.archived, 1);
+  assert.equal(fs.existsSync(evidence), false); assert.equal(fs.existsSync(path.join(dir, "reports", "attempt-1.json")), false);
+  assert.deepEqual(fs.readdirSync(path.join(dir, "archive")), ["2026-02.jsonl"]);
+});
+
+test("a cancelled run can discard its worktree with uncommitted changes; an accepted one cannot", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const ids = {};
+  for (const name of ["dropped", "kept"]) {
+    const wt = path.join(f.base, `wt-${name}`);
+    execFileSync("git", ["-C", f.root, "worktree", "add", "-q", "-b", `run/${name}`, wt]);
+    fs.writeFileSync(path.join(wt, "wip.md"), "wip\n");
+    ids[name] = await agedTask(f, name, { worktree: { branch: `run/${name}`, base: f.root } });
+    transaction(f.home, (doc) => { const task = doc.tasks.find((item) => item.id === ids[name]); task.root = wt; task.worktree.path = wt; task.state = name === "dropped" ? "cancelled" : "accepted"; });
+  }
+  await assert.rejects(f.runtime.command({ action: "worktree-remove", taskId: ids.kept }), /uncommitted changes/);
+  await f.runtime.command({ action: "worktree-remove", taskId: ids.dropped });
+  assert.equal(fs.existsSync(path.join(f.base, "wt-dropped")), false);
+  assert.equal(f.runtime.read().tasks.find((task) => task.id === ids.dropped).worktree.removed, true);
+  await assert.rejects(f.runtime.command({ action: "worktree-pr", taskId: ids.dropped }), /Only an accepted worktree run/);
+});
+
+test("stopping the engine aborts checks still running in the background", async (t) => {
+  let signal;
+  const checksImpl = (_root, _checks, options) => new Promise((resolve) => { signal = options.signal; signal.addEventListener("abort", () => resolve([{ code: 1 }])); });
+  const f = await fixture({ checksImpl }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  f.report("executor", "completed", "Implementation complete");
+  await f.runtime.tick();
+  assert.equal(signal.aborted, false);
+  f.runtime.stopChecks(); await new Promise((resolve) => globalThis.setImmediate(resolve));
+  assert.equal(signal.aborted, true);
+  const task = f.runtime.read().tasks[0];
+  assert.equal(task.attempts.at(-1).state, "running", "an aborted run is not a failed check");
+  assert.equal(task.round, 1);
+});
+
+test("checks that throw block the task instead of leaving it running", async (t) => {
+  const f = await fixture({ checksImpl: async () => { throw Error("check runner crashed"); } }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  f.report("executor", "completed", "Implementation complete");
+  await f.runtime.tick();
+  assert.equal(f.runtime.read().tasks[0].state, "blocked");
+  assert.match(f.runtime.read().tasks[0].error, /check runner crashed/);
+});
+
+test("a reported attempt keeps only the opening of its prompt", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  transaction(f.home, (doc) => { doc.tasks[0].criteria = "c".repeat(3900); });
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  assert.ok(f.runtime.read().tasks[0].attempts[0].prompt.length > 3900);
+  f.report("executor", "completed", "Done"); await f.runtime.tick();
+  assert.equal(f.runtime.read().tasks[0].attempts[0].prompt.length, 2001);
+});
+
+test("in a batch, one run whose commit fails does not lose the other run's commit record", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const ids = [];
+  for (const name of ["good", "bad"]) {
+    const wt = path.join(f.base, `wt-${name}`);
+    execFileSync("git", ["-C", f.root, "worktree", "add", "-q", "-b", `run/${name}`, wt]);
+    fs.writeFileSync(path.join(wt, `${name}.md`), `${name}\n`);
+    const id = await agedTask(f, `Add ${name}`, { worktree: { branch: `run/${name}`, base: f.root } });
+    ids.push(id);
+    transaction(f.home, (doc) => { const task = doc.tasks.find((item) => item.id === id);
+      Object.assign(task, { state: "needs_you", revision: "checkout-r1", root: wt }); task.worktree.path = wt;
+      // A reviewed tree stored for another revision must refuse to commit.
+      if (name === "bad") Object.assign(task.worktree, { reviewedTree: "0".repeat(40), reviewedRevision: "other" }); });
+  }
+  await f.runtime.command({ action: "batch", ids, outcome: "accept", preview: false, revisions: Object.fromEntries(ids.map((id) => [id, "checkout-r1"])) });
+  const [good, bad] = ids.map((id) => f.runtime.read().tasks.find((task) => task.id === id));
+  assert.match(good.worktree.commit, /^[0-9a-f]{40}$/);
+  assert.equal(bad.state, "accepted"); assert.equal(bad.worktree.commit, undefined);
+  assert.ok(f.runtime.read().events.some((e) => e.taskId === bad.id && e.type === "Commit failed"));
+});

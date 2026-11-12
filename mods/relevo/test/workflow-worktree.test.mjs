@@ -79,7 +79,8 @@ test('a draft PR without an origin remote says so in one line', async (t) => {
 
 test('a listed file never lands outside the worktree through .. or a symlinked directory', (t) => {
   const base = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'relevo-copy-')); t.after(() => fs.rmSync(base, { recursive: true, force: true }));
-  const root = path.join(base, 'root'), dest = path.join(base, 'dest'), outside = path.join(base, 'outside');
+  // dest sits one level deeper than root, so ".." names a different, missing file on each side.
+  const root = path.join(base, 'root'), dest = path.join(base, 'deep', 'dest'), outside = path.join(base, 'outside');
   for (const dir of [root, dest, outside, path.join(root, 'link', 'sub'), path.join(root, 'ok')]) fs.mkdirSync(dir, { recursive: true });
   for (const rel of ['link/.env', 'link/sub/.env', 'ok/.env']) fs.writeFileSync(path.join(root, rel), rel);
   fs.writeFileSync(path.join(base, 'escape'), 'e');
@@ -90,6 +91,7 @@ test('a listed file never lands outside the worktree through .. or a symlinked d
   assert.equal(fs.readFileSync(path.join(dest, 'ok', '.env'), 'utf8'), 'ok/.env');
   assert.deepEqual(fs.readdirSync(outside), [], 'no file or directory created through the symlink');
   assert.equal(fs.existsSync(path.join(base, 'missing')), false);
+  assert.equal(fs.existsSync(path.join(base, 'deep', 'escape')), false, '".." stays inside');
 });
 
 test('the reviewed tree is what gets committed, and only run worktrees can be removed', async (t) => {

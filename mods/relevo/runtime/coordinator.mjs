@@ -5,7 +5,7 @@ import { fingerprint, runChecks, attachArtifact, verifyArtifact, removeArtifact 
 import { readState, transaction, taskById, event, uid, stateDir, privateDir } from './store.mjs';
 import { prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
 import { createHash } from 'node:crypto';
-import { archivable, archiveInto, MAX_TASKS } from './archive.mjs';
+import { archivable, stageArchive, publishArchive, MAX_TASKS } from './archive.mjs';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
 import { SKILLS } from '../config.js';
 
@@ -23,7 +23,7 @@ function checkoutBusy(doc, task, actor) {
     active.some((other) => other.root === task.root || [other.executor.address, other.reviewer.address].includes(actor.address));
 }
 const roomFor = (doc, count) => { if (doc.tasks.length + count > MAX_TASKS) throw Error(`The queue holds ${MAX_TASKS} tasks; archive finished ones before adding more`); };
-const MAX_FEEDBACK = 8000, MAX_STORED_PROMPT = 12000;
+const MAX_FEEDBACK = 8000, MAX_STORED_PROMPT = 12000, REPORTED_PROMPT = 2000;
 const failedChecks = (checks) => `Checks failed: ${JSON.stringify(checks.filter((check) => check.code !== 0).map((check) => ({
   argv: check.argv, code: check.code, stdout: String(check.stdout ?? '').slice(-2000), stderr: String(check.stderr ?? '').slice(-2000) })))}`.slice(0, MAX_FEEDBACK);
 // Checks shorter than this finish inside the tick; longer ones finish in the background and wake the coordinator.
@@ -107,10 +107,20 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (action === 'archive') {
       const days = payload.olderThanDays ?? 7;
       if (!Number.isInteger(days) || days < 0 || days > 365) throw Error('Choose an age between 0 and 365 days');
-      if (payload.preview === true) return { doc: readState(home), result: archivable(readState(home), { days, now: clock() }) };
-      return update((doc) => { const archived = archiveInto(doc, dir, archivable(doc, { days, now: clock() }), clock());
-        if (archived) log(doc, null, 'Tasks archived', `${archived} finished tasks moved to the archive`, 'Human');
-        return { archived }; });
+      if (payload.goalId !== undefined && !text(payload.goalId, 100)) throw Error('Choose a run to archive');
+      // An unreadable goals file archives nothing: open runs still read their tasks.
+      let goals = null;
+      try { goals = JSON.parse(fs.readFileSync(path.join(home, 'relevo-goals.json'), 'utf8')).goals ?? []; } catch { /* keep everything */ }
+      const select = (doc) => archivable(doc, { days, now: clock(), goals, goalId: payload.goalId });
+      if (payload.preview === true) return { doc: readState(home), result: select(readState(home)) };
+      let staged = null;
+      try {
+        const saved = update((doc) => { staged = stageArchive(doc, dir, select(doc), clock());
+          if (staged) log(doc, null, 'Tasks archived', `${staged.count} finished tasks moved to the archive`, 'Human');
+          return { archived: staged?.count ?? 0 }; });
+        if (staged) publishArchive(dir, staged);
+        return saved;
+      } catch (error) { if (staged) fs.rmSync(staged.pending, { force: true }); throw error; }
     }
     if (action === 'prepare-worktree') return { result: await prepareWorktree({ root: payload.root, title: payload.title }) };
     if (action === 'create') {
@@ -281,9 +291,12 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       });
       if (payload.outcome !== 'accept') return decided;
       const runs = selected.map((item) => taskById(before, item.taskId)).filter((task) => task.worktree);
-      const commits = [];
-      for (const task of runs) commits.push([task.id, await commitAccepted(task, payload.revisions[task.id])]);
-      return commits.length ? update((doc) => { for (const [id, result] of commits) logCommit(doc, taskById(doc, id), result); }) : decided;
+      if (!runs.length) return decided;
+      for (const task of runs) {
+        const result = await commitAccepted(task, payload.revisions[task.id]);
+        try { update((doc) => logCommit(doc, taskById(doc, task.id), result)); } catch { /* the branch keeps the commit; the next run is still recorded */ }
+      }
+      return { doc: readState(home) };
     }
     const before = taskById(readState(home), payload.taskId);
     if (action === 'refresh') {
@@ -320,12 +333,14 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     }
     if (action === 'worktree-status') return { result: await worktreeStatus(before.worktree) };
     if (action === 'worktree-pr' || action === 'worktree-remove') {
-      if (!before.worktree || before.state !== 'accepted') throw Error('Only an accepted worktree run can do this');
+      // A cancelled run has nothing to propose; its worktree can only be discarded, with whatever it left uncommitted.
+      const discard = action === 'worktree-remove' && before.state === 'cancelled';
+      if (!before.worktree || (before.state !== 'accepted' && !discard)) throw Error('Only an accepted worktree run can do this');
       if (action === 'worktree-pr') {
         const url = await openPullRequest(before.worktree, before.title, before.criteria.slice(0, 4000));
         return update((doc) => { const task = taskById(doc, before.id); task.worktree.pr = url.slice(0, 500); log(doc, task, 'Draft PR opened', url, 'Human'); });
       }
-      const removed = await removeRunWorktree(before.worktree);
+      const removed = await removeRunWorktree(before.worktree, { discard });
       return update((doc) => { const task = taskById(doc, before.id); task.worktree.removed = true;
         log(doc, task, 'Worktree removed', removed.branchDeleted ? `${task.worktree.branch} deleted with it` : `${task.worktree.branch} kept`, 'Human'); });
     }
@@ -545,11 +560,10 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (attempt.role === 'executor' && report.status === 'completed') {
         const pending = checkRuns.get(attempt.id) ?? startChecks(task, attempt.id, await fingerprintImpl(task.root));
         if (!pending.done) await Promise.race([pending.promise, new Promise((resolve) => globalThis.setTimeout(resolve, CHECK_GRACE_MS).unref?.())]);
-        if (!pending.done) return;
-        checkRuns.delete(attempt.id);
         // Stop/cancel is not a failed check. Keep the report available so an
         // explicit resume validates this same attempt without another round.
-        if (pending.aborted) return;
+        if (!pending.done || pending.controller.signal.aborted) return;
+        checkRuns.delete(attempt.id);
         if (pending.error) throw pending.error;
         ({ revision, checks } = pending);
       } else revision = await fingerprintImpl(task.root);
@@ -560,6 +574,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         const t = taskById(doc, task.id), a = t.attempts.at(-1);
         if (a?.id !== attempt.id || a.state !== 'running' || terminalStates.has(t.state)) return;
         a.state = 'reported'; a.report = { status: report.status, summary: report.summary }; a.summary = report.summary;
+        // The full prompt matters while the attempt runs; afterwards its opening is enough to audit it.
+        if (a.prompt?.length > REPORTED_PROMPT) a.prompt = `${a.prompt.slice(0, REPORTED_PROMPT)}…`;
         // A valid attempt-specific report also reconciles an uncertain delivery.
         a.delivery = 'acknowledged'; t.error = null;
         log(doc, t, 'Agent reported', `${attempt.role}: ${report.summary}`, attempt.address);
@@ -588,6 +604,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
   }
   // Stop or cancel reaches this process only through the state file, so the watcher aborts the run.
   function startChecks(task, attemptId, revision) {
+    // An older attempt of this task must not keep running checks in the checkout.
+    for (const other of checkRuns.values()) if (other.taskId === task.id) other.controller.abort();
     const controller = new globalThis.AbortController();
     const checkCancellation = () => {
       try { const doc = readState(home); if (!doc.engine.enabled || taskById(doc, task.id).state === 'cancelled') controller.abort(); }
@@ -595,12 +613,14 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     };
     const watcher = fs.watch(dir, (_event, name) => { if (String(name) === 'state.json') checkCancellation(); });
     checkCancellation();
-    const pending = { revision, done: false };
+    const pending = { revision, done: false, taskId: task.id, controller };
     // Checks get their own budget: a report near the attempt deadline must not fail them.
     pending.promise = Promise.resolve()
       .then(() => checksImpl(task.root, task.checks, { signal: controller.signal, timeoutMs: Math.min(task.maxMinutes, 10) * 60000 }))
       .then((checks) => { pending.checks = checks; }, (error) => { pending.error = error; })
-      .finally(() => { watcher.close(); pending.aborted = controller.signal.aborted; pending.done = true; wake(); });
+      .finally(() => { watcher.close(); pending.done = true;
+        if (controller.signal.aborted && checkRuns.get(attemptId) === pending) checkRuns.delete(attemptId);
+        else wake(); });
     checkRuns.set(attemptId, pending);
     return pending;
   }
@@ -630,5 +650,6 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       }
     });
   }
-  return { command, tick, recover, dispatch, read: () => readState(home) };
+  const stopChecks = () => { for (const pending of checkRuns.values()) pending.controller.abort(); };
+  return { command, tick, recover, dispatch, stopChecks, read: () => readState(home) };
 }
