@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { agents, exec, appHome, run, shared, setShared, spaces } from "herdr";
+import { agents, terminals, exec, appHome, run, shared, setShared, spaces } from "herdr";
 import { button } from "./ui.js";
 import * as config from "./config.js";
 import { ACCOUNTS, CODEX, accountOf, launchArgv, openInFolder, loadClaudeQuotas, full } from "./accounts.js";
@@ -10,6 +10,8 @@ import { row } from "./workflow-labels.js";
 
 const RUN_ACCOUNTS = "relevo.runs.accounts";
 const LAUNCH_TIMEOUT = 180000;
+// Codex asks to update before it starts; Esc is its own "skip" and changes nothing.
+export const codexUpdatePrompt = (screen) => /Update available · \S+ → \S+/.test(screen) && /esc skip/.test(screen);
 
 // Agents write only their checkout and the reports folder. Codex gets that from workspace-write; Claude runs
 // Bash in the OS sandbox and its file tools may not edit the app (its state, locks, mods or settings).
@@ -108,6 +110,27 @@ export class WorkflowRuns extends WorkflowDraftView {
           { kind: "ghost", disabled: this.busy, tip: info?.ahead === 0 ? "Closes its tabs and removes the worktree and its empty branch" : "Closes its tabs and removes the worktree; the branch stays" }))));
   }
 
+  // A run terminal that never became an agent may be sitting on Codex's update prompt: skip it, once per terminal.
+  skipUpdatePrompts(launch, found, cx) {
+    if (launch.reading || Date.now() - (launch.readAt ?? 0) < 5000) return;
+    const known = new Set(Object.values(found).filter(Boolean).map((agent) => agent.address));
+    launch.skipped ??= new Set();
+    const waiting = terminals().filter((k) => k.cwd === launch.worktree.path && !known.has(k.address) && !launch.skipped.has(k.address));
+    if (!waiting.length) return;
+    launch.reading = true; launch.readAt = Date.now();
+    cx.spawn(async () => {
+      try {
+        for (const k of waiting) {
+          const screen = (await exec("hc", ["read", k.address, "--lines", "20"])).stdout ?? "";
+          if (!codexUpdatePrompt(screen)) continue;
+          launch.skipped.add(k.address);
+          await exec("hc", ["keys", k.address, "esc"]);
+        }
+      } catch { /* the notice still asks for the prompt to be answered */ }
+      launch.reading = false;
+    });
+  }
+
   launchTick(cx) {
     this.refreshWorktreeInfo(cx);
     const launch = this.launch;
@@ -126,6 +149,7 @@ export class WorkflowRuns extends WorkflowDraftView {
     // The coordinator waits for a free agent itself; here an agent only has to exist and not wait on a prompt.
     const waiting = Object.entries(found).filter(([, agent]) => !agent || !["idle", "done", "working"].includes(agent.status));
     const stuck = waiting.find(([, agent]) => agent?.status === "blocked" || (!agent && Date.now() - launch.openedAt > 10000));
+    if (stuck && !stuck[1]) this.skipUpdatePrompts(launch, found, cx);
     const notice = stuck ? `Answer the prompt in “${launch.tabs[stuck[0]]}” to continue.` : `Starting agents · ${2 - waiting.length}/2 ready`;
     if (this.launchNotice !== notice) { this.launchNotice = notice; cx.notify(); }
     if (waiting.length) return;

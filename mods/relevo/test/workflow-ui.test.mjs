@@ -758,3 +758,24 @@ test('the task list follows the shown task when its state moves it to another li
   assert.equal(v.selected, 't'); assert.equal(v.filter, 'Needs you');
   v.close();
 });
+
+test('a run terminal stuck on the Codex update prompt is skipped once, and other prompts are left alone', async () => {
+  fake.stored['relevo.runs.mode'] = 'worktree';
+  const { v, cx } = await setup();
+  const { codexUpdatePrompt } = await import('../workflow-runs.js');
+  const update = 'Update available · 0.167.0 → 0.167.1\n› 1. Update now (runs `brew upgrade --cask codex`)\n  2. Skip\n  enter continue · esc skip';
+  assert.equal(codexUpdatePrompt(update), true);
+  assert.equal(codexUpdatePrompt('Do you trust the files in this folder?\n  enter continue · esc skip'), false);
+  v.launch = { stage: 'waiting', fields: { goalId: 'g', title: 'T', root: '/work/app' }, accounts: { executor: 'codex', reviewer: 'personal' }, at: Date.now(), openedAt: 0,
+    worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 't-1 · build', reviewer: 't-1 · review' } };
+  fake.agents = [{ address: 't2', tab_name: 't-1 · review', status: 'idle' }];
+  fake.terminals = [{ address: 't1', cwd: '/wt' }, { address: 't2', cwd: '/wt' }, { address: 't7', cwd: '/wt' }, { address: 't9', cwd: '/elsewhere' }];
+  const calls = [];
+  fake.exec = async (cmd, args) => { calls.push([cmd, ...args].join(' '));
+    return args[0] === 'read' ? { stdout: args[1] === 't1' ? update : 'Do you trust the files in this folder?' } : null; };
+  v.launchTick(cx); await flush();
+  v.launchTick(cx); await flush();
+  assert.deepEqual(calls.filter((line) => line.startsWith('hc keys')), ['hc keys t1 esc'], 'only the update prompt, only once');
+  assert.equal(calls.some((line) => /read t2|read t9/.test(line)), false, 'registered agents and other folders are not read');
+  v.close();
+});
