@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0 · 2026-11-11
+
+- **Runs: hand a task to two agents and decide on the result.** The panel now has two views, **Reviews** and **Runs**. **+ Run** takes a prompt; one agent implements, your checks run, a second agent reviews, and the result waits for you under **Ready for you** with its agents, round, checks, verdict and age. Accept with **A** then Enter, ask for changes with **R**, or defer. Rounds, minutes and concurrency are bounded, and nothing is sent twice: a delivery Relevo cannot confirm waits for you to reconcile it.
+- **Each run in its own worktree.** **Start** creates `run/<slug>` under `~/.herdr/worktrees`, copies the files your repo lists in `.worktreeinclude`, and opens the implementer and reviewer you picked in two tabs. Accounts at 100% are skipped. **Existing sessions** uses agents you already have open instead.
+- **Accepting commits what was reviewed.** Acceptance commits exactly the tree the reviewer saw to the run branch, without hooks; anything changed afterwards stays uncommitted. From there: **Open draft PR**, **Remove worktree** (a branch with commits stays), or **Commit accepted changes** if the commit did not land. A cancelled run offers **Discard worktree**.
+- **Accept several at once.** **Review a batch** previews and accepts several results of one repository, and commits each run to its own branch.
+- **Run agents stay in their checkout.** Codex runs with `workspace-write`. Claude runs Bash in the system sandbox and cannot edit Relevo's state, locks, mods or settings. Both can write their report and nothing else outside the worktree. Codex's "Update available" prompt is skipped when it holds up a run.
+- **The run window.** A run opens as a pane beside the work: status chips, the agent's summary as markdown, the diff with **Back to decision**, evidence, activity and searchable shortcuts (**?**). Command-Enter submits the prompt and a change request. Setups and unsent drafts are kept per run.
+- **Archive finished work.** **History** offers **Archive older than 7 days** for the run you are in. Tasks move to `relevo-workflow/archive/<month>.jsonl` with their events, and their evidence leaves the disk. A task an open run still needs stays. The queue holds 200 tasks and says so when it is full.
+- **Usage in the status bar.** Each account shows the window closest to its limit, with when it resets. A long window is labelled by its length, so Codex's reads "30d".
+- **Lighter while idle.** Slow checks no longer hold other tasks. The Inbox and the run window read a small revision file and only reload when it changes; the Inbox used to parse the whole state and redraw every 5 seconds.
+
 ## 0.6.3 · 2026-11-05
 
 - **The Inbox leads with what waits on you.** Sections now run: waiting on you, In Desktop, landing, review requests, your PRs, uncommitted work. Review requests come before your PRs, since a teammate is blocked on them. Agent time folds to "▸ Agent time today · 5h 20m" with **Week** on the line, and merged worktrees to "▸ N merged worktrees" with **Remove N** on the line. A merged worktree with uncommitted files stays in sight, and so does the one a merge alert brings you to. Folds you open stay open after a reload.
