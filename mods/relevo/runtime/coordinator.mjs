@@ -37,8 +37,9 @@ const CHECK_GRACE_MS = 500;
 // What a reviewer is shown of the change: it has no shell to read the diff itself.
 const MAX_DIFF = 24000;
 async function changeOf(root, base) {
-  const git = (...args) => run(['git', '-C', root, '--no-optional-locks', ...args], { timeout: 30000, limit: MAX_DIFF * 2 });
-  const [diff, untracked] = await Promise.all([git('diff', '--no-color', '--no-ext-diff', base), git('ls-files', '--others', '--exclude-standard')]);
+  // The checkout is the agent's: none of its config or attributes may run a program while it is read.
+  const git = (...args) => run(['git', '-C', root, '--no-optional-locks', '-c', 'core.fsmonitor=false', ...args], { timeout: 30000, limit: MAX_DIFF * 2 });
+  const [diff, untracked] = await Promise.all([git('diff', '--no-color', '--no-ext-diff', '--no-textconv', base, '--'), git('ls-files', '--others', '--exclude-standard')]);
   if (diff.code !== 0) return `Could not read the diff: ${String(diff.stderr).trim().slice(0, 300)}`;
   const added = untracked.stdout.split('\n').filter(Boolean);
   const text = [diff.stdout.trim() || 'No changes to tracked files.', added.length ? `New files, not in the diff:\n${added.slice(0, 50).join('\n')}` : ''].filter(Boolean).join('\n\n');

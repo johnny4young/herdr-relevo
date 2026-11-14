@@ -789,7 +789,7 @@ test('an agent started from a core that came from a Claude session gets none of 
   const [env, ...rest] = shellArgv('printf "%s|%s|%s|%s" "${CLAUDE_CONFIG_DIR-unset}" "${CLAUDE_CODE_CHILD_SESSION-unset}" "${CLAUDE_CODE_USE_BEDROCK-unset}" "$1"', 'a b');
   const zsh = rest.indexOf('zsh');
   const inherited = { PATH: process.env.PATH, HOME: '/nonexistent', CLAUDE_CONFIG_DIR: '/x/.claude-work', CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_CODE_USE_BEDROCK: '1' };
-  // -f: not the person's zsh files; -c as Relevo passes it.
-  const out = execFileSync(env, [...rest.slice(0, zsh), 'zsh', '-fc', ...rest.slice(zsh + 2)], { env: inherited, encoding: 'utf8' });
+  // A plain sh in zsh's place: the variables go before any shell runs, and CI has no zsh.
+  const out = execFileSync(env, [...rest.slice(0, zsh), 'sh', '-c', rest[zsh + 2], 'sh', ...rest.slice(zsh + 4)], { env: inherited, encoding: 'utf8' });
   assert.equal(out, 'unset|unset|1|a b');
 });

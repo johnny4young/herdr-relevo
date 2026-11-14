@@ -815,3 +815,16 @@ test("the reviewer is shown the change and its new files, since it has no shell"
   assert.match(review, /New files, not in the diff:\nnew\.js/);
   assert.doesNotMatch(f.sends[0].at(-1), /The change, as the coordinator/);
 });
+
+test("reading the change for the reviewer runs none of the checkout's diff programs", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const marker = path.join(f.base, "ran");
+  execFileSync("git", ["config", "diff.evil.textconv", `touch ${marker}; cat`], { cwd: f.root });
+  execFileSync("git", ["config", "core.fsmonitor", `touch ${marker}`], { cwd: f.root });
+  fs.writeFileSync(path.join(f.root, ".gitattributes"), "*.md diff=evil\n");
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  fs.writeFileSync(path.join(f.root, "README.md"), "fixture\nchanged\n");
+  f.report("executor", "completed", "Done"); await f.runtime.tick(); await f.runtime.tick();
+  assert.match(f.sends.at(-1).at(-1), /\+changed/);
+  assert.equal(fs.existsSync(marker), false);
+});
