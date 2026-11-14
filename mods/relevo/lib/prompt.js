@@ -1,5 +1,7 @@
 // What a waiting agent is asking, read from the bottom of its screen: the question, its numbered choices,
 // whether they are checkboxes, where the cursor is and where a Submit item sits.
+import { noteAsk } from "./asks.js";
+
 const OPTION = /^([❯›>]\s*)?(\d+)\.\s+(.+?)\s*$/;
 const SUBMIT = /^([❯›>]\s*)?(Submit|Submit answers)$/i;
 const BOX = /^\[([ xX✔✓✗])?\]\s*/;
@@ -27,7 +29,8 @@ const asksBlind = (question, options) => !options.some((o) => /^(type something|
 // Claude's own words for a plan: approving one isn't running what a cut screen hides.
 export const isPlan = (question) => /has written up a plan\b.*would you like to proceed\?$/i.test((question ?? "").replace(/\s+/g, " "));
 
-export function readPrompt(screen) {
+// note: what the hook wrote down for this wait, if anything; it fills in a permission the screen cuts or hides.
+export function readPrompt(screen, note = null, since = null) {
   const lines = (screen ?? "").split("\n").map((l) => l.replace(FRAME, "")).slice(-60);
   const none = { question: "", options: [], multi: false, submit: null, cursor: null, dialog: "" };
   let last = -1;
@@ -79,11 +82,16 @@ export function readPrompt(screen) {
   const multi = options.some((o) => "checked" in o);
   const preview = previewBeside(screen);
   const question = questionAbove(lines, found[0].i), ask = askAbove(screen, found[0].i, question, options);
-  if (ask?.ask.cut ? !isPlan(question) : !ask && asksBlind(question, options)) {
-    return { ...cantRead, ask: ask?.ask ?? null, question: "Can't read all of what this asks. Open the agent." };
+  let shown = ask?.ask ?? null;
+  if (!shown || shown.cut) {
+    const whole = noteAsk(note, screen, { since, plan: isPlan(question) });
+    if (whole) shown = { ...whole, title: shown?.title || whole.title, about: shown?.about || whole.about };
+  }
+  if (shown?.cut ? !isPlan(question) : !shown && asksBlind(question, options)) {
+    return { ...cantRead, ask: shown, question: "Can't read all of what this asks. Open the agent." };
   }
   return {
-    question: ask?.question ?? question, ask: ask?.ask ?? null, options, multi, submit, cursor, preview,
+    question: ask?.question ?? question, ask: shown, options, multi, submit, cursor, preview,
     summary: summaryAbove(lines, found[0].i),
     dialog: dialogWords(screen, found[0].i, last),
     above: aboveEdge(screen, found[0].i),

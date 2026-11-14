@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **A permission longer than the screen shows whole.** With the optional hook installed, a command, an edit or a plan that doesn't fit the agent's screen shows complete in its Inbox card and can be answered there. Before, the card said "Can't read all of what this asks. Open the agent." Run `bash ~/.config/herdr-app/mods/relevo/hooks/relevo-labels.sh --install` once to add the new event to each account; without it everything works as before.
+- **A run says how it is going.** The implementing agent writes what it is doing, its percent done and its time left, and the run shows it instead of "Awaiting implementation report".
+- **Review findings have levels.** A reviewer lists blocker, major and minor findings. Only major or above sends the work back; minor ones reach you as notes, with what the reviewer could not run or prove. `RUN_MUST_FIX` in `config.js` moves the bar.
+- **What run agents are told is in two files.** `runtime/roles/executor.md` and `reviewer.md` hold the words; the coordinator fills them in.
+- **An installer.** `./install.sh` installs or updates Relevo and keeps the files you changed, with the new version beside them as `.new`. `node scripts/relevo.mjs doctor` checks the install and the programs it needs; `uninstall` removes it. `--dry-run` shows what would change.
+
 ## 0.7.2 · 2026-11-12
 
 - **A PR you just opened stays in sight.** For its first day, a PR of yours shows under **YOUR PRS** as "new, CI passed", "new, CI running" or "new", even when it only waits for the merge. It stays out of the badge count. Before, one with green CI went straight into "▸ N ready to merge" and one with CI still running showed nowhere.

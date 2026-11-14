@@ -17,7 +17,7 @@ const CONFIG = `export const ACCOUNTS = [
 ];
 export const CODEX = { key: "codex", label: "Codex", letter: "X", launcher: "codex", bg: "#000", fg: "#fff" };
 `;
-const EVENTS = ["SessionStart", "Stop", "SessionEnd"];
+const EVENTS = ["SessionStart", "Stop", "SessionEnd", "PermissionRequest"];
 
 let home, script, settingsPath, log;
 beforeEach(() => {
@@ -192,4 +192,47 @@ test("an account folder that doesn't exist is skipped and never created", () => 
 
 test("an unknown option exits 2", () => {
   assert.equal(run(["--nope"]).status, 2);
+});
+
+const noteFile = () => path.join(home, ".local/state/relevo/asks/t1.json");
+const request = (extra = {}) => ({
+  hook_event_name: "PermissionRequest", cwd: "/repo", tool_name: "Bash",
+  tool_input: { command: 'printf "a\\nb\\n" > out.txt && cat out.txt', description: "Write two lines" }, ...extra,
+});
+
+test("a permission request is noted for the Inbox, answers nothing and sets no label", () => {
+  const r = spawnSync("bash", [script], { env: env({ HC_TERMINAL_ID: "t1" }), input: JSON.stringify(request()), encoding: "utf8" });
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, "");
+  assert.equal(fs.existsSync(log), false);
+  const note = JSON.parse(fs.readFileSync(noteFile(), "utf8"));
+  assert.equal(note.terminal, "t1");
+  assert.equal(note.tool, "Bash");
+  assert.deepEqual(note.input, request().tool_input);
+  assert.ok(Math.abs(note.at - Date.now() / 1000) < 60);
+  assert.equal(fs.statSync(noteFile()).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(path.dirname(noteFile())).mode & 0o777, 0o700);
+});
+
+test("a huge request keeps its start, and a terminal id that is a path writes nothing", () => {
+  hook(request({ tool_input: { command: "x".repeat(50000) } }));
+  assert.equal(JSON.parse(fs.readFileSync(noteFile(), "utf8")).input.command.length, 20001);
+  fs.rmSync(noteFile());
+  hook(request(), { HC_TERMINAL_ID: "../t1" });
+  hook(request(), { HC_TERMINAL_ID: "mac/t1" });
+  assert.deepEqual(fs.readdirSync(path.dirname(noteFile())), []);
+});
+
+test("the note goes when the turn or the session ends", () => {
+  for (const event of ["Stop", "SessionEnd"]) {
+    hook(request());
+    assert.equal(fs.existsSync(noteFile()), true);
+    hook({ hook_event_name: event });
+    assert.equal(fs.existsSync(noteFile()), false, event);
+  }
+});
+
+test("another event whose text names a permission request is not one", () => {
+  hook({ hook_event_name: "SessionStart", cwd: '"hook_event_name": "PermissionRequest"' });
+  assert.equal(fs.existsSync(noteFile()), false);
 });

@@ -39,13 +39,13 @@ async function fixture({ sendCode = 0, checkCode = 0, maxRounds = 3, checksImpl:
   const taskId = created.result.taskId;
   // The state keeps only a hash; the token travels in the prompt sent to the agent.
   const tokenFor = (attempt) => sends.map((args) => args.at(-1)).find((text) => text.includes(attempt.id))?.match(/"token":"([^"]+)"/)?.[1] ?? attempt.token;
-  const report = (role, status, summary, attemptOverride) => {
+  const report = (role, status, summary, attemptOverride, extra = {}) => {
     const current = runtime.read().tasks.find((t) => t.id === taskId), attempt = attemptOverride ?? current.attempts.at(-1);
     const reports = path.join(home, "relevo-workflow", "reports"); fs.mkdirSync(reports, { recursive: true });
-    fs.writeFileSync(path.join(reports, `${attempt.id}.json`), JSON.stringify({ attemptId: attempt.id, token: tokenFor(attempt), status, summary }));
+    fs.writeFileSync(path.join(reports, `${attempt.id}.json`), JSON.stringify({ attemptId: attempt.id, token: tokenFor(attempt), status, summary, ...extra }));
     return attempt;
   };
-  return { base, home, root, runtime, taskId, report, sends, interrupts, setActorStatus(address, status) { actorStatuses.set(address, status); }, setRevision(value) { revision = value; }, setNow(value) { now = value; }, get now() { return now; } };
+  return { base, home, root, runtime, taskId, report, tokenFor, sends, interrupts, setActorStatus(address, status) { actorStatuses.set(address, status); }, setRevision(value) { revision = value; }, setNow(value) { now = value; }, get now() { return now; } };
 }
 
 test("executor checks reviewer and explicit human acceptance complete the task", async (t) => {
@@ -717,4 +717,76 @@ test("an accepted run whose commit never landed can commit the accepted revision
   assert.equal(execFileSync("git", ["-C", f.root, "log", "-1", "--format=%s", "run/late"], { encoding: "utf8" }).trim(), "Add late");
   await assert.rejects(f.runtime.command({ action: "worktree-commit", taskId: id }), /already committed/);
   await assert.rejects(f.runtime.command({ action: "worktree-commit", taskId: f.taskId }), /Only an accepted worktree run/);
+});
+
+const reviewWith = async (f, status, findings) => {
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  f.report("executor", "completed", "Done"); await f.runtime.tick(); await f.runtime.tick();
+  f.report("reviewer", status, "Reviewed", undefined, { findings, notRun: ["npm run e2e"], notProven: ["Works offline"] });
+  await f.runtime.tick();
+  return f.runtime.read().tasks[0];
+};
+
+test("a review whose findings are all below the bar reaches the person with them, not the implementer", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const task = await reviewWith(f, "changes_requested", [{ level: "minor", where: "a.js:3", issue: "Name could be clearer" }]);
+  assert.equal(task.state, "needs_you");
+  const report = task.attempts.at(-1).report;
+  assert.equal(report.status, "completed");
+  assert.deepEqual(report.findings, [{ level: "minor", where: "a.js:3", issue: "Name could be clearer", fix: "" }]);
+  assert.deepEqual(report.notRun, ["npm run e2e"]);
+  assert.deepEqual(report.notProven, ["Works offline"]);
+});
+
+test("a blocker sends the work back even when the reviewer said completed, with the must-fix first", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const task = await reviewWith(f, "completed", [
+    { level: "minor", issue: "Typo in a comment" }, { level: "blocker", where: "store.js:9", issue: "Deletes the file before the copy", fix: "Copy first" }]);
+  assert.equal(task.attempts.at(-1).role, "executor"); assert.equal(task.attempts.at(-2).report.status, "changes_requested");
+  assert.match(task.feedback, /^Reviewed\n\nMust fix:\n- \[blocker\] store\.js:9: Deletes the file before the copy Fix: Copy first\n\nOptional, below the bar:\n- \[minor\] Typo in a comment$/);
+  assert.match(f.sends.at(-1).at(-1), /Requested corrections: Reviewed\n\nMust fix:/);
+});
+
+test("a review without findings keeps the status it gave, and findings an agent garbles are dropped", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const task = await reviewWith(f, "changes_requested", [{ level: "blocker" }, "nonsense", null]);
+  assert.equal(task.attempts.at(-1).role, "executor");
+  assert.equal(task.feedback, "Reviewed");
+  assert.deepEqual(task.attempts.at(-2).report.findings, []);
+});
+
+test("the status an agent writes shows while it works, only with its token, and goes with its report", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  const attempt = f.runtime.read().tasks[0].attempts[0];
+  const file = path.join(f.home, "relevo-workflow", "reports", `${attempt.id}.status.json`);
+  const say = (body) => fs.writeFileSync(file, JSON.stringify(body));
+  say({ attemptId: attempt.id, token: "not-the-token", line: "Stolen", done: 99, left: 1 }); await f.runtime.tick();
+  assert.equal(f.runtime.read().tasks[0].attempts[0].progress, undefined);
+  fs.writeFileSync(file, '{"attemptId":'); await f.runtime.tick();
+  assert.equal(f.runtime.read().tasks[0].state, "running");
+  say({ attemptId: attempt.id, token: f.tokenFor(attempt), line: "  Fixing the two\nfailing tests ", done: 140, left: 12.4 }); await f.runtime.tick();
+  const { at, ...progress } = f.runtime.read().tasks[0].attempts[0].progress;
+  assert.deepEqual(progress, { line: "Fixing the two failing tests", done: 100, left: 12 });
+  assert.ok(Date.parse(at));
+  f.report("executor", "completed", "Done"); await f.runtime.tick();
+  assert.equal(f.runtime.read().tasks[0].attempts[0].progress, undefined);
+  assert.equal(fs.existsSync(file), false);
+});
+
+test("each role's prompt comes from its file, with the report and status files and no empty section", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  const sent = f.sends.at(-1).at(-1), attempt = f.runtime.read().tasks[0].attempts[0];
+  assert.match(sent, new RegExp(`^Relevo task ${f.taskId}; attempt ${attempt.id}; role executor\\.`));
+  assert.match(sent, /Goal: Example task\n\nExpected outcome: Expected behavior/);
+  assert.ok(sent.includes(path.join(f.home, "relevo-workflow", "reports", `${attempt.id}.status.json`)));
+  assert.ok(sent.includes(path.join(f.home, "relevo-workflow", "reports", `${attempt.id}.json`)));
+  assert.doesNotMatch(sent, /Requested corrections|\{\{|\n\n\n/);
+  assert.doesNotMatch(attempt.prompt, new RegExp(f.tokenFor(attempt)));
+  f.report("executor", "completed", "Done"); await f.runtime.tick(); await f.runtime.tick();
+  const review = f.sends.at(-1).at(-1);
+  assert.match(review, /role reviewer\./);
+  assert.match(review, /fix every finding at major or above/);
+  assert.match(review, /Observed check results from the coordinator: \[\{"argv":\["npm","test"\],"code":0/);
 });

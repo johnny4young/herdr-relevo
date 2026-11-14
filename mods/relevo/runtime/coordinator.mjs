@@ -7,7 +7,13 @@ import { prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, sn
 import { createHash } from 'node:crypto';
 import { archivable, stageArchive, publishArchive, MAX_TASKS } from './archive.mjs';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
-import { SKILLS } from '../config.js';
+import * as config from '../config.js';
+import { renderRole } from './roles.mjs';
+import { LEVELS, cleanReport, reviewStatus, feedbackOf, cleanProgress } from '../lib/run-report.js';
+
+// Older config.js files lack the newer names; a missing named import would stop the coordinator.
+const SKILLS = config.SKILLS ?? {};
+const MUST_FIX = LEVELS.includes(config.RUN_MUST_FIX) ? config.RUN_MUST_FIX : 'major';
 
 const terminalStates = new Set(['accepted', 'cancelled']);
 const text = (value, max = 4000) => typeof value === 'string' && value.trim() && value.length <= max;
@@ -462,18 +468,36 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (['needs_you', 'needs_review'].includes(t.state)) { t.state = 'blocked'; t.error = 'A follow-up was sent. Refresh and run a new review before accepting.'; }
       log(doc, t, result.code === 0 ? 'Message delivered' : 'Message delivery uncertain', result.stderr || message.text, message.address); });
   }
+  // The words of each role live in roles/<role>.md; this only fills them in.
   function prompt(task, attempt, preferences) {
-    const file = path.join(dir, 'reports', `${attempt.id}.json`);
-    const report = JSON.stringify({ attemptId: attempt.id, token: attempt.token, status: 'completed', summary: 'Describe the verified outcome' });
-    return [`Relevo task ${task.id}; attempt ${attempt.id}; role ${attempt.role}.`, `Goal: ${task.title}`, `Expected outcome: ${task.criteria}`, `Repository: ${task.root}`,
-      attempt.role === 'reviewer' ? 'Independently review the current changes and checks. Do not edit files. Report changes_requested with actionable findings if needed.' : 'Implement only this task. Read applicable repository instructions. Do not spawn agents, push, merge, release, or modify unrelated work.',
-      task.feedback ? `Requested corrections: ${task.feedback}` : '',
-      task.checks.length ? `Configured checks: ${JSON.stringify(task.checks)}` : 'No automated check command was configured; report that limitation.',
-      attempt.role === 'reviewer' ? `Observed check results from the coordinator: ${JSON.stringify(task.checksResult.map((check) => ({ argv: check.argv, code: check.code, stdout: check.stdout?.slice(-2000), stderr: check.stderr?.slice(-2000) }))).slice(0, 16000)}\nAssess these observed outputs and independently inspect the code and tests. A read-only session need not rerun commands; explicitly state that limitation. Report blocked if the available evidence is insufficient for your review.` : '',
-      preferenceContext(preferences),
-      `Return a structured report by writing this JSON file locally: ${file}`, report,
-      'Use status completed, changes_requested (reviewer only), or blocked. Replace summary with your actual findings. Do not claim human acceptance. Write the report after all changes/checks; it is the handoff to the coordinator.',
-      `Limit: ${task.maxMinutes} minutes per attempt. Stop and report blocked if permissions or scope are unclear.`].filter(Boolean).join('\n\n');
+    const proof = { attemptId: attempt.id, token: attempt.token }, reviewer = attempt.role === 'reviewer';
+    return renderRole(attempt.role, {
+      taskId: task.id, attemptId: attempt.id, title: task.title, criteria: task.criteria, root: task.root,
+      feedback: task.feedback ?? '', maxMinutes: String(task.maxMinutes), mustFix: MUST_FIX,
+      checks: task.checks.length ? `Configured checks: ${JSON.stringify(task.checks)}` : 'No automated check command was configured; report that limitation.',
+      checkResults: JSON.stringify(task.checksResult.map((check) => ({ argv: check.argv, code: check.code, stdout: check.stdout?.slice(-2000), stderr: check.stderr?.slice(-2000) }))).slice(0, 16000),
+      preferences: preferenceContext(preferences),
+      statusFile: statusFile(attempt.id), statusExample: JSON.stringify({ ...proof, line: 'Fixing the two failing tests', done: 40, left: 15 }),
+      reportFile: path.join(dir, 'reports', `${attempt.id}.json`),
+      reportExample: JSON.stringify(reviewer
+        ? { ...proof, status: 'changes_requested', summary: 'Your verdict in plain words', findings: [{ level: 'major', where: 'src/file.js:12', issue: 'What is wrong, with proof', fix: 'What to do instead' }], notRun: [], notProven: [] }
+        : { ...proof, status: 'completed', summary: 'What the person now sees or can do', details: ['What changed', 'How it was checked'], notProven: [] }),
+    });
+  }
+  const statusFile = (attemptId) => path.join(dir, 'reports', `${attemptId}.status.json`);
+  const proves = (attempt, written) => written?.attemptId === attempt.id && (attempt.tokenHash ? tokenHash(written.token) === attempt.tokenHash : written.token === attempt.token);
+  // How the agent says its work is going. A file it is still writing, or one that isn't its own, is left for the next tick.
+  function noteProgress(task, attempt) {
+    let progress;
+    try {
+      const file = statusFile(attempt.id), stat = fs.lstatSync(file);
+      if (!stat.isFile() || stat.size > 4096) return;
+      const written = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (proves(attempt, written)) progress = cleanProgress(written);
+    } catch { return; }
+    const was = attempt.progress;
+    if (!progress || (was?.line === progress.line && was.done === progress.done && was.left === progress.left)) return;
+    update((doc) => { const a = taskById(doc, task.id).attempts.at(-1); if (a?.id === attempt.id && a.state === 'running') a.progress = { ...progress, at: new Date(clock()).toISOString() }; });
   }
   async function dispatch(taskId) {
     const doc = readState(home), task = taskById(doc, taskId), role = task.nextRole || (task.state === 'needs_review' ? 'reviewer' : 'executor'), actor = task[role];
@@ -552,13 +576,17 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     const attempt = task.attempts.at(-1);
     if (!attempt || attempt.state !== 'running' || !['running', 'blocked'].includes(task.state)) return;
     const file = path.join(dir, 'reports', `${attempt.id}.json`);
+    noteProgress(task, attempt);
     // A half-written report or an agent still working falls through to the deadline check.
     report: if (fs.existsSync(file)) {
       const stat = fs.lstatSync(file);
       if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 32768) { block(task.id, 'Invalid agent report file'); return; }
       let report;
       try { report = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { break report; }
-      if (report.attemptId !== attempt.id || (attempt.tokenHash ? tokenHash(report.token) !== attempt.tokenHash : report.token !== attempt.token) || !['completed', 'changes_requested', 'blocked'].includes(report.status) || !text(report.summary, 10000)) { block(task.id, 'Invalid or mismatched agent report'); return; }
+      if (!proves(attempt, report) || !['completed', 'changes_requested', 'blocked'].includes(report.status) || !text(report.summary, 10000)) { block(task.id, 'Invalid or mismatched agent report'); return; }
+      const extra = cleanReport(report);
+      // A reviewer's own findings decide between changes and completion; only an implementer's status is taken as said.
+      const status = attempt.role === 'reviewer' ? reviewStatus(report.status, extra.findings, MUST_FIX) : report.status;
       const actor = await hc(['get', '--json', attempt.address]);
       if (actor.code !== 0) { block(task.id, 'Agent disconnected before its report could be verified'); return; }
       const state = JSON.parse(actor.stdout);
@@ -567,7 +595,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (state.status === 'working') break report;
       if (!['idle', 'done'].includes(state.status)) { block(task.id, `Agent stopped with ${state.status ?? state.state}`); return; }
       let revision, checks = task.checksResult;
-      if (attempt.role === 'executor' && report.status === 'completed') {
+      if (attempt.role === 'executor' && status === 'completed') {
         const pending = checkRuns.get(attempt.id) ?? startChecks(task, attempt.id, await fingerprintImpl(task.root));
         if (!pending.done) await Promise.race([pending.promise, new Promise((resolve) => globalThis.setTimeout(resolve, CHECK_GRACE_MS).unref?.())]);
         // Stop/cancel is not a failed check. Keep the report available so an
@@ -578,23 +606,23 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         ({ revision, checks } = pending);
       } else revision = await fingerprintImpl(task.root);
       // The reviewed tree is read between the two fingerprints, so it is stored only for an unchanged checkout.
-      const reviewedTree = task.worktree && attempt.role === 'reviewer' && report.status === 'completed' ? await snapshotTree(task.root).catch(() => null) : null;
+      const reviewedTree = task.worktree && attempt.role === 'reviewer' && status === 'completed' ? await snapshotTree(task.root).catch(() => null) : null;
       const afterChecks = await fingerprintImpl(task.root);
       update((doc) => {
         const t = taskById(doc, task.id), a = t.attempts.at(-1);
         if (a?.id !== attempt.id || a.state !== 'running' || terminalStates.has(t.state)) return;
-        a.state = 'reported'; a.report = { status: report.status, summary: report.summary }; a.summary = report.summary;
+        a.state = 'reported'; a.report = { status, summary: report.summary, ...extra }; a.summary = report.summary; delete a.progress;
         // The full prompt matters while the attempt runs; afterwards its opening is enough to audit it.
         if (a.prompt?.length > REPORTED_PROMPT) a.prompt = `${a.prompt.slice(0, REPORTED_PROMPT)}…`;
         // A valid attempt-specific report also reconciles an uncertain delivery.
         a.delivery = 'acknowledged'; t.error = null;
         log(doc, t, 'Agent reported', `${attempt.role}: ${report.summary}`, attempt.address);
-        if (report.status === 'blocked') { t.state = 'blocked'; t.error = report.summary; return; }
+        if (status === 'blocked') { t.state = 'blocked'; t.error = report.summary; return; }
         if (attempt.role === 'reviewer' && (revision !== attempt.revision || afterChecks !== revision)) { t.state = 'blocked'; t.error = 'Review is stale: checkout changed during review'; return; }
         if (attempt.role === 'executor' && afterChecks !== revision) { t.state = 'blocked'; t.error = 'Checks changed the checkout. Review the changes before retrying.'; return; }
         const failed = checks.some((check) => check.code !== 0);
-        if ((attempt.role === 'reviewer' && report.status === 'changes_requested') || (attempt.role === 'executor' && (failed || report.status !== 'completed'))) {
-          t.feedback = failed ? failedChecks(checks) : report.summary;
+        if ((attempt.role === 'reviewer' && status === 'changes_requested') || (attempt.role === 'executor' && (failed || status !== 'completed'))) {
+          t.feedback = failed ? failedChecks(checks) : feedbackOf({ summary: report.summary, findings: extra.findings }, MUST_FIX).slice(0, MAX_FEEDBACK);
           t.checksResult = checks; t.revision = afterChecks;
           if (t.round >= t.maxRounds) { t.state = 'blocked'; t.error = 'Correction budget exhausted; human direction required'; }
           else { t.state = 'ready'; t.nextRole = 'executor'; }
@@ -604,6 +632,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         if (attempt.role === 'executor') { t.checksResult = checks; t.state = 'needs_review'; t.nextRole = 'reviewer'; log(doc, t, 'Checks observed', checks.length ? `${checks.length} checks passed` : 'No checks configured'); }
         else { t.state = 'needs_you'; if (t.worktree) { t.worktree.reviewedTree = reviewedTree; t.worktree.reviewedRevision = afterChecks; } log(doc, t, 'Human review requested', 'Inspect changes and evidence, then accept, request changes or defer'); }
       });
+      fs.rmSync(statusFile(attempt.id), { force: true });
       return;
     }
     if (!attempt.timedOut && clock() - Date.parse(attempt.at) > task.maxMinutes * 60000) {

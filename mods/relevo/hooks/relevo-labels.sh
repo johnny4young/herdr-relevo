@@ -4,7 +4,8 @@
 # Optional Claude Code hook for Relevo. It only sets terminal labels; setup is in HOOK.md.
 #
 # As a hook (SessionStart, Stop, SessionEnd) it reads Claude's JSON on stdin and sets agent.account, agent.jira,
-# agent.transcript, agent.wait and agent.bg. Outside a Herdr terminal it does nothing.
+# agent.transcript, agent.wait and agent.bg. On PermissionRequest it only notes what is asked, for the Inbox card.
+# Outside a Herdr terminal it does nothing.
 # --check, --install and --uninstall manage it in the settings of each account in config.js. Needs jq.
 
 jq=jq
@@ -25,10 +26,31 @@ locate() {
 # {claudeDir: account key} pairs from config.js, so a launcher's settings folder names its account.
 ACCOUNTS='[scan("key:\\s*\"([^\"]+)\"[^{}]*?claudeDir:\\s*\"([^\"]+)\"")]'
 
+# What the agent asks permission for, kept until its turn ends. It never answers: it prints nothing,
+# so Claude shows its own prompt as always.
+note_ask() {
+  local dir=$HOME/.local/state/relevo/asks tmp
+  mkdir -p "$dir" 2>/dev/null && chmod 700 "$dir" || return 0
+  tmp=$(mktemp "$dir/.ask-XXXXXX" 2>/dev/null) || return 0
+  "$jq" -c --arg t "$HC_TERMINAL_ID" 'select(.hook_event_name == "PermissionRequest")
+    | {at: now, terminal: $t, cwd: (.cwd // ""), tool: (.tool_name // ""),
+       input: ((.tool_input // {}) | walk(if type == "string" and length > 20000 then .[0:20000] + "…" else . end))}
+    | if (.input | tojson | length) > 400000 then .input = {} else . end' <<<"$1" >"$tmp" 2>/dev/null
+  if [ -s "$tmp" ]; then mv "$tmp" "$dir/$HC_TERMINAL_ID.json"; else rm -f "$tmp"; fi
+}
+
 on_hook() {
   [ -n "${HC_TERMINAL_ID:-}" ] || return 0
-  local input hc end
+  case $HC_TERMINAL_ID in */* | *..*) return 0 ;; esac
+  local input hc end ask
   IFS= read -r -d "" input
+  ask='"hook_event_name"[[:space:]]*:[[:space:]]*"PermissionRequest"'
+  if [[ $input =~ $ask ]]; then
+    note_ask "$input"
+    return 0
+  fi
+  [[ $input =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"(SessionStart|Stop|SessionEnd)\" ]] \
+    && rm -f "$HOME/.local/state/relevo/asks/$HC_TERMINAL_ID.json"
   hc=hc
   command -v hc >/dev/null || hc=$HOME/.local/bin/hc
   end='"hook_event_name"[[:space:]]*:[[:space:]]*"SessionEnd"'
@@ -75,7 +97,7 @@ command_line() {
 
 # Only commands this script wrote count as ours; anything else that mentions it stays.
 read -r -d '' MANAGE <<'JQ' || true
-  def events: ["SessionStart", "Stop", "SessionEnd"];
+  def events: ["SessionStart", "Stop", "SessionEnd", "PermissionRequest"];
   def tok: "('[^']*'|[^\\s'\"]+)";
   def ourfile: (if startswith("'") then .[1:-1] else . end) | split("/") | last | test("^relevo-labels\\.sh$");
   def generated: (.command // "") as $c

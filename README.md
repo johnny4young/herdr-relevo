@@ -24,6 +24,8 @@ The panel has two views. **Reviews** is the Inbox described below. **Runs** is f
 
 **What a run agent can touch.** Its worktree and its own report, nothing else. Codex runs with `workspace-write`; set `RUN_CODEX_MODEL` in `config.js` to choose its model. Claude runs Bash in the system sandbox, and its file tools cannot edit Relevo's state, mods or settings. A Claude reviewer has no shell at all.
 
+**While it works and when it reports.** The implementing agent says what it is doing, how far along it is and how long it thinks is left; the run shows that line. The reviewer lists its findings by level: blocker, major or minor. Only a finding at major or above sends the work back for a correction round; lower ones reach you as notes beside the result, with what the reviewer could not run or prove. Set `RUN_MUST_FIX` in `config.js` to `"blocker"` or `"minor"` to move that bar. What each agent is told lives in `mods/relevo/runtime/roles/executor.md` and `reviewer.md`.
+
 **Limits.** Each run has a maximum number of correction rounds and minutes per attempt, and two runs work at a time. A message Relevo cannot confirm was delivered is never sent again: the run waits for you to look at the agent and reconcile it.
 
 **More than one result.** **Review a batch** previews and accepts several results of one repository at once. **History** keeps finished tasks; **Archive older than 7 days** moves the ones the run no longer needs to `relevo-workflow/archive/`.
@@ -117,32 +119,35 @@ worktrees that are safe to remove go in one Confirm. When your PR merges, the to
 1. Install the two community mods it uses: [space-folders](https://github.com/jankeesvw/herdr-space-folders)
    and [issues](https://github.com/jankeesvw/herdr-issues) (from herdr.dev, or copy their folders into
    `~/.config/herdr-app/mods/`).
-2. Copy `layouts/relevo.json` and `layouts/relevo.svg` to `~/.config/herdr-app/layouts/` and `mods/relevo`, `mods/relevo-agents`,
-   `mods/relevo-files` and `mods/relevo-tabs` to `~/.config/herdr-app/mods/`. Merge `keys.json` into yours.
+2. From a clone of this repo, run `./install.sh --dry-run` to see what it would do, then `./install.sh`. It copies the
+   four mods and the layout into `~/.config/herdr-app`, creates `mods/relevo/config.js` and adds the keys you don't
+   have to `keys.json`; a key you already use stays yours. It needs Node (see `.nvmrc`).
 3. Switch to the layout (`ctrl-shift-l`) and open Settings (the gear beside ACCOUNTS): your accounts, the GitHub
    orgs that use each one, and where your clones live. It writes `mods/relevo/config.js`, which you can also edit.
 
 It needs `git` and the GitHub CLI (`gh auth login`) on your PATH, and `claude` and optionally `codex`.
+`node scripts/relevo.mjs doctor` checks the installed files, the keys and those programs, and says what is missing.
 
 Waiting agents' questions are answered from the Inbox for Claude Code and Codex. Codex only asks them in Plan mode;
 outside it, it decides on its own.
 
 ## Update
 
-Herdr doesn't update mods from others, and adding Relevo again installs a renamed second copy, so copy the new files
-over the old ones. From a clone of this repo:
+Herdr doesn't update mods from others, and adding Relevo again installs a renamed second copy. From a clone of this repo:
 
 ```sh
-rsync -a --exclude config.js mods/relevo/ ~/.config/herdr-app/mods/relevo/
-rsync -a mods/relevo-agents/ ~/.config/herdr-app/mods/relevo-agents/
-rsync -a mods/relevo-files/ ~/.config/herdr-app/mods/relevo-files/
-rsync -a mods/relevo-tabs/ ~/.config/herdr-app/mods/relevo-tabs/
-cp layouts/relevo.json layouts/relevo.svg ~/.config/herdr-app/layouts/
+git pull --ff-only
+./install.sh
+node scripts/relevo.mjs doctor
 ```
 
-Mods reload by themselves. `--exclude config.js` keeps your accounts; copying that file over yours resets them. Don't add `--delete`: it removes your own icons. Compare
-`keys.json` with yours and add what's new. Relevo's keys now live in a `layout:relevo` section; if yours are under
-`global`, move them so they only act while Relevo shows.
+Mods reload by themselves. An update replaces only the files it installed and you left alone. A file you changed stays,
+with the new one beside it as `<file>.new`; your `config.js` and your own icons are never touched. Whatever it replaces
+goes to `~/.config/herdr-app/relevo-install/backups/`. The first run over files you copied by hand replaces them, with
+that backup. `node scripts/relevo.mjs uninstall` removes what it installed and you didn't change.
+
+Relevo's keys live in a `layout:relevo` section; if yours are under `global`, move them so they only act while Relevo
+shows.
 
 ## What it reads and runs
 
@@ -158,7 +163,9 @@ Mods reload by themselves. `--exclude config.js` keeps your accounts; copying th
   a review). Keeps the counts in `~/.local/state/relevo/usage/`.
 - Merges, updates and marks PRs ready only when you click (`gh pr merge`, `gh pr update-branch`, `gh pr ready`), and
   re-runs failed jobs with `gh run rerun --failed`. **Save checkpoint** stores a git tree under `refs/relevo/seen/` for **Since I looked**. **Mark file viewed** and **Mark all viewed** track reviewed file contents separately.
-- Runs keep their state in `~/.config/herdr-app/relevo-workflow/` (tasks, attempts, agent reports, evidence up to 100 MB, and the archive) and run metadata in `~/.config/herdr-app/relevo-goals.json`. While a run is working, a coordinator (`node`, started with `hc run --bg`) sends each agent its task with `hc send`, runs the checks you configured in the run's checkout, and stops when nothing is left to do. A worktree run adds a worktree under `~/.herdr/worktrees/` and a `run/…` branch; it commits to that branch only when you accept, and pushes it and runs `gh pr create --draft` only when you click **Open draft PR**.
+- The installer (`install.sh`, `scripts/relevo.mjs`) writes only inside the Herdr app folder: the mods, the layout, the
+  keys it adds to `keys.json`, and `relevo-install/` (a sha256 of each file it installed, and backups of what it replaced).
+- Runs keep their state in `~/.config/herdr-app/relevo-workflow/` (tasks, attempts, agent reports and status lines, evidence up to 100 MB, and the archive) and run metadata in `~/.config/herdr-app/relevo-goals.json`. While a run is working, a coordinator (`node`, started with `hc run --bg`) sends each agent its task with `hc send`, runs the checks you configured in the run's checkout, and stops when nothing is left to do. A worktree run adds a worktree under `~/.herdr/worktrees/` and a `run/…` branch; it commits to that branch only when you accept, and pushes it and runs `gh pr create --draft` only when you click **Open draft PR**.
 - Shows macOS notifications with `terminal-notifier` when installed, else `osascript`.
 - Writes `~/relevo-backups/deletions.log` (each worktree it removes: time, repo, path, branch and commit),
   `~/.local/state/relevo/ledger.jsonl` (agent time), `~/.local/state/relevo/replies.json` (how often you send
@@ -173,14 +180,17 @@ Mods reload by themselves. `--exclude config.js` keeps your accounts; copying th
   statusline writes to `~/.cache/herdr-relevo/quota-<account>.json` (only when the values change, or an idle session's
   old values look new); `agent.account`, `agent.jira` and
   `agent.transcript` terminal labels from a Claude hook, for account chips, per-ticket time and resumed handoffs.
-- That hook is one optional Claude hook on three events (SessionStart, Stop, SessionEnd), in bash with `jq`, and it only sets terminal
-  labels: account, ticket, session file and background tasks. Without it Relevo still runs; you lose account chips,
-  resumed handoffs (handoffs use the note) and the background-task marker, while ticket time falls back to the ticket
-  in the branch name. To set it up, tell your agent: `Read ~/.config/herdr-app/mods/relevo/hooks/HOOK.md and follow it.`
+- That hook is one optional Claude hook on four events (SessionStart, Stop, SessionEnd, PermissionRequest), in bash with
+  `jq`. On the first three it only sets terminal labels: account, ticket, session file and background tasks. On a
+  permission request it writes what the agent asks (the tool and its whole input, such as a command) to
+  `~/.local/state/relevo/asks/<terminal>.json`, readable only by you, and removes it when the turn ends; it never answers
+  the request. Without it Relevo still runs; you lose account chips, resumed handoffs (handoffs use the note) and the
+  background-task marker, ticket time falls back to the ticket in the branch name, and a permission longer than the
+  agent's screen shows as "Can't read all of what this asks" instead of whole. To set it up, tell your agent: `Read ~/.config/herdr-app/mods/relevo/hooks/HOOK.md and follow it.`
 
 ## Tests
 
-`node --test 'test/*.test.mjs'` from `mods/relevo` and `mods/relevo-files`, and `npx eslint@10.13.0 mods` from the root for undefined names (Node from `.nvmrc`). CI runs both on every push.
+`node --test 'test/*.test.mjs'` from `mods/relevo` and `mods/relevo-files`, `node --test 'scripts/tests/*.test.mjs'` from the root (the installer, into throwaway folders), and `npx eslint@10.13.0 mods` from the root for undefined names (Node from `.nvmrc`). CI runs both on every push.
 
 ## License
 
