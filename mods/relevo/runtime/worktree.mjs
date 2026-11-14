@@ -8,7 +8,9 @@ import { randomUUID } from 'node:crypto';
 const execFile = promisify(nodeExecFile);
 const git = (cwd, args, env) => execFile('git', ['-C', cwd, ...args], { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024, ...(env ? { env: { ...process.env, ...env } } : {}) });
 // A checkout an agent writes to must not make git start a program of its own.
-export const QUIET = ['-c', 'core.fsmonitor=false', '-c', 'diff.external='];
+// Nested repositories keep their own config, and git starts itself inside them to look: submodules are left alone.
+export const QUIET = ['-c', 'core.fsmonitor=false', '-c', 'diff.external=', '-c', 'diff.ignoreSubmodules=all',
+  '-c', 'submodule.recurse=false', '-c', 'status.submoduleSummary=false'];
 
 // A run's agents can rewrite its worktree, the `.git` file in it too, and point it at a config of theirs. Git reads the
 // worktree's own folder, found from the base repository, which the agents can't write.
@@ -90,16 +92,27 @@ const ahead = async (wt) => wt.baseCommit ? Number((await wtGit(wt, ['rev-list',
 
 export async function worktreeStatus(wt) {
   if (!wt?.path || !fs.existsSync(wt.path)) return { exists: false };
-  const dirty = Boolean((await wtGit(wt, ['status', '--porcelain', '--ignore-submodules=dirty'])).stdout.trim());
+  const dirty = Boolean((await wtGit(wt, ['status', '--porcelain', '--ignore-submodules=all'])).stdout.trim());
   return { exists: true, dirty, ahead: await ahead(wt) };
 }
 
 // The accepted result becomes one commit on the run branch; ignored files (.env) stay out.
+// `git add` looks inside a nested repository whatever the config says, so those (submodules, or one an agent made)
+// stay as HEAD has them.
+async function nestedRepos(dir, env) {
+  const linked = (await git(dir, [...QUIET, 'ls-tree', '-r', '-z', 'HEAD'], env)).stdout.split('\0')
+    .filter((line) => line.startsWith('160000 ')).map((line) => line.slice(line.indexOf('\t') + 1));
+  const made = (await git(dir, [...QUIET, 'ls-files', '-z', '--others', '--exclude-standard', '--directory'], env)).stdout.split('\0')
+    .filter((name) => name.endsWith('/') && fs.existsSync(path.join(dir, name, '.git'))).map((name) => name.slice(0, -1));
+  return [...new Set([...linked, ...made])];
+}
+
 export async function snapshotTree(dir, env) {
   const index = path.join(os.tmpdir(), `relevo-index-${randomUUID()}`);
   try {
+    const skip = (await nestedRepos(dir, env)).map((name) => `:(top,literal,exclude)${name}`);
     await git(dir, [...QUIET, 'read-tree', 'HEAD'], { ...env, GIT_INDEX_FILE: index });
-    await git(dir, [...QUIET, 'add', '-A'], { ...env, GIT_INDEX_FILE: index });
+    await git(dir, [...QUIET, 'add', '-A', '--', '.', ...skip], { ...env, GIT_INDEX_FILE: index });
     return (await git(dir, [...QUIET, 'write-tree'], { ...env, GIT_INDEX_FILE: index })).stdout.trim();
   } finally { fs.rmSync(index, { force: true }); }
 }
@@ -115,11 +128,10 @@ export async function commitReviewedTree(wt, tree, title, body) {
   return sha;
 }
 
+// Without a reviewed tree, the worktree as it stands, by the same path: no `git commit`, so no hook and no status run.
 export async function commitWorktree(wt, title, body) {
   if (!(await worktreeStatus(wt)).dirty) return null;
-  await wtGit(wt, ['add', '-A']);
-  await wtGit(wt, ['commit', '-q', '--no-verify', '-m', title, ...(body ? ['-m', body] : [])]);
-  return (await wtGit(wt, ['rev-parse', 'HEAD'])).stdout.trim();
+  return commitReviewedTree(wt, await snapshotTree(wt.path, await trustedEnv(wt)), title, body);
 }
 
 export async function openPullRequest(wt, title, body, run = execFile) {

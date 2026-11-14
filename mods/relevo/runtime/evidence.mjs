@@ -21,10 +21,12 @@ export async function fingerprint(root, env) {
   if (resolve(top.toString().trim()) !== root) throw new Error('Root must be the git checkout root');
   const { stdout: head } = await git('rev-parse', '--verify', 'HEAD');
   const digest = createHash('sha256').update(head);
-  const { stdout: diff } = await git('diff', '--no-ext-diff', '--no-textconv', '--ignore-submodules=dirty', '--binary', 'HEAD', '--'); digest.update(diff);
+  const { stdout: diff } = await git('diff', '--no-ext-diff', '--no-textconv', '--ignore-submodules=all', '--binary', 'HEAD', '--'); digest.update(diff);
   const { stdout: names } = await git('ls-files', '--others', '--exclude-standard', '-z');
   let total = 0;
   for (const name of names.toString().split('\0').filter(Boolean).sort()) {
+    // A repository an agent made inside the checkout counts by its name; looking inside would run its config.
+    if (name.endsWith('/')) { digest.update(name); continue; }
     const path = resolve(root, name);
     if (!inside(root, path)) throw new Error('Untracked path escapes repository');
     const s = await regular(path), real = await realpath(path);

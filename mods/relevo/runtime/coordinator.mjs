@@ -38,7 +38,7 @@ const CHECK_GRACE_MS = 500;
 const MAX_DIFF = 24000;
 async function changeOf(root, base, env) {
   const git = (...args) => run(['git', '-C', root, '--no-optional-locks', ...QUIET, ...args], { timeout: 30000, limit: MAX_DIFF * 2, env: env ? { ...process.env, ...env } : undefined });
-  const [diff, untracked] = await Promise.all([git('diff', '--no-color', '--no-ext-diff', '--no-textconv', '--ignore-submodules=dirty', base, '--'), git('ls-files', '--others', '--exclude-standard')]);
+  const [diff, untracked] = await Promise.all([git('diff', '--no-color', '--no-ext-diff', '--no-textconv', '--ignore-submodules=all', base, '--'), git('ls-files', '--others', '--exclude-standard')]);
   if (diff.code !== 0) return `Could not read the diff: ${String(diff.stderr).trim().slice(0, 300)}`;
   const added = untracked.stdout.split('\n').filter(Boolean);
   const text = [diff.stdout.trim() || 'No changes to tracked files.', added.length ? `New files, not in the diff:\n${added.slice(0, 50).join('\n')}` : ''].filter(Boolean).join('\n\n');

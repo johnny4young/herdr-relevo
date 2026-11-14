@@ -146,3 +146,30 @@ test("a folder that isn't a worktree of its base is refused", async (t) => {
   fs.mkdirSync(repo); fs.mkdirSync(other); execFileSync("git", ["-C", repo, "init", "-q"]);
   await assert.rejects(trustedEnv({ path: other, base: repo }), /not registered in its repository/);
 });
+
+test("a nested repository's config never runs from a run's git calls, and stays out of the commit", async (t) => {
+  const { trustedEnv, worktreeStatus, snapshotTree, commitWorktree } = await import("../runtime/worktree.mjs");
+  const { fingerprint } = await import("../runtime/evidence.mjs");
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "relevo-nested-"))); t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const repo = path.join(base, "repo"), wtPath = path.join(base, "wt"), marker = path.join(base, "ran");
+  const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const init = (dir) => { fs.mkdirSync(dir, { recursive: true }); git(dir, "init", "-q"); git(dir, "config", "user.email", "t@e.invalid"); git(dir, "config", "user.name", "T"); };
+  init(repo); fs.writeFileSync(path.join(repo, "a.txt"), "a\n"); git(repo, "add", "."); git(repo, "commit", "-qm", "i");
+  git(repo, "worktree", "add", "-q", "-b", "run/nested-1", wtPath);
+  const wt = { path: wtPath, base: repo, branch: "run/nested-1", baseCommit: git(repo, "rev-parse", "HEAD").trim() };
+  // The agent makes a repository inside its worktree whose filter runs a program on any look at its files.
+  const sub = path.join(wtPath, "sub");
+  init(sub); fs.writeFileSync(path.join(sub, ".gitattributes"), "*.txt filter=evil\n"); fs.writeFileSync(path.join(sub, "x.txt"), "x\n");
+  git(sub, "add", "."); git(sub, "commit", "-qm", "s");
+  git(sub, "config", "filter.evil.clean", `touch ${marker}; cat`); git(sub, "config", "core.fsmonitor", `touch ${marker}`);
+  fs.writeFileSync(path.join(sub, "x.txt"), "changed\n");
+  fs.writeFileSync(path.join(wtPath, "a.txt"), "b\n");
+  const env = await trustedEnv(wt);
+  assert.equal((await worktreeStatus(wt)).dirty, true);
+  await fingerprint(wtPath, env);
+  await snapshotTree(wtPath, env);
+  const sha = await commitWorktree(wt, "Run result", "");
+  assert.equal(fs.existsSync(marker), false);
+  assert.deepEqual(git(repo, "ls-tree", "--name-only", "-r", sha).trim().split("\n"), ["a.txt"]);
+  assert.equal(git(repo, "show", `${sha}:a.txt`), "b\n");
+});
