@@ -12,6 +12,9 @@ Requested corrections: {{feedback}}
 
 {{checks}}
 
+The change, as the coordinator read it against {{base}} (git diff):
+{{change}}
+
 Observed check results from the coordinator: {{checkResults}}
 Assess these observed outputs and independently inspect the code and tests. A read-only session need not rerun commands. Report blocked if the available evidence is insufficient for your review.
 

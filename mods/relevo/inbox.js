@@ -535,18 +535,16 @@ export class Inbox {
     if (r.code !== 0) notify({ title: "Could not send the note", body: r.stderr.trim().split("\n")[0], level: "warning" });
   }
 
-  // The screen as it reads; only a request it cuts looks at what the optional hook noted for that agent.
+  // The screen as it reads; only a request it cuts looks at what the optional hook noted for that agent, against the
+  // core's own time for the wait (`hc get`: the live terminal list doesn't carry it).
   async promptOf(address, screen) {
     const prompt = readPrompt(screen);
     if (!prompt.ask?.cut || !/^[A-Za-z0-9_-]+$/.test(address)) return prompt;
-    const r = await exec("sh", ["-c", 'cat "$1"/*.json 2>/dev/null', "sh", `${home()}/${ASKS_DIR}/${address}`]);
-    return readPrompt(screen, parseNotes(r.stdout, address), this.waitingSince(address));
-  }
-
-  // The core's own time for the wait, in seconds: the Inbox's starts when the window first saw it.
-  waitingSince(address) {
-    const ms = terminals().find((k) => k.address === address)?.status_ms;
-    return Number.isFinite(ms) ? ms / 1000 : null;
+    const [state, notes] = await Promise.all([hc(["get", address, "--json"]),
+      exec("sh", ["-c", 'cat "$1"/*.json 2>/dev/null', "sh", `${home()}/${ASKS_DIR}/${address}`])]);
+    let since = null;
+    try { since = JSON.parse(state.stdout).status_ms / 1000; } catch { /* unknown: nothing is filled */ }
+    return readPrompt(screen, parseNotes(notes.stdout, address), since);
   }
 
   // False when there's no screen to go by; what the card knows stays as it was.

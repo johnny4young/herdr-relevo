@@ -5,7 +5,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:f
 import { basename, extname, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createReadStream as fileStream } from 'node:fs';
-import { runCheck } from './process.mjs';
+import { runCheck, loginEnv } from './process.mjs';
 
 const execFile = promisify(nodeExecFile);
 const hash = (data) => createHash('sha256').update(data).digest('hex');
@@ -36,8 +36,9 @@ export async function fingerprint(root) {
   return digest.digest('hex');
 }
 
-export async function runChecks(root, checks, { run = runCheck, timeoutMs = 60000, maxOutput = 16384, signal, clock = Date.now } = {}) {
+export async function runChecks(root, checks, { run = runCheck, timeoutMs = 60000, maxOutput = 16384, signal, clock = Date.now, env } = {}) {
   if (!Array.isArray(checks) || checks.some((x) => !Array.isArray(x) || !x.length || x.some((a) => typeof a !== 'string'))) throw new TypeError('checks must be arrays of argv strings');
+  if (!env && run === runCheck && checks.length) env = await loginEnv();
   const results = [];
   const deadline = clock() + timeoutMs;
   for (const argv of checks) {
@@ -45,7 +46,7 @@ export async function runChecks(root, checks, { run = runCheck, timeoutMs = 6000
     const at = new Date().toISOString();
     try {
       const remaining = Math.max(1, deadline - clock());
-      const result = await run(argv, { cwd: root, timeout: remaining, maxOutput, signal });
+      const result = await run(argv, { cwd: root, timeout: remaining, maxOutput, signal, env });
       results.push({ argv, code: result.code ?? 0, stdout: String(result.stdout ?? '').slice(-maxOutput), stderr: String(result.stderr ?? '').slice(-maxOutput), at });
       if (['timeout', 'cancelled', 124].includes(result.code) || signal?.aborted) break;
     } catch (error) {

@@ -696,7 +696,10 @@ test('run agents start with their model, sandbox and access to the report folder
 
 test('a worktree launch starts with no first message, accepts a working agent and Start resumes a stalled wait', async () => {
   const { launchArgv } = await import('../accounts.js');
-  assert.deepEqual(launchArgv('codex', null, ['-m', 'x']), ['zsh', '-ilc', 'codex "$1" "$2"', 'zsh', '-m', 'x']);
+  const argv = launchArgv('codex', null, ['-m', 'x']);
+  assert.deepEqual(argv.slice(-6), ['zsh', '-ilc', 'codex "$1" "$2"', 'zsh', '-m', 'x']);
+  assert.equal(argv[0], '/usr/bin/env');
+  for (const name of ['CLAUDECODE', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_CHILD_SESSION']) assert.ok(argv.join(' ').includes(`-u ${name} `), name);
   fake.stored['relevo.runs.mode'] = 'worktree';
   const { v, cx } = await setup();
   v.launch = { stage: 'stalled', fields: { goalId: 'g', title: 'T', root: '/work/app', criteria: 'c', checks: [], dependsOn: [], maxRounds: 2, maxMinutes: 5 },
@@ -778,4 +781,15 @@ test('a run terminal stuck on the Codex update prompt is skipped once, and other
   assert.deepEqual(calls.filter((line) => line.startsWith('hc keys')), ['hc keys t1 esc'], 'only the update prompt, only once');
   assert.equal(calls.some((line) => /read t2|read t9/.test(line)), false, 'registered agents and other folders are not read');
   v.close();
+});
+
+test('an agent started from a core that came from a Claude session gets none of its variables, and keeps the shell\'s own', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { shellArgv } = await import('../accounts.js');
+  const [env, ...rest] = shellArgv('printf "%s|%s|%s|%s" "${CLAUDE_CONFIG_DIR-unset}" "${CLAUDE_CODE_CHILD_SESSION-unset}" "${CLAUDE_CODE_USE_BEDROCK-unset}" "$1"', 'a b');
+  const zsh = rest.indexOf('zsh');
+  const inherited = { PATH: process.env.PATH, HOME: '/nonexistent', CLAUDE_CONFIG_DIR: '/x/.claude-work', CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_CODE_USE_BEDROCK: '1' };
+  // -f: not the person's zsh files; -c as Relevo passes it.
+  const out = execFileSync(env, [...rest.slice(0, zsh), 'zsh', '-fc', ...rest.slice(zsh + 2)], { env: inherited, encoding: 'utf8' });
+  assert.equal(out, 'unset|unset|1|a b');
 });

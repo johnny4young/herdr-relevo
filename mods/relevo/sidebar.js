@@ -2,7 +2,7 @@ import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, run, focused, panes, setShared, notify, agents, terminals, shared } from "herdr";
 import { AgentWatch, BackgroundWatch, quotaAlerts } from "./alerts.js";
-import { ACCOUNTS, CODEX, API_QUOTAS, launchArgv, chip, loadClaudeQuotas } from "./accounts.js";
+import { ACCOUNTS, CODEX, API_QUOTAS, launchArgv, chip, loadClaudeQuotas, shellArgv } from "./accounts.js";
 import { FOCUS, focus, publishSetup, contextOfPath } from "./context.js";
 import { ago, resetText, resetClock, runsOut, clock, FIVE_HOURS, WEEK, windowLabel } from "./lib/time.js";
 
@@ -108,7 +108,7 @@ export class Sidebar {
     const f = focused();
     const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
     if (key === "best") key = this.best(pane?.cwd ?? f?.cwd);
-    const argv = key === CODEX.key ? ["zsh", "-ilc", "codex"] : launchArgv(key);
+    const argv = key === CODEX.key ? shellArgv("codex") : launchArgv(key);
     run("tab.new", { folder: pane?.cwd ?? f?.cwd ?? undefined, argv });
   }
 

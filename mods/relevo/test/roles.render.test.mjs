@@ -4,7 +4,7 @@ import { renderRole } from "../runtime/roles.mjs";
 import { cleanProgress, progressLine, reportNotes, reviewStatus } from "../lib/run-report.js";
 
 const values = { taskId: "t", attemptId: "a", title: "T", criteria: "one\n\ntwo {{mustFix}}", root: "/r", feedback: "", maxMinutes: "5", mustFix: "major",
-  checks: "c", checkResults: "[]", preferences: "", statusFile: "/s", statusExample: "{}", reportFile: "/f", reportExample: "{}" };
+  checks: "c", checkResults: "[]", change: "diff --git a/x b/x", base: "HEAD", preferences: "", statusFile: "/s", statusExample: "{}", reportFile: "/f", reportExample: "{}" };
 
 test("a role's file fills in, drops what is empty and never reads a value as a name", () => {
   const out = renderRole("reviewer", values);

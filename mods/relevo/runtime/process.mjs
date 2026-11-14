@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
+import path from 'node:path';
 import { setTimeout, clearTimeout } from 'node:timers';
+import { shellArgv } from '../lib/session-env.js';
 export function run(argv, { cwd, timeout = 60000, limit = 65536, env } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(argv[0], argv.slice(1), { cwd, env: env ?? process.env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -16,6 +18,14 @@ export function run(argv, { cwd, timeout = 60000, limit = 65536, env } = {}) {
     child.on('close', (code) => { clearTimeout(timer); clearTimeout(kill); resolve({ code: stopped ? 124 : code ?? 1, stdout, stderr, truncated: stopped }); });
   });
 }
+
+// Checks find their commands as the person's terminal does: the coordinator itself runs under the Herdr core's
+// PATH, which lacks what a login shell adds (fnm, nvm, Homebrew). Without zsh, the node running this still counts.
+export const readLoginEnv = (runImpl = run) => runImpl(shellArgv('printf "\\n__relevo_path__%s" "$PATH"'), { timeout: 15000 })
+  .then((r) => (r.code === 0 ? r.stdout.split('__relevo_path__').at(-1).trim() : ''), () => '')
+  .then((login) => ({ ...process.env, PATH: [login || process.env.PATH, path.dirname(process.execPath)].filter(Boolean).join(path.delimiter) }));
+let found;
+export const loginEnv = () => (found ??= readLoginEnv());
 
 // Checks keep the tail of their output (where failures print) and run in their own
 // process group so a timeout or cancel also stops the processes they started.

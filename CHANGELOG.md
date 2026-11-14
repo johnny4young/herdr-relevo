@@ -6,6 +6,10 @@
 - **A run says how it is going.** The implementing agent writes what it is doing, its percent done and its time left, and the run shows it instead of "Awaiting implementation report".
 - **Review findings have levels.** A reviewer lists blocker, major and minor findings. Only major or above sends the work back; minor ones reach you as notes, with what the reviewer could not run or prove. `RUN_MUST_FIX` in `config.js` moves the bar.
 - **What run agents are told is in two files.** `runtime/roles/executor.md` and `reviewer.md` hold the words; the coordinator fills them in.
+- **Run checks find your tools.** The coordinator ran checks with the Herdr core's PATH, where Node from fnm or nvm isn't, so `node --test` failed to start, the implementer was sent back for nothing and the run blocked once its rounds were spent. Checks now run with your login shell's PATH, and a check that can't start blocks the run with what to fix instead of using a round.
+- **The reviewer sees the change.** It has no shell, so it reviewed only the files it read. Its prompt now carries the diff against the run's base and the new files.
+- **Settings keeps what it doesn't edit.** Saving Settings rewrote `config.js` with only its own fields, dropping `RUN_CODEX_MODEL` and `RUN_MUST_FIX`. Every other export is now written back as it was.
+- **Agents start clean.** An agent Relevo starts no longer takes a parent Claude session's account folder or child-session marker, which a Herdr core started from inside Claude Code would pass on.
 - **An installer.** `./install.sh` installs or updates Relevo and keeps the files you changed, with the new version beside them as `.new`. `node scripts/relevo.mjs doctor` checks the install and the programs it needs; `uninstall` removes it. `--dry-run` shows what would change.
 
 ## 0.7.2 · 2026-11-12

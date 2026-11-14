@@ -34,7 +34,18 @@ const failedChecks = (checks) => `Checks failed: ${JSON.stringify(checks.filter(
   argv: check.argv, code: check.code, stdout: String(check.stdout ?? '').slice(-2000), stderr: String(check.stderr ?? '').slice(-2000) })))}`.slice(0, MAX_FEEDBACK);
 // Checks shorter than this finish inside the tick; longer ones finish in the background and wake the coordinator.
 const CHECK_GRACE_MS = 500;
-export function createRuntime({ home, runCommand = run, clock = Date.now, fingerprintImpl = fingerprint, checksImpl = runChecks, wake = () => {} } = {}) {
+// What a reviewer is shown of the change: it has no shell to read the diff itself.
+const MAX_DIFF = 24000;
+async function changeOf(root, base) {
+  const git = (...args) => run(['git', '-C', root, '--no-optional-locks', ...args], { timeout: 30000, limit: MAX_DIFF * 2 });
+  const [diff, untracked] = await Promise.all([git('diff', '--no-color', '--no-ext-diff', base), git('ls-files', '--others', '--exclude-standard')]);
+  if (diff.code !== 0) return `Could not read the diff: ${String(diff.stderr).trim().slice(0, 300)}`;
+  const added = untracked.stdout.split('\n').filter(Boolean);
+  const text = [diff.stdout.trim() || 'No changes to tracked files.', added.length ? `New files, not in the diff:\n${added.slice(0, 50).join('\n')}` : ''].filter(Boolean).join('\n\n');
+  return text.length > MAX_DIFF ? `${text.slice(0, MAX_DIFF)}\n… the diff goes on; read the files it names.` : text;
+}
+
+export function createRuntime({ home, runCommand = run, clock = Date.now, fingerprintImpl = fingerprint, checksImpl = runChecks, diffImpl = changeOf, wake = () => {} } = {}) {
   const dir = privateDir(stateDir(home));
   const checkRuns = new Map();
   privateDir(path.join(dir, 'reports'));
@@ -469,11 +480,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       log(doc, t, result.code === 0 ? 'Message delivered' : 'Message delivery uncertain', result.stderr || message.text, message.address); });
   }
   // The words of each role live in roles/<role>.md; this only fills them in.
-  function prompt(task, attempt, preferences) {
+  function prompt(task, attempt, preferences, change = '') {
     const proof = { attemptId: attempt.id, token: attempt.token }, reviewer = attempt.role === 'reviewer';
     return renderRole(attempt.role, {
       taskId: task.id, attemptId: attempt.id, title: task.title, criteria: task.criteria, root: task.root,
-      feedback: task.feedback ?? '', maxMinutes: String(task.maxMinutes), mustFix: MUST_FIX,
+      feedback: task.feedback ?? '', change, base: task.worktree?.baseCommit ? task.worktree.baseCommit.slice(0, 12) : 'HEAD', maxMinutes: String(task.maxMinutes), mustFix: MUST_FIX,
       checks: task.checks.length ? `Configured checks: ${JSON.stringify(task.checks)}` : 'No automated check command was configured; report that limitation.',
       checkResults: JSON.stringify(task.checksResult.map((check) => ({ argv: check.argv, code: check.code, stdout: check.stdout?.slice(-2000), stderr: check.stderr?.slice(-2000) }))).slice(0, 16000),
       preferences: preferenceContext(preferences),
@@ -526,7 +537,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (role === 'reviewer' && task.revision !== revision) { block(task.id, 'Checkout changed after checks. Start a fresh attempt.'); return; }
     const token = uid();
     const attempt = { id: uid(), role, address: actor.address, tokenHash: tokenHash(token), delivery: 'sending', state: 'running', at: new Date(clock()).toISOString(), revision, startedTurn: observed.turn };
-    const fullPrompt = prompt(task, { ...attempt, token }, preferencesFor(doc.preferences, { goalId: task.goalId, root: task.root }));
+    const change = role === 'reviewer' ? await diffImpl(task.root, task.worktree?.baseCommit ?? 'HEAD').catch((e) => `Could not read the diff: ${e.message}`) : '';
+    const fullPrompt = prompt(task, { ...attempt, token }, preferencesFor(doc.preferences, { goalId: task.goalId, root: task.root }), change);
     const stored = fullPrompt.split(token).join('<token>');
     attempt.prompt = stored.length > MAX_STORED_PROMPT ? `${stored.slice(0, MAX_STORED_PROMPT)}…` : stored;
     update((next) => {
@@ -620,6 +632,13 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         if (status === 'blocked') { t.state = 'blocked'; t.error = report.summary; return; }
         if (attempt.role === 'reviewer' && (revision !== attempt.revision || afterChecks !== revision)) { t.state = 'blocked'; t.error = 'Review is stale: checkout changed during review'; return; }
         if (attempt.role === 'executor' && afterChecks !== revision) { t.state = 'blocked'; t.error = 'Checks changed the checkout. Review the changes before retrying.'; return; }
+        // A check that couldn't start says nothing about the code: the person fixes the command, not the agent.
+        const broken = attempt.role === 'executor' && checks.find((check) => typeof check.code === 'string' && !['timeout', 'cancelled'].includes(check.code));
+        if (broken) {
+          t.checksResult = checks; t.revision = afterChecks; t.state = 'blocked';
+          t.error = `The check "${broken.argv.join(' ')}" could not start (${broken.stderr || broken.code}). Fix the command, or make it findable from your login shell, then resume.`.slice(0, 1000);
+          return;
+        }
         const failed = checks.some((check) => check.code !== 0);
         if ((attempt.role === 'reviewer' && status === 'changes_requested') || (attempt.role === 'executor' && (failed || status !== 'completed'))) {
           t.feedback = failed ? failedChecks(checks) : feedbackOf({ summary: report.summary, findings: extra.findings }, MUST_FIX).slice(0, MAX_FEEDBACK);

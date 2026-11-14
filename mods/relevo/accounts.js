@@ -2,6 +2,7 @@ import { home, readTextFile, run, spaces, shared } from "herdr";
 import { ACCOUNTS as CONFIGURED, CODEX as CODEX_ACCOUNT, FALLBACK } from "./config.js";
 import { FIVE_HOURS, WEEK, windowOf, windowLabel } from "./lib/time.js";
 import { accountFor } from "./context.js";
+import { shellArgv } from "./lib/session-env.js";
 
 export const API_QUOTAS = "relevo.quota.api";
 
@@ -12,11 +13,12 @@ export const CODEX = withFile(CODEX_ACCOUNT);
 
 export const accountOf = (key) => [...ACCOUNTS, CODEX].find((p) => p.key === key) ?? ACCOUNTS[0];
 
+export { shellArgv } from "./lib/session-env.js";
+
 // `args` go before the prompt as positional parameters, never into the shell text.
 export function launchArgv(key, prompt, args = []) {
   const p = accountOf(key), first = prompt ? 2 : 1, refs = args.map((_, i) => ` "$${i + first}"`).join("");
-  if (!prompt && !args.length) return ["zsh", "-ilc", p.launcher];
-  return ["zsh", "-ilc", `${p.launcher}${refs}${prompt ? ' "$1"' : ""}`, "zsh", ...(prompt ? [prompt] : []), ...args];
+  return shellArgv(`${p.launcher}${refs}${prompt ? ' "$1"' : ""}`, ...(prompt ? [prompt] : []), ...args);
 }
 
 
@@ -73,7 +75,7 @@ export function pickAccount(repo, quotas) {
 }
 
 // The session id goes as a positional parameter, never into the shell text.
-export const resumeArgv = (key, id) => ["zsh", "-ilc", `${accountOf(key).launcher} --resume "$1"`, "zsh", id];
+export const resumeArgv = (key, id) => shellArgv(`${accountOf(key).launcher} --resume "$1"`, id);
 
 // A tab in the folder's space, else in the repo's, else a new space.
 export function openInFolder({ name, folder, tab, argv }) {

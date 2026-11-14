@@ -790,3 +790,28 @@ test("each role's prompt comes from its file, with the report and status files a
   assert.match(review, /fix every finding at major or above/);
   assert.match(review, /Observed check results from the coordinator: \[\{"argv":\["npm","test"\],"code":0/);
 });
+
+test("a check that can't start blocks the run with what to fix, and sends nothing back to the implementer", async (t) => {
+  const f = await fixture({ checksImpl: async () => [{ argv: ["node", "--test"], code: "ENOENT", stdout: "", stderr: "spawn node ENOENT" }] });
+  t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  f.report("executor", "completed", "Done"); await f.runtime.tick(); await f.runtime.tick();
+  const task = f.runtime.read().tasks[0];
+  assert.equal(task.state, "blocked");
+  assert.equal(task.error, 'The check "node --test" could not start (spawn node ENOENT). Fix the command, or make it findable from your login shell, then resume.');
+  assert.equal(task.feedback ?? null, null);
+  assert.equal(task.attempts.length, 1);
+  assert.equal(f.sends.length, 1);
+});
+
+test("the reviewer is shown the change and its new files, since it has no shell", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  fs.writeFileSync(path.join(f.root, "README.md"), "fixture\nchanged line\n");
+  fs.writeFileSync(path.join(f.root, "new.js"), "export {};\n");
+  f.report("executor", "completed", "Done"); await f.runtime.tick(); await f.runtime.tick();
+  const review = f.sends.at(-1).at(-1);
+  assert.match(review, /The change, as the coordinator read it against HEAD \(git diff\):\ndiff --git a\/README\.md b\/README\.md[\s\S]*\+changed line/);
+  assert.match(review, /New files, not in the diff:\nnew\.js/);
+  assert.doesNotMatch(f.sends[0].at(-1), /The change, as the coordinator/);
+});

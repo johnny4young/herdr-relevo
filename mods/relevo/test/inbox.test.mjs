@@ -272,6 +272,28 @@ test("an agent that leaves the list and returns waiting shows the question on it
   assert.doesNotMatch(view, /Delete the staging data/);
 });
 
+test("a command cut by the screen shows whole from the hook's note, timed by the core's own clock", async () => {
+  const lines = ["set -e", ...Array.from({ length: 60 }, (_, i) => `echo step ${i}`), "git push --force origin main"];
+  const screen = [...lines.slice(-4).map((l) => ` ${l}`), "╌".repeat(20), " Do you want to proceed?", " ❯ 1. Yes", "   2. No", ""].join("\n");
+  const note = (at) => JSON.stringify({ at, terminal: "t1", tool: "Bash", input: { command: lines.join("\n"), description: "Push it" } });
+  let waitedFrom = 1000, notes = note(1000.5);
+  fake.exec = (cmd, args) => (cmd === "hc" && args[0] === "read" ? { stdout: screen }
+    : cmd === "hc" && args[0] === "get" ? { stdout: JSON.stringify({ status_ms: waitedFrom * 1000 }) }
+    : cmd === "sh" && args.at(-1) === "/home/test/.local/state/relevo/asks/t1" ? { stdout: notes } : repoOutput(cmd, args));
+  setAgents(["t1", "blocked"]);
+  const { ui, inbox, cx } = await open();
+  let view = text(ui());
+  assert.match(view, /Bash command · Push it set -e echo step 0/);
+  assert.match(view, /\+54 more lines Do you want to proceed\? 1 Yes 2 No/);
+  assert.doesNotMatch(view, /Can't read all of what this asks/);
+  // A note from before this wait began is someone else's request.
+  waitedFrom = 2000; notes = note(1000.5);
+  setAgents(); inbox.scanLocal(cx); await flush();
+  setAgents(["t1", "blocked"]); inbox.scanLocal(cx); await flush();
+  view = text(ui());
+  assert.match(view, /Can't read all of what this asks/);
+});
+
 // A waiting agent whose screen the test can change after the card was drawn.
 async function waiting(first) {
   const screen = { now: first };
