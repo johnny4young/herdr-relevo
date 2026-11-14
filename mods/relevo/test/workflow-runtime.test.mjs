@@ -811,7 +811,7 @@ test("the reviewer is shown the change and its new files, since it has no shell"
   fs.writeFileSync(path.join(f.root, "new.js"), "export {};\n");
   f.report("executor", "completed", "Done"); await f.runtime.tick(); await f.runtime.tick();
   const review = f.sends.at(-1).at(-1);
-  assert.match(review, /The change, as the coordinator read it against HEAD \(git diff\):\ndiff --git a\/README\.md b\/README\.md[\s\S]*\+changed line/);
+  assert.match(review, /The change, as the coordinator read it against HEAD \(git diff\)\. It is the whole change[^\n]*\ndiff --git a\/README\.md b\/README\.md[\s\S]*\+changed line/);
   assert.match(review, /New files, not in the diff:\nnew\.js/);
   assert.doesNotMatch(f.sends[0].at(-1), /The change, as the coordinator/);
 });
