@@ -102,7 +102,8 @@ export async function worktreeStatus(wt) {
 async function nestedRepos(dir, env) {
   const linked = (await git(dir, [...QUIET, 'ls-tree', '-r', '-z', 'HEAD'], env)).stdout.split('\0')
     .filter((line) => line.startsWith('160000 ')).map((line) => line.slice(line.indexOf('\t') + 1));
-  const made = (await git(dir, [...QUIET, 'ls-files', '-z', '--others', '--exclude-standard', '--directory'], env)).stdout.split('\0')
+  // Without --directory git names each untracked repository at any depth as `path/`, and goes no further into it.
+  const made = (await git(dir, [...QUIET, 'ls-files', '-z', '--others', '--exclude-standard'], env)).stdout.split('\0')
     .filter((name) => name.endsWith('/') && fs.existsSync(path.join(dir, name, '.git'))).map((name) => name.slice(0, -1));
   return [...new Set([...linked, ...made])];
 }

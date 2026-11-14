@@ -828,3 +828,20 @@ test("reading the change for the reviewer runs none of the checkout's diff progr
   assert.match(f.sends.at(-1).at(-1), /\+changed/);
   assert.equal(fs.existsSync(marker), false);
 });
+
+test("the reviewer sees a submodule's pointer move, and nothing inside the submodule runs", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const marker = path.join(f.base, "ran"), sub = path.join(f.root, "lib");
+  const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, ...args], { stdio: ["ignore", "pipe", "ignore"] });
+  fs.mkdirSync(sub); git(sub, "init", "-q"); git(sub, "config", "user.email", "t@e.invalid"); git(sub, "config", "user.name", "T");
+  fs.writeFileSync(path.join(sub, ".gitattributes"), "*.txt filter=evil\n"); fs.writeFileSync(path.join(sub, "x.txt"), "x\n");
+  git(sub, "add", "."); git(sub, "commit", "-qm", "one");
+  git(f.root, "add", "lib"); git(f.root, "commit", "-qm", "add lib");
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  git(sub, "config", "filter.evil.clean", `touch ${marker}; cat`);
+  fs.writeFileSync(path.join(sub, "x.txt"), "y\n"); git(sub, "-c", "filter.evil.clean=cat", "commit", "-qam", "two");
+  fs.writeFileSync(path.join(sub, "x.txt"), "dirty\n");
+  f.report("executor", "completed", "Done"); await f.runtime.tick(); await f.runtime.tick();
+  assert.match(f.sends.at(-1).at(-1), /diff --git a\/lib b\/lib[\s\S]*-Subproject commit [0-9a-f]{40}\n\+Subproject commit [0-9a-f]{40}/);
+  assert.equal(fs.existsSync(marker), false);
+});

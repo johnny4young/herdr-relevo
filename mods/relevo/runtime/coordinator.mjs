@@ -34,11 +34,12 @@ const failedChecks = (checks) => `Checks failed: ${JSON.stringify(checks.filter(
   argv: check.argv, code: check.code, stdout: String(check.stdout ?? '').slice(-2000), stderr: String(check.stderr ?? '').slice(-2000) })))}`.slice(0, MAX_FEEDBACK);
 // Checks shorter than this finish inside the tick; longer ones finish in the background and wake the coordinator.
 const CHECK_GRACE_MS = 500;
-// What a reviewer is shown of the change: it has no shell to read the diff itself.
+// What a reviewer is shown of the change: it has no shell to read the diff itself. A submodule shows by the commit it
+// points to, read from files: git starts nothing inside it.
 const MAX_DIFF = 24000;
 async function changeOf(root, base, env) {
   const git = (...args) => run(['git', '-C', root, '--no-optional-locks', ...QUIET, ...args], { timeout: 30000, limit: MAX_DIFF * 2, env: env ? { ...process.env, ...env } : undefined });
-  const [diff, untracked] = await Promise.all([git('diff', '--no-color', '--no-ext-diff', '--no-textconv', '--ignore-submodules=all', base, '--'), git('ls-files', '--others', '--exclude-standard')]);
+  const [diff, untracked] = await Promise.all([git('diff', '--no-color', '--no-ext-diff', '--no-textconv', '--ignore-submodules=dirty', base, '--'), git('ls-files', '--others', '--exclude-standard')]);
   if (diff.code !== 0) return `Could not read the diff: ${String(diff.stderr).trim().slice(0, 300)}`;
   const added = untracked.stdout.split('\n').filter(Boolean);
   const text = [diff.stdout.trim() || 'No changes to tracked files.', added.length ? `New files, not in the diff:\n${added.slice(0, 50).join('\n')}` : ''].filter(Boolean).join('\n\n');

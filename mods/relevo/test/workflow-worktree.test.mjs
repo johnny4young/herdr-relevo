@@ -158,7 +158,7 @@ test("a nested repository's config never runs from a run's git calls, and stays 
   git(repo, "worktree", "add", "-q", "-b", "run/nested-1", wtPath);
   const wt = { path: wtPath, base: repo, branch: "run/nested-1", baseCommit: git(repo, "rev-parse", "HEAD").trim() };
   // The agent makes a repository inside its worktree whose filter runs a program on any look at its files.
-  const sub = path.join(wtPath, "sub");
+  const sub = path.join(wtPath, "newdir", "deep", "sub");
   init(sub); fs.writeFileSync(path.join(sub, ".gitattributes"), "*.txt filter=evil\n"); fs.writeFileSync(path.join(sub, "x.txt"), "x\n");
   git(sub, "add", "."); git(sub, "commit", "-qm", "s");
   git(sub, "config", "filter.evil.clean", `touch ${marker}; cat`); git(sub, "config", "core.fsmonitor", `touch ${marker}`);
