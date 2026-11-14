@@ -929,3 +929,31 @@ test("joinPRs: pages of your PRs, each once, with the rest of the answer", async
   assert.match(mineQuery("Y3Vy"), /after: "Y3Vy"/);
   assert.doesNotMatch(mineQuery(), /after:/);
 });
+
+test("readPrompt: an agent's own question of several lines is all question, with nothing to run", () => {
+  const screen = [
+    "⏺ One finding needs a product decision before the merge.",
+    "─".repeat(40),
+    " ☐ Bad marker",
+    "│ The package reads an unreadable marker as done (truncated or empty after a power loss), the package",
+    "│ treats the profile as migrated and skips the copy forever, with no notice.",
+    "│ How should it handle it?",
+    "❯ 1. Merge as is",
+    "     Accept the skip; record a follow-up.",
+    "  2. Warn, then merge",
+    "     Show the existing warning first.",
+    "  3. Type something.",
+    "─".repeat(40),
+    "  4. Chat about this",
+    "Enter to select · ↑/↓ to navigate · Esc to cancel",
+  ].join("\n");
+  const p = readPrompt(screen);
+  assert.equal(p.ask, null);
+  assert.equal(p.question, [
+    "The package reads an unreadable marker as done (truncated or empty after a power loss), the package",
+    "treats the profile as migrated and skips the copy forever, with no notice.",
+    "How should it handle it?",
+  ].join("\n"));
+  assert.deepEqual(p.options.map((o) => o.label), ["Merge as is", "Warn, then merge", "Type something.", "Chat about this"]);
+  assert.equal(reasonOf(p), "The package reads an unreadable marker…");
+});

@@ -81,7 +81,9 @@ export function readPrompt(screen, notes = null, since = null) {
   if (cursor === null) return cantRead;
   const multi = options.some((o) => "checked" in o);
   const preview = previewBeside(screen);
-  const question = questionAbove(lines, found[0].i), ask = askAbove(screen, found[0].i, question, options);
+  // A question of the agent's own (its free-text choices) asks nothing to run: its paragraph is all question.
+  const asked = options.some((o) => /^(type something|chat about this)/i.test(o.label));
+  const question = questionAbove(lines, found[0].i, asked ? QUESTION_MAX : 2), ask = asked ? null : askAbove(screen, found[0].i, question, options);
   let shown = ask?.ask ?? null;
   if (shown?.cut) {
     const whole = noteAsk(notes, shown.body, { since, plan: isPlan(question) });
@@ -255,12 +257,13 @@ const aboveInput = (lines) => {
 // The question's own lines: not the tab strip of a multi-question form ("← ☒ CI gates ✔ Submit →").
 const lastLines = (lines, n) => lines.filter((l) => l.trim() && !/^←.*→$/.test(l.trim())).slice(-n).join("\n");
 
-// The paragraph right above the choices, at most 2 lines: it ends at a blank, the input prompt or a tab strip.
-function questionAbove(lines, first) {
+// The paragraph right above the choices: it ends at a blank, the input prompt or a tab strip.
+const QUESTION_MAX = 8;
+function questionAbove(lines, first, max) {
   const out = [];
   let i = first - 1;
   while (i >= 0 && !lines[i].trim()) i--;
-  for (; i >= 0 && out.length < 2; i--) {
+  for (; i >= 0 && out.length < max; i--) {
     const l = lines[i].trim();
     if (!l || FENCE.test(l) || /^[❯›>]\s/.test(l) || /^←.*→$/.test(l) || /^[☐☒]\s/.test(l)) break;
     out.unshift(l);

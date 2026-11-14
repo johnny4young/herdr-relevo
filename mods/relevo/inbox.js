@@ -411,7 +411,7 @@ export class Inbox {
       v_flex().gap(4)
         .when(Boolean(p.ask), (el) => el.child(this.askBlock(t, p.ask, a.address)))
         .child(v_flex().children((p.question || "Waiting for you").split("\n")
-          .map((l) => div().truncate().text_size(13).text_color(t.foreground).child(l))))
+          .map((l) => div().min_w(0).text_size(13).text_color(t.foreground).child(l))))
         .when(Boolean(p.summary?.length), (el) => el.child(v_flex().gap(3).py(4).px(8).rounded(6).bg(t.raised)
           .children(p.summary.map((s) => v_flex()
             .child(div().truncate().text_size(11).text_color(t.muted).child(s.question))
