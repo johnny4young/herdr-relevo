@@ -42,7 +42,7 @@ test('an accepted run commits, opens a draft PR on its branch and removes its wo
   execFileSync('git', ['-C', root, 'remote', 'add', 'origin', remote]);
   const wt = await prepareWorktree({ root, title: 'Add a note', home });
   assert.match(wt.baseCommit, /^[0-9a-f]{40}$/);
-  assert.deepEqual(await worktreeStatus(wt), { exists: true, dirty: false, ahead: 0 });
+  assert.deepEqual(await worktreeStatus(wt), { exists: true, dirty: false, ahead: 0, origin: true });
   assert.equal(await commitWorktree(wt, 'Add a note', 'Body'), null, 'nothing to commit');
   fs.writeFileSync(path.join(wt.path, 'NOTE.md'), 'note\n');
   const sha = await commitWorktree(wt, 'Add a note', 'Body');
@@ -75,6 +75,7 @@ test('a draft PR without an origin remote says so in one line', async (t) => {
   const wt = await prepareWorktree({ root, title: 'No remote', home });
   fs.writeFileSync(path.join(wt.path, 'N.md'), 'n\n'); await commitWorktree(wt, 'No remote', '');
   await assert.rejects(openPullRequest(wt, 't', 'b', async () => ({ stdout: '' })), /^Error: This repository has no origin remote/);
+  assert.equal((await worktreeStatus(wt)).origin, false);
 });
 
 test('a listed file never lands outside the worktree through .. or a symlinked directory', (t) => {

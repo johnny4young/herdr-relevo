@@ -809,3 +809,17 @@ test('a result waiting on the person shows what nobody could verify beside Accep
   assert.ok(find(tree, 'workflow-decide-accept'));
   v.close();
 });
+
+test('an accepted worktree run in a repository without origin offers only Remove worktree', async () => {
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [{ id: 't', goalId: 'g', title: 'Notes', state: 'accepted', revision: 'r', root: '/wt',
+    executor: { address: 'a', label: 'Codex' }, reviewer: { address: 'b', label: 'Personal' }, checks: [], checksResult: [], evidence: [], round: 1, maxRounds: 2, attempts: [],
+    worktree: { path: '/wt', branch: 'run/notes-1', base: '/work/app', commit: 'a'.repeat(40) } }], events: [], preferences: [], engine: { enabled: false } });
+  fake.exec = async (_cmd, args) => { const p = JSON.parse(args.at(-1));
+    return { code: 0, stdout: JSON.stringify(p.action === 'worktree-status' ? { result: { exists: true, dirty: false, ahead: 1, origin: false } } : { result: {} }) }; };
+  const { v, cx } = await setup(); v.selected = 't';
+  v.launchTick(cx); await flush();
+  const tree = v.render();
+  assert.equal(find(tree, 'workflow-worktree-pr'), null);
+  assert.ok(find(tree, 'workflow-worktree-remove'));
+  v.close();
+});

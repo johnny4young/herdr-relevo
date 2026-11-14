@@ -97,7 +97,7 @@ export class WorkflowRuns extends WorkflowDraftView {
     const gone = wt.removed || info?.exists === false, cancelled = task.state === "cancelled";
     const state = gone ? "worktree removed" : !info ? "checking…" : info.dirty ? "uncommitted changes" : wt.commit ? `committed ${wt.commit.slice(0, 7)}` : info.ahead ? `${info.ahead} commits` : "no changes";
     const canCommit = !cancelled && !gone && Boolean(info?.dirty) && !wt.commit;
-    const canPropose = !cancelled && !gone && info && !info.dirty && info.ahead !== 0 && !wt.pr;
+    const canPropose = !cancelled && !gone && info && !info.dirty && info.ahead !== 0 && info.origin !== false && !wt.pr;
     return v_flex().id("workflow-worktree").w_full().min_w(0).gap(6).p(10).rounded(8).bg(t.raised)
       .child(div().text_size(11).text_color(t.muted).truncate().child(`${wt.branch} · ${state}`))
       .child(h_flex().gap(6).flex_wrap()

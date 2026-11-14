@@ -93,7 +93,8 @@ const ahead = async (wt) => wt.baseCommit ? Number((await wtGit(wt, ['rev-list',
 export async function worktreeStatus(wt) {
   if (!wt?.path || !fs.existsSync(wt.path)) return { exists: false };
   const dirty = Boolean((await wtGit(wt, ['status', '--porcelain', '--ignore-submodules=all'])).stdout.trim());
-  return { exists: true, dirty, ahead: await ahead(wt) };
+  const origin = await wtGit(wt, ['remote', 'get-url', 'origin']).then(() => true, () => false);
+  return { exists: true, dirty, ahead: await ahead(wt), origin };
 }
 
 // The accepted result becomes one commit on the run branch; ignored files (.env) stay out.
