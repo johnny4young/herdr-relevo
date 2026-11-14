@@ -12,7 +12,7 @@ Requested corrections: {{feedback}}
 
 {{checks}}
 
-The change, as the coordinator read it against {{base}} (git diff):
+The change, as the coordinator read it against {{base}} (git diff). It is the whole change: you need no shell to see it, and it is not something you could not verify.
 {{change}}
 
 Observed check results from the coordinator: {{checkResults}}

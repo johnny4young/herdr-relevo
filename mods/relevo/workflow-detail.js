@@ -196,6 +196,7 @@ export class WorkflowDetail extends WorkflowRuns {
     const followUpAvailable = blocked && !unresolvedAttempt && ((task.round ?? 0) >= (task.maxRounds ?? 2) ||
       (task.attempts ?? []).filter((attempt) => attempt.role === "reviewer").length >= (task.maxRounds ?? 2) + 1);
     const details = this.detailsFor === task.id;
+    const caveats = [...reportNotes(review), ...(implementation?.notProven ?? []).map((item) => `Not proven by the implementer: ${item}`)];
     const statusColor = task.state === "needs_you" ? t.accent : blocked ? t.blocked : task.state === "accepted" ? t.done : t.muted;
     return v_flex().w_full().min_w(0).gap(14)
       .child(v_flex().id("workflow-outcome-header").w_full().min_w(0).gap(6)
@@ -210,6 +211,10 @@ export class WorkflowDetail extends WorkflowRuns {
         .child(TextView.markdown(`workflow-summary-${primaryId}`, agentMarkdown(longSummary && !summaryOpen ? caption(summary, SUMMARY_PREVIEW) : summary)).selectable(true).on_link_click(() => {}).w_full().text_size(13).text_color(t.foreground))
         .when(longSummary, (el) => el.child(button(t, "workflow-summary-toggle", summaryOpen ? "Show less" : "Read full report",
           (cx) => { this.expandedReports ??= {}; this.expandedReports[primaryId] = !summaryOpen; cx.notify(); }, { kind: "ghost", size: "sm" }).self_start()))))
+      // What neither agent could verify, where the person accepts; the full reports stay in Result.
+      .when(task.state === "needs_you" && caveats.length > 0, (el) => el.child(v_flex().id("workflow-review-notes").w_full().min_w(0).gap(4)
+        .child(div().text_size(11).text_color(t.muted).child("Before you accept"))
+        .children(caveats.map((note) => row(t, note)))))
       .when(followUpAvailable, (el) => el
         .child(button(t, "workflow-prepare-follow-up", "Prepare follow-up", (context) => this.prepareBlockedFollowUp(task, context),
           { kind: "solid", tip: "Prefills a new task with the findings; nothing is sent until you start it" })))

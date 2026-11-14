@@ -793,3 +793,19 @@ test('an agent started from a core that came from a Claude session gets none of 
   const out = execFileSync(env, [...rest.slice(0, zsh), 'sh', '-c', rest[zsh + 2], 'sh', ...rest.slice(zsh + 4)], { env: inherited, encoding: 'utf8' });
   assert.equal(out, 'unset|unset|1|a b');
 });
+
+test('a result waiting on the person shows what nobody could verify beside Accept, and keeps the review itself in Result', async () => {
+  const { v } = await setup();
+  v.tasks = [{ id: 'result', goalId: 'g', title: 'Multiply', state: 'needs_you', round: 1, maxRounds: 2, revision: 'current',
+    executor: { address: 'builder' }, reviewer: { address: 'reviewer' }, checksResult: [{ code: 0 }],
+    attempts: [{ id: 'a1', role: 'executor', report: { status: 'completed', summary: 'Multiply works', notProven: ['Large numbers'] } },
+      { id: 'a2', role: 'reviewer', report: { status: 'completed', summary: 'Matches the task',
+        findings: [{ level: 'minor', where: 'math.js:2', issue: 'Name could be clearer', fix: '' }], notRun: ['node --test'], notProven: ['The output is from this state'] } }] }];
+  v.selected = 'result';
+  const tree = v.render(), words = text(tree);
+  assert.ok(find(tree, 'workflow-review-notes'));
+  assert.match(words, /Before you accept \[minor\] math\.js:2: Name could be clearer Not run: node --test Not proven: The output is from this state Not proven by the implementer: Large numbers/);
+  assert.doesNotMatch(words, /Matches the task/);
+  assert.ok(find(tree, 'workflow-decide-accept'));
+  v.close();
+});
