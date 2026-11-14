@@ -3,7 +3,7 @@ import path from 'node:path';
 import { run } from './process.mjs';
 import { fingerprint, runChecks, attachArtifact, verifyArtifact, removeArtifact } from './evidence.mjs';
 import { readState, transaction, taskById, event, uid, stateDir, privateDir } from './store.mjs';
-import { prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
+import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
 import { createHash } from 'node:crypto';
 import { archivable, stageArchive, publishArchive, MAX_TASKS } from './archive.mjs';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
@@ -36,10 +36,9 @@ const failedChecks = (checks) => `Checks failed: ${JSON.stringify(checks.filter(
 const CHECK_GRACE_MS = 500;
 // What a reviewer is shown of the change: it has no shell to read the diff itself.
 const MAX_DIFF = 24000;
-async function changeOf(root, base) {
-  // The checkout is the agent's: none of its config or attributes may run a program while it is read.
-  const git = (...args) => run(['git', '-C', root, '--no-optional-locks', '-c', 'core.fsmonitor=false', ...args], { timeout: 30000, limit: MAX_DIFF * 2 });
-  const [diff, untracked] = await Promise.all([git('diff', '--no-color', '--no-ext-diff', '--no-textconv', base, '--'), git('ls-files', '--others', '--exclude-standard')]);
+async function changeOf(root, base, env) {
+  const git = (...args) => run(['git', '-C', root, '--no-optional-locks', ...QUIET, ...args], { timeout: 30000, limit: MAX_DIFF * 2, env: env ? { ...process.env, ...env } : undefined });
+  const [diff, untracked] = await Promise.all([git('diff', '--no-color', '--no-ext-diff', '--no-textconv', '--ignore-submodules=dirty', base, '--'), git('ls-files', '--others', '--exclude-standard')]);
   if (diff.code !== 0) return `Could not read the diff: ${String(diff.stderr).trim().slice(0, 300)}`;
   const added = untracked.stdout.split('\n').filter(Boolean);
   const text = [diff.stdout.trim() || 'No changes to tracked files.', added.length ? `New files, not in the diff:\n${added.slice(0, 50).join('\n')}` : ''].filter(Boolean).join('\n\n');
@@ -51,6 +50,9 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
   const checkRuns = new Map();
   privateDir(path.join(dir, 'reports'));
   const update = (fn) => transaction(home, fn);
+  // A run worktree is read through its own git folder in the base repository; an in-place run uses the person's own sessions.
+  const gitEnv = async (task) => (task.worktree && !task.worktree.removed ? trustedEnv(task.worktree) : undefined);
+  const fp = async (task) => fingerprintImpl(task.root, await gitEnv(task));
   const log = (doc, task, type, detail, actor) => event(doc, task, type, detail, actor, clock());
   const hc = (args) => runCommand(['hc', ...args], { timeout: 45000, limit: 65536 });
   const getActor = async (actor, root) => {
@@ -143,7 +145,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (action === 'prepare-worktree') return { result: await prepareWorktree({ root: payload.root, title: payload.title }) };
     if (action === 'create') {
       const task = validateTask(payload.task, readState(home));
-      await fingerprintImpl(task.root);
+      await fp(task);
       await getActor(task.executor, task.root); await getActor(task.reviewer, task.root);
       return update((doc) => {
         validateTask(payload.task, doc); roomFor(doc, 1); doc.tasks.push(task); log(doc, task, 'Task created', 'Existing agents linked; no message sent', 'Human');
@@ -204,7 +206,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         task.goalStep = { id: step.id, title: step.title, criteria: goal.criteria };
         planTasks.push(task);
       }
-      await fingerprintImpl(planTasks[0].root);
+      await fp(planTasks[0]);
       await getActor(planTasks[0].executor, planTasks[0].root); await getActor(planTasks[0].reviewer, planTasks[0].root);
       return update((doc) => {
         const raced = existing(doc);
@@ -302,7 +304,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (action === 'batch') {
       const before = readState(home), selected = decisionBatch(before.tasks, payload.ids, payload.outcome, payload.revisions);
       if (payload.preview !== false) return { doc: before, preview: selected };
-      const fingerprints = Object.fromEntries(await Promise.all(selected.map(async (item) => { const task = taskById(before, item.taskId); return [task.id, await fingerprintImpl(task.root)]; })));
+      const fingerprints = Object.fromEntries(await Promise.all(selected.map(async (item) => { const task = taskById(before, item.taskId); return [task.id, await fp(task)]; })));
       const decided = update((doc) => {
         decisionBatch(doc.tasks, payload.ids, payload.outcome, payload.revisions);
         for (const item of selected) { const task = taskById(doc, item.taskId); decide(doc, task, { ...payload, revision: payload.revisions[task.id] }, fingerprints[task.id]); }
@@ -318,7 +320,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     }
     const before = taskById(readState(home), payload.taskId);
     if (action === 'refresh') {
-      const revision = await fingerprintImpl(before.root);
+      const revision = await fp(before);
       const evidenceStatus = await Promise.all(before.evidence.map(async (e) => ({ id: e.id, valid: await verifyArtifact(e) })));
       return update((doc) => {
         const task = taskById(doc, before.id);
@@ -330,7 +332,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       });
     }
     if (action === 'attach') {
-      const current = await fingerprintImpl(before.root);
+      const current = await fp(before);
       if (!before.revision || current !== before.revision) throw Error('Refresh and review this checkout before attaching evidence');
       const artifact = await attachArtifact({ stateDir: dir, taskId: before.id, source: payload.source, kind: payload.kind, revision: current, label: payload.label });
       try { return update((doc) => { const task = taskById(doc, before.id); if (task.revision !== current) throw Error('Task changed'); task.evidence.push(artifact); log(doc, task, 'Evidence attached', artifact.label || artifact.kind, 'Human'); }); }
@@ -343,7 +345,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       return update((doc) => { const task = taskById(doc, before.id); task.evidence = task.evidence.filter((e) => e.id !== artifact.id); log(doc, task, 'Evidence removed', artifact.label || artifact.kind, 'Human'); });
     }
     if (action === 'decide') {
-      const current = await fingerprintImpl(before.root);
+      const current = await fp(before);
       const decided = update((doc) => decide(doc, taskById(doc, before.id), payload, current));
       if (payload.outcome !== 'accept' || !before.worktree) return decided;
       const result = await commitAccepted(before, payload.revision);
@@ -373,7 +375,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         log(doc, task, 'Worktree removed', removed.branchDeleted ? `${task.worktree.branch} deleted with it` : `${task.worktree.branch} kept`, 'Human'); });
     }
     if (action === 'retry-review') {
-      const current = await fingerprintImpl(before.root);
+      const current = await fp(before);
       return update((doc) => { const task = taskById(doc, before.id);
         if (task.state !== 'blocked' || task.attempts.at(-1)?.role !== 'reviewer' || task.attempts.at(-1)?.state !== 'reported' || task.revision !== current || task.checksResult.some((check) => check.code !== 0)) throw Error('A fresh implementation and checks are required before retrying review');
         if (task.attempts.filter((attempt) => attempt.role === 'reviewer').length >= task.maxRounds + 1) throw Error('Review retry budget exhausted');
@@ -438,7 +440,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         if (wt.reviewedRevision !== revision) throw Error('The reviewed tree is not the accepted revision; nothing was committed');
         return { sha: await commitReviewedTree(wt, wt.reviewedTree, task.title, body) };
       }
-      if (await fingerprintImpl(wt.path) !== revision) throw Error('The checkout changed after review; nothing was committed');
+      if (await fp(task) !== revision) throw Error('The checkout changed after review; nothing was committed');
       return { sha: await commitWorktree(wt, task.title, body) };
     } catch (e) { return { failure: String(e.stderr || e.message).slice(0, 500) }; }
   }
@@ -534,11 +536,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     let observed;
     try { observed = await getActor(actor, task.root); } catch (e) { block(task.id, e.message); return; }
     if (!['idle', 'done'].includes(observed.status)) return;
-    const revision = await fingerprintImpl(task.root);
+    const revision = await fp(task);
     if (role === 'reviewer' && task.revision !== revision) { block(task.id, 'Checkout changed after checks. Start a fresh attempt.'); return; }
     const token = uid();
     const attempt = { id: uid(), role, address: actor.address, tokenHash: tokenHash(token), delivery: 'sending', state: 'running', at: new Date(clock()).toISOString(), revision, startedTurn: observed.turn };
-    const change = role === 'reviewer' ? await diffImpl(task.root, task.worktree?.baseCommit ?? 'HEAD').catch((e) => `Could not read the diff: ${e.message}`) : '';
+    const change = role === 'reviewer' ? await diffImpl(task.root, task.worktree?.baseCommit ?? 'HEAD', await gitEnv(task)).catch((e) => `Could not read the diff: ${e.message}`) : '';
     const fullPrompt = prompt(task, { ...attempt, token }, preferencesFor(doc.preferences, { goalId: task.goalId, root: task.root }), change);
     const stored = fullPrompt.split(token).join('<token>');
     attempt.prompt = stored.length > MAX_STORED_PROMPT ? `${stored.slice(0, MAX_STORED_PROMPT)}…` : stored;
@@ -609,7 +611,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (!['idle', 'done'].includes(state.status)) { block(task.id, `Agent stopped with ${state.status ?? state.state}`); return; }
       let revision, checks = task.checksResult;
       if (attempt.role === 'executor' && status === 'completed') {
-        const pending = checkRuns.get(attempt.id) ?? startChecks(task, attempt.id, await fingerprintImpl(task.root));
+        const pending = checkRuns.get(attempt.id) ?? startChecks(task, attempt.id, await fp(task));
         if (!pending.done) await Promise.race([pending.promise, new Promise((resolve) => globalThis.setTimeout(resolve, CHECK_GRACE_MS).unref?.())]);
         // Stop/cancel is not a failed check. Keep the report available so an
         // explicit resume validates this same attempt without another round.
@@ -617,10 +619,10 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         checkRuns.delete(attempt.id);
         if (pending.error) throw pending.error;
         ({ revision, checks } = pending);
-      } else revision = await fingerprintImpl(task.root);
+      } else revision = await fp(task);
       // The reviewed tree is read between the two fingerprints, so it is stored only for an unchanged checkout.
-      const reviewedTree = task.worktree && attempt.role === 'reviewer' && status === 'completed' ? await snapshotTree(task.root).catch(() => null) : null;
-      const afterChecks = await fingerprintImpl(task.root);
+      const reviewedTree = task.worktree && attempt.role === 'reviewer' && status === 'completed' ? await snapshotTree(task.root, await gitEnv(task)).catch(() => null) : null;
+      const afterChecks = await fp(task);
       update((doc) => {
         const t = taskById(doc, task.id), a = t.attempts.at(-1);
         if (a?.id !== attempt.id || a.state !== 'running' || terminalStates.has(t.state)) return;

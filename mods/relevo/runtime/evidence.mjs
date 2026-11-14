@@ -6,20 +6,22 @@ import { basename, extname, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createReadStream as fileStream } from 'node:fs';
 import { runCheck, loginEnv } from './process.mjs';
+import { QUIET } from './worktree.mjs';
 
 const execFile = promisify(nodeExecFile);
 const hash = (data) => createHash('sha256').update(data).digest('hex');
 const inside = (base, path) => { const rel = relative(base, path); return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !rel.startsWith(sep)); };
 const regular = async (path) => { const s = await lstat(path); if (!s.isFile() || s.isSymbolicLink()) throw new Error(`Expected regular file: ${path}`); return s; };
 
-export async function fingerprint(root) {
+// env: a run worktree's own git folder (trustedEnv), so a `.git` file its agents rewrote isn't followed.
+export async function fingerprint(root, env) {
   root = await realpath(root);
-  const git = (...args) => execFile('git', args, { cwd: root, encoding: 'buffer', timeout: 10000, maxBuffer: 64 * 1024 * 1024 });
+  const git = (...args) => execFile('git', [...QUIET, ...args], { cwd: root, encoding: 'buffer', timeout: 10000, maxBuffer: 64 * 1024 * 1024, ...(env ? { env: { ...process.env, ...env } } : {}) });
   const { stdout: top } = await git('rev-parse', '--show-toplevel');
   if (resolve(top.toString().trim()) !== root) throw new Error('Root must be the git checkout root');
   const { stdout: head } = await git('rev-parse', '--verify', 'HEAD');
   const digest = createHash('sha256').update(head);
-  const { stdout: diff } = await git('diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--'); digest.update(diff);
+  const { stdout: diff } = await git('diff', '--no-ext-diff', '--no-textconv', '--ignore-submodules=dirty', '--binary', 'HEAD', '--'); digest.update(diff);
   const { stdout: names } = await git('ls-files', '--others', '--exclude-standard', '-z');
   let total = 0;
   for (const name of names.toString().split('\0').filter(Boolean).sort()) {

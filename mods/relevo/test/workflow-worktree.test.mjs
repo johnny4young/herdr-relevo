@@ -109,3 +109,40 @@ test('the reviewed tree is what gets committed, and only run worktrees can be re
   fs.rmSync(path.join(wt.path, 'B.md'));
   await assert.rejects(removeRunWorktree({ ...wt, branch: 'main' }), /not a run worktree/);
 });
+
+test("a run worktree whose .git file an agent rewrote is still read through its own folder, and nothing it names runs", async (t) => {
+  const { trustedEnv, worktreeStatus, snapshotTree } = await import("../runtime/worktree.mjs");
+  const { fingerprint } = await import("../runtime/evidence.mjs");
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "relevo-trust-"))); t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const repo = path.join(base, "repo"), wtPath = path.join(base, "wt"), marker = path.join(base, "ran");
+  const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+  fs.mkdirSync(repo); git(repo, "init", "-q"); git(repo, "config", "user.email", "t@e.invalid"); git(repo, "config", "user.name", "T");
+  fs.writeFileSync(path.join(repo, "a.txt"), "a\n"); git(repo, "add", "."); git(repo, "commit", "-qm", "i");
+  git(repo, "worktree", "add", "-q", "-b", "run/trust-1", wtPath);
+  const wt = { path: wtPath, base: repo, branch: "run/trust-1", baseCommit: git(repo, "rev-parse", "HEAD").trim() };
+  const honest = await fingerprint(wtPath, await trustedEnv(wt));
+  // The agent's own git folder: a config that runs a program on status, diff and add.
+  const fake = path.join(wtPath, "fake");
+  fs.cpSync(path.join(repo, ".git"), fake, { recursive: true });
+  fs.appendFileSync(path.join(fake, "config"), `[core]\n\tfsmonitor = touch ${marker}\n[filter \"evil\"]\n\tclean = touch ${marker}; cat\n`);
+  fs.writeFileSync(path.join(wtPath, ".gitattributes"), "*.txt filter=evil\n");
+  fs.writeFileSync(path.join(wtPath, ".git"), `gitdir: ${fake}\n`);
+  fs.writeFileSync(path.join(wtPath, "a.txt"), "b\n");
+  const env = await trustedEnv(wt);
+  assert.equal(env.GIT_DIR, path.join(repo, ".git", "worktrees", "wt"));
+  assert.notEqual(await fingerprint(wtPath, env), honest);
+  assert.equal((await worktreeStatus(wt)).dirty, true);
+  assert.match(await snapshotTree(wtPath, env), /^[0-9a-f]{40}$/);
+  assert.equal(fs.existsSync(marker), false);
+  // Without the pinned folder git would have followed the agent's file.
+  execFileSync("git", ["-C", wtPath, "status", "--porcelain"]);
+  assert.equal(fs.existsSync(marker), true);
+});
+
+test("a folder that isn't a worktree of its base is refused", async (t) => {
+  const { trustedEnv } = await import("../runtime/worktree.mjs");
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "relevo-trust-"))); t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const repo = path.join(base, "repo"), other = path.join(base, "other");
+  fs.mkdirSync(repo); fs.mkdirSync(other); execFileSync("git", ["-C", repo, "init", "-q"]);
+  await assert.rejects(trustedEnv({ path: other, base: repo }), /not registered in its repository/);
+});
