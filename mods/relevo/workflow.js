@@ -1,6 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
-import { agents, panes, props, theme, exec, appHome, readTextFile, run, focused, shared, setShared, closeOverlay } from "herdr";
+import { agents, panes, props, theme, appHome, readTextFile, run, focused, shared, setShared, closeOverlay } from "herdr";
+import { runtimeCommand } from "./runtime-cli.js";
 import { button, onSubmitChord, tabButton } from "./ui.js";
 import { focusedCwd } from "./panelbar.js";
 import { workflowBucket, workflowItems, queueSummary } from "./lib/workflow-navigation.js";
@@ -198,7 +199,7 @@ export class Workflow extends WorkflowDetail {
     cx.notify();
     cx.spawn(async (cx) => {
     try {
-      const result = await exec("node", [`${appHome()}/mods/relevo/runtime/cli.mjs`, "--home", appHome(), "command", JSON.stringify(payload)]);
+      const result = await runtimeCommand(payload);
       let response = {};
       try { response = JSON.parse(result.stdout || "{}"); }
       catch (parseError) {

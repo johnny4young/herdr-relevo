@@ -1,6 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { run, exec, shared, setShared, readTextFile, appHome } from "herdr";
+import { runtimeCommand } from "./runtime-cli.js";
 import { accountFor, inFocus } from "./context.js";
 import { button, sectionHeader, foldRow } from "./ui.js";
 import { openGoal } from "./goals-editor.js";
@@ -17,7 +18,7 @@ export const GOAL_SCOPE = "relevo.goals.scope";
 // A mark hides a review until its task returns a new revision or the question changes.
 const textKey = (s) => [...s].reduce((h, c) => (h * 31 + c.codePointAt(0)) >>> 0, 7).toString(36);
 const workflowCommand = async (payload) => {
-  const result = await exec("node", [`${appHome()}/mods/relevo/runtime/cli.mjs`, "--home", appHome(), "command", JSON.stringify(payload)]);
+  const result = await runtimeCommand(payload);
   let response = {};
   try { response = JSON.parse(result.stdout || result.stderr || "{}"); } catch { /* reported below */ }
   if (response.error || result.code !== 0) throw Error(response.error || result.stderr || "Workflow command failed");

@@ -147,6 +147,8 @@ export function install({ source, root, dry = false, log = () => {} }) {
       writeAtomic(real, `${JSON.stringify({ ...keys.theirs, 'layout:relevo': keys.section }, null, 2)}\n`);
     }
     writeAtomic(manifestPath(root), `${JSON.stringify({ version: versionOf(source), installedAt: new Date().toISOString(), files, keys: keys.ours }, null, 2)}\n`);
+    // The Herdr app's PATH has no node from fnm or nvm: Runs start the node this install ran with.
+    writeAtomic(path.join(root, STATE, 'node'), `${process.execPath}\n`);
   }
   const summary = [...Object.entries(count).filter(([how]) => how !== 'same' && how !== 'stay').map(([how, n]) => `${n} ${how}`),
     ...(Object.keys(keys.add).length + keys.moved.length ? [`${Object.keys(keys.add).length + keys.moved.length} keys`] : [])].join(', ');
@@ -200,6 +202,9 @@ export function doctor({ source, root, filesOnly = false, env = process.env, log
   for (const rel of pending) warn(`${rel}.new waits: merge it into your file, then delete it`);
   if (total && !missing.length) ok(`${total} files of Relevo ${manifest.version}${changed.length ? `, ${changed.length} changed by you` : ''}`);
   if (fs.existsSync(path.join(root, CONFIG))) ok('config.js is there'); else fail(`${CONFIG} is missing. Run install.`);
+  const node = read(path.join(root, STATE, 'node'))?.toString().trim();
+  if (!node) fail('Relevo does not know which node runs its Runs. Run install.');
+  else { try { fs.accessSync(node, fs.constants.X_OK); ok(`Runs use ${node}`); } catch { fail(`Runs use ${node}, which is gone. Run install again.`); } }
   const current = source && fs.existsSync(path.join(source, 'CHANGELOG.md')) ? versionOf(source) : null;
   if (current && current !== manifest.version) warn(`installed ${manifest.version}, this checkout is ${current}: run install to update`);
   if (filesOnly) return { failed };

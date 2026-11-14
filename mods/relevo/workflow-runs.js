@@ -1,6 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { agents, terminals, exec, appHome, run, shared, setShared, spaces } from "herdr";
+import { runtimeCommand } from "./runtime-cli.js";
 import { button } from "./ui.js";
 import * as config from "./config.js";
 import { ACCOUNTS, CODEX, accountOf, launchArgv, openInFolder, loadClaudeQuotas, full } from "./accounts.js";
@@ -59,7 +60,7 @@ export class WorkflowRuns extends WorkflowDraftView {
     this.busy = true; this.error = null; this.launch = { stage: "preparing", fields, accounts, at: Date.now() }; cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const result = await exec("node", [`${appHome()}/mods/relevo/runtime/cli.mjs`, "--home", appHome(), "command", JSON.stringify({ action: "prepare-worktree", root: fields.root, title: fields.title })]);
+        const result = await runtimeCommand({ action: "prepare-worktree", root: fields.root, title: fields.title });
         const response = JSON.parse(result.stdout || "{}");
         if (response.error || result.code !== 0) throw Error(response.error || result.stderr || "Could not create the worktree");
         const slug = response.result.branch.replace(/^run\//, "");

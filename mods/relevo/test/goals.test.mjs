@@ -428,3 +428,12 @@ test('the Inbox neither parses nor redraws while the goals and the workflow revi
   assert.equal(view.workflowTasks[0].state, 'accepted'); assert.ok(cx.notified > drawn);
   fake.files[`${dir}/state.json`] = null; fake.files[`${dir}/state.rev`] = null;
 });
+
+test('a run command goes to the node the installer recorded, not the Herdr app PATH', async () => {
+  const { runtimeCommand } = await import('../runtime-cli.js');
+  fake.files['/home/test/.config/herdr-app/relevo-install/node'] = '/opt/fnm/node-versions/v26/bin/node\n';
+  let seen;
+  fake.exec = (cmd, args) => { seen = [cmd, args.at(-1)]; return { code: 0, stdout: '{}' }; };
+  await runtimeCommand({ action: 'read' });
+  assert.deepEqual(seen, ['/opt/fnm/node-versions/v26/bin/node', '{"action":"read"}']);
+});

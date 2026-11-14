@@ -128,7 +128,8 @@ test("doctor passes a whole install and names what is missing, changed or waitin
   install({ source, root });
   lines = [];
   assert.equal(doctor({ source, root, filesOnly: true, log }).failed, 0);
-  assert.deepEqual(lines, ["ok    11 files of Relevo 1.2.3", "ok    config.js is there"]);
+  assert.deepEqual(lines, ["ok    11 files of Relevo 1.2.3", "ok    config.js is there", `ok    Runs use ${process.execPath}`]);
+  assert.equal(get("relevo-install/node"), `${process.execPath}\n`);
   fs.rmSync(path.join(root, "mods/relevo/lib/a.js"));
   put(root, "mods/relevo/main.js", "// mine\n");
   put(root, "mods/relevo/main.js.new", "// theirs\n");
@@ -136,7 +137,7 @@ test("doctor passes a whole install and names what is missing, changed or waitin
   lines = [];
   assert.equal(doctor({ source, root, filesOnly: true, log }).failed, 1);
   assert.deepEqual(lines, ["FAIL  missing: mods/relevo/lib/a.js. Run install.", "warn  changed since install (kept as yours): mods/relevo/main.js",
-    "warn  mods/relevo/main.js.new waits: merge it into your file, then delete it", "ok    config.js is there",
+    "warn  mods/relevo/main.js.new waits: merge it into your file, then delete it", "ok    config.js is there", `ok    Runs use ${process.execPath}`,
     "warn  installed 1.2.3, this checkout is 1.3.0: run install to update"]);
 });
 
@@ -195,4 +196,12 @@ test("a key still on the command Relevo gave it before moves to the new one; one
   keys({ "cmd-alt-3": "relevo.panel-prs", "cmd-alt-4": "relevo.panel-runs", "cmd-alt-5": "relevo.panel-issues" });
   install({ source, root });
   assert.deepEqual(JSON.parse(get("keys.json"))["layout:relevo"], { "cmd-alt-3": "relevo.panel-prs", "cmd-alt-4": "relevo.panel-issues", "cmd-alt-5": "relevo.panel-runs" });
+});
+
+test("doctor says when the node Runs use is gone", () => {
+  install({ source, root });
+  fs.writeFileSync(path.join(root, "relevo-install/node"), "/nowhere/node\n");
+  lines = [];
+  assert.equal(doctor({ source, root, filesOnly: true, log }).failed, 1);
+  assert.ok(lines.includes("FAIL  Runs use /nowhere/node, which is gone. Run install again."));
 });
