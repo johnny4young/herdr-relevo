@@ -183,10 +183,10 @@ shows.
 - That hook is one optional Claude hook on four events (SessionStart, Stop, SessionEnd, PermissionRequest), in bash with
   `jq`. On the first three it only sets terminal labels: account, ticket, session file and background tasks. On a
   permission request it writes what the agent asks (the tool and its whole input, such as a command) to
-  `~/.local/state/relevo/asks/<terminal>.json`, readable only by you, and removes it when the turn ends; it never answers
+  `~/.local/state/relevo/asks/<terminal>.jsonl`, readable only by you (the last two requests), and removes it when the turn ends; it never answers
   the request. Without it Relevo still runs; you lose account chips, resumed handoffs (handoffs use the note) and the
   background-task marker, ticket time falls back to the ticket in the branch name, and a command or plan longer than the
-  agent's screen shows as "Can't read all of what this asks" instead of whole. The card only uses a note whose end is
+  agent's screen shows as "Can't read all of what this asks" instead of whole. The card only uses a note when it is the one request noted as the wait began and its end is
   exactly what the screen still shows. To set it up, tell your agent: `Read ~/.config/herdr-app/mods/relevo/hooks/HOOK.md and follow it.`
 
 ## Tests

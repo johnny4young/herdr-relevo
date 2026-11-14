@@ -2,7 +2,7 @@
 
 `relevo-labels.sh` is an optional Claude Code hook on SessionStart, Stop, SessionEnd and PermissionRequest. It runs no
 network calls. On the first three it only sets terminal labels; on a permission request it writes what is asked to
-`~/.local/state/relevo/asks/<terminal>.json` for the Inbox card and never answers it. It needs `jq`, which macOS 15 and later ship in `/usr/bin`; elsewhere, `brew install jq`.
+`~/.local/state/relevo/asks/<terminal>.jsonl` for the Inbox card and never answers it. It needs `jq`, which macOS 15 and later ship in `/usr/bin`; elsewhere, `brew install jq`.
 
 | Label | What it is | What needs it |
 |---|---|---|

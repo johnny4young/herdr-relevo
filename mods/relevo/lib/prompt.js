@@ -29,8 +29,8 @@ const asksBlind = (question, options) => !options.some((o) => /^(type something|
 // Claude's own words for a plan: approving one isn't running what a cut screen hides.
 export const isPlan = (question) => /has written up a plan\b.*would you like to proceed\?$/i.test((question ?? "").replace(/\s+/g, " "));
 
-// note: what the hook wrote down for this wait, if anything; it fills in a permission the screen cuts or hides.
-export function readPrompt(screen, note = null, since = null) {
+// notes: what the hook wrote down for this agent, if anything; one may fill in a command or plan the screen cuts.
+export function readPrompt(screen, notes = null, since = null) {
   const lines = (screen ?? "").split("\n").map((l) => l.replace(FRAME, "")).slice(-60);
   const none = { question: "", options: [], multi: false, submit: null, cursor: null, dialog: "" };
   let last = -1;
@@ -84,7 +84,7 @@ export function readPrompt(screen, note = null, since = null) {
   const question = questionAbove(lines, found[0].i), ask = askAbove(screen, found[0].i, question, options);
   let shown = ask?.ask ?? null;
   if (shown?.cut) {
-    const whole = noteAsk(note, shown.body, { since, plan: isPlan(question) });
+    const whole = noteAsk(notes, shown.body, { since, plan: isPlan(question) });
     if (whole) shown = { ...whole, title: shown?.title || whole.title, about: shown?.about || whole.about };
   }
   if (shown?.cut ? !isPlan(question) : !shown && asksBlind(question, options)) {

@@ -194,7 +194,8 @@ test("an unknown option exits 2", () => {
   assert.equal(run(["--nope"]).status, 2);
 });
 
-const noteFile = () => path.join(home, ".local/state/relevo/asks/t1.json");
+const noteFile = () => path.join(home, ".local/state/relevo/asks/t1.jsonl");
+const notes = () => fs.readFileSync(noteFile(), "utf8").trim().split("\n").map((line) => JSON.parse(line));
 const request = (extra = {}) => ({
   hook_event_name: "PermissionRequest", cwd: "/repo", tool_name: "Bash",
   tool_input: { command: 'printf "a\\nb\\n" > out.txt && cat out.txt', description: "Write two lines" }, ...extra,
@@ -205,7 +206,8 @@ test("a permission request is noted for the Inbox, answers nothing and sets no l
   assert.equal(r.status, 0);
   assert.equal(r.stdout, "");
   assert.equal(fs.existsSync(log), false);
-  const note = JSON.parse(fs.readFileSync(noteFile(), "utf8"));
+  const [note, ...more] = notes();
+  assert.deepEqual(more, []);
   assert.equal(note.terminal, "t1");
   assert.equal(note.tool, "Bash");
   assert.deepEqual(note.input, request().tool_input);
@@ -214,17 +216,22 @@ test("a permission request is noted for the Inbox, answers nothing and sets no l
   assert.equal(fs.statSync(path.dirname(noteFile())).mode & 0o777, 0o700);
 });
 
+test("the request before stays beside the new one, and only that one", () => {
+  for (const command of ["one", "two", "three"]) hook(request({ tool_input: { command } }));
+  assert.deepEqual(notes().map((n) => n.input.command), ["two", "three"]);
+});
+
 test("a huge request keeps its start, and a terminal id that is a path writes nothing", () => {
   hook(request({ tool_input: { command: "x".repeat(50000) } }));
-  assert.equal(JSON.parse(fs.readFileSync(noteFile(), "utf8")).input.command.length, 20001);
+  assert.equal(notes()[0].input.command.length, 20001);
   fs.rmSync(noteFile());
   hook(request(), { HC_TERMINAL_ID: "../t1" });
   hook(request(), { HC_TERMINAL_ID: "mac/t1" });
   assert.deepEqual(fs.readdirSync(path.dirname(noteFile())), []);
 });
 
-test("the note goes when the turn or the session ends", () => {
-  for (const event of ["Stop", "SessionEnd"]) {
+test("the notes go when a session starts, or the turn or the session ends", () => {
+  for (const event of ["SessionStart", "Stop", "SessionEnd"]) {
     hook(request());
     assert.equal(fs.existsSync(noteFile()), true);
     hook({ hook_event_name: event });
@@ -233,7 +240,7 @@ test("the note goes when the turn or the session ends", () => {
 });
 
 test("another event whose text names a permission request is not one", () => {
-  hook({ hook_event_name: "SessionStart", cwd: '"hook_event_name": "PermissionRequest"' });
+  hook({ hook_event_name: "Stop", cwd: '"hook_event_name": "PermissionRequest"' });
   assert.equal(fs.existsSync(noteFile()), false);
 });
 
@@ -241,5 +248,9 @@ test("a request that can't be noted leaves no older note behind", () => {
   hook(request());
   fs.writeFileSync(path.join(home, "bin/mktemp"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
   hook(request({ tool_input: { command: "another" } }));
+  assert.equal(fs.existsSync(noteFile()), false);
+  fs.rmSync(path.join(home, "bin/mktemp"));
+  hook(request());
+  spawnSync("bash", [script], { env: env({ HC_TERMINAL_ID: "t1" }), input: '{"hook_event_name": "PermissionRequest", broken', encoding: "utf8" });
   assert.equal(fs.existsSync(noteFile()), false);
 });

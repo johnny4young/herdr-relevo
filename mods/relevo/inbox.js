@@ -18,7 +18,7 @@ import { agentPRs, seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
 import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
 import { STATS_FOR } from "./lib/refresh.js";
-import { ASKS_DIR, parseNote } from "./lib/asks.js";
+import { ASKS_DIR, parseNotes } from "./lib/asks.js";
 import { readPrompt, samePrompt, sameChoicesBut, submitKeys, freeOption, moveKeys, lastMessage, reasonOf } from "./lib/prompt.js";
 import { COUNT, showPanel } from "./toolbar.js";
 import { launched } from "./skills.js";
@@ -247,7 +247,7 @@ export class Inbox {
             const at = since[`${a.address}:blocked`];
             if (this.prompts.get(a.address)?.since !== at) {
               const screen = (await hc(["read", a.address, "--lines", "0"])).stdout;
-              const prompt = readPrompt(screen, await this.askNote(a.address), this.waitingSince(a.address) ?? at);
+              const prompt = readPrompt(screen, await this.askNote(a.address), this.waitingSince(a.address));
               this.prompts.set(a.address, { since: at, prompt, free: freeOption(prompt) });
             }
             items.push({ kind: "blocked", agent: a, top, repo, branch: pane.branch, prompt: this.prompts.get(a.address).prompt });
@@ -535,10 +535,10 @@ export class Inbox {
     if (r.code !== 0) notify({ title: "Could not send the note", body: r.stderr.trim().split("\n")[0], level: "warning" });
   }
 
-  // What the optional hook noted for this agent's request, or null: without the hook the screen is all there is.
+  // What the optional hook noted for this agent's last requests; without the hook the screen is all there is.
   async askNote(address) {
-    if (address.includes("/")) return null;
-    return parseNote(await readTextFile(`${home()}/${ASKS_DIR}/${address}.json`).catch(() => null), address);
+    if (address.includes("/")) return [];
+    return parseNotes(await readTextFile(`${home()}/${ASKS_DIR}/${address}.jsonl`).catch(() => null), address);
   }
 
   // The core's own time for the wait, in seconds: the Inbox's starts when the window first saw it.
@@ -552,7 +552,7 @@ export class Inbox {
     const r = await hc(["read", address, "--lines", "0"]);
     if (r.code !== 0 || !r.stdout.trim()) return false;
     const was = this.prompts.get(address);
-    const prompt = readPrompt(r.stdout, await this.askNote(address), this.waitingSince(address) ?? was?.since);
+    const prompt = readPrompt(r.stdout, await this.askNote(address), this.waitingSince(address));
     this.prompts.set(address, { since: was?.since, prompt, free: freeOption(prompt, was?.free) });
     for (const i of this.local) if (i.agent.address === address) i.prompt = this.prompts.get(address).prompt;
     return true;
