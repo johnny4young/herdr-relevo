@@ -538,7 +538,7 @@ export class Inbox {
   // What the optional hook noted for this agent's request, or null: without the hook the screen is all there is.
   async askNote(address) {
     if (address.includes("/")) return null;
-    return parseNote(await readTextFile(`${home()}/${ASKS_DIR}/${address}.json`).catch(() => null));
+    return parseNote(await readTextFile(`${home()}/${ASKS_DIR}/${address}.json`).catch(() => null), address);
   }
 
   // The core's own time for the wait, in seconds: the Inbox's starts when the window first saw it.

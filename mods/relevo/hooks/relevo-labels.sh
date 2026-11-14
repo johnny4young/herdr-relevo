@@ -31,6 +31,8 @@ ACCOUNTS='[scan("key:\\s*\"([^\"]+)\"[^{}]*?claudeDir:\\s*\"([^\"]+)\"")]'
 note_ask() {
   local dir=$HOME/.local/state/relevo/asks tmp
   mkdir -p "$dir" 2>/dev/null && chmod 700 "$dir" || return 0
+  # The last request's note goes first, so a write that fails leaves none.
+  rm -f "$dir/$HC_TERMINAL_ID.json"
   tmp=$(mktemp "$dir/.ask-XXXXXX" 2>/dev/null) || return 0
   "$jq" -c --arg t "$HC_TERMINAL_ID" 'select(.hook_event_name == "PermissionRequest")
     | {at: now, terminal: $t, cwd: (.cwd // ""), tool: (.tool_name // ""),

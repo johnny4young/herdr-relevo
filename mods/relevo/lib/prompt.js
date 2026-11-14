@@ -83,8 +83,8 @@ export function readPrompt(screen, note = null, since = null) {
   const preview = previewBeside(screen);
   const question = questionAbove(lines, found[0].i), ask = askAbove(screen, found[0].i, question, options);
   let shown = ask?.ask ?? null;
-  if (!shown || shown.cut) {
-    const whole = noteAsk(note, screen, { since, plan: isPlan(question) });
+  if (shown?.cut) {
+    const whole = noteAsk(note, shown.body, { since, plan: isPlan(question) });
     if (whole) shown = { ...whole, title: shown?.title || whole.title, about: shown?.about || whole.about };
   }
   if (shown?.cut ? !isPlan(question) : !shown && asksBlind(question, options)) {

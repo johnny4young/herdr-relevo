@@ -236,3 +236,10 @@ test("another event whose text names a permission request is not one", () => {
   hook({ hook_event_name: "SessionStart", cwd: '"hook_event_name": "PermissionRequest"' });
   assert.equal(fs.existsSync(noteFile()), false);
 });
+
+test("a request that can't be noted leaves no older note behind", () => {
+  hook(request());
+  fs.writeFileSync(path.join(home, "bin/mktemp"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  hook(request({ tool_input: { command: "another" } }));
+  assert.equal(fs.existsSync(noteFile()), false);
+});

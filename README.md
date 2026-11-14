@@ -185,8 +185,9 @@ shows.
   permission request it writes what the agent asks (the tool and its whole input, such as a command) to
   `~/.local/state/relevo/asks/<terminal>.json`, readable only by you, and removes it when the turn ends; it never answers
   the request. Without it Relevo still runs; you lose account chips, resumed handoffs (handoffs use the note) and the
-  background-task marker, ticket time falls back to the ticket in the branch name, and a permission longer than the
-  agent's screen shows as "Can't read all of what this asks" instead of whole. To set it up, tell your agent: `Read ~/.config/herdr-app/mods/relevo/hooks/HOOK.md and follow it.`
+  background-task marker, ticket time falls back to the ticket in the branch name, and a command or plan longer than the
+  agent's screen shows as "Can't read all of what this asks" instead of whole. The card only uses a note whose end is
+  exactly what the screen still shows. To set it up, tell your agent: `Read ~/.config/herdr-app/mods/relevo/hooks/HOOK.md and follow it.`
 
 ## Tests
 

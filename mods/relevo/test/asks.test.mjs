@@ -10,16 +10,19 @@ const bash = (command, at = 1000) => ({ at, terminal: "t1", cwd: "/repo", tool: 
 // The dialog's top has scrolled away: only the command's end is on screen.
 const cutScreen = (...tail) => [...tail.map((l) => ` ${l}`), FENCED, ...CHOICES].join("\n");
 const LONG = ["set -e", ...Array.from({ length: 70 }, (_, i) => `echo step ${i}`), "git push --force origin main"];
+const TAIL = LONG.slice(-5);
 
-test("parseNote: only a note with a tool and its input counts", () => {
+test("parseNote: only a note with a tool and its input, written for this terminal, counts", () => {
   assert.equal(parseNote(null), null);
   assert.equal(parseNote("{not json"), null);
   assert.equal(parseNote('{"tool":"Bash"}'), null);
   assert.equal(parseNote(JSON.stringify(bash("ls"))).tool, "Bash");
+  assert.equal(parseNote(JSON.stringify(bash("ls")), "t1").tool, "Bash");
+  assert.equal(parseNote(JSON.stringify(bash("ls")), "t2"), null);
 });
 
 test("a command cut by the screen shows whole from the note, and can be answered", () => {
-  const screen = cutScreen(...LONG.slice(-5));
+  const screen = cutScreen(...TAIL);
   const blind = readPrompt(screen);
   assert.equal(blind.unparsed, true);
   assert.deepEqual(blind.options, []);
@@ -29,43 +32,52 @@ test("a command cut by the screen shows whole from the note, and can be answered
   assert.equal(reasonOf(p), "Run: set -e · +71 lines");
 });
 
-test("a note for another command, an older wait or another tool is not used", () => {
-  const screen = cutScreen("echo step 69", "git push --force origin main");
-  const used = (note, since = 1000) => Boolean(noteAsk(note, screen, { since }));
-  assert.equal(used(bash("set -e\ngit push --force origin main")), true);
-  assert.equal(used(bash("npm test")), false);
-  assert.equal(used(bash("set -e\ngit push --force origin main", 100)), false);
-  assert.equal(used(bash("set -e\ngit push --force origin main", 900)), true);
-  assert.equal(used({ ...bash("x"), tool: "Write", input: { file_path: "/repo/notes.md", content: "git push --force origin main" } }), false);
-  assert.equal(readPrompt(screen, bash("npm test"), 1000).unparsed, true);
-  // A short command needs its dialog's title on screen: its letters alone are in many others.
-  assert.equal(Boolean(noteAsk(bash("ls"), cutScreen("echo tools", "false"), { since: 1000 })), false);
-  assert.equal(Boolean(noteAsk(bash("ls"), [RULE, " Bash command", " ls", ...CHOICES].join("\n"), { since: 1000 })), true);
+test("a line the terminal wrapped still matches", () => {
+  const wide = `curl -sS https://example.com/install.sh --retry 3 --output /tmp/install.sh`;
+  const note = bash(`${LONG.join("\n")}\n${wide}`);
+  assert.ok(noteAsk(note, ["echo step 69", "git push --force origin main", wide.slice(0, 40), wide.slice(40)], { since: 1000 }));
 });
 
-test("a dialog the screen reads whole keeps its own words", () => {
+test("every line still on screen must be the note's own end, or the card stays unanswerable", () => {
+  const whole = LONG.join("\n"), used = (note, visible = TAIL, since = 1000) => Boolean(noteAsk(note, visible, { since }));
+  assert.equal(used(bash(whole)), true);
+  // Another command with the same last line, or the same first lines.
+  assert.equal(used(bash(`rm -rf /data\n${LONG.at(-1)}`)), false);
+  assert.equal(used(bash(whole), [...TAIL.slice(0, 4), "rm -rf /data"]), false);
+  assert.equal(used(bash(whole), ["rm -rf /data", ...TAIL.slice(1)]), false);
+  // The note's command went on after what the screen shows.
+  assert.equal(used(bash(`${whole}\nrm -rf /data`)), false);
+  // Too little on screen, an older wait, a note with no time.
+  assert.equal(used(bash(whole), ["origin main"]), false);
+  assert.equal(used(bash(whole, 100)), false);
+  assert.equal(used(bash(whole, 900)), true);
+  assert.equal(used({ ...bash(whole), at: undefined }), false);
+  const stale = readPrompt(cutScreen(...TAIL), bash("npm test"), 1000);
+  assert.equal(stale.unparsed, true);
+  assert.deepEqual(stale.options, []);
+});
+
+test("a dialog the screen reads whole, or one with nothing of the request on screen, keeps to the screen", () => {
   const screen = [RULE, " Bash command", " Run the tests", FENCED, " npm test", FENCED, ...CHOICES].join("\n");
   const p = readPrompt(screen, bash("npm test\necho hidden"), 1000);
   assert.deepEqual(p.ask, { title: "Bash command", about: "Run the tests", body: ["npm test"], cut: false });
+  const blind = readPrompt(CHOICES.join("\n"), bash(LONG.join("\n")), 1000);
+  assert.equal(blind.unparsed, true);
+  assert.equal(blind.ask, null);
 });
 
-test("a plan cut by the screen shows whole; a plan note never fills another dialog", () => {
-  const plan = { at: 1000, tool: "ExitPlanMode", input: { plan: "# Plan\n1. Read\n2. Write\n3. Test" } };
-  const screen = [" 2. Write", " 3. Test", FENCED, " Claude has written up a plan and is ready to execute. Would you like to proceed?", " ❯ 1. Yes", "   2. No", ""].join("\n");
+test("a plan cut by the screen shows whole; other tools and other dialogs get nothing from a note", () => {
+  const text = "# Plan\n\n1. **Read** the config loader\n2. Write the migration\n3. Test it on a copy";
+  const plan = { at: 1000, terminal: "t1", tool: "ExitPlanMode", input: { plan: text } };
+  const screen = [" 1. Read the config loader", " 2. Write the migration", " 3. Test it on a copy", FENCED,
+    " Claude has written up a plan and is ready to execute. Would you like to proceed?", " ❯ 1. Yes", "   2. No", ""].join("\n");
   const p = readPrompt(screen, plan, 1000);
-  assert.deepEqual(p.ask.body, ["# Plan", "1. Read", "2. Write", "3. Test"]);
+  assert.deepEqual(p.ask.body, ["# Plan", "1. **Read** the config loader", "2. Write the migration", "3. Test it on a copy"]);
   assert.equal(p.ask.cut, false);
   assert.equal(reasonOf(p), "Plan to approve");
-  assert.equal(noteAsk(plan, cutScreen("Bash command", "x"), { since: 1000 }), null);
-});
-
-test("an edit, a fetch and another tool say what they are; a question has no ask", () => {
-  const ask = (tool, input, screen) => noteAsk({ at: 1, tool, input }, screen);
-  assert.deepEqual(ask("Edit", { file_path: "/repo/src/app.js", old_string: "a\nb", new_string: "c" }, "Edit file src/app.js"),
-    { title: "Edit file", about: "/repo/src/app.js", body: ["- a", "- b", "+ c"], cut: false });
-  assert.deepEqual(ask("Write", { file_path: "/repo/new.md", content: "one\n\ntwo" }, "new.md").body, ["one", "two"]);
-  assert.deepEqual(ask("WebFetch", { url: "https://example.com/a?b", prompt: "Summarize" }, "example.com").body, ["url: https://example.com/a?b", "Summarize"]);
-  assert.equal(ask("mcp__github__create_issue", { title: "Broken build" }, "Brokenbuild").title, "github · create issue");
-  assert.equal(ask("mcp__github__create_issue", { title: "Broken build" }, "something else"), null);
-  assert.equal(ask("AskUserQuestion", { questions: [{ question: "Which?" }] }, "Which?"), null);
+  assert.equal(noteAsk(plan, TAIL, { since: 1000 }), null);
+  assert.equal(noteAsk(bash(LONG.join("\n")), TAIL, { since: 1000, plan: true }), null);
+  for (const tool of ["Edit", "Write", "WebFetch", "AskUserQuestion", "mcp__github__create_issue"]) {
+    assert.equal(noteAsk({ at: 1000, tool, input: { command: LONG.join("\n"), file_path: "/a" } }, TAIL, { since: 1000 }), null, tool);
+  }
 });
