@@ -151,7 +151,7 @@ shows.
 
 ## What it reads and runs
 
-- Runs `git`, `gh`, `hc`, `find` (to look for repos in a worktree's ignored folders) and the launchers in `config.js`; Files runs `/usr/bin/trash`, `open -R`, `mv -n` and `mkdir`.
+- Runs `git`, `gh`, `hc`, `cat` (the hook's notes of a permission the screen cuts), `find` (to look for repos in a worktree's ignored folders) and the launchers in `config.js`; Files runs `/usr/bin/trash`, `open -R`, `mv -n` and `mkdir`.
 - Reaches the network for quotas: each Claude account's login from the macOS Keychain goes to Anthropic's usage
   endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token.
 - Reads each Claude account's `history.jsonl` to rank the skills a PR's menu offers (counts only), its short
@@ -183,7 +183,7 @@ shows.
 - That hook is one optional Claude hook on four events (SessionStart, Stop, SessionEnd, PermissionRequest), in bash with
   `jq`. On the first three it only sets terminal labels: account, ticket, session file and background tasks. On a
   permission request it writes what the agent asks (the tool and its whole input, such as a command) to
-  `~/.local/state/relevo/asks/<terminal>.jsonl`, readable only by you (the last two requests), and removes it when the turn ends; it never answers
+  a file per request under `~/.local/state/relevo/asks/<terminal>/`, readable only by you, removed after a minute or when the turn ends; it never answers
   the request. Without it Relevo still runs; you lose account chips, resumed handoffs (handoffs use the note) and the
   background-task marker, ticket time falls back to the ticket in the branch name, and a command or plan longer than the
   agent's screen shows as "Can't read all of what this asks" instead of whole. The card only uses a note when it is the one request noted as the wait began and its end is

@@ -14,16 +14,18 @@ const letters = (s) => String(s ?? "").replace(/[^\p{L}\p{N}]+/gu, "");
 const rows = (s) => String(s ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
 const escaped = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// The hook's file holds the last two requests, one per line.
+// The hook's files for one terminal, one request per line. A line that can't be read is a request all the same,
+// of an unknown time: null, so nothing is filled while it is there.
 export function parseNotes(raw, terminal) {
-  return String(raw ?? "").split("\n").filter(Boolean).map((line) => {
+  const notes = String(raw ?? "").split("\n").filter((line) => line.trim()).map((line) => {
     try {
       const note = JSON.parse(line);
       return note && typeof note.tool === "string" && note.input && typeof note.input === "object" && Number.isFinite(note.at) && note.terminal === terminal ? note : null;
     } catch {
       return null;
     }
-  }).filter(Boolean);
+  });
+  return notes.includes(null) ? null : notes;
 }
 
 // The screen's lines are the command's own end, spaces and all: a line break there is the command's, or where

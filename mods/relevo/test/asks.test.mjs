@@ -15,10 +15,12 @@ const used = (notes, visible = TAIL, since = 1000) => Boolean(noteAsk(notes, vis
 
 test("parseNotes: lines with a tool, its input and a time, written for this terminal", () => {
   assert.deepEqual(parseNotes(null, "t1"), []);
-  const raw = [JSON.stringify(bash("one")), "{not json", '{"tool":"Bash"}', JSON.stringify({ ...bash("x"), at: "soon" }),
-    JSON.stringify({ ...bash("other"), terminal: "t2" }), JSON.stringify(bash("two"))].join("\n");
+  const raw = `${JSON.stringify(bash("one"))}\n\n${JSON.stringify(bash("two"))}\n`;
   assert.deepEqual(parseNotes(raw, "t1").map((n) => n.input.command), ["one", "two"]);
-  assert.deepEqual(parseNotes(raw, "t3"), []);
+  // One line that isn't a whole note of this terminal makes all of them unusable.
+  for (const bad of ["{not json", '{"tool":"Bash"}', JSON.stringify({ ...bash("x"), at: "soon" }), JSON.stringify({ ...bash("x"), terminal: "t2" })]) {
+    assert.equal(parseNotes(`${raw}${bad}`, "t1"), null, bad);
+  }
 });
 
 test("a command cut by the screen shows whole from its note, and can be answered", () => {
@@ -57,6 +59,8 @@ test("two requests noted as the wait began, an older one or no known time fill n
   assert.equal(used([bash(WHOLE, 995), bash(WHOLE, 996)]), false);
   assert.equal(used([bash(WHOLE, 980), bash(WHOLE, 996)]), true);
   assert.equal(used([bash(WHOLE, 980)]), false);
+  // A request the hook could only note by its time counts as one.
+  assert.equal(used([{ at: 997, terminal: "t1", tool: "", input: {} }, bash(WHOLE, 998)]), false);
   assert.equal(used([bash(WHOLE, 1005)]), true);
   assert.equal(used([bash(WHOLE)], TAIL, null), false);
   assert.equal(used([]), false);

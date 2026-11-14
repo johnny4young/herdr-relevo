@@ -3,7 +3,7 @@ import { div } from "gpui-kit";
 import { PreviewInbox } from "./decision-preview.js";
 import { SnapshotInbox } from "./snapshot-preview.js";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { theme, exec, run, notify, settings, agents, panes, terminals, shared, setShared, home, readTextFile } from "herdr";
+import { theme, exec, run, notify, settings, agents, panes, terminals, shared, setShared, home } from "herdr";
 import { loadClaudeQuotas } from "./accounts.js";
 import { accountFor, contextOfPath, inFocus } from "./context.js";
 import { ago, nextSince } from "./lib/time.js";
@@ -247,7 +247,7 @@ export class Inbox {
             const at = since[`${a.address}:blocked`];
             if (this.prompts.get(a.address)?.since !== at) {
               const screen = (await hc(["read", a.address, "--lines", "0"])).stdout;
-              const prompt = readPrompt(screen, await this.askNote(a.address), this.waitingSince(a.address));
+              const prompt = await this.promptOf(a.address, screen);
               this.prompts.set(a.address, { since: at, prompt, free: freeOption(prompt) });
             }
             items.push({ kind: "blocked", agent: a, top, repo, branch: pane.branch, prompt: this.prompts.get(a.address).prompt });
@@ -535,10 +535,12 @@ export class Inbox {
     if (r.code !== 0) notify({ title: "Could not send the note", body: r.stderr.trim().split("\n")[0], level: "warning" });
   }
 
-  // What the optional hook noted for this agent's last requests; without the hook the screen is all there is.
-  async askNote(address) {
-    if (address.includes("/")) return [];
-    return parseNotes(await readTextFile(`${home()}/${ASKS_DIR}/${address}.jsonl`).catch(() => null), address);
+  // The screen as it reads; only a request it cuts looks at what the optional hook noted for that agent.
+  async promptOf(address, screen) {
+    const prompt = readPrompt(screen);
+    if (!prompt.ask?.cut || !/^[A-Za-z0-9_-]+$/.test(address)) return prompt;
+    const r = await exec("sh", ["-c", 'cat "$1"/*.json 2>/dev/null', "sh", `${home()}/${ASKS_DIR}/${address}`]);
+    return readPrompt(screen, parseNotes(r.stdout, address), this.waitingSince(address));
   }
 
   // The core's own time for the wait, in seconds: the Inbox's starts when the window first saw it.
@@ -552,7 +554,7 @@ export class Inbox {
     const r = await hc(["read", address, "--lines", "0"]);
     if (r.code !== 0 || !r.stdout.trim()) return false;
     const was = this.prompts.get(address);
-    const prompt = readPrompt(r.stdout, await this.askNote(address), this.waitingSince(address));
+    const prompt = await this.promptOf(address, r.stdout);
     this.prompts.set(address, { since: was?.since, prompt, free: freeOption(prompt, was?.free) });
     for (const i of this.local) if (i.agent.address === address) i.prompt = this.prompts.get(address).prompt;
     return true;

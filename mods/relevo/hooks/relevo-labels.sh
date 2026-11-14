@@ -27,21 +27,21 @@ locate() {
 ACCOUNTS='[scan("key:\\s*\"([^\"]+)\"[^{}]*?claudeDir:\\s*\"([^\"]+)\"")]'
 
 # What the agent asks permission for, kept until its turn ends. It never answers: it prints nothing,
-# so Claude shows its own prompt as always. The request before stays beside it, so the Inbox can tell
-# when two came too close to know which one the screen shows.
+# so Claude shows its own prompt as always. Each request gets a file of its own, so two asked at once
+# never write the same one, and the Inbox sees both.
 note_ask() {
-  local dir=$HOME/.local/state/relevo/asks file tmp
-  mkdir -p "$dir" 2>/dev/null && chmod 700 "$dir" || return 0
-  file="$dir/$HC_TERMINAL_ID.jsonl"
-  tmp=$(mktemp "$dir/.ask-XXXXXX" 2>/dev/null) || { rm -f "$file"; return 0; }
-  [ -f "$file" ] && tail -n 1 "$file" >"$tmp" 2>/dev/null
-  # The file goes before the new note is written, so a write that fails leaves none.
-  rm -f "$file"
+  local dir=$HOME/.local/state/relevo/asks/$HC_TERMINAL_ID tmp
+  mkdir -p "$dir" 2>/dev/null && chmod 700 "${dir%/*}" "$dir" || return 0
+  # Older than any wait the Inbox would match them to.
+  find "$dir" -type f -mmin +1 -delete 2>/dev/null
+  tmp=$(mktemp "$dir/tmp-XXXXXX" 2>/dev/null) || return 0
+  # A request that can't be written down still counts as one, by its time alone.
   "$jq" -c --arg t "$HC_TERMINAL_ID" 'select(.hook_event_name == "PermissionRequest")
     | {at: now, terminal: $t, cwd: (.cwd // ""), tool: (.tool_name // ""),
        input: ((.tool_input // {}) | walk(if type == "string" and length > 20000 then .[0:20000] + "…" else . end))}
-    | if (.input | tojson | length) > 400000 then .input = {} else . end' <<<"$1" >>"$tmp" 2>/dev/null \
-    && mv "$tmp" "$file" || rm -f "$tmp"
+    | if (.input | tojson | length) > 400000 then .input = {} else . end' <<<"$1" >"$tmp" 2>/dev/null
+  [ -s "$tmp" ] || printf '{"at":%s,"terminal":"%s","tool":"","input":{}}\n' "$(date +%s)" "$HC_TERMINAL_ID" >"$tmp"
+  mv "$tmp" "$dir/ask-${tmp##*-}.json"
 }
 
 on_hook() {
@@ -55,7 +55,7 @@ on_hook() {
     return 0
   fi
   [[ $input =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"(SessionStart|Stop|SessionEnd)\" ]] \
-    && rm -f "$HOME/.local/state/relevo/asks/$HC_TERMINAL_ID.jsonl"
+    && rm -rf "$HOME/.local/state/relevo/asks/$HC_TERMINAL_ID"
   hc=hc
   command -v hc >/dev/null || hc=$HOME/.local/bin/hc
   end='"hook_event_name"[[:space:]]*:[[:space:]]*"SessionEnd"'
