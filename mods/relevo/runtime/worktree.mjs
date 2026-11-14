@@ -7,6 +7,26 @@ import { randomUUID } from 'node:crypto';
 
 const execFile = promisify(nodeExecFile);
 const git = (cwd, args, env) => execFile('git', ['-C', cwd, ...args], { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024, ...(env ? { env: { ...process.env, ...env } } : {}) });
+// A checkout an agent writes to must not make git start a program of its own.
+// Nested repositories keep their own config, and git starts itself inside them to look: submodules are left alone.
+export const QUIET = ['-c', 'core.fsmonitor=false', '-c', 'diff.external=', '-c', 'diff.ignoreSubmodules=all',
+  '-c', 'submodule.recurse=false', '-c', 'status.submoduleSummary=false'];
+
+// A run's agents can rewrite its worktree, the `.git` file in it too, and point it at a config of theirs. Git reads the
+// worktree's own folder, found from the base repository, which the agents can't write.
+export async function trustedEnv(wt) {
+  const common = path.resolve(wt.base, (await git(wt.base, ['rev-parse', '--git-common-dir'])).stdout.trim());
+  const want = fs.realpathSync(wt.path), admin = path.join(common, 'worktrees');
+  if (fs.realpathSync(path.dirname(common)) === want && path.basename(common) === '.git') return { GIT_DIR: common, GIT_WORK_TREE: want };
+  for (const name of fs.existsSync(admin) ? fs.readdirSync(admin) : []) {
+    try {
+      const pointer = fs.readFileSync(path.join(admin, name, 'gitdir'), 'utf8').trim();
+      if (fs.realpathSync(path.dirname(pointer)) === want) return { GIT_DIR: path.join(admin, name), GIT_WORK_TREE: want };
+    } catch { /* another worktree, gone */ }
+  }
+  throw Error("This run's worktree is not registered in its repository; inspect it before continuing");
+}
+const wtGit = async (wt, args, extra) => git(wt.path, [...QUIET, ...args], { ...(await trustedEnv(wt)), ...extra });
 
 export const RUN_BRANCH = /^run\/[a-z0-9][a-z0-9-]{0,80}$/;
 export const BASE_BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/;
@@ -68,40 +88,51 @@ export async function prepareWorktree({ root, title, home }) {
   return { path: fs.realpathSync(dest), branch, base: top, baseCommit, baseBranch, copied };
 }
 
-const ahead = async (wt) => wt.baseCommit ? Number((await git(wt.path, ['rev-list', '--count', `${wt.baseCommit}..HEAD`])).stdout.trim()) : null;
+const ahead = async (wt) => wt.baseCommit ? Number((await wtGit(wt, ['rev-list', '--count', `${wt.baseCommit}..HEAD`])).stdout.trim()) : null;
 
 export async function worktreeStatus(wt) {
   if (!wt?.path || !fs.existsSync(wt.path)) return { exists: false };
-  const dirty = Boolean((await git(wt.path, ['status', '--porcelain'])).stdout.trim());
+  const dirty = Boolean((await wtGit(wt, ['status', '--porcelain', '--ignore-submodules=all'])).stdout.trim());
   return { exists: true, dirty, ahead: await ahead(wt) };
 }
 
 // The accepted result becomes one commit on the run branch; ignored files (.env) stay out.
-export async function snapshotTree(dir) {
+// `git add` looks inside a nested repository whatever the config says, so those (submodules, or one an agent made)
+// stay as HEAD has them.
+async function nestedRepos(dir, env) {
+  const linked = (await git(dir, [...QUIET, 'ls-tree', '-r', '-z', 'HEAD'], env)).stdout.split('\0')
+    .filter((line) => line.startsWith('160000 ')).map((line) => line.slice(line.indexOf('\t') + 1));
+  // Without --directory git names each untracked repository at any depth as `path/`, and goes no further into it.
+  const made = (await git(dir, [...QUIET, 'ls-files', '-z', '--others', '--exclude-standard'], env)).stdout.split('\0')
+    .filter((name) => name.endsWith('/') && fs.existsSync(path.join(dir, name, '.git'))).map((name) => name.slice(0, -1));
+  return [...new Set([...linked, ...made])];
+}
+
+export async function snapshotTree(dir, env) {
   const index = path.join(os.tmpdir(), `relevo-index-${randomUUID()}`);
   try {
-    await git(dir, ['read-tree', 'HEAD'], { GIT_INDEX_FILE: index });
-    await git(dir, ['add', '-A'], { GIT_INDEX_FILE: index });
-    return (await git(dir, ['write-tree'], { GIT_INDEX_FILE: index })).stdout.trim();
+    const skip = (await nestedRepos(dir, env)).map((name) => `:(top,literal,exclude)${name}`);
+    await git(dir, [...QUIET, 'read-tree', 'HEAD'], { ...env, GIT_INDEX_FILE: index });
+    await git(dir, [...QUIET, 'add', '-A', '--', '.', ...skip], { ...env, GIT_INDEX_FILE: index });
+    return (await git(dir, [...QUIET, 'write-tree'], { ...env, GIT_INDEX_FILE: index })).stdout.trim();
   } finally { fs.rmSync(index, { force: true }); }
 }
 
 // Commits the reviewed tree itself: later edits stay uncommitted and no hook runs.
 export async function commitReviewedTree(wt, tree, title, body) {
   if (!RUN_BRANCH.test(wt.branch ?? '') || !/^[0-9a-f]{40}$/.test(tree ?? '')) throw Error('This run has no reviewed tree to commit');
-  const head = (await git(wt.path, ['rev-parse', 'HEAD'])).stdout.trim();
-  if ((await git(wt.path, ['rev-parse', 'HEAD^{tree}'])).stdout.trim() === tree) return null;
-  const sha = (await git(wt.path, ['commit-tree', tree, '-p', head, '-m', title, ...(body ? ['-m', body] : [])])).stdout.trim();
-  await git(wt.path, ['update-ref', `refs/heads/${wt.branch}`, sha, head]);
-  await git(wt.path, ['reset', '-q']);
+  const head = (await wtGit(wt, ['rev-parse', 'HEAD'])).stdout.trim();
+  if ((await wtGit(wt, ['rev-parse', 'HEAD^{tree}'])).stdout.trim() === tree) return null;
+  const sha = (await wtGit(wt, ['commit-tree', tree, '-p', head, '-m', title, ...(body ? ['-m', body] : [])])).stdout.trim();
+  await wtGit(wt, ['update-ref', `refs/heads/${wt.branch}`, sha, head]);
+  await wtGit(wt, ['reset', '-q']);
   return sha;
 }
 
+// Without a reviewed tree, the worktree as it stands, by the same path: no `git commit`, so no hook and no status run.
 export async function commitWorktree(wt, title, body) {
   if (!(await worktreeStatus(wt)).dirty) return null;
-  await git(wt.path, ['add', '-A']);
-  await git(wt.path, ['commit', '-q', '-m', title, ...(body ? ['-m', body] : [])]);
-  return (await git(wt.path, ['rev-parse', 'HEAD'])).stdout.trim();
+  return commitReviewedTree(wt, await snapshotTree(wt.path, await trustedEnv(wt)), title, body);
 }
 
 export async function openPullRequest(wt, title, body, run = execFile) {
@@ -109,8 +140,8 @@ export async function openPullRequest(wt, title, body, run = execFile) {
   if (!status.exists || status.dirty) throw Error('Commit the worktree before opening a PR');
   if (status.ahead === 0) throw Error('The run branch has no commits to propose');
   if (!RUN_BRANCH.test(wt.branch ?? '')) throw Error('Only a run branch can be proposed');
-  try { await git(wt.path, ['remote', 'get-url', 'origin']); } catch { throw Error('This repository has no origin remote to push the run branch to'); }
-  await git(wt.path, ['push', '-u', 'origin', wt.branch]);
+  try { await wtGit(wt, ['remote', 'get-url', 'origin']); } catch { throw Error('This repository has no origin remote to push the run branch to'); }
+  await wtGit(wt, ['push', '-u', 'origin', wt.branch]);
   const { stdout } = await run('gh', ['pr', 'create', '--draft', '--head', wt.branch, ...(BASE_BRANCH.test(wt.baseBranch ?? '') ? ['--base', wt.baseBranch] : []), '--title', title, '--body', body || title],
     { cwd: wt.path, encoding: 'utf8', timeout: 60000 });
   return stdout.trim().split('\n').at(-1);

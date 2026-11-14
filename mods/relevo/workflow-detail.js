@@ -8,7 +8,7 @@ import { acceptanceEffect, workflowCheckSummary } from "./lib/workflow-navigatio
 import { linkedDecision } from "./lib/goal-workflow.js";
 import { agentMarkdown } from "./lib/agent-markdown.js";
 import { WorkflowRuns } from "./workflow-runs.js";
-import { row, taskState, reportState, caption, SUMMARY_PREVIEW } from "./workflow-labels.js";
+import { row, taskState, reportState, caption, reportNotes, SUMMARY_PREVIEW } from "./workflow-labels.js";
 
 const CONFIGURED_SKILLS = config.SKILLS;
 
@@ -68,7 +68,7 @@ export class WorkflowDetail extends WorkflowRuns {
 
   prepareBlockedFollowUp(task, cx) {
     const reviewer = [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === "reviewer" && attempt.report);
-    const findings = reviewer?.report?.summary?.trim();
+    const findings = [reviewer?.report?.summary?.trim(), ...reportNotes(reviewer?.report)].filter(Boolean).join("\n");
     this.form.title.set_value(`Follow up: ${task.title}`.slice(0, 240));
     this.form.root.set_value(task.root ?? "");
     this.form.criteria.set_value([task.criteria, findings ? `Latest reviewer findings: ${findings}` : "Latest reviewer findings: none recorded."].filter(Boolean).join("\n\n"));
@@ -271,6 +271,8 @@ export class WorkflowDetail extends WorkflowRuns {
       .children(latest.map((attempt) => v_flex().w_full().min_w(0).gap(5).p(8).rounded(6).border_1().border_color(t.border)
         .child(div().font_semibold().child((attempt.role === "reviewer" ? "Independent review" : "Implementation report") + " · " + reportState(attempt.report.status)))
         .child(row(t, this.expandedReports?.[attempt.id] ? attempt.report.summary : caption(attempt.report.summary, 260)))
+        .children(reportNotes(attempt.report).map((note) => row(t, note)))
+        .when(Boolean(this.expandedReports?.[attempt.id]), (el) => el.children((attempt.report.details ?? []).map((detail) => row(t, detail))))
         .child(button(t, "workflow-report-" + attempt.id, this.expandedReports?.[attempt.id] ? "Show less" : "Read full report", (cx) => { this.expandedReports ??= {}; this.expandedReports[attempt.id] = !this.expandedReports[attempt.id]; cx.notify(); }, { tip: "Read the agent's complete report and stated limitations" }))))
 ;
   }

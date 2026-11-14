@@ -37,6 +37,14 @@ test("renderConfig: odd strings survive and long entries wrap under 130 columns"
   assert.equal(lines.filter((l) => l.startsWith("export const ")).length, 8);
 });
 
+test("renderConfig: what Settings doesn't edit is written back, with its note", async () => {
+  const c = { ...plain(example), RUN_MUST_FIX: "minor", RUN_CODEX_MODEL: "gpt-x", MY_LIST: ["a", "b"], MY_MAP: { a: 1 }, MY_FLAG: false };
+  assert.deepEqual(await roundTrip({ ...c, helper: () => 1, MISSING: undefined }), c);
+  const text = renderConfig(c);
+  assert.match(text, /\/\/ A run's reviewer sends the work back only for findings at this level or above[^\n]*\nexport const RUN_MUST_FIX = "minor";/);
+  assert.match(text, /\/\/ The model a run's Codex agent uses\.\nexport const RUN_CODEX_MODEL = "gpt-x";/);
+});
+
 test("validate: the example is valid", () => {
   assert.deepEqual(validate(plain(example)), []);
 });

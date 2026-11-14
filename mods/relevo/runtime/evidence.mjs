@@ -5,24 +5,28 @@ import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:f
 import { basename, extname, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createReadStream as fileStream } from 'node:fs';
-import { runCheck } from './process.mjs';
+import { runCheck, loginEnv } from './process.mjs';
+import { QUIET } from './worktree.mjs';
 
 const execFile = promisify(nodeExecFile);
 const hash = (data) => createHash('sha256').update(data).digest('hex');
 const inside = (base, path) => { const rel = relative(base, path); return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !rel.startsWith(sep)); };
 const regular = async (path) => { const s = await lstat(path); if (!s.isFile() || s.isSymbolicLink()) throw new Error(`Expected regular file: ${path}`); return s; };
 
-export async function fingerprint(root) {
+// env: a run worktree's own git folder (trustedEnv), so a `.git` file its agents rewrote isn't followed.
+export async function fingerprint(root, env) {
   root = await realpath(root);
-  const git = (...args) => execFile('git', args, { cwd: root, encoding: 'buffer', timeout: 10000, maxBuffer: 64 * 1024 * 1024 });
+  const git = (...args) => execFile('git', [...QUIET, ...args], { cwd: root, encoding: 'buffer', timeout: 10000, maxBuffer: 64 * 1024 * 1024, ...(env ? { env: { ...process.env, ...env } } : {}) });
   const { stdout: top } = await git('rev-parse', '--show-toplevel');
   if (resolve(top.toString().trim()) !== root) throw new Error('Root must be the git checkout root');
   const { stdout: head } = await git('rev-parse', '--verify', 'HEAD');
   const digest = createHash('sha256').update(head);
-  const { stdout: diff } = await git('diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--'); digest.update(diff);
+  const { stdout: diff } = await git('diff', '--no-ext-diff', '--no-textconv', '--ignore-submodules=all', '--binary', 'HEAD', '--'); digest.update(diff);
   const { stdout: names } = await git('ls-files', '--others', '--exclude-standard', '-z');
   let total = 0;
   for (const name of names.toString().split('\0').filter(Boolean).sort()) {
+    // A repository an agent made inside the checkout counts by its name; looking inside would run its config.
+    if (name.endsWith('/')) { digest.update(name); continue; }
     const path = resolve(root, name);
     if (!inside(root, path)) throw new Error('Untracked path escapes repository');
     const s = await regular(path), real = await realpath(path);
@@ -36,8 +40,9 @@ export async function fingerprint(root) {
   return digest.digest('hex');
 }
 
-export async function runChecks(root, checks, { run = runCheck, timeoutMs = 60000, maxOutput = 16384, signal, clock = Date.now } = {}) {
+export async function runChecks(root, checks, { run = runCheck, timeoutMs = 60000, maxOutput = 16384, signal, clock = Date.now, env } = {}) {
   if (!Array.isArray(checks) || checks.some((x) => !Array.isArray(x) || !x.length || x.some((a) => typeof a !== 'string'))) throw new TypeError('checks must be arrays of argv strings');
+  if (!env && run === runCheck && checks.length) env = await loginEnv();
   const results = [];
   const deadline = clock() + timeoutMs;
   for (const argv of checks) {
@@ -45,7 +50,7 @@ export async function runChecks(root, checks, { run = runCheck, timeoutMs = 6000
     const at = new Date().toISOString();
     try {
       const remaining = Math.max(1, deadline - clock());
-      const result = await run(argv, { cwd: root, timeout: remaining, maxOutput, signal });
+      const result = await run(argv, { cwd: root, timeout: remaining, maxOutput, signal, env });
       results.push({ argv, code: result.code ?? 0, stdout: String(result.stdout ?? '').slice(-maxOutput), stderr: String(result.stderr ?? '').slice(-maxOutput), at });
       if (['timeout', 'cancelled', 124].includes(result.code) || signal?.aborted) break;
     } catch (error) {

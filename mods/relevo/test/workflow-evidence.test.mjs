@@ -89,3 +89,26 @@ test('a timed-out check also stops the processes it started', async () => fixtur
   await wait(100);
   assert.throws(() => process.kill(pid, 0));
 }));
+
+test('checks get the login shell\'s PATH, and the running node when the shell gives nothing', async () => {
+  const { readLoginEnv } = await import('../runtime/process.mjs');
+  const { dirname } = await import('node:path');
+  let argv;
+  const env = await readLoginEnv(async (a) => { argv = a; return { code: 0, stdout: 'Welcome!\n__relevo_path__/opt/fnm/node/bin:/usr/bin' }; });
+  assert.equal(env.PATH, `/opt/fnm/node/bin:/usr/bin:${dirname(process.execPath)}`);
+  assert.deepEqual(argv.slice(-3, -1), ['zsh', '-ilc']);
+  assert.ok(argv.includes('CLAUDE_CODE_CHILD_SESSION'));
+  for (const failed of [async () => ({ code: 1, stdout: '' }), async () => { throw new Error('no zsh'); }]) {
+    assert.equal((await readLoginEnv(failed)).PATH, `${process.env.PATH}:${dirname(process.execPath)}`);
+  }
+});
+
+test('a check runs with the PATH it is given', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'relevo-path-'));
+  await writeFile(join(dir, 'only-here'), '#!/bin/sh\necho found\n', { mode: 0o755 });
+  const [missing] = await runChecks(dir, [['only-here']], { env: { PATH: '/usr/bin:/bin' } });
+  assert.equal(missing.code, 'ENOENT');
+  const [result] = await runChecks(dir, [['only-here']], { env: { PATH: `${dir}:/usr/bin:/bin` } });
+  assert.deepEqual([result.code, result.stdout], [0, 'found\n']);
+  await rm(dir, { recursive: true, force: true });
+});

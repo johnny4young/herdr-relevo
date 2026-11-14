@@ -3,7 +3,7 @@ import { div } from "gpui-kit";
 import { PreviewInbox } from "./decision-preview.js";
 import { SnapshotInbox } from "./snapshot-preview.js";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { theme, exec, run, notify, settings, agents, panes, terminals, shared, setShared } from "herdr";
+import { theme, exec, run, notify, settings, agents, panes, terminals, shared, setShared, home } from "herdr";
 import { loadClaudeQuotas } from "./accounts.js";
 import { accountFor, contextOfPath, inFocus } from "./context.js";
 import { ago, nextSince } from "./lib/time.js";
@@ -18,6 +18,7 @@ import { agentPRs, seconds, recent } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
 import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
 import { STATS_FOR } from "./lib/refresh.js";
+import { ASKS_DIR, parseNotes } from "./lib/asks.js";
 import { readPrompt, samePrompt, sameChoicesBut, submitKeys, freeOption, moveKeys, lastMessage, reasonOf } from "./lib/prompt.js";
 import { COUNT, showPanel } from "./toolbar.js";
 import { launched } from "./skills.js";
@@ -246,7 +247,7 @@ export class Inbox {
             const at = since[`${a.address}:blocked`];
             if (this.prompts.get(a.address)?.since !== at) {
               const screen = (await hc(["read", a.address, "--lines", "0"])).stdout;
-              const prompt = readPrompt(screen);
+              const prompt = await this.promptOf(a.address, screen);
               this.prompts.set(a.address, { since: at, prompt, free: freeOption(prompt) });
             }
             items.push({ kind: "blocked", agent: a, top, repo, branch: pane.branch, prompt: this.prompts.get(a.address).prompt });
@@ -534,12 +535,24 @@ export class Inbox {
     if (r.code !== 0) notify({ title: "Could not send the note", body: r.stderr.trim().split("\n")[0], level: "warning" });
   }
 
+  // The screen as it reads; only a request it cuts looks at what the optional hook noted for that agent, against the
+  // core's own time for the wait (`hc get`: the live terminal list doesn't carry it).
+  async promptOf(address, screen) {
+    const prompt = readPrompt(screen);
+    if (!prompt.ask?.cut || !/^[A-Za-z0-9_-]+$/.test(address)) return prompt;
+    const [state, notes] = await Promise.all([hc(["get", address, "--json"]),
+      exec("sh", ["-c", 'cat "$1"/*.json 2>/dev/null', "sh", `${home()}/${ASKS_DIR}/${address}`])]);
+    let since = null;
+    try { since = JSON.parse(state.stdout).status_ms / 1000; } catch { /* unknown: nothing is filled */ }
+    return readPrompt(screen, parseNotes(notes.stdout, address), since);
+  }
+
   // False when there's no screen to go by; what the card knows stays as it was.
   async rereadPrompt(address) {
     const r = await hc(["read", address, "--lines", "0"]);
     if (r.code !== 0 || !r.stdout.trim()) return false;
     const was = this.prompts.get(address);
-    const prompt = readPrompt(r.stdout);
+    const prompt = await this.promptOf(address, r.stdout);
     this.prompts.set(address, { since: was?.since, prompt, free: freeOption(prompt, was?.free) });
     for (const i of this.local) if (i.agent.address === address) i.prompt = this.prompts.get(address).prompt;
     return true;

@@ -1,3 +1,4 @@
+import { progressLine } from './run-report.js';
 // Readiness describes what can be inspected, never approval or task completion.
 export function reviewableWork(items, clones) {
   return items.filter((s) => !s.addressed && !s.draft && (s.kind === "local"
@@ -55,7 +56,10 @@ export function linkedDecision(goal, tasks, error = null) {
     ? { state: 'linked', task } : separate;
 }
 
-export function runProgress(goalId, tasks, engine, error = null) {
+// A status the agent wrote this long ago may no longer be what it does.
+const STALE_MS = 10 * 60000;
+
+export function runProgress(goalId, tasks, engine, error = null, now = Date.now()) {
   if (error) return 'Status unavailable. Open run details to retry.';
   const own = tasks.filter((task) => task.goalId === goalId);
   const active = own.filter((task) => !['accepted', 'cancelled'].includes(task.state));
@@ -66,6 +70,8 @@ export function runProgress(goalId, tasks, engine, error = null) {
     const person = (reviewer ? live.reviewer : live.executor)?.label || (reviewer ? 'Reviewer' : 'Executor');
     if (attempt.delivery === 'uncertain') return `Assignment to ${person} is unconfirmed. Check delivery before retrying.`;
     if (attempt.delivery === 'sending') return `Sending ${reviewer ? 'review' : 'implementation'} assignment to ${person}.`;
+    const said = progressLine(attempt.progress), age = now - Date.parse(attempt.progress?.at ?? '');
+    if (said) return `${person}: ${said}${age > STALE_MS ? ` · said ${Math.round(age / 60000)}m ago` : ''}. Next: ${reviewer ? 'your review' : 'checks and independent review'}.${!engine?.enabled || live.paused ? ' Further dispatches paused.' : ''}`;
     return `Awaiting ${reviewer ? 'review' : 'implementation'} report from ${person}. Next: ${reviewer ? 'your review' : 'checks and independent review'}.${!engine?.enabled || live.paused ? ' Further dispatches paused.' : ''}`;
   }
   const pending = active.find((task) => task.state === 'needs_you');
