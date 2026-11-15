@@ -1,9 +1,12 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { exec, run, shared, setShared, theme } from "herdr";
+import { agents, exec, panes, run, shared, setShared, terminals, theme } from "herdr";
 import { openReview } from "./review.js";
 import { REVIEW_VIEW } from "./toolbar.js";
 import { openDesktop } from "./desktop.js";
+import { endTerminal, openTerminal, restartTerminal } from "./terminals.js";
+import { terminalRow, tidyRows } from "./lib/terminals.js";
+import { ago } from "./lib/time.js";
 import { openGoal } from "./goals-editor.js";
 import { recent } from "./lib/github.js";
 import { prTurn } from "./lib/lanes.js";
@@ -12,7 +15,7 @@ import { button, foldRow, icon, joined, keycap, keysOf, LANE, laneGlyph, legend,
 // Reviews has two views: Now, by whose turn it is, and Maintenance, for what can wait.
 export { REVIEW_VIEW };
 export const NOW_SECTIONS = ["errors", "away", "me", "flight", "ready", "open"];
-export const MAINTENANCE_SECTIONS = ["safe", "look", "old", "quiet", "done", "today"];
+export const MAINTENANCE_SECTIONS = ["safe", "look", "old", "terms", "quiet", "done", "today"];
 const GROUPS = ["me", "flight", "ready"];
 const SHORT = { me: "Me", flight: "Flight", ready: "Ready" };
 const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
@@ -222,8 +225,58 @@ export class NowViews {
   // What Maintenance shows, read once per draw: the worktree lanes, the old PRs and the stale branches read so
   // far. The legend, the tab's count, the groups and the keyboard all take it from here.
   maintenanceModel(v) {
-    const lanes = this.treeLanes(v.worktrees), old = this.oldPRs(v), oldCount = old.length + this.staleShown().length;
-    return { lanes, old, oldCount, count: lanes.safe.length + lanes.look.length + oldCount };
+    const lanes = this.treeLanes(v.worktrees), old = this.oldPRs(v), oldCount = old.length + this.staleShown().length, tidy = this.tidyTerminals();
+    return { lanes, old, oldCount, tidy, count: lanes.safe.length + lanes.look.length + oldCount + tidy.count };
+  }
+
+  tidyTerminals() {
+    const mine = new Set(agents().map((a) => a.address)), list = panes(), now = Date.now();
+    return tidyRows(terminals().map((k) => terminalRow(k, { agents: mine, panes: list, now })).filter(Boolean), now);
+  }
+
+  // A terminal to tidy: its one action, and d twice to close it, as d removes a worktree here.
+  tidyActions(r) {
+    const armed = this.termArmed === r.address;
+    const close = { id: `term-close-${r.address}`, key: "d", label: armed ? "Close it" : "Close", kind: armed ? "go" : "outline",
+      tip: r.live ? "End it and what runs in it" : "Remove it", run: (cx) => this.closeTidy(r, cx) };
+    const main = r.state === "failed" && r.canRestart ? { id: `term-restart-${r.address}`, key: "r", label: "Restart", run: () => restartTerminal(r), tip: "Run its command again" }
+      : r.state === "old" ? close
+        : { id: `term-open-${r.address}`, key: "o", label: r.background ? "Show" : "Open", run: () => openTerminal(r), tip: r.background ? "Give it a pane" : "Go to it" };
+    return { main, actions: main === close ? [] : [close] };
+  }
+
+  closeTidy(r, cx) {
+    if (this.termArmed !== r.address) this.termArmed = r.address;
+    else {
+      this.termArmed = null;
+      endTerminal(r);
+    }
+    cx.notify();
+  }
+
+  closeFinishedTerminals(rows) {
+    for (const r of rows) exec("hc", ["rm", r.address]);
+  }
+
+  tidyGroup(t, tidy) {
+    if (!tidy.count) return [];
+    const where = (r) => (r.space && r.space !== r.title ? `${r.title} · ${r.space}` : r.title);
+    const one = (r, turn, reason) => this.item(t, `term-${r.address}`, { turn, title: where(r), reason, age: ago(r.at / 1000, true), tip: r.cwd, ...this.tidyActions(r) });
+    const doneAll = { id: "term-close-finished", key: "d", label: `Close ${tidy.done.length}`, run: () => this.closeFinishedTerminals(tidy.done), tip: "Remove every finished terminal" };
+    return [legHeader(t, "leg-terms", "Terminals to tidy", tidy.count), ...joined(t, [
+      ...tidy.failed.map((r) => one(r, "stuck", `exited ${r.exit}`)),
+      tidy.done.length ? this.item(t, "term-finished", { turn: "ready", title: `${tidy.done.length} finished`,
+        reason: [...new Set(tidy.done.map((r) => r.title))].slice(0, 3).join(", "), main: doneAll }) : null,
+      ...tidy.background.map((r) => one(r, "flight", "no pane")),
+      ...tidy.old.map((r) => one(r, "old", "idle over a day")),
+    ])];
+  }
+
+  tidyNav(tidy) {
+    const nav = (r) => ({ id: `term-${r.address}`, section: "terms", go: (cx) => this.tidyActions(r).main.run(cx), keys: () => keysOf(this.tidyActions(r)) });
+    const done = tidy.done.length ? [{ id: "term-finished", section: "terms", go: () => this.closeFinishedTerminals(tidy.done),
+      keys: () => ({ d: () => this.closeFinishedTerminals(tidy.done) }) }] : [];
+    return [...tidy.failed.map(nav), ...done, ...tidy.background.map(nav), ...tidy.old.map(nav)];
   }
 
   maintenanceLegend(t, m) {
@@ -242,6 +295,7 @@ export class NowViews {
       ...part("look", trees.look),
       ...part("old", [oldCount ? legHeader(t, "leg-old", TURN_LABEL.old, oldCount) : null,
         ...joined(t, old.map(([p, requested]) => this.prCard(t, p, requested))), ...this.staleGroup(t, oldCount > 0)]),
+      ...part("terms", this.tidyGroup(t, m.tidy)),
       ...part("quiet", trees.quiet),
       ...part("done", doneCount ? [
         foldRow(this, t, "maintenance-done", "maintenance-done", `${doneCount} marked addressed or landed`, { gap: true }),
@@ -273,6 +327,6 @@ export class NowViews {
       ...this.doneReviews().map((entry) => ({ id: entry.id, go: entry.go, keys: () => keysOf(this.reviewActions(entry, true)) })),
       ...Object.entries(this.landing()).filter(([, e]) => e.phase === "landed").map(([url, e]) => ({ id: `land-${url}`, go: () => exec("open", [url]), keys: () => keysOf(this.landActions(url, e)) })),
     ].map((item) => ({ ...item, section: "done" }));
-    return [...trees("safe"), ...trees("look"), ...old, ...this.staleNav(), ...trees("quiet"), ...done];
+    return [...trees("safe"), ...trees("look"), ...old, ...this.staleNav(), ...this.tidyNav(m.tidy), ...trees("quiet"), ...done];
   }
 }

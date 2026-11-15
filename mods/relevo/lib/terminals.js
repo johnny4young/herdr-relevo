@@ -98,3 +98,11 @@ export function portsOf(rows, listening, parents) {
 export function lastLines(text, n = 2) {
   return String(text ?? "").replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").split("\n").map((l) => l.trimEnd()).filter((l) => l.trim()).slice(-n);
 }
+
+const HOUR_MS = 3600e3;
+// What Maintenance offers to tidy: what failed, what finished, what runs with no pane for over an hour, shells idle over a day.
+export function tidyRows(rows, now = Date.now()) {
+  const failed = rows.filter((r) => r.state === "failed"), done = rows.filter((r) => r.state === "done");
+  const background = rows.filter((r) => r.background && r.state === "running" && now - r.at > HOUR_MS), old = rows.filter((r) => r.state === "old");
+  return { failed, done, background, old, count: failed.length + done.length + background.length + old.length };
+}
