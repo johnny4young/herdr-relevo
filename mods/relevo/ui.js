@@ -145,20 +145,21 @@ export const markButton = (t, key, addressed, set, tip, { on = "addressed", off 
   ? button(t, `${off}-${key}`, "Undo", (cx) => set(false, cx), { tip: "Back to the list" })
   : button(t, `${on}-${key}`, [icon("check")], (cx) => set(true, cx), { tip }));
 
-// A section label in caps with its count and a hairline to the edge.
-export const legHeader = (t, id, label, count, { me = false } = {}) => h_flex().id(id).h(28).pt(6).pl(LANE).pr(8).gap(8).items_center()
+// A section label in caps with its count and a hairline to the edge; `after` sits past the hairline.
+export const legHeader = (t, id, label, count, { me = false, after = [] } = {}) => h_flex().id(id).h(28).pt(6).pl(LANE).pr(8).gap(8).items_center()
   .text_size(11).text_color(me ? t.blocked : t.dim)
   .child(div().flex_none().child(label.toUpperCase()))
   .child(div().flex_none().font_semibold().text_color(t.foreground).child(String(count)))
-  .child(div().flex_1().h(1).bg(t.border).opacity(0.55));
+  .child(div().flex_1().h(1).bg(t.border).opacity(0.55))
+  .children(after.filter(Boolean));
 
-// The counters are the legend: glyph, plain label, count.
-export const legend = (t, id, counts) => h_flex().id(id).h(36).flex_none().pl(16).pr(8).gap(14).items_center()
+// The counters are the legend: glyph, plain label, count. Narrow, the label moves to the tooltip.
+export const legend = (t, id, counts, { narrow = false } = {}) => h_flex().id(id).h(36).flex_none().pl(16).pr(8).gap(14).items_center()
   .children(counts.map(({ turn, label = TURN_LABEL[turn], n }) => {
     const hot = (turn === "me" || turn === "stuck") && n > 0;
-    return h_flex().gap(6).items_center()
+    return h_flex().id(`${id}-${turn}`).gap(6).items_center().when(narrow, (el) => el.tooltip(label))
       .child(turn === "flight" && !n ? div().size(12).flex_none().rounded_full().border_1().border_color(t.dim) : laneGlyph(t, turn))
-      .child(div().text_size(13).text_color(hot ? t.blocked : t.muted).child(label))
+      .when(!narrow, (el) => el.child(div().text_size(13).text_color(hot ? t.blocked : t.muted).child(label)))
       .child(div().text_size(13).font_semibold().text_color(hot ? t.blocked : t.foreground).child(String(n)));
   }));
 
@@ -244,6 +245,15 @@ export function saveFolds(expanded) {
   if (JSON.stringify(kept) !== JSON.stringify(shared(FOLDS) ?? {})) setShared(FOLDS, kept);
 }
 
+// Opens or shuts a fold and remembers it; `onOpen` runs when it opens. Every control of a fold goes through here.
+export function toggleFold(view, key, cx, onOpen = null) {
+  const open = Boolean(view.expanded[key]);
+  view.expanded[key] = !open;
+  saveFolds(view.expanded);
+  if (!open) onOpen?.(cx);
+  cx.notify();
+}
+
 // A "N things" line that folds a list open or shut; `key` names its state in view.expanded.
 export function foldRow(view, t, id, key, label, { gap = false, onOpen = null, after = null } = {}) {
   const open = Boolean(view.expanded[key]);
@@ -254,10 +264,7 @@ export function foldRow(view, t, id, key, label, { gap = false, onOpen = null, a
     .hover((s) => s.text_color(t.muted))
     .on_click((_e, cx) => {
       cx.stop_propagation();
-      view.expanded[key] = !open;
-      saveFolds(view.expanded);
-      if (!open) onOpen?.(cx);
-      cx.notify();
+      toggleFold(view, key, cx, onOpen);
     })
     .child(chevron(open))
     .child(label)
