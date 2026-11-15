@@ -24,7 +24,7 @@ The panel has two views. **Reviews** is the Inbox described below. **Runs** is f
 
 **What a run agent can touch.** Its worktree and its own report, nothing else. Codex runs with `workspace-write`; set `RUN_CODEX_MODEL` in `config.js` to choose its model. Claude runs Bash in the system sandbox, and its file tools cannot edit Relevo's state, mods or settings. A Claude reviewer has no shell at all.
 
-**While it works and when it reports.** The implementing agent says what it is doing, how far along it is and how long it thinks is left; the run shows that line. The reviewer lists its findings by level: blocker, major or minor. Only a finding at major or above sends the work back for another attempt; lower ones reach you as notes beside the result, with what the reviewer could not run or prove. Set `RUN_MUST_FIX` in `config.js` to `"blocker"` or `"minor"` to move that bar. What each agent is told lives in `mods/relevo/runtime/roles/executor.md` and `reviewer.md`.
+**While it works and when it reports.** The writer says what it is doing, how far along it is and how long it thinks is left; the run shows that line. The reviewer lists its findings by level: blocker, major or minor. Only a finding at major or above sends the work back for another attempt; lower ones reach you as notes beside the result, with what the reviewer could not run or prove. Set `RUN_MUST_FIX` in `config.js` to `"blocker"` or `"minor"` to move that bar. What each agent is told lives in `mods/relevo/runtime/roles/executor.md` and `reviewer.md`.
 
 **Limits.** Each run has a maximum number of attempts and minutes per attempt, and two runs work at a time. A message Relevo cannot confirm was delivered is never sent again: the run waits for you to look at the agent and reconcile it.
 

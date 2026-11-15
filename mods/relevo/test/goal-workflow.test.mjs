@@ -131,7 +131,7 @@ test('workflow projection retains progress and duplicate diagnostics while the q
   assert.ok(actionRow.items.some((child) => child.key === 'goal-workflow-g'));
   assert.match(card, /Stuck|Status unavailable/);
   assert.match(card, /Plan agent work|See why/);
-  assert.doesNotMatch(card, /2\/3 complete|need attention|3 open tasks|Accepted in Workflow|Stuck · Handle errors|Validated by you|Multiple active workflow tasks|Outcomes/);
+  assert.doesNotMatch(card, /2\/3 complete|need attention|3 open tasks|Accepted in Workflow| · Handle errors|Validated by you|Multiple active workflow tasks|Outcomes/);
   assert.equal(JSON.stringify(v.goalDoc), before);
 });
 

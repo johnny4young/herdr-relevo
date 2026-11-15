@@ -1,4 +1,5 @@
 import { shared, setShared, agents as liveAgents, panes as livePanes } from 'herdr';
+import { role as roleWords } from './lib/run-words.js';
 
 const VERSION = 1;
 const KEY_PREFIX = 'relevo.workflow.draft.v1.';
@@ -36,7 +37,7 @@ export function restoreWorkflowDraftAgents(draft, { agents = liveAgents(), panes
     const pane = agent && panes.find((item) => item.pane === agent.pane);
     const cwd = agent?.cwd ?? pane?.cwd;
     if (!agent || !root || cwd !== root) {
-      const label = role === 'executor' ? 'Writer' : 'Reviewer';
+      const label = roleWords(role).name;
       return { address: '', warning: `${label} ${address} was not restored; choose a live session in the saved repository.` };
     }
     return { address, warning: null };
@@ -46,7 +47,7 @@ export function restoreWorkflowDraftAgents(draft, { agents = liveAgents(), panes
     executor: executor.address,
     reviewer: reviewer.address === executor.address ? '' : reviewer.address,
     warnings: [executor.warning, reviewer.warning,
-      executor.address && executor.address === reviewer.address ? 'Choose different sessions for writer and reviewer.' : null].filter(Boolean),
+      executor.address && executor.address === reviewer.address ? `Choose different sessions for ${roleWords('executor').noun} and ${roleWords('reviewer').noun}.` : null].filter(Boolean),
   };
 }
 

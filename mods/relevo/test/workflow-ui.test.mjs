@@ -185,7 +185,7 @@ test('exhausted blocked work offers a review and a follow-up draft without retry
   assert.equal(find(tree, 'workflow-review-findings'), null, 'findings use the existing result navigation action');
   assert.equal((text(tree).match(/Findings/g) ?? []).length, 1);
   assert.ok(!text(tree).includes('Added search behavior.'), 'executor success does not obscure blocked reviewer findings on the overview');
-  assert.match(text(tree), /Asked for changes/);
+  assert.match(text(tree), /Reviewer asked for changes/);
   assert.match(text(tree), /Latest finding: preserve the query/);
   click(find(tree, 'workflow-prepare-follow-up'), cx);
   tree = v.render();
@@ -357,7 +357,7 @@ test('compact review preserves full context on demand without dispatching or imp
     { id: 'review', role: 'reviewer', report: { status: 'blocked', summary: reviewerSummary } },
   ] }]; v.selected = 'result'; v.engine = { enabled: true };
   let tree = v.render();
-  assert.match(text(tree), /Tests · not configured ✗ Reviewer could not approve/);
+  assert.match(text(tree), /Tests · not configured ✗ Reviewer stuck/);
   assert.ok(!text(tree).includes(reviewerSummary));
   assert.ok(!text(find(tree, 'workflow-outcome-header')).includes(title), 'long assignments are disclosed instead of dominating the first screen');
   assert.equal(find(tree, 'workflow-engine-stop'), null);
@@ -376,7 +376,7 @@ test('acceptance from reports immediately advances to the next decision without 
   const { v, cx } = await setup(); v.tab = 'Changes';
   fake.exec = async () => { const doc = { tasks: [{ ...a, state: 'accepted' }, b] }; fake.files[file] = JSON.stringify(doc); return { stdout: JSON.stringify({ doc }) }; };
   click(find(v.render(), 'workflow-decide-accept'), cx); await flush();
-  assert.equal(v.selected, 'b'); assert.equal(v.tab, 'Overview'); assert.equal(v.filter, 'Needs you');
+  assert.equal(v.selected, 'b'); assert.equal(v.tab, 'Overview'); assert.equal(v.filter, 'Needs me');
   assert.match(text(v.render()), /Acceptance saved/); assert.equal(find(v.render(), 'workflow-task-a'), null);
   assert.ok(find(v.render(), 'workflow-task-b')); v.close();
 });
@@ -398,7 +398,7 @@ test('filters keep selection consistent and failed work remains actionable rathe
   const { v, cx } = await setup();
   v.tasks = [{ id: 'a', state: 'accepted', title: 'Accepted' }, { id: 'b', state: 'failed', title: 'Failed' }];
   v.selectFilter('Completed', cx); assert.equal(v.selected, 'a');
-  v.selectFilter('Needs you', cx); assert.equal(v.selected, 'b');
+  v.selectFilter('Needs me', cx); assert.equal(v.selected, 'b');
   v.selectFilter('In progress', cx); assert.equal(v.selected, null); assert.match(text(v.render()), /No work in progress/); v.close();
 });
 
@@ -459,8 +459,8 @@ test('Activity distinguishes actual delivery and reports without inventing auton
     { id: 'two', role: 'reviewer', address: 'reviewer', delivery: 'uncertain', state: 'running', prompt: 'Review assignment' },
   ] }]; v.selected = 'a'; v.tab = 'Activity';
   let tree = v.render();
-  assert.match(text(tree), /1\. Writes it/); assert.match(text(tree), /Report: Completed/);
-  assert.match(text(tree), /2\. Reviews it/); assert.match(text(tree), /Delivery uncertain/);
+  assert.match(text(tree), /1\. Writer/); assert.match(text(tree), /Report: Completed/);
+  assert.match(text(tree), /2\. Reviewer/); assert.match(text(tree), /Delivery uncertain/);
   assert.match(text(tree), /No acceptance recorded/); assert.ok(!text(tree).includes('Exact assignment'));
   click(find(tree, 'workflow-prompt-toggle-one'), cx); assert.match(text(v.render()), /Exact assignment/);
   assert.equal(fake.execs.length, 0); v.close();
@@ -515,7 +515,7 @@ test('a result link selects its exact task once and cannot select a task from an
   fake.files[path] = JSON.stringify(state);
   openWorkflow('g', 'second'); fake.props = fake.runs.findLast(([name]) => name === 'pane.split')[1].props;
   const v = new Workflow(), cx = fakeCx(); v.init({}, cx); await flush();
-  assert.equal(v.selected, 'second'); assert.equal(v.filter, 'Needs you');
+  assert.equal(v.selected, 'second'); assert.equal(v.filter, 'Needs me');
   v.selected = 'first'; state.tasks[0].title = 'Updated result'; fake.files[path] = JSON.stringify(state);
   v.load(cx); await flush(); assert.equal(v.selected, 'first', 'polling does not steal selection back'); v.close();
   fake.props = { goalId: 'g', taskId: 'foreign' };
@@ -758,7 +758,7 @@ test('the task list follows the shown task when its state moves it to another li
   v.applyState({ tasks: [{ ...base, state: 'running' }], events: [], preferences: [], engine: { enabled: true } });
   v.selected = 't'; v.filter = 'In progress';
   v.applyState({ tasks: [{ ...base, state: 'needs_you' }], events: [], preferences: [], engine: { enabled: true } });
-  assert.equal(v.selected, 't'); assert.equal(v.filter, 'Needs you');
+  assert.equal(v.selected, 't'); assert.equal(v.filter, 'Needs me');
   v.close();
 });
 
@@ -824,11 +824,7 @@ test('an accepted worktree run in a repository without origin offers only Remove
   v.close();
 });
 
-test('runs speak in plain words: attempts, tests and who writes or reviews it', async () => {
-  const { resultMeta, workflowCheckSummary } = await import('../lib/workflow-navigation.js');
-  const task = { round: 2, maxRounds: 3, checks: [['npm', 'test']], checksResult: [{ code: 0 }], attempts: [] };
-  assert.equal(workflowCheckSummary(task).label, '1 of 1 passed');
-  assert.equal(resultMeta(task), 'attempt 2 of 3 · tests 1 of 1 passed');
+test('run setup names the roles in plain words', async () => {
   const { v } = await setup(); v.taskSetupOpen = true;
   const words = text(v.render());
   assert.match(words, /Writes it/); assert.match(words, /Reviews it/);

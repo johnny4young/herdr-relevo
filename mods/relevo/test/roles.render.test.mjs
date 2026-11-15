@@ -38,7 +38,7 @@ test("a working run says what its agent last said, and when that was long ago", 
   assert.equal(runProgress("g", task("2026-01-02T03:18:00Z"), { enabled: true }, null, now), "Codex: Fixing tests · 40% · ~12m left. Next: tests and review.");
   assert.match(runProgress("g", task("2026-01-02T03:00:00Z"), { enabled: true }, null, now), /~12m left · said 20m ago\. Next:/);
   const silent = task(); delete silent[0].attempts[0].progress;
-  assert.match(runProgress("g", silent, { enabled: true }, null, now), /^Awaiting implementation report from Codex\./);
+  assert.match(runProgress("g", silent, { enabled: true }, null, now), /^Awaiting the writer's report from Codex\./);
 });
 
 test("a report's notes list findings first, then what was not run or proven", () => {

@@ -3,6 +3,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { agents, shared, setShared } from "herdr";
 import { button, chevron } from "./ui.js";
 import { WorkflowPlan } from "./workflow-plan.js";
+import { count } from "./lib/run-words.js";
 
 export const SETUPS_KEY = "relevo.workflow.setups.v1";
 const LIMIT = 20;
@@ -58,7 +59,7 @@ export class WorkflowSetup extends WorkflowPlan {
     const root = this.form.root.value().trim();
     if (root && root !== setup.root) { this.setupError = "This setup belongs to another repository."; cx.notify(); return; }
     this.applySetup(setup, cx);
-    this.setupReuseNotice = `“${setup.name}” applied · ${setup.maxRounds} ${setup.maxRounds === 1 ? "attempt" : "attempts"} · ${setup.maxMinutes} min per attempt. Review agents before creating.`;
+    this.setupReuseNotice = `“${setup.name}” applied · ${count(setup.maxRounds, "attempt")} · ${setup.maxMinutes} min per attempt. Review agents before creating.`;
     this.setupError = null; this.setupNotice = null;
   }
 
@@ -74,7 +75,7 @@ export class WorkflowSetup extends WorkflowPlan {
         .child(v_flex().max_h(200).overflow_y_scrollbar().gap(8).children(items.map((item) => v_flex().w_full().min_w(0).gap(3)
           .child(div().font_semibold().child(item.name))
           .when(Boolean(item.purpose), (entry) => entry.child(row(t, item.purpose)))
-          .child(row(t, `${item.root} · ${item.maxRounds} ${item.maxRounds === 1 ? "attempt" : "attempts"} · ${item.maxMinutes} min · ${item.checks.length} ${item.checks.length === 1 ? "test" : "tests"}`))
+          .child(row(t, `${item.root} · ${count(item.maxRounds, "attempt")} · ${item.maxMinutes} min · ${count(item.checks.length, "test")}`))
           .child(h_flex().gap(6).flex_wrap()
             .child(button(t, `workflow-apply-setup-${item.id}`, "Use setup", (cx) => this.applySavedSetup(item.id, cx),
               { disabled: this.busy, tip: `${item.executor.label ?? item.executor.address} + ${item.reviewer.label ?? item.reviewer.address}. Tests: ${JSON.stringify(item.checks)}. Your title and outcome stay unchanged.` }))

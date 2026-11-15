@@ -10,7 +10,7 @@ test('ready decisions appear before historical blockers without hiding or mutati
     { id: 'failed', goalId: 'g', state: 'failed', title: 'Another blocker' },
     { id: 'review2', goalId: 'g', state: 'needs_you', title: 'Second result' },
   ];
-  assert.deepEqual(workflowItems(tasks, 'Needs you').map(task => task.id), ['review', 'review2', 'blocked', 'failed']);
+  assert.deepEqual(workflowItems(tasks, 'Needs me').map(task => task.id), ['review', 'review2', 'blocked', 'failed']);
   assert.equal(runNextAction({ id: 'g' }, tasks, { enabled: true }).detail, 'Current result');
   assert.deepEqual(tasks.map(task => task.id), ['blocked', 'review', 'failed', 'review2']);
 });
@@ -64,6 +64,6 @@ test('result meta names the agents, round, checks, verdict and age', () => {
     checksResult: [{ argv: ['npm', 'test'], code: 0 }],
     attempts: [{ role: 'executor', state: 'reported', report: { status: 'completed' }, at: '2026-01-01T09:00:00Z' },
       { role: 'reviewer', state: 'reported', report: { status: 'completed' }, at: '2026-01-01T10:00:00Z' }] };
-  assert.equal(resultMeta(task, now), 'Codex → Claude · attempt 1 of 2 · tests 1 of 1 passed · review approved · 2h ago');
+  assert.equal(resultMeta(task, now), 'Codex → Claude · attempt 1 of 2 · tests 1 of 1 passed · reviewer approved · 2h ago');
   assert.equal(resultMeta({ attempts: [] }, now), 'tests not configured');
 });

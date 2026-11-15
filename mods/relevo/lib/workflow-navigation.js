@@ -1,15 +1,14 @@
 // Queue navigation follows task outcomes; browsing never starts work.
-export const workflowBucket = (task) => ["needs_you", "blocked", "failed"].includes(task.state) ? "Needs you"
+import { verdictLine, attemptLabel } from "./run-words.js";
+
+export const workflowBucket = (task) => ["needs_you", "blocked", "failed"].includes(task.state) ? "Needs me"
   : ["accepted", "cancelled"].includes(task.state) ? "Completed" : "In progress";
 
 export const workflowItems = (tasks, bucket) => {
   const items = tasks.filter((task) => workflowBucket(task) === bucket);
   // Ready decisions stay reachable even when an older failed attempt needs recovery.
-  return bucket === "Needs you" ? items.sort((a, b) => Number(b.state === "needs_you") - Number(a.state === "needs_you")) : items;
+  return bucket === "Needs me" ? items.sort((a, b) => Number(b.state === "needs_you") - Number(a.state === "needs_you")) : items;
 };
-
-// Bucket names are ids; this is what the person reads.
-export const filterLabel = (bucket) => ({ "Needs you": "Needs me", Completed: "History" }[bucket] ?? bucket);
 
 export function workflowCheckSummary(task) {
   const results = Array.isArray(task.checksResult) ? task.checksResult : [];
@@ -60,7 +59,6 @@ export function queueSummary(tasks, engine) {
   return { title: "Work continues", detail: "The next result will come back here." };
 }
 
-const VERDICT = { completed: 'review approved', changes_requested: 'asked for changes', blocked: 'reviewer could not approve' };
 const since = (ms, now) => {
   const s = Math.max(0, Math.floor((now - ms) / 1000));
   return s < 60 ? 'now' : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`;
@@ -71,6 +69,6 @@ export function resultMeta(task, now = Date.now()) {
   const review = [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === 'reviewer' && attempt.report);
   const agents = [task.executor?.label ?? task.executor?.address, task.reviewer?.label ?? task.reviewer?.address].filter(Boolean).join(' → ');
   const at = Date.parse(review?.at ?? task.attempts?.at(-1)?.at ?? '');
-  return [agents, task.maxRounds ? `attempt ${task.round ?? 0} of ${task.maxRounds}` : null, `tests ${workflowCheckSummary(task).label.toLowerCase()}`,
-    review ? VERDICT[review.report.status] ?? review.report.status : null, Number.isFinite(at) ? since(at, now) : null].filter(Boolean).join(' · ');
+  return [agents, attemptLabel(task.round, task.maxRounds), `tests ${workflowCheckSummary(task).label.toLowerCase()}`,
+    review ? verdictLine(review.report.status).toLowerCase() : null, Number.isFinite(at) ? since(at, now) : null].filter(Boolean).join(' · ');
 }

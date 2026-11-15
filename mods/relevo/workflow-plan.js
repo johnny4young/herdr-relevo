@@ -4,8 +4,9 @@ import { agents } from "herdr";
 import { button, checkbox } from "./ui.js";
 import { projectGoalPlan, defaultPlanStepIds } from "./lib/goal-plan.js";
 import { workflowBucket } from "./lib/workflow-navigation.js";
+import { STATES, role, count } from "./lib/run-words.js";
 
-const labels = { todo: "Not started", planned: "Planned", ready: "Ready", running: "In progress", working: "In progress", needs_review: "In review", review: "Needs review", needs_you: "Needs me", accepted: "Accepted", done: "Validated", blocked: "Stuck", failed: "Failed", cancelled: "Cancelled" };
+const labels = { ...STATES, todo: "Not started", working: "In progress", needs_review: "In review", review: "Needs review", accepted: "Accepted", done: "Validated" };
 const row = (t, value) => div().w_full().min_w(0).text_size(13).text_color(t.muted).child(value);
 
 export class WorkflowPlan {
@@ -117,7 +118,7 @@ export class WorkflowPlan {
           .when(detailsOpen, (el) => el
             .children(tasks.map((task, index) => row(t, `${index + 1}. ${task.title} · ${labels[task.state] ?? task.state}`)))
             .child(row(t, `Repository: ${first?.root ?? "Unavailable"}`))
-            .child(row(t, `${first?.executor?.label ?? "Writes it"} → ${first?.reviewer?.label ?? "Reviews it"} · ${first?.maxRounds ?? "?"} ${first?.maxRounds === 1 ? "attempt" : "attempts"} · ${first?.maxMinutes ?? "?"} min per attempt`)))
+            .child(row(t, `${first?.executor?.label ?? role("executor").name} → ${first?.reviewer?.label ?? role("reviewer").name} · ${first?.maxRounds ? count(first.maxRounds, "attempt") : "? attempts"} · ${first?.maxMinutes ?? "?"} min per attempt`)))
           .when(plan.state === "planned", (el) => el.child(button(t, `workflow-start-plan-${plan.id}`, stopped ? "Resume & start plan" : "Start plan", (cx) => this.command({ action: "start-plan", planId: plan.id, ...(stopped ? { resumePaused: true } : {}) }, cx, (_response, context) => {
             this.notice = "Plan started. Review results in Needs me; accepted tasks release the next step automatically.";
             this.selectFilter("In progress", context);
@@ -161,7 +162,7 @@ export class WorkflowPlan {
           .when(Boolean(item.taskId), (el) => el.child(button(t, `workflow-plan-task-${item.step.id}`, "View task", (cx) => {
             const task = this.tasks.find((task) => task.id === item.taskId);
             if (task) {
-              this.selected = task.id; this.filter = task.state === "accepted" ? "Completed" : ["needs_you", "blocked", "failed"].includes(task.state) ? "Needs you" : "In progress";
+              this.selected = task.id; this.filter = workflowBucket(task);
               this.tab = "Overview"; this.h.focus(); cx.notify();
             }
           }, { tip: "Inspect the result and its evidence without changing progress" })));
@@ -179,8 +180,8 @@ export class WorkflowPlan {
           .when(Boolean(this.setupReuseWarning), (el) => el.child(row(t, this.setupReuseWarning)))
           .child(this.field(t, "root", "Repository path"))
           .child(this.repositoryPicker(t))
-          .child(this.agentPicker(t, "executor", "Writes it"))
-          .child(this.agentPicker(t, "reviewer", "Reviews it"))
+          .child(this.agentPicker(t, "executor", role("executor").pick))
+          .child(this.agentPicker(t, "reviewer", role("reviewer").pick))
           .child(h_flex().gap(6).child(this.field(t, "maxRounds", "Attempts per task"))
             .child(this.field(t, "maxMinutes", "Minutes per attempt")))
           .child(row(t, "Tests run after each attempt. Nothing runs until you start the plan."))

@@ -193,7 +193,7 @@ test('saved-plan next actions open results and progress without dispatching work
   assert.match(text(tree), /Review: Review the first result/);
   assert.match(text(tree), /Review result/);
   click(find(tree, 'workflow-plan-next-p'), cx);
-  assert.equal(v.selected, 'review'); assert.equal(v.filter, 'Needs you'); assert.equal(v.tab, 'Overview');
+  assert.equal(v.selected, 'review'); assert.equal(v.filter, 'Needs me'); assert.equal(v.tab, 'Overview');
   assert.equal(fake.execs.length, 0);
 
   const reviewing = [tasks[0] = { ...tasks[0], state: 'accepted' }, { ...tasks[1], state: 'needs_review' }];

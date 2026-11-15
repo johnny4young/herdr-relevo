@@ -1,4 +1,5 @@
 import { progressLine } from './run-report.js';
+import { taskState, role } from './run-words.js';
 // Readiness describes what can be inspected, never approval or task completion.
 export function reviewableWork(items, clones) {
   return items.filter((s) => !s.addressed && !s.draft && (s.kind === "local"
@@ -20,7 +21,7 @@ export function runNextAction(goal, tasks, engine, error, reviewCount = 0) {
   const current = tasks.filter((task) => task.goalId === goal.id && !['accepted', 'cancelled'].includes(task.state));
   if (error) return { status: 'Status unavailable', detail: 'Open the run to reload task status.', label: 'Open run', action: 'workflow', attention: true };
   const attention = current.find((task) => task.state === 'needs_you') ?? current.find((task) => ['blocked', 'failed'].includes(task.state));
-  if (attention) return { status: attention.state === 'needs_you' ? 'Needs me' : 'Stuck', detail: attention.title,
+  if (attention) return { status: taskState(attention.state === 'needs_you' ? 'needs_you' : 'blocked'), detail: attention.title,
     label: attention.state === 'needs_you' ? 'Review result' : 'See why', action: 'workflow', attention: true };
   if (current.length) {
     const planned = current.every((task) => task.state === 'planned');
@@ -66,13 +67,13 @@ export function runProgress(goalId, tasks, engine, error = null, now = Date.now(
   const live = active.find((task) => task.attempts?.some((attempt) => attempt.state === 'running'));
   if (live) {
     const attempt = [...live.attempts].reverse().find((attempt) => attempt.state === 'running');
-    const reviewer = attempt.role === 'reviewer';
-    const person = (reviewer ? live.reviewer : live.executor)?.label || (reviewer ? 'Reviewer' : 'Writer');
+    const reviewer = attempt.role === 'reviewer', words = role(attempt.role);
+    const person = (reviewer ? live.reviewer : live.executor)?.label || words.name;
     if (attempt.delivery === 'uncertain') return `Assignment to ${person} is unconfirmed. Check delivery before retrying.`;
-    if (attempt.delivery === 'sending') return `Sending ${reviewer ? 'review' : 'implementation'} assignment to ${person}.`;
+    if (attempt.delivery === 'sending') return `Sending the ${words.noun}'s assignment to ${person}.`;
     const said = progressLine(attempt.progress), age = now - Date.parse(attempt.progress?.at ?? '');
     if (said) return `${person}: ${said}${age > STALE_MS ? ` · said ${Math.round(age / 60000)}m ago` : ''}. Next: ${reviewer ? 'your review' : 'tests and review'}.${!engine?.enabled || live.paused ? ' Further dispatches paused.' : ''}`;
-    return `Awaiting ${reviewer ? 'review' : 'implementation'} report from ${person}. Next: ${reviewer ? 'your review' : 'tests and review'}.${!engine?.enabled || live.paused ? ' Further dispatches paused.' : ''}`;
+    return `Awaiting the ${words.noun}'s report from ${person}. Next: ${reviewer ? 'your review' : 'tests and review'}.${!engine?.enabled || live.paused ? ' Further dispatches paused.' : ''}`;
   }
   const pending = active.find((task) => task.state === 'needs_you');
   if (pending) {
