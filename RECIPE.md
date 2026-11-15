@@ -26,8 +26,14 @@ task to another account.
 - **Files**: Herdr's tree with a right-click menu (New file, New folder, Rename, Move to Trash, Reveal in Finder,
   Copy path, Copy relative path). A preview, and a file opened from the finder, show **Edit**; editing adds a
   7px unsaved dot and **Save** (`⌘S`), and a change on disk shows a bar with **Reload** and **Keep mine**.
-- **Inbox**: a rounded (10px) list with a 36px header `Inbox · PRs <age>` and ↻. Groups in this order: waiting on
-  you, In Desktop, landing, review requests, your PRs, uncommitted work, then agent time and worktrees, folded. Each
+- **Inbox** (Reviews): a rounded (10px) list with two underlined views, **Now** and **Maintenance**, each with its count,
+  then ?, ↻ and the focus button. Now opens with a legend, `● Needs me n · In flight n · Ready n`, and how long ago PRs
+  were read; its rows are grouped by whose turn it is: NEEDS ME (agents that ask, failed landings, run results and
+  decisions, review requests, your PRs with failing CI, requested changes or threads, uncommitted agent work), IN
+  FLIGHT (CI running, an agent on the PR, a landing in progress) and READY (only the merge left, Desktop sessions
+  ready for review), then "N waiting on others" folded (PRs you already ran a skill on, drafts). The Reviews badge is
+  the Needs me count. Maintenance holds what can wait: OLD (PRs past 45 days), the worktree groups, one fold with
+  everything marked addressed or landed (each with **Undo**) and agent time today. `m` and `n` switch views. Each
   open group sits under a caps header with its count and a hairline. Every item is one row: the lane glyph (who
   holds it: a red disc when it needs you, the spinner while agents or CI work, a check when one key finishes it,
   a ring when it can wait), the kind glyph, what it is, the one reason it is here, its age and its one action.

@@ -7,8 +7,8 @@ import { contextFor } from "./context.js";
 import { reviewAlerts, prAlerts, mergedAlert } from "./alerts.js";
 import { REPOS_ROOT } from "./config.js";
 import { LAUNCHED, SKILLS, configuredSkill, launched, launchSkill } from "./skills.js";
-import { button, spinner, withKey, icon, diffRatio } from "./ui.js";
-import { CI_WORDS, prReason, prTurn } from "./lib/lanes.js";
+import { button, spinner, withKey, icon, diffRatio, markButton } from "./ui.js";
+import { CI_WORDS, ciRunning, prName, prReason, prTurn } from "./lib/lanes.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
@@ -240,7 +240,7 @@ export class PrViews {
 
   draftCard(t, pr) {
     return this.item(t, `pr-${pr.url}`, {
-      turn: "open", kind: "pr", title: `${pr.repo.split("/")[1]} #${pr.number}`, reason: "draft", tip: pr.title, age: ago(seconds(pr.updatedAt), true),
+      turn: "open", kind: "pr", title: prName(pr), reason: "draft", tip: pr.title, age: ago(seconds(pr.updatedAt), true),
       lines: this.prLines(t, pr),
       main: button(t, `ready-${pr.url}`, "Ready for review", (cx) => this.prCommand(pr, ["ready"], "Ready for review", cx)),
       actions: [
@@ -258,7 +258,7 @@ export class PrViews {
       div().min_w(0).truncate().text_size(13).text_color(t.foreground).child(pr.title),
       h_flex().gap(8).items_center().text_size(11).text_color(t.muted)
         .when(Boolean(ci), (el) => el.child(h_flex().id(`ci-${pr.url}`).gap(5).items_center()
-          .child(ci === "PENDING" || ci === "EXPECTED" ? spinner(t.working, 11) : icon(ci === "SUCCESS" ? "check" : ci === "CANCELLED" ? "warn" : "x", ci === "SUCCESS" ? t.done : ci === "CANCELLED" ? t.ansi3 : t.blocked))
+          .child(ciRunning(ci) ? spinner(t.working, 11) : ci === "SUCCESS" ? icon("check", t.done) : ci === "CANCELLED" ? icon("warn", t.ansi3) : icon("x", t.blocked))
           .child(CI_WORDS[ci] ?? ci)))
         .when(pr.threads > 0, (el) => el.child(h_flex().id(`threads-${pr.url}`).gap(4).items_center()
           .child(icon("comment", t.ansi3)).child(`${pr.threads} unresolved`)))
@@ -290,13 +290,12 @@ export class PrViews {
     return l.skill === "review" ? "draft review ready on GitHub" : `${name} finished`;
   }
 
-  prCard(t, pr, requested, addressed = false) {
+  prCard(t, pr, requested, addressed = false, ready = false) {
     const l = this.launchedMap()[pr.url], agent = this.prAgents[pr.url], seen = this.seen(pr), busy = Boolean(l) && this.prBusy(pr);
     const done = Boolean(l && seen) && (!agent || agent.status === "idle" || agent.status === "done");
     const openPR = button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url]), {
       kind: done && l.skill === "review" ? "solid" : "outline",
     });
-    const ready = (this.ready ?? []).some((p) => p.url === pr.url);
     const actions = done && l.skill === "review" ? [openPR] : [];
     if (agent) actions.push(button(t, `agent-${pr.url}`, "Agent", () => run("agent.focus", { terminal: agent.address })));
     if (this.clones[pr.repo] && !(seen && agent) && !busy) {
@@ -335,12 +334,12 @@ export class PrViews {
     const working = agent?.status === "working" || this.backgroundOf(agent) !== null;
     return this.item(t, `pr-${pr.url}`, {
       turn: prTurn(pr, { requested, seen, busy, ready }), kind: requested ? "review" : "pr",
-      title: `${pr.repo.split("/")[1]} #${pr.number}`, reason: prReason(pr, { requested, ready }), tip: pr.title,
+      title: prName(pr), reason: prReason(pr, { requested, ready }), tip: pr.title,
       age: ago(seconds(pr.updatedAt), true),
       lines: this.prLines(t, pr, l && (seen || busy)
         ? div().text_size(11).text_color(working ? t.working : t.dim).child(this.agentLine(pr, agent)) : null),
       main: actions[0], actions,
-      mark: this.markButton(t, pr.url, addressed, (on, cx) => this.setAddressed(pr, on, cx), "Addressed: hide until there's new activity"),
+      mark: markButton(t, pr.url, addressed, (on, cx) => this.setAddressed(pr, on, cx), "Addressed: hide until there's new activity"),
     });
   }
 

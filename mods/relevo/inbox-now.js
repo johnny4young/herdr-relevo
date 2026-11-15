@@ -65,7 +65,7 @@ export class NowViews {
     for (const entry of this.openReviews()) add({ id: entry.id, turn: "me", draw: () => this.reviewRow(t, entry), go: entry.go });
     const prs = [...v.requested.filter(recent).map((pr) => [pr, true]), ...[...v.mine.filter(recent), ...(v.ready ?? [])].map((pr) => [pr, false])];
     for (const [pr, requested] of prs) {
-      add({ id: `pr-${pr.url}`, turn: prTurnOf(pr, requested), draw: () => this.prCard(t, pr, requested), go: () => this.runPR(pr) });
+      add({ id: `pr-${pr.url}`, turn: prTurnOf(pr, requested), draw: () => this.prCard(t, pr, requested, false, ready.has(pr.url)), go: () => this.runPR(pr) });
     }
     for (const i of v.local.filter((x) => x.kind === "diff")) {
       add({ id: `in-${i.agent.address}`, turn: "me", draw: () => this.localCard(t, i), go: () => openReview(i.top, i.agent.address) });

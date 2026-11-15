@@ -5,7 +5,7 @@ import { DESKTOP, openDesktop } from "./desktop.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { desktopKey, isSettled } from "./lib/desktop.js";
 import { ago } from "./lib/time.js";
-import { button, icon } from "./ui.js";
+import { button, markButton } from "./ui.js";
 
 const SETTLED = "relevo.desktop.settled";
 const RANK = { blocked: 0, review: 1 };
@@ -32,17 +32,14 @@ export class DesktopViews {
   }
 
   desktopCard(t, s, settled = false) {
-    const asks = s.state === "blocked";
+    const asks = s.state === "blocked", named = s.title && s.title !== s.project ? s.title : null;
     return this.item(t, `dk-${s.id}`, {
       turn: asks ? "me" : "ready", kind: "desktop", title: s.project, reason: s.needs || s.detail || (asks ? "asks you" : "ready for review"),
-      tip: s.title && s.title !== s.project ? s.title : null, age: ago(s.at, true),
-      lines: [s.title && s.title !== s.project ? div().id(`dk-says-${s.id}`).truncate().text_size(11).text_color(t.muted).child(s.title) : null],
+      tip: named, age: ago(s.at, true),
+      lines: [named ? div().id(`dk-says-${s.id}`).truncate().text_size(11).text_color(t.muted).child(named) : null],
       main: button(t, `dk-open-${s.id}`, "Open in Desktop", () => openDesktop(s.id), { kind: asks ? "go" : "outline" }),
-      mark: settled
-        ? button(t, `dk-undo-${s.id}`, "Undo", (cx) => this.settleDesktop(s, false, cx), { tip: "Back to the list" })
-        : button(t, `dk-settle-${s.id}`, [icon("check")], (cx) => this.settleDesktop(s, true, cx), {
-          tip: "Addressed: hide until the session does something new",
-        }),
+      mark: markButton(t, s.id, settled, (on, cx) => this.settleDesktop(s, on, cx), "Addressed: hide until the session does something new",
+        { on: "dk-settle", off: "dk-undo" }),
     });
   }
 }

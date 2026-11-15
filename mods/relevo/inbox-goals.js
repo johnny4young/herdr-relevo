@@ -3,7 +3,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { run, exec, shared, setShared, readTextFile, appHome } from "herdr";
 import { runtimeCommand } from "./runtime-cli.js";
 import { accountFor, inFocus } from "./context.js";
-import { button, foldRow } from "./ui.js";
+import { button, foldRow, markButton } from "./ui.js";
 import { openGoal } from "./goals-editor.js";
 import { readGoals, writeGoal, GOALS_CHANGED } from "./goals-store.js";
 import { emptyGoals, groupSources, sourceKey, closeGoal, goalState } from "./lib/goals.js";
@@ -221,7 +221,7 @@ export class GoalViews {
         entry.meta ? div().id(`meta-${entry.id}`).text_size(11).text_color(t.muted).truncate().tooltip(entry.meta).child(entry.meta) : null,
       ],
       main: button(t, `open-${entry.id}`, result ? "Review result" : "Review decision", entry.go, { kind: "go" }),
-      mark: this.markButton(t, entry.id, addressed, (on, cx) => this.setReviewAddressed(entry, on, cx), "Hide until it changes. Nothing is accepted."),
+      mark: markButton(t, entry.id, addressed, (on, cx) => this.setReviewAddressed(entry, on, cx), "Hide until it changes. Nothing is accepted."),
     });
   }
 

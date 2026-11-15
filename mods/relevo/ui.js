@@ -64,10 +64,6 @@ export const tabButton = (t, id, label, selected, onClick, tip = null) =>
     .rounded(0).border_b(2).border_color(selected ? t.accent : t.background).text_color(selected ? t.foreground : t.muted)
     .when(selected, (el) => el.bg(t.background));
 
-// A list section's title with its count or total on the right.
-export const sectionHeader = (t, label, right) =>
-  h_flex().pt(6).px(2).justify_between().text_size(11).text_color(t.dim).child(label).child(String(right));
-
 // Shortcuts come from keys.json, so a tooltip never shows a key that changed.
 let keys = {};
 
@@ -143,6 +139,11 @@ export function row(t, id, { turn = "open", kind = null, title, reason = null, s
 // Rows are separated by a hairline that starts at the body, past the lane.
 export const hairline = (t) => div().h(1).ml(LANE).mr(8).flex_none().bg(t.border).opacity(0.55);
 export const joined = (t, rows) => rows.filter(Boolean).flatMap((el, i) => (i ? [hairline(t), el] : [el]));
+
+// ✓ hides an item until something new happens; Undo brings it back. `key` names both buttons.
+export const markButton = (t, key, addressed, set, tip, { on = "addressed", off = "undo" } = {}) => (addressed
+  ? button(t, `${off}-${key}`, "Undo", (cx) => set(false, cx), { tip: "Back to the list" })
+  : button(t, `${on}-${key}`, [icon("check")], (cx) => set(true, cx), { tip }));
 
 // A section label in caps with its count and a hairline to the edge.
 export const legHeader = (t, id, label, count, { me = false } = {}) => h_flex().id(id).h(28).pt(6).pl(LANE).pr(8).gap(8).items_center()

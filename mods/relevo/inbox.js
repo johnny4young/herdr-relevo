@@ -11,7 +11,7 @@ import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { openHandoff } from "./handoff.js";
 import { openReplies } from "./replies.js";
-import { button, spinner, withKey, foldRow, FOLDS, shortcutBindings, icon, checkbox, keycap, row, diffRatio, tabButton } from "./ui.js";
+import { button, spinner, withKey, foldRow, FOLDS, shortcutBindings, icon, checkbox, keycap, row, diffRatio, tabButton, markButton } from "./ui.js";
 import { ShortcutHelp } from "./shortcut-help.js";
 import { INBOX_SHORTCUT_ACTIONS } from "./lib/shortcut-help.js";
 import { agentPRs, seconds } from "./lib/github.js";
@@ -318,13 +318,13 @@ export class Inbox {
   // An item as one row: its one action at the edge. Selected, it opens in place with its lines and every
   // other action; in flight rows offer nothing until then.
   // `open` keeps its lines in sight unselected; its other actions still wait for the selection.
-  item(t, id, { turn, kind, title, reason = null, age = null, tip = null, sub = null, lines = [], main = null, actions = [], mark = null, open = false }) {
+  item(t, id, { turn, kind, title, reason = null, age = null, tip = null, lines = [], main = null, actions = [], mark = null, open = false }) {
     if (this.hiddenIds?.has(id)) return null;
     const sel = this.selected(id);
     const rest = sel ? [...actions.filter((a) => a && a !== main), mark].filter(Boolean) : [];
     const below = sel || open ? [...lines.filter(Boolean), ...(rest.length ? [h_flex().flex_wrap().gap(5).pt(2).children(rest)] : [])] : [];
     return row(t, id, {
-      turn, kind, title, reason, age, tip, sub, selected: sel,
+      turn, kind, title, reason, age, tip, selected: sel,
       action: turn === "flight" && !sel ? null : main,
       onSelect: (cx) => this.pick(id, cx),
       below: below.length ? below : null,
@@ -338,12 +338,7 @@ export class Inbox {
     cx.notify();
   }
 
-  // ✓ hides an item until something new happens; Undo brings it back.
-  markButton(t, id, addressed, set, tip) {
-    return addressed
-      ? button(t, `undo-${id}`, "Undo", (cx) => set(false, cx), { tip: "Back to the list" })
-      : button(t, `addressed-${id}`, [icon("check")], (cx) => set(true, cx), { tip });
-  }
+
 
   close() {
     if (this.preview) return this.preview.close();
@@ -403,7 +398,7 @@ export class Inbox {
       button(t, `handoff-${a.address}`, "Continue with…", () => openHandoff(a.address)),
     ];
     // The question shows whole below, so the row names only what kind of ask it is.
-    const report = terminals().find((k) => k.address === a.address)?.report, short = reasonOf(p, report);
+    const short = shared(REASONS)?.[a.address] ?? reasonOf(p, terminals().find((k) => k.address === a.address)?.report);
     const kindOfAsk = p.question && short && p.question.startsWith(short.replace(/…$/, "")) ? (p.options.length ? "asks you to choose" : "waits for your reply") : short;
     return this.item(t, `in-${a.address}`, {
       turn: "me", kind: "agent", title: item.repo, reason: kindOfAsk, tip: a.tab_name || item.branch || null, open: true,
@@ -645,7 +640,7 @@ export class Inbox {
           tip: withKey("Send it a message or a quick reply", "relevo.quick-reply"),
         }),
       ],
-      mark: this.markButton(t, a.address, addressed, (on, cx) => this.setLocalAddressed(a, on, cx), "Addressed: hide until its agent works again"),
+      mark: markButton(t, a.address, addressed, (on, cx) => this.setLocalAddressed(a, on, cx), "Addressed: hide until its agent works again"),
     });
   }
 

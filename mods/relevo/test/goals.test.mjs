@@ -180,7 +180,7 @@ test('Reviews keyboard order follows visible priority and hides previous cards a
   const pr = (i, extra) => ({ url: `https://github.com/acme/app/pull/${i}`, repo: 'acme/app', number: i, title: `PR ${i}`, reasons: [], skills: [], updatedAt: new Date().toISOString(), ...extra });
   const id = (i) => `pr-https://github.com/acme/app/pull/${i}`;
   // Listed quiet, ready, running, failing: the keyboard goes by whose turn it is instead.
-  view.mine = [pr(1), pr(2, { reasons: ['new, CI passed'] }), pr(3, ci('PENDING')), pr(4, { reasons: ['CI failing'] }), pr(5, { reasons: ['CI failing'] })];
+  view.mine = [pr(1), pr(2, { reasons: ['new, CI passed'], fresh: true, ...ci('SUCCESS') }), pr(3, ci('PENDING')), pr(4, { reasons: ['CI failing'] }), pr(5, { reasons: ['CI failing'] })];
   fake.stored[GOAL_MODE] = false;
   view.render(cx);
   assert.deepEqual(view.nav.map((n) => n.id), [id(4), id(5), id(3), id(2)]);
