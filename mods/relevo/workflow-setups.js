@@ -23,6 +23,8 @@ export const savedSetups = () => {
   return stored?.version === 1 && Array.isArray(stored.items) ? stored.items.filter(validSetup).slice(0, LIMIT) : [];
 };
 
+export const removeSetup = (id) => setShared(SETUPS_KEY, { version: 1, items: savedSetups().filter((item) => item.id !== id) });
+
 export class WorkflowSetup extends WorkflowPlan {
   saveSetup(cx) {
     if (this.busy) return;
@@ -57,7 +59,7 @@ export class WorkflowSetup extends WorkflowPlan {
     if (!setup || this.busy) return;
     // Re-read at click time; the selected repository is a scope, not a default to replace.
     const root = this.form.root.value().trim();
-    if (root && root !== setup.root) { this.setupError = "This setup belongs to another repository."; cx.notify(); return; }
+    if (root && root !== setup.root) { this.setupError = "This setup belongs to another repository."; cx?.notify(); return; }
     this.applySetup(setup, cx);
     this.setupReuseNotice = `“${setup.name}” applied · ${count(setup.maxRounds, "attempt")} · ${setup.maxMinutes} min per attempt. Review agents before creating.`;
     this.setupError = null; this.setupNotice = null;
@@ -80,7 +82,7 @@ export class WorkflowSetup extends WorkflowPlan {
             .child(button(t, `workflow-apply-setup-${item.id}`, "Use setup", (cx) => this.applySavedSetup(item.id, cx),
               { disabled: this.busy, tip: `${item.executor.label ?? item.executor.address} + ${item.reviewer.label ?? item.reviewer.address}. Tests: ${JSON.stringify(item.checks)}. Your title and outcome stay unchanged.` }))
             .child(button(t, `workflow-remove-setup-${item.id}`, "Remove", (cx) => {
-              setShared(SETUPS_KEY, { version: 1, items: savedSetups().filter((value) => value.id !== item.id) });
+              removeSetup(item.id);
               this.setupNotice = "Saved setup removed. Existing tasks are unchanged."; cx.notify();
             }, { size: "sm", tip: "Remove only this reusable setup; keep tasks, sessions and the current draft" }))))))
         .child(button(t, "workflow-save-setup-toggle", this.setupSaveOpen ? "Cancel saving setup" : "Save current setup…", (cx) => {

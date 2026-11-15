@@ -133,12 +133,17 @@ const prNumber = (url) => `#${/\/pull\/(\d+)/.exec(url)?.[1] ?? "?"}`;
 
 // What reached GitHub: the run's linked PRs and the draft PRs of its accepted worktree tasks.
 // `items` are its open linked sources, `merged` the URLs known to have merged.
-export function runShipped(goal, bucket, items = [], merged = {}) {
+export function shippedPRs(goal, bucket, items = [], merged = {}) {
   const state = new Map();
   for (const task of bucket.done) if (task.state === "accepted" && task.worktree?.pr) state.set(task.worktree.pr, "opened");
   for (const source of items) if (source.kind === "pr") state.set(source.pr.url, source.draft ? "draft" : "open");
   for (const key of goal.sources ?? []) if (key.startsWith("pr:") && merged[key.slice(3)]) state.set(key.slice(3), "merged");
   for (const url of state.keys()) if (merged[url]) state.set(url, "merged");
+  return state;
+}
+
+export function runShipped(goal, bucket, items = [], merged = {}) {
+  const state = shippedPRs(goal, bucket, items, merged);
   const of = (kind) => [...state].filter(([, value]) => value === kind).map(([url]) => prNumber(url));
   const parts = [["merged", (n) => `${count(n, "pull request")} merged`], ["open", (n) => `${count(n, "pull request")} open`],
     ["draft", (n) => count(n, "draft pull request")], ["opened", (n) => `${count(n, "pull request")} opened`]]
