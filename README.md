@@ -7,7 +7,7 @@ alerts when a PR's CI or reviews change, and a ledger of agent time per ticket.
 
 ![Relevo](preview.png)
 
-*The preview and screenshots are mockups with demo data, drawn to match the layout.*
+*The pictures use demo data; most are drawn from Relevo's own code.*
 
 ## Whose turn is it?
 
@@ -46,6 +46,8 @@ The panel has two views. **Reviews** is the Inbox described below. **Runs** is f
 **What a run cost.** Under the summary of an open run, one line: agent minutes and tokens, each against the run's cap when it has one (a band that turns red at the cap; a cap never stops anything), attempts used, tests passed and pull requests shipped, with **Pause automation** or **Resume automation** at the edge. Tokens are counted for worktree runs, from the same report as the Tokens dialog.
 
 **Attempts, side by side.** A selected task lists its attempts: who wrote it, who reviewed it, how long it took and how it ended. When a task was written more than once, **C** compares the attempts (the last three): what the reviewer said, tests, files changed, time, tokens and your note. **See what changed between them** lists the files that differ between the last two attempts.
+
+![A run open in the panel, and one of its tasks with who did what and the decision](screenshots/runs.png)
 
 **Accept several together.** In an open run, **x** selects a result that waits on you and **X** every result of the same repository. The bar at the foot says what holds for all of them ("all approved, all tests pass") or what does not; **Enter** accepts them at the revisions on screen and **Esc** cancels. Results of two repositories are never accepted together.
 
@@ -90,7 +92,7 @@ replies, like "commit and push". `⌥⌘E` finds a past session of this repo and
 Back after ten minutes or more, a card at the top of the Inbox lists which agents finished and what they said last,
 which ones wait for you, what changed on your PRs and how much quota and agent time went. Click a row to go there.
 
-![While you were away: finished and waiting agents, PR changes and quota spent](screenshots/away.png)
+![While you were away: a finished and a waiting agent, a PR and quota spent](screenshots/away.png)
 
 ### Review a whole PR, then hand the comments to its agent
 
@@ -105,7 +107,7 @@ Each quota bar says when it runs out at the current pace. Click an agent's accou
 with another account; an alert offers the same at 95%. Between Claude accounts the next one resumes the same conversation; to or from Codex it starts from a note
 with the last screen and the working tree. The popup shows how much room each account has left and which of the two it will do; a number key picks one. `⌥⌘N` starts a new agent on the Claude account with the most room left.
 
-![A quota at 95% and the handoff to another account](screenshots/handoff.png)
+![Account usage: one account about to fill, with Continue with…](screenshots/handoff.png)
 
 ### See where your tokens go
 
@@ -114,10 +116,11 @@ project, subagent type and day. It reads the transcripts on your Mac and sends n
 
 ![Tokens by surface, project, subagent and day](screenshots/tokens.png)
 
-### Claude Desktop sessions too
+### Claude Desktop and other terminals too
 
-Desktop sessions that ask you something or wait for a review show in the Inbox and the Agents list, one click from
-Desktop. With Herdr behind another app, alerts reach macOS; with `terminal-notifier`, a click lands on the agent.
+Claude Desktop sessions that ask you something or wait for a review show in Reviews and the Agents list, and Claude
+Code started in Terminal, iTerm, VS Code or any terminal outside Herdr shows under **Elsewhere**. Each says what it is
+doing or asks, and a click opens its last message in place, with **Open in Claude Desktop** or **Show <app>**. With Herdr behind another app, alerts reach macOS; with `terminal-notifier`, a click lands on the agent.
 
 ### Land a PR, and review only what changed
 
@@ -125,7 +128,7 @@ Desktop. With Herdr behind another app, alerts reach macOS; with `terminal-notif
 when nothing would be lost. In the review pane, **Since I looked** shows only what the agent changed after your
 last look, and **Viewed** marks files until they change.
 
-![A PR landing, one landed, and one ready for its second click](screenshots/land.png)
+![A selected PR names the check that failed, with Land on l](screenshots/land.png)
 
 ![Since I looked, with one file marked viewed](screenshots/since.png)
 
@@ -147,7 +150,7 @@ disk while you edit asks **Reload** or **Keep mine**, so nothing is overwritten 
 The panel bar's selector lists every checkout of the repo with uncommitted files, ahead/behind and last use. Merged
 worktrees that are safe to remove go in one Confirm. When your PR merges, the toast takes you to its worktree.
 
-![The checkout selector and merged worktrees](screenshots/worktrees.png)
+![Maintenance: what is safe to remove, what needs a look and what is old](screenshots/worktrees.png)
 
 ## Install
 

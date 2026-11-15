@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **New pictures.** The preview and the README's pictures of Now, answering an agent, While you were away, the review pane, account usage, a PR's checks, Maintenance and Runs are drawn from Relevo's own code with demo data, so they show the redesign; the README also covers Claude Desktop detail and the Elsewhere group.
 - **`doctor` says when the install is behind.** Run from a checkout, it now compares the installed files with the checkout's and warns "the install is behind this checkout: N files differ", even when both carry the same version, as after merging work that has no release yet.
 - **Now reads calmer, and Tab is always in sight.** Rows that need you keep their red disc and red words, but only the open row is shaded, so a long Needs me list no longer turns pink. The key bar keeps `tab` and `esc` at the right with `?`, which now reads "? keys", so switching views shows even in the default 380 px panel.
 - **The status bar keeps its line under the accounts.** The account usage at the right of the status bar now draws the same top line and background as the workspace status beside it, and an account near its limit is tinted inside the bar instead of over the line.
