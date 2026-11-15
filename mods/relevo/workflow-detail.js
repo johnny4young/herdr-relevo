@@ -6,6 +6,7 @@ import { openReview } from "./review.js";
 import * as config from "./config.js";
 import { acceptanceEffect, workflowCheckSummary } from "./lib/workflow-navigation.js";
 import { linkedDecision } from "./lib/goal-workflow.js";
+import { followUpAvailable } from "./lib/run-panel.js";
 import { agentMarkdown } from "./lib/agent-markdown.js";
 import { WorkflowRuns } from "./workflow-runs.js";
 import { row, taskState, reportState, verdictLine, role, count, attemptLabel, caption, reportNotes, SUMMARY_PREVIEW } from "./workflow-labels.js";
@@ -63,7 +64,7 @@ export class WorkflowDetail extends WorkflowRuns {
     this.executor = task.executor?.address ?? ""; this.reviewer = task.reviewer?.address ?? "";
     this.dependsOn = (task.dependsOn ?? []).filter((id) => id !== task.id); this.selected = null; this.explicitNew = true; this.tab = "Overview";
     this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null;
-    cx.notify();
+    cx?.notify();
   }
 
   prepareBlockedFollowUp(task, cx) {
@@ -79,7 +80,7 @@ export class WorkflowDetail extends WorkflowRuns {
     this.executor = task.executor?.address ?? ""; this.reviewer = task.reviewer?.address ?? "";
     this.dependsOn = (task.dependsOn ?? []).filter((id) => id !== task.id); this.selected = null; this.explicitNew = true; this.tab = "Overview";
     this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null;
-    cx.notify();
+    cx?.notify();
   }
 
   submitDecision(task, outcome, cx) {
@@ -191,10 +192,6 @@ export class WorkflowDetail extends WorkflowRuns {
     const primaryReport = blocked && review ? review : implementation;
     const primaryId = (blocked && review ? reviewAttempt : implementationAttempt)?.id;
     const summary = primaryReport?.summary ?? "Report available", longSummary = summary.length > SUMMARY_PREVIEW, summaryOpen = Boolean(this.expandedReports?.[primaryId]);
-    const latestAttempt = task.attempts?.at(-1);
-    const unresolvedAttempt = latestAttempt?.state === "running" || ["uncertain", "sending"].includes(latestAttempt?.delivery);
-    const followUpAvailable = blocked && !unresolvedAttempt && ((task.round ?? 0) >= (task.maxRounds ?? 2) ||
-      (task.attempts ?? []).filter((attempt) => attempt.role === "reviewer").length >= (task.maxRounds ?? 2) + 1);
     const details = this.detailsFor === task.id;
     const caveats = [...reportNotes(review), ...(implementation?.notProven ?? []).map((item) => `Not proven by the ${role("executor").noun}: ${item}`)];
     const statusColor = task.state === "needs_you" ? t.accent : blocked ? t.blocked : task.state === "accepted" ? t.done : t.muted;
@@ -215,7 +212,7 @@ export class WorkflowDetail extends WorkflowRuns {
       .when(task.state === "needs_you" && caveats.length > 0, (el) => el.child(v_flex().id("workflow-review-notes").w_full().min_w(0).gap(4)
         .child(div().text_size(11).text_color(t.muted).child("Before you accept"))
         .children(caveats.map((note) => row(t, note)))))
-      .when(followUpAvailable, (el) => el
+      .when(followUpAvailable(task), (el) => el
         .child(button(t, "workflow-prepare-follow-up", "Prepare follow-up", (context) => this.prepareBlockedFollowUp(task, context),
           { kind: "solid", tip: "Prefills a new task with the findings; nothing is sent until you start it" })))
       .children([this.uncertainAttempt(t, task)].filter(Boolean))

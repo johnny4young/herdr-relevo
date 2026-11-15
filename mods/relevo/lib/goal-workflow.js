@@ -1,5 +1,5 @@
 import { progressLine } from './run-report.js';
-import { taskState, role } from './run-words.js';
+import { role } from './run-words.js';
 // Readiness describes what can be inspected, never approval or task completion.
 export function reviewableWork(items, clones) {
   return items.filter((s) => !s.addressed && !s.draft && (s.kind === "local"
@@ -14,30 +14,6 @@ export function scopeGoals(projection, id) {
   const outside = projection.sources.filter((s) => !keys.has(s.key));
   return { ...projection, groups: [selected], unlinked: [], scope: selected.goal,
     outsideCount: outside.length, outsideBlockers: outside.filter((s) => s.blocked && !s.addressed).length };
-}
-
-// Task records drive the next action; saved free-form notes never override them.
-export function runNextAction(goal, tasks, engine, error, reviewCount = 0) {
-  const current = tasks.filter((task) => task.goalId === goal.id && !['accepted', 'cancelled'].includes(task.state));
-  if (error) return { status: 'Status unavailable', detail: 'Open the run to reload task status.', label: 'Open run', action: 'workflow', attention: true, stuck: true };
-  const attention = current.find((task) => task.state === 'needs_you') ?? current.find((task) => ['blocked', 'failed'].includes(task.state));
-  if (attention) return { status: taskState(attention.state === 'needs_you' ? 'needs_you' : 'blocked'), detail: attention.title,
-    label: attention.state === 'needs_you' ? 'Review result' : 'See why', action: 'workflow', attention: true, stuck: attention.state !== 'needs_you' };
-  if (current.length) {
-    const planned = current.every((task) => task.state === 'planned');
-    const live = current.find((task) => task.attempts?.some((attempt) => attempt.state === "running"));
-    const paused = !live && (!engine?.enabled || current.every((task) => task.paused));
-    return { status: planned ? 'Ready to start' : paused ? 'Automation paused' : 'Agents working',
-      detail: current.find((task) => task.state === 'running')?.title ?? current[0].title,
-      label: planned ? 'Review plan' : paused ? 'Continue work' : 'View progress', action: 'workflow' };
-  }
-  if (tasks.some((task) => task.goalId === goal.id && task.state === 'accepted')) return {
-    status: 'Results accepted', detail: 'Review remaining outcomes or plan the next task.', label: 'Open run', action: 'workflow' };
-  if (goal.decision?.trim() && linkedDecision(goal, tasks, error).state === "separate") return { status: 'Decision needed', detail: goal.decision.trim(), label: 'Review decision', action: 'decision', attention: true };
-  if (reviewCount) return { status: 'Changes to review', detail: `${reviewCount} linked ${reviewCount === 1 ? 'change' : 'changes'}`, label: 'Review changes', action: 'review' };
-  return { status: goal.state === 'completed' ? 'Run completed' : 'Ready to plan',
-    detail: goal.state === 'completed' ? 'Saved outcomes and decisions remain available.' : 'Set the outcome. Assign agents. Review their result.',
-    label: goal.state === 'completed' ? 'View history' : 'Plan agent work', action: 'workflow' };
 }
 
 // Linking is explicit and bound to the question text. Never infer human consent

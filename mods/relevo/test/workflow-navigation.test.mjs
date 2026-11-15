@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { acceptanceEffect, queueSummary, resultMeta, workflowCheckSummary, workflowItems } from '../lib/workflow-navigation.js';
-import { runNextAction } from '../lib/goal-workflow.js';
+import { runRow } from '../lib/run-panel.js';
 import { count, reportState } from '../lib/run-words.js';
 
 test('ready decisions appear before historical blockers without hiding or mutating either', () => {
@@ -12,7 +12,8 @@ test('ready decisions appear before historical blockers without hiding or mutati
     { id: 'review2', goalId: 'g', state: 'needs_you', title: 'Second result' },
   ];
   assert.deepEqual(workflowItems(tasks, 'Needs me').map(task => task.id), ['review', 'review2', 'blocked', 'failed']);
-  assert.equal(runNextAction({ id: 'g' }, tasks, { enabled: true }).detail, 'Current result');
+  const row = runRow({ id: 'g' }, tasks, { engine: { enabled: true } });
+  assert.deepEqual([row.turn, row.now, row.action.label], ['me', '2 results wait for your review', 'Review 2'], 'results that wait come before blockers');
   assert.deepEqual(tasks.map(task => task.id), ['blocked', 'review', 'failed', 'review2']);
 });
 
@@ -70,10 +71,10 @@ test('result meta names the agents, round, checks, verdict and age', () => {
 });
 
 test('a stuck run is flagged for the blocked colour whatever its words say', () => {
-  assert.equal(runNextAction({ id: 'g' }, [{ id: 'a', goalId: 'g', state: 'blocked', title: 'A' }], { enabled: true }).stuck, true);
-  assert.equal(runNextAction({ id: 'g' }, [{ id: 'a', goalId: 'g', state: 'failed', title: 'A' }], { enabled: true }).stuck, true);
-  assert.equal(runNextAction({ id: 'g' }, [], { enabled: true }, 'unreadable').stuck, true);
-  assert.ok(!runNextAction({ id: 'g' }, [{ id: 'a', goalId: 'g', state: 'needs_you', title: 'A' }], { enabled: true }).stuck);
+  const row = (tasks, error = null) => runRow({ id: 'g' }, tasks, { engine: { enabled: true }, error });
+  for (const state of ['blocked', 'failed']) assert.deepEqual([row([{ id: 'a', goalId: 'g', state, title: 'A' }]).turn, row([{ id: 'a', goalId: 'g', state, title: 'A' }]).hot], ['stuck', true]);
+  assert.deepEqual([row([], 'unreadable').turn, row([], 'unreadable').hot], ['stuck', true]);
+  assert.equal(row([{ id: 'a', goalId: 'g', state: 'needs_you', title: 'A' }]).turn, 'me');
 });
 
 test('report words and counts never show a raw status or NaN', () => {

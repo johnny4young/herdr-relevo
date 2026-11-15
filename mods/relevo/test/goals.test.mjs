@@ -316,10 +316,14 @@ test('decision-only goals are keyboard reachable and completed goals never hide 
   view.prsAt = Date.now() / 1000; fake.stored[GOAL_MODE] = true;
   let tree = view.render(cx);
   assert.doesNotMatch(text(tree), /Nothing waiting/);
-  assert.match(text(tree), /Decision needed/);
-  assert.match(text(tree), /Keep existing flow\?/);
-  view.nav.find((n) => n.id === 'goal-g1').go();
-  assert.equal(fake.stored[GOAL_MODE], false); view.render(cx);
+  assert.equal(text(find(tree, 'goal-now-g1')), 'Now your decision: Keep existing flow?');
+  assert.equal(text(find(tree, 'runs-leg-me')), 'NEEDS ME 1');
+  view.nav.find((n) => n.id === 'goal-g1').go(); tree = view.render(cx);
+  assert.equal(text(find(tree, 'run-action-g1')), 'Decide');
+  click(find(tree, 'run-action-g1'), cx);
+  assert.deepEqual([fake.overlays.at(-1).props.goalId, fake.overlays.at(-1).props.panel], ['g1', 'decision']);
+  click(find(tree, 'runs-back'), cx);
+  fake.stored[GOAL_MODE] = false; view.render(cx);
   view.nav.find((n) => n.id === 'decision-g1').go();
   assert.equal(fake.overlays.at(-1).props.goalId, 'g1');
   view.goalDoc = commit({ ...goal(), state: 'completed' }); view.mine = [samplePR(1, { hot: true, reasons: ['CI failing'] })];
@@ -327,9 +331,10 @@ test('decision-only goals are keyboard reachable and completed goals never hide 
   assert.ok(find(tree, `pr-${key.slice(3)}`));
   fake.stored[GOAL_MODE] = true;
   tree = view.render(cx);
-  assert.doesNotMatch(text(tree), /Run completed/);
+  assert.equal(find(tree, 'goal-g1'), null);
+  assert.match(text(find(tree, 'runs-closed-fold')), /1 older finished run/);
   click(find(tree, 'runs-closed-fold'), cx);
-  assert.match(text(view.render(cx)), /Run completed/);
+  assert.equal(text(find(view.render(cx), 'goal-now-g1')), 'Now closed');
 });
 
 test('closing a run cancels its open tasks after confirmation and folds it', async () => {
@@ -338,7 +343,7 @@ test('closing a run cancels its open tasks after confirmation and folds it', asy
   view.goalDoc = (await readGoals()).doc;
   view.workflowTasks = [{ id: 'k1', goalId: 'g1', state: 'needs_you', title: 'A' }, { id: 'k2', goalId: 'g1', state: 'blocked', title: 'B' },
     { id: 'k3', goalId: 'g1', state: 'accepted', title: 'C' }];
-  fake.stored[GOAL_MODE] = true;
+  fake.stored[GOAL_MODE] = true; view.sel = 'goal-g1';
   let tree = view.render(cx);
   click(find(tree, 'goal-close-g1'), cx); tree = view.render(cx);
   assert.match(text(tree), /Cancel 2 open tasks and close this run\?/);
@@ -357,7 +362,7 @@ test('a failed task cancel keeps the run open and reports it', async () => {
   view.goalDoc = (await readGoals()).doc;
   view.workflowTasks = [{ id: 'k1', goalId: 'g1', state: 'running', title: 'A' }];
   fake.exec = (cmd, args) => cmd === 'node' ? { code: 1, stderr: 'locked' } : null;
-  fake.stored[GOAL_MODE] = true;
+  fake.stored[GOAL_MODE] = true; view.sel = 'goal-g1';
   click(find(view.render(cx), 'goal-close-g1'), cx);
   click(find(view.render(cx), 'goal-close-yes-g1'), cx); await flush();
   assert.equal((await readGoals()).doc.goals[0].state, 'active');
@@ -390,10 +395,10 @@ test('run cards keep the next action and editor while hiding lead provenance', a
   const { view, cx } = await inbox();
   fake.agents = [{ address: 't1', status: 'working' }, { address: 't2', status: 'working' }];
   fake.terminals = [{ address: 't1' }, { address: 't2', parent: 't1' }, { address: 't3', parent: 't1' }];
-  view.goalDoc = commit({ ...goal(), lead: 't1' }); fake.stored[GOAL_MODE] = true;
+  view.goalDoc = commit({ ...goal(), lead: 't1' }); fake.stored[GOAL_MODE] = true; view.sel = 'goal-g1';
   const tree = view.render(cx);
   assert.ok(find(tree, 'goal-edit-g1'));
-  assert.ok(find(tree, 'goal-workflow-g1'));
+  assert.ok(find(tree, 'goal-action-g1'));
   assert.doesNotMatch(text(tree), /observed child agents|Focus lead|Message lead|Criteria:|Outcomes/);
 });
 
@@ -406,10 +411,11 @@ test('compact run card keeps current action and Edit without duplicating source 
   view.goalDoc = commit(detail); view.mine = [pr]; view.clones[pr.repo] = '/work/app';
   fake.stored[GOAL_MODE] = true; view.prsAt = Date.now() / 1000;
   const original = JSON.stringify(view.goalDoc);
+  view.sel = 'goal-g1';
   const tree = view.render(cx);
   assert.ok(find(tree, 'goal-edit-g1'));
   assert.equal(find(tree, `pr-${pr.url}`), null);
-  const nextAction = find(tree, 'goal-review-next-g1') || find(tree, 'goal-workflow-g1') || find(tree, 'goal-decision-next-g1');
+  const nextAction = find(tree, 'goal-action-g1');
   assert.ok(nextAction);
   assert.ok(text(nextAction).length > 0);
   assert.doesNotMatch(text(tree), /Mission details|Criteria:|Saved question:|Saved recommendation:|Latest note:|QA report|Earlier feedback/);
@@ -425,8 +431,9 @@ test('empty run context stays in Edit and does not add an empty details fold', a
   const { view, cx } = await inbox();
   view.goalDoc = saveGoal(commit(), goal('g2', []), 0); fake.stored[GOAL_MODE] = true;
   let tree = view.render(cx);
-  assert.ok(find(tree, 'goal-edit-g1'));
-  assert.ok(find(tree, 'goal-edit-g2'));
+  assert.ok(find(tree, 'goal-g1')); assert.ok(find(tree, 'goal-g2'));
+  for (const id of ['g1', 'g2']) { view.sel = `goal-${id}`; assert.ok(find(view.render(cx), `goal-edit-${id}`)); }
+  tree = view.render(cx);
   assert.equal(find(tree, 'goal-context-g1'), null);
   assert.doesNotMatch(text(tree), /Criteria: Not set|Mission details/);
 });

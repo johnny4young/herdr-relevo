@@ -9,12 +9,13 @@ export const liveRunPanes = () => Object.fromEntries(
 );
 
 // A run is a pane beside the work; opening it again focuses that pane and selects the task.
-export function openWorkflow(goalId, taskId = null) {
+// `ask` is what the panel wants shown: { tab }, { followUp: "blocked" | "changes", text } or { setups: true }.
+export function openWorkflow(goalId, taskId = null, ask = {}) {
   const pane = liveRunPanes()[goalId];
   if (pane) {
-    setShared(RUN_REQUEST, { goalId, taskId, at: Date.now() });
+    setShared(RUN_REQUEST, { goalId, taskId, ...ask, at: Date.now() });
     run("pane.focus", { pane });
     return;
   }
-  run("pane.split", { direction: "right", mod: "relevo", props: { role: "workflow", goalId, ...(taskId ? { taskId } : {}) } });
+  run("pane.split", { direction: "right", mod: "relevo", props: { role: "workflow", goalId, ...(taskId ? { taskId } : {}), ...ask } });
 }

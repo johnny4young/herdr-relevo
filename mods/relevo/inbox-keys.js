@@ -81,6 +81,13 @@ export class KeyNav {
       cx.stop_propagation();
       return cx.notify();
     }
+    // The change request owns the keys while it is typed; Esc drops it.
+    if (this.runChangeFor) {
+      if (e.key !== "escape") return;
+      this.cancelRunChanges();
+      cx.stop_propagation();
+      return cx.notify();
+    }
     // A focused button/input owns its keys. Never run a selected card's action
     // as a side effect of activating a descendant control with Enter.
     if (!this.h.is_focused()) return;
@@ -89,7 +96,11 @@ export class KeyNav {
     const held = e.modifiers?.platform || e.modifiers?.control || e.modifiers?.alt;
     if (held) return;
     this.clicked = false;
-    if (this.goalAction?.(e.key, cx)) {
+    // Runs also move with j and k.
+    const runs = shared(GOAL_MODE) === true, key = runs && e.key === "j" ? "down" : runs && e.key === "k" ? "up" : e.key;
+    if (runs && this.runKey?.(e, cx)) {
+      // The open run or task took the key.
+    } else if (this.goalAction?.(e.key, cx)) {
       // These commands only apply while the queue itself has keyboard focus.
     } else if (e.key === "home" || e.key === "end") {
       this.sel = items[e.key === "home" ? 0 : items.length - 1]?.id ?? null;
@@ -97,8 +108,8 @@ export class KeyNav {
       this.setReviewView(e.key === "m" ? "maintenance" : "now", cx);
     } else if (/^[1-9]$/.test(e.key) && items[at]?.choose) {
       items[at].choose(Number(e.key), cx);
-    } else if (e.key === "down" || e.key === "up") {
-      const next = at < 0 ? 0 : Math.min(items.length - 1, Math.max(0, at + (e.key === "down" ? 1 : -1)));
+    } else if (key === "down" || key === "up") {
+      const next = at < 0 ? 0 : Math.min(items.length - 1, Math.max(0, at + (key === "down" ? 1 : -1)));
       this.sel = items[next]?.id ?? null;
     } else if (e.key === "enter" && at >= 0) {
       items[at].go();

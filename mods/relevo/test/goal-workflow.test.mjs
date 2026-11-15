@@ -46,15 +46,17 @@ test('review readiness excludes drafts, addressed work, missing clones and block
     { kind: 'local', item: { kind: 'blocked' } }, { kind: 'pr', pr: { repo: 'missing/repo' } }], { [pr.repo]: '/work/app' }), [linked, local]);
 });
 
-test('Focus and All work preserve work and restore the complete keyboard queue', async () => {
+test('F opens the selected run in the panel and the back link restores the complete keyboard queue', async () => {
   const { v, cx } = await inbox(); const before = v.nav.map((n) => n.id), doc = JSON.stringify(v.goalDoc);
   v.sel = 'goal-g'; v.goalAction('f', cx); let tree = v.render(cx);
   assert.equal(fake.stored[GOAL_SCOPE], 'g'); assert.equal(v.goalProjection.outsideBlockers, 1);
-  assert.deepEqual(v.nav.map((n) => n.id), ['goal-g']);
+  assert.deepEqual(v.nav.map((n) => n.id), [], 'a run without tasks has no rows to walk');
+  assert.equal(text(find(tree, 'run-title')), 'Ship search');
   assert.match(text(tree), /1 need attention elsewhere/);
   assert.doesNotMatch(text(tree), /2 other items/);
-  assert.ok(find(tree, 'goal-all-work')); assert.equal(find(tree, `source-pr:${pr.url}2`), null);
-  click(find(tree, 'goal-all-work'), cx); tree = v.render(cx);
+  assert.equal(find(tree, 'goal-g'), null); assert.equal(find(tree, `source-pr:${pr.url}2`), null);
+  click(find(tree, 'runs-back'), cx); tree = v.render(cx);
+  assert.equal(fake.stored[GOAL_SCOPE], null); assert.equal(v.sel, 'goal-g');
   assert.deepEqual(v.nav.map((n) => n.id), before); assert.equal(find(tree, `source-pr:${pr.url}2`), null);
   assert.equal(JSON.stringify(v.goalDoc), doc);
 });
@@ -62,7 +64,9 @@ test('Focus and All work preserve work and restore the complete keyboard queue',
 test('run review switches to its existing Reviews card without launching work or changing data', async () => {
   const { v, cx } = await inbox(); const doc = JSON.stringify(v.goalDoc), calls = [];
   v.reviewPR = (p) => calls.push(p); const before = fake.execs.length;
-  click(find(v.render(cx), 'goal-review-next-g'), cx);
+  const tree = v.render(cx);
+  assert.equal(text(find(tree, 'goal-now-g')), 'Now 1 linked change to review');
+  click(find(tree, 'goal-action-g'), cx);
   assert.equal(fake.stored[GOAL_MODE], false);
   assert.equal(v.sel, `pr-${pr.url}`);
   assert.ok(find(v.render(cx), `pr-${pr.url}`));
@@ -72,6 +76,8 @@ test('run review switches to its existing Reviews card without launching work or
 
 test('the single Edit action opens saved run context without accepting work', async () => {
   const { v, cx } = await inbox(); const doc = JSON.stringify(v.goalDoc), before = fake.execs.length;
+  assert.equal(find(v.render(cx), 'goal-edit-g'), null, 'a row shows its one action until it is selected');
+  v.sel = 'goal-g';
   click(find(v.render(cx), 'goal-edit-g'), cx);
   assert.equal(fake.overlays.at(-1).props.goalId, 'g');
   assert.equal(JSON.stringify(v.goalDoc), doc); assert.equal(fake.execs.length, before);
@@ -86,9 +92,11 @@ test('focus shortcut respects descendant text focus and can exit from a linked c
 });
 
 test('no available diff offers agent planning instead of a dead review button; Edit remains available', async () => {
-  const { v, cx } = await inbox(); delete v.clones[pr.repo]; const tree = v.render(cx);
-  assert.equal(find(tree, 'goal-review-next-g'), null);
-  assert.equal(text(find(tree, 'goal-workflow-g')), 'Plan agent work');
+  const { v, cx } = await inbox(); delete v.clones[pr.repo]; v.sel = 'goal-g'; const tree = v.render(cx);
+  assert.equal(text(find(tree, 'goal-now-g')), 'Now needs a plan before agents start');
+  assert.equal(text(find(tree, 'goal-action-g')), 'Plan');
+  click(find(tree, 'goal-action-g'), cx);
+  assert.deepEqual(fake.runs.findLast(([name]) => name === 'pane.split')[1].props, { role: 'workflow', goalId: 'g' }, 'planning stays in the run window');
   const edit = find(tree, 'goal-edit-g');
   assert.equal(edit.isDisabled, false);
   click(edit, cx);
@@ -117,20 +125,13 @@ test('workflow projection retains progress and duplicate diagnostics while the q
   assert.equal(plan.filter((row) => row.state === 'done').length, 2);
   assert.equal(plan.filter((row) => row.state === 'blocked').length, 1);
   assert.match(plan[2].issue, /Multiple active workflow tasks/);
-  const card = text(find(v.render(cx), 'goal-g'));
-  const tree = v.render(cx), actionRow = find(tree, 'goal-next-row-g'), copy = find(tree, 'goal-next-copy-g');
-  const status = copy.items[0], detail = copy.items[1];
-  assert.equal(actionRow.kind, 'h_flex');
-  assert.equal(copy.kind, 'v_flex');
-  assert.equal(copy.items.length, 2);
-  assert.equal(status.key, 'goal-next-status-g');
-  assert.equal(status.tip, text(status));
-  assert.equal(detail.key, 'goal-next-detail-g');
-  assert.equal(detail.tip, text(detail));
-  assert.ok(actionRow.items.some((child) => child.key === 'goal-next-copy-g'));
-  assert.ok(actionRow.items.some((child) => child.key === 'goal-workflow-g'));
-  assert.match(card, /Stuck|Status unavailable/);
-  assert.match(card, /Plan agent work|See why/);
+  const tree = v.render(cx), card = text(find(tree, 'goal-g'));
+  const now = find(tree, 'goal-now-g'), shipped = find(tree, 'goal-shipped-g');
+  assert.equal(text(now), 'Now stuck: "Handle errors" could not finish');
+  assert.equal(now.items[1].tip, 'stuck: "Handle errors" could not finish', 'a cut line reads whole in its tooltip');
+  assert.equal(text(shipped), 'Shipped 1 pull request open: #1');
+  assert.equal(text(find(tree, 'goal-action-g')), 'See why');
+  assert.equal(text(find(tree, 'runs-leg-me')), 'NEEDS ME 1');
   assert.doesNotMatch(card, /2\/3 complete|need attention|3 open tasks|Accepted in Workflow| · Handle errors|Validated by you|Multiple active workflow tasks|Outcomes/);
   assert.equal(JSON.stringify(v.goalDoc), before);
 });
@@ -144,15 +145,18 @@ test('Run card uses live blocker state and keeps saved acceptance details in Edi
   ];
   const before = JSON.stringify(v.goalDoc);
   const tree = v.render(cx), card = find(tree, 'goal-g');
-  assert.match(text(card), /Stuck/);
-  assert.match(text(card), /Repair handoff/);
+  assert.match(text(card), /stuck: "Repair handoff" could not finish/);
   assert.doesNotMatch(text(card), /Accept the old result|Old recommendation/);
-  assert.equal(text(find(card, 'goal-workflow-g')), 'See why');
+  assert.equal(text(find(card, 'goal-action-g')), 'See why');
   v.sel = 'goal-g'; const sent = fake.execs.length;
   v.navKey({ key: 'enter' }, cx);
-  assert.equal(fake.runs.findLast(([name]) => name === 'pane.split')[1].props.role, 'workflow');
+  assert.equal(fake.stored[GOAL_SCOPE], 'g', 'Enter opens the run in the panel');
+  assert.equal(fake.runs.some(([name]) => name === 'pane.split'), false, 'not in the run window');
   assert.equal(fake.execs.length, sent);
-  click(find(tree, 'goal-edit-g'), cx);
+  const run = v.render(cx);
+  assert.equal(v.sel, 'task-blocked');
+  assert.match(text(find(run, 'task-blocked')), /Repair handoff could not finish, no attempts left|Repair handoff could not finish/);
+  click(find(run, 'goal-edit-g'), cx);
   assert.equal(fake.overlays.at(-1).props.goalId, 'g');
   assert.equal(v.goalDoc.goals[0].decision, 'Accept the old result');
   assert.equal(JSON.stringify(v.goalDoc), before);
@@ -163,9 +167,13 @@ test('unavailable workflow state never renders stale results as actionable accep
   v.workflowTasks = [{ id: 'old', goalId: 'g', title: 'Old result', state: 'needs_you' }];
   v.workflowError = 'Cannot read state';
   const card = find(v.render(cx), 'goal-g');
-  assert.match(text(card), /Status unavailable/);
-  assert.doesNotMatch(text(card), /Needs me|Old result/);
-  assert.equal(text(find(card, 'goal-workflow-g')), 'Open run');
+  assert.match(text(card), /status unavailable/);
+  assert.doesNotMatch(text(card), /Needs me|Old result|Review 1/);
+  assert.equal(text(find(card, 'goal-action-g')), 'Open');
+  v.runTask = 'old'; click(find(card, 'goal-action-g'), cx);
+  const run = v.render(cx);
+  assert.equal(find(run, 'task-old'), null); assert.equal(find(run, 'task-accept'), null);
+  assert.match(text(run), /Cannot read state/);
 });
 
 test('paused work and pending review have distinct actions; the topbar switches Runs and Reviews', async () => {
@@ -174,11 +182,12 @@ test('paused work and pending review have distinct actions; the topbar switches 
   v.workflowTasks = [{ id: 'task', goalId: 'g', title: 'Implement search', state: 'running', paused: true }];
   v.workflowEngine = { enabled: false };
   let tree = v.render(cx);
-  assert.match(text(find(tree, 'goal-g')), /Automation paused/);
-  assert.equal(text(find(tree, 'goal-workflow-g')), 'Continue work');
+  assert.match(text(find(tree, 'goal-g')), /paused: "Implement search" waits to resume/);
+  assert.equal(text(find(tree, 'runs-leg-flight')), 'IN FLIGHT 1');
+  assert.equal(find(tree, 'goal-action-g'), null, 'a run in flight offers nothing until it is selected');
   v.workflowTasks[0].state = 'needs_you';
   tree = v.render(cx);
-  assert.equal(text(find(tree, 'goal-workflow-g')), 'View in Reviews');
+  assert.equal(text(find(tree, 'goal-action-g')), 'Review 1');
   assert.equal(fake.stored[GOAL_MODE], true, 'opening a queue action keeps the Runs mode');
   assert.equal(JSON.stringify(v.goalDoc), data, 'opening a queue action preserves run data');
 
@@ -207,9 +216,11 @@ test('Runs contains only run navigation; Reviews receives each ready result and 
   assert.deepEqual(v.nav.map((entry) => entry.id), ['goal-g']);
   assert.equal(find(tree, `pr-${pr.url}`), null);
   assert.equal(find(tree, 'result-first'), null);
-  click(find(tree, 'goal-workflow-g'), cx);
-  assert.equal(fake.stored[GOAL_MODE], false);
-  assert.equal(v.sel, 'result-first');
+  click(find(tree, 'goal-action-g'), cx); tree = v.render(cx);
+  assert.equal(fake.stored[GOAL_MODE], true, 'Review opens the run in the panel');
+  assert.deepEqual(v.nav.map((entry) => entry.id), ['task-first', 'task-second', 'task-working']);
+  assert.equal(v.sel, 'task-first');
+  fake.stored[GOAL_MODE] = false; fake.stored[GOAL_SCOPE] = null; v.sel = 'result-first';
   tree = v.render(cx);
   assert.ok(find(tree, 'result-first')); assert.ok(find(tree, 'result-second'));
   assert.equal(find(tree, 'result-working'), null);
@@ -221,7 +232,10 @@ test('Runs contains only run navigation; Reviews receives each ready result and 
   assert.equal(find(tree, 'goal-g'), null);
   const count = fake.stored['relevo.inbox.count'];
   v.sel = 'result-second'; v.navKey({ key: 'enter' }, cx);
-  assert.deepEqual(fake.runs.findLast(([name]) => name === 'pane.split')[1].props, { role: 'workflow', goalId: 'g', taskId: 'second' });
+  assert.equal(fake.runs.some(([name]) => name === 'pane.split'), false, 'a result opens in the panel, not in the run window');
+  assert.deepEqual([fake.stored[GOAL_MODE], fake.stored[GOAL_SCOPE], v.runTask], [true, 'g', 'second']);
+  assert.equal(text(find(v.render(cx), 'task-title')), 'Second result');
+  fake.stored[GOAL_MODE] = false;
   assert.equal(fake.execs.length, before);
   assert.equal(JSON.stringify(v.goalDoc), saved);
   assert.equal(JSON.stringify(v.workflowTasks), tasks);
@@ -230,7 +244,12 @@ test('Runs contains only run navigation; Reviews receives each ready result and 
   assert.equal(find(tree, 'result-second'), null);
   assert.equal(fake.stored['relevo.inbox.count'], count - 1);
   fake.stored[GOAL_MODE] = true;
-  assert.ok(find(v.render(cx), 'goal-g'), 'accepted results remain in run history');
+  tree = v.render(cx);
+  assert.equal(text(find(tree, 'task-leg-you')), 'You accepted it'); assert.equal(find(tree, 'task-accept'), null);
+  click(find(tree, 'task-back'), cx); tree = v.render(cx);
+  assert.equal(text(find(tree, 'run-rest-fold')), '0 not started · 1 done', 'accepted results remain in the run');
+  click(find(tree, 'runs-back'), cx);
+  assert.ok(find(v.render(cx), 'goal-g'));
 });
 
 test('manual decisions stay actionable in Reviews and unreadable workflow hides stale results', async () => {

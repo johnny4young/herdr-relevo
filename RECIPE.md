@@ -187,7 +187,23 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   new review threads appear, or a PR is approved or gets changes requested (a sound on the bad ones). A PR that
   leaves the open list and shows among your merged ones says **Merged**; when its worktree is still here, the scan
   marks it at once and the toast's click opens the Inbox with that row selected, so **Remove** is right there.
-- **Run alerts**: a run result that comes to wait on you posts "Result ready · <task>" with the reviewer's verdict; the click opens Reviews with that result selected. Each result is announced once per revision and attempt, and the first read after a start only learns what already waits. Accepting several results at once posts "Batch accepted · N results" with their repository; its click opens the run. Results outside the focused context stay quiet.
+- **Runs** (the same panel, `relevo.goals.mode`): a header "Runs · a run is a goal you gave your agents" with **n New run**, ?, ↻ and
+  the focus button; the legend `Needs me n · In flight n · Ready n`; run rows under NEEDS ME, IN FLIGHT, READY and NOT STARTED,
+  "N older finished runs" folded, a "Saved setups · n" line with **Show**, and a key bar at the foot. A run row is the lane
+  glyph (disc needs me, warning stuck, spinner in flight, check ready, ring not started), the title, two labelled lines
+  (**Now**: what it does or wants; **Shipped**: its linked PRs merged, open or draft and the draft PRs of accepted worktree
+  tasks, else "nothing yet") and one action (**Review n** and **See why** filled, **Open**, **Plan**). Selected, it adds
+  **Edit**, **Close** and **Plan**. Enter or a click opens the run in the panel (`relevo.goals.scope`): "‹ Runs", the title, a
+  summary ("9 tasks: 3 need you · 1 stuck · 1 in flight · 1 not started · 3 done") and task rows under NEEDS ME, STUCK and
+  IN FLIGHT with "N not started · N done" folded. A task row is lane glyph, relay glyph, title, short state ("reviewer
+  approved", "rejected twice, no attempts left", "<agent> is writing it"), age and **Review** or **See why**; a stuck one,
+  selected, shows **Why** (the reviewer's summary and findings, else the task's error) and **Next** (**Prepare a follow-up**,
+  which fills a new task in the run window). Enter on a task shows "‹ Tasks", the writer's summary, four rows of who did
+  what (writer, tests, reviewer, you; yours tinted), what nobody verified, and the decision: **a Accept** (A or a click arms,
+  Enter or a second click sends `decide` with the revision on screen), **r Ask for changes** (a text area, ⌘↵ sends; with no
+  attempts left it prepares a follow-up), **d See the diff** and **More**, both in the run window. Esc goes back one level.
+  A merged linked PR is remembered in shared `relevo.runs.merged` once the landing list has seen it merge.
+- **Run alerts**: a run result that comes to wait on you posts "Result ready · <task>" with the reviewer's verdict; the click opens Reviews with that result selected, and **Review result** there opens the task in Runs. Each result is announced once per revision and attempt, and the first read after a start only learns what already waits. Accepting several results at once posts "Batch accepted · N results" with their repository; its click opens the run. Results outside the focused context stay quiet.
 - **While you were away**: back after 10 minutes or more behind other apps (or with the Mac asleep), a card tops
   the Inbox with the agents that finished (and their last line), the ones waiting, what changed on your PRs, the
   quota each account spent and the agent time. Each row goes to its agent or PR; **✓** dismisses it.
