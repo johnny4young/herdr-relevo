@@ -3,13 +3,13 @@ import path from 'node:path';
 import { run } from './process.mjs';
 import { fingerprint, runChecks, attachArtifact, verifyArtifact, removeArtifact } from './evidence.mjs';
 import { readState, transaction, taskById, event, uid, stateDir, privateDir } from './store.mjs';
-import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
+import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, snapshotAttempt, dropAttemptRef, dropAttemptRefs, diffCounts, attemptDiff, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
 import { createHash } from 'node:crypto';
 import { archivable, stageArchive, publishArchive, MAX_TASKS } from './archive.mjs';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
 import * as config from '../config.js';
 import { renderRole } from './roles.mjs';
-import { LEVELS, cleanReport, reviewStatus, feedbackOf, cleanProgress } from '../lib/run-report.js';
+import { LEVELS, DEFAULT_MAX_MINUTES, cleanReport, reviewStatus, feedbackOf, cleanProgress } from '../lib/run-report.js';
 
 // Older config.js files lack the newer names; a missing named import would stop the coordinator.
 const SKILLS = config.SKILLS ?? {};
@@ -46,7 +46,7 @@ async function changeOf(root, base, env) {
   return text.length > MAX_DIFF ? `${text.slice(0, MAX_DIFF)}\n… the diff goes on; read the files it names.` : text;
 }
 
-export function createRuntime({ home, runCommand = run, clock = Date.now, fingerprintImpl = fingerprint, checksImpl = runChecks, diffImpl = changeOf, wake = () => {} } = {}) {
+export function createRuntime({ home, runCommand = run, clock = Date.now, fingerprintImpl = fingerprint, checksImpl = runChecks, diffImpl = changeOf, snapshotImpl = snapshotAttempt, wake = () => {} } = {}) {
   const dir = privateDir(stateDir(home));
   const checkRuns = new Map();
   privateDir(path.join(dir, 'reports'));
@@ -84,7 +84,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     const dependencies = input.dependsOn ?? [];
     if (!Array.isArray(dependencies) || new Set(dependencies).size !== dependencies.length || dependencies.some((id) =>
       !doc.tasks.some((t) => t.id === id && t.goalId === input.goalId) && !allowedNewDependencies.includes(id))) throw Error('Dependencies must be existing tasks in this goal');
-    const maxRounds = input.maxRounds ?? 2, maxMinutes = input.maxMinutes ?? 20;
+    const maxRounds = input.maxRounds ?? 2, maxMinutes = input.maxMinutes ?? DEFAULT_MAX_MINUTES;
     if (input.worktree && (!RUN_BRANCH.test(input.worktree.branch ?? '') || !path.isAbsolute(input.worktree.base ?? ''))) throw Error('A worktree run needs its run/ branch and repository');
     if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5 || !Number.isInteger(maxMinutes) || maxMinutes < 1 || maxMinutes > 120) throw Error('Use 1–5 attempts and a 1–120 minute limit');
     return { id: uid(), goalId: input.goalId, title: input.title.trim(), criteria: input.criteria.trim(), root: fs.realpathSync(input.root),
@@ -140,6 +140,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
           if (staged) log(doc, null, 'Tasks archived', `${staged.count} finished tasks moved to the archive`, 'Human');
           return { archived: staged?.count ?? 0 }; });
         if (staged) publishArchive(dir, staged);
+        for (const { taskId, base } of staged?.snapshots ?? []) await dropAttemptRefs(base, taskId).catch(() => {});
         return saved;
       } catch (error) { if (staged) fs.rmSync(staged.pending, { force: true }); throw error; }
     }
@@ -171,7 +172,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
             task.root === root && task.executor?.address === payload.executor?.address && task.executor?.label === (payload.executor?.label || payload.executor?.address) &&
             task.reviewer?.address === payload.reviewer?.address && task.reviewer?.label === (payload.reviewer?.label || payload.reviewer?.address) &&
             JSON.stringify(task.checks) === JSON.stringify(payload.checks ?? []) && task.maxRounds === (payload.maxRounds ?? 2) &&
-            task.maxMinutes === (payload.maxMinutes ?? 20));
+            task.maxMinutes === (payload.maxMinutes ?? DEFAULT_MAX_MINUTES));
       };
       const before = readState(home), prior = existing(before);
       if (prior) {
@@ -352,6 +353,12 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       const result = await commitAccepted(before, payload.revision);
       return update((doc) => logCommit(doc, taskById(doc, before.id), result));
     }
+    if (action === 'attempt-diff') {
+      const wt = before.worktree, snapshotOf = (id) => before.attempts.find((a) => a.id === id)?.snapshot;
+      const to = snapshotOf(payload.to), from = payload.from == null ? null : snapshotOf(payload.from);
+      if (!wt || wt.removed || !to || from === undefined) throw Error('No snapshot is kept for this attempt');
+      return { result: { taskId: before.id, from: payload.from ?? null, to: payload.to, ...(await attemptDiff(wt, from, to)) } };
+    }
     if (action === 'worktree-status') return { result: await worktreeStatus(before.worktree) };
     // An acceptance whose commit never landed (the process died, or git failed) commits the same accepted revision.
     if (action === 'worktree-commit') {
@@ -372,7 +379,10 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         return update((doc) => { const task = taskById(doc, before.id); task.worktree.pr = url.slice(0, 500); log(doc, task, 'Draft PR opened', url, 'Human'); });
       }
       const removed = await removeRunWorktree(before.worktree, { discard });
+      await dropAttemptRefs(before.worktree.base, before.id).catch(() => {});
+      // The size of each attempt's change stays as history; its snapshot went with the worktree.
       return update((doc) => { const task = taskById(doc, before.id); task.worktree.removed = true;
+        for (const attempt of task.attempts) delete attempt.snapshot;
         log(doc, task, 'Worktree removed', removed.branchDeleted ? `${task.worktree.branch} deleted with it` : `${task.worktree.branch} kept`, 'Human'); });
     }
     if (action === 'retry-review') {
@@ -401,7 +411,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (active?.delivery === 'acknowledged' && active.state === 'running') interruption = await interruptAttempt(before, active);
       return update((doc) => { const task = taskById(doc, before.id); task.state = 'cancelled'; task.paused = true;
         const attempt = task.attempts.at(-1);
-        if (attempt?.state === 'running') attempt.delivery = 'uncertain';
+        // A cancelled task is no longer collected, so its attempt's window ends here rather than at a later reconcile.
+        if (attempt?.state === 'running') { attempt.delivery = 'uncertain'; attempt.endedAt ??= new Date(clock()).toISOString(); }
         task.error = interruption?.code ? 'Task cancelled, but interrupt was not confirmed. Inspect the agent session.' : attempt?.state === 'running' ? 'Inspect and reconcile the stopped attempt to release its checkout.' : null;
         log(doc, task, 'Task cancelled', task.error || 'No further dispatches; an interrupt request is not proof the agent stopped', 'Human'); });
     }
@@ -413,7 +424,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (!['idle', 'done'].includes(observed.status)) throw Error('The agent is still working');
       return update((doc) => { const task = taskById(doc, before.id), attempt = task.attempts.at(-1);
         if (attempt?.id !== active.id) throw Error('Attempt changed');
-        attempt.state = 'abandoned'; attempt.delivery = 'reconciled'; task.paused = true;
+        attempt.state = 'abandoned'; attempt.delivery = 'reconciled'; task.paused = true; attempt.endedAt ??= new Date(clock()).toISOString();
         task.error = 'Attempt reconciled as stopped. Resume starts a fresh bounded attempt.';
         log(doc, task, 'Attempt reconciled by human', `Stopped attempt ${attempt.id}; no resend`, 'Human'); });
     }
@@ -499,6 +510,15 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         : { ...proof, status: 'completed', summary: 'What the person now sees or can do', details: ['What changed', 'How it was checked'], notProven: [] }),
     });
   }
+  // Kept for comparing attempts and sizing the change. Failing to keep it is recorded and never holds the run.
+  async function keepAttempt(task, tree) {
+    try {
+      const wt = task.worktree, number = task.attempts.filter((a) => a.role === 'executor').length;
+      const snapshot = await snapshotImpl(wt, { taskId: task.id, number, tree: await tree, at: clock() });
+      const change = wt.baseCommit ? await diffCounts(wt.base, wt.baseCommit, snapshot.commit).catch(() => null) : null;
+      return { snapshot, ...(change ? { change } : {}) };
+    } catch (e) { return { snapshotError: String(e.stderr || e.message || e).trim().slice(0, 500) }; }
+  }
   const statusFile = (attemptId) => path.join(dir, 'reports', `${attemptId}.status.json`);
   const proves = (attempt, written) => written?.attemptId === attempt.id && (attempt.tokenHash ? tokenHash(written.token) === attempt.tokenHash : written.token === attempt.token);
   // How the agent says its work is going. A file it is still writing, or one that isn't its own, is left for the next tick.
@@ -541,6 +561,9 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (role === 'reviewer' && task.revision !== revision) { block(task.id, 'Checkout changed after checks. Start a fresh attempt.'); return; }
     const token = uid();
     const attempt = { id: uid(), role, address: actor.address, tokenHash: tokenHash(token), delivery: 'sending', state: 'running', at: new Date(clock()).toISOString(), revision, startedTurn: observed.turn };
+    // The session that does the work, for attributing its tokens later.
+    const transcript = observed.labels?.['agent.transcript'];
+    if (typeof transcript === 'string' && transcript && transcript.length <= 1000) attempt.transcript = transcript;
     const change = role === 'reviewer' ? await diffImpl(task.root, task.worktree?.baseCommit ?? 'HEAD', await gitEnv(task)).catch((e) => `Could not read the diff: ${e.message}`) : '';
     const fullPrompt = prompt(task, { ...attempt, token }, preferencesFor(doc.preferences, { goalId: task.goalId, root: task.root }), change);
     const stored = fullPrompt.split(token).join('<token>');
@@ -622,12 +645,18 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         ({ revision, checks } = pending);
       } else revision = await fp(task);
       // The reviewed tree is read between the two fingerprints, so it is stored only for an unchanged checkout.
-      const reviewedTree = task.worktree && attempt.role === 'reviewer' && status === 'completed' ? await snapshotTree(task.root, await gitEnv(task)).catch(() => null) : null;
+      // An implementer's tree is also kept as its attempt's snapshot.
+      const reviewed = attempt.role === 'reviewer' && status === 'completed', implemented = attempt.role === 'executor';
+      const tree = task.worktree && !task.worktree.removed && (reviewed || implemented) ? snapshotTree(task.root, await gitEnv(task), privateDir(path.join(dir, 'tmp'))) : null;
+      const reviewedTree = reviewed && tree ? await tree.catch(() => null) : null;
+      const kept = implemented && tree ? await keepAttempt(task, tree) : null;
       const afterChecks = await fp(task);
-      update((doc) => {
+      const saved = update((doc) => {
         const t = taskById(doc, task.id), a = t.attempts.at(-1);
         if (a?.id !== attempt.id || a.state !== 'running' || terminalStates.has(t.state)) return;
         a.state = 'reported'; a.report = { status, summary: report.summary, ...extra }; a.summary = report.summary; delete a.progress;
+        a.endedAt = new Date(clock()).toISOString(); Object.assign(a, kept);
+        if (kept?.snapshotError) log(doc, t, 'Attempt snapshot not kept', kept.snapshotError);
         // The full prompt matters while the attempt runs; afterwards its opening is enough to audit it.
         if (a.prompt?.length > REPORTED_PROMPT) a.prompt = `${a.prompt.slice(0, REPORTED_PROMPT)}…`;
         // A valid attempt-specific report also reconciles an uncertain delivery.
@@ -655,13 +684,17 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         if (attempt.role === 'executor') { t.checksResult = checks; t.state = 'needs_review'; t.nextRole = 'reviewer'; log(doc, t, 'Checks observed', checks.length ? `${checks.length} checks passed` : 'No checks configured'); }
         else { t.state = 'needs_you'; if (t.worktree) { t.worktree.reviewedTree = reviewedTree; t.worktree.reviewedRevision = afterChecks; } log(doc, t, 'Human review requested', 'Inspect changes and evidence, then accept, request changes or defer'); }
       });
+      // A report the state no longer takes (cancelled meanwhile) leaves no snapshot behind.
+      if (kept?.snapshot && !saved.doc.tasks.some((t) => t.attempts.some((a) => a.snapshot?.commit === kept.snapshot.commit))) {
+        await dropAttemptRef(task.worktree.base, kept.snapshot).catch(() => {});
+      }
       fs.rmSync(statusFile(attempt.id), { force: true });
       return;
     }
     if (!attempt.timedOut && clock() - Date.parse(attempt.at) > task.maxMinutes * 60000) {
       if (attempt.delivery === 'acknowledged') await interruptAttempt(task, attempt);
       update((doc) => { const t = taskById(doc, task.id), a = t.attempts.at(-1); if (a?.id !== attempt.id) return;
-        a.timedOut = true; a.delivery = 'uncertain'; t.state = 'blocked'; t.error = 'Attempt time limit reached; inspect and reconcile the agent before continuing'; log(doc, t, 'Attempt timed out', t.error); });
+        a.timedOut = true; a.endedAt = new Date(clock()).toISOString(); a.delivery = 'uncertain'; t.state = 'blocked'; t.error = 'Attempt time limit reached; inspect and reconcile the agent before continuing'; log(doc, t, 'Attempt timed out', t.error); });
     }
   }
   // Stop or cancel reaches this process only through the state file, so the watcher aborts the run.

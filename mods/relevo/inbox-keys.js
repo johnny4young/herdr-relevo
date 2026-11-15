@@ -102,6 +102,8 @@ export class KeyNav {
       // The open run or task took the key.
     } else if (this.goalAction?.(e.key, cx)) {
       // These commands only apply while the queue itself has keyboard focus.
+    } else if (shared(GOAL_MODE) !== true && this.reviewView() === "maintenance" && this.maintenanceKey(e, cx)) {
+      // x, X, d and Esc on the selection; s, o and d on the selected worktree.
     } else if (e.key === "home" || e.key === "end") {
       this.sel = items[e.key === "home" ? 0 : items.length - 1]?.id ?? null;
     } else if ((e.key === "m" || e.key === "n") && shared(GOAL_MODE) !== true) {

@@ -41,6 +41,16 @@ By default a run gets its own worktree. **Start** creates the branch `run/<slug>
 - **Discard worktree** is offered on a cancelled run and deletes its worktree with whatever it left uncommitted.
 - **Review a batch** accepts several results at once. Runs from the same repository can go in one batch; each run is committed to its own branch and each commit is recorded as it lands.
 
+### Attempt snapshots
+
+Each time the implementer of a worktree run reports, the coordinator keeps the worktree's tree as a commit on `refs/relevo/attempts/<task id>/<n>` in the base repository, where `n` counts that task's implementer attempts. The attempt records it as `snapshot: { ref, commit, at }`, with `change: { files, added, removed }` against the commit the run started from. A run on existing sessions keeps none.
+
+- **How.** The tree is read once per report, the same read a review uses, through a temporary index under `relevo-workflow/tmp/`, with the same exclusions as acceptance: ignored files stay out and nested repositories stay as HEAD has them. The run branch, HEAD and the index the agents use are not touched, the commit has a fixed author, and no hook runs.
+- **Failure.** A snapshot written for a report the state no longer takes (the task was cancelled meanwhile) is deleted at once. A snapshot that cannot be written is recorded on the attempt as `snapshotError` and in Activity; the run continues to checks and review.
+- **Comparing.** The `attempt-diff` command takes `taskId`, `to` and an optional `from` (attempt ids) and returns the files changed with lines added and removed, between two attempts or from the run's start. It reads commits only, and answers only while each ref still points at the recorded commit.
+- **Cleanup.** Removing or discarding the run's worktree deletes the task's snapshot refs and keeps each attempt's `change`. Archiving a task deletes any that are left. The commits go with git's next garbage collection.
+- **Never pushed.** No branch or default refspec names these refs. Relevo pushes only the run branch, and only for **Open draft PR**. `git push --mirror` would send them, and `git log --all` shows them.
+
 ### What a run agent can touch
 
 A run agent can write its worktree and its own report, and nothing else in the app.
@@ -57,6 +67,16 @@ State lives under the app home in `relevo-workflow/`, separate from the reposito
 Each write also updates `state.rev`, a few bytes holding the state's revision. The run window and the Inbox poll that file and read the full state only when it changes.
 
 The fingerprint covers HEAD, tracked changes and untracked files that are not ignored. Review and decisions fail closed if it changes. Screenshots, videos and reports you attach are copied into private storage, hashed and bound to the reviewed fingerprint. The limits are 20 MiB per file and 100 MiB in total. Nothing here publishes evidence or session results.
+
+### Cost of a run
+
+The token scanner keeps, for sessions whose folder is a run worktree (`~/.herdr/worktrees/<repo>/<words>-<6 hex>`), the tokens of each five minutes. Its report lists them under `runs`: `{ id, folder, last, spans }`, a span being `[five-minute bucket, context tokens, output tokens]`. Only folders still on disk or still in the run queue are listed, newest first, up to 8,000 spans, which keeps that part of the report under 250 KB. `lib/run-cost.js` turns that into `{ output, context, total, minutes }` for an attempt or a run.
+
+- An attempt's window runs from its assignment to its report, timeout or reconciliation (`endedAt`). `minutes` is the length of those windows.
+- A session counts only when its folder is the run's worktree or inside it, and only for the five-minute spans that start inside the window, whose own start is taken back to its span. When the transcript the attempt recorded for its agent is one of those sessions, only that session counts. A span is whole: one that two attempts of a task share goes to the earlier attempt, so a task's attempts add up to its total.
+- A run on existing sessions has no folder of its own: it counts time and no tokens. Tokens spent before this was recorded, and tasks already archived, are not counted.
+
+A run can carry `maxAgentMinutes` and `maxTokens`. They are numbers to compare the cost against; nothing stops when one is passed.
 
 Round, concurrency and per-attempt time limits bound the work. Remote checkouts, automatic account or model selection and provider spending limits are not implemented.
 
