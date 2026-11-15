@@ -3,7 +3,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { theme, exec, run, home, agents, panes, terminals, notify, props, openOverlay, closeOverlay } from "herdr";
 import { resetClock } from "./lib/time.js";
 import { ACCOUNTS, CODEX, accountOf, launchArgv, loadClaudeQuotas, chip, full } from "./accounts.js";
-import { band, keycap, spinner } from "./ui.js";
+import { band, digit, grabFocus, held, keycap, spinner } from "./ui.js";
 import { marginOf } from "./lib/margin.js";
 import { tightestWindow } from "./lib/account-status.js";
 import { GIT_READ } from "./lib/git.js";
@@ -17,7 +17,7 @@ export function openHandoff(address = null, reason = null) {
   if (!a) return notify({ title: "Focus the agent to hand off first", level: "info" });
   const cwd = panes().find((p) => p.pane === a.pane)?.cwd;
   const k = terminals().find((x) => x.address === a.address), from = terminalAccount(k);
-  const rows = [...ACCOUNTS, CODEX].filter((acct) => acct.key !== from).length + (from ? 1 : 0);
+  const rows = [...ACCOUNTS, CODEX].length;
   openOverlay({
     mod: "relevo", kind: "popup", width: 340, height: 44 + rows * 48,
     props: {
@@ -117,9 +117,7 @@ export class Handoff {
   init(_props, cx) {
     this.quotas = null;
     this.h = cx.focus_handle();
-    this.h.focus();
-    // The popup takes the keyboard a moment after it opens.
-    cx.timer.after(300, () => this.h.focus());
+    grabFocus(this.h, cx);
     cx.spawn(async (cx) => {
       this.quotas = await loadClaudeQuotas();
       cx.notify();
@@ -170,21 +168,21 @@ export class Handoff {
     const p = props(), plan = (to) => handoffPlan({ from: p.from, to, transcript: p.transcript, accounts: ACCOUNTS, home: home() });
     const list = [...ACCOUNTS, CODEX].map((acct) => {
       const q = this.quotas?.[acct.key], leaving = acct.key === p.from;
-      return { acct, q, leaving, full: Boolean(full(q)), how: plan(acct.key).mode === "resume" ? "same conversation" : "from a note" };
+      const how = leaving ? null : plan(acct.key).mode === "resume" ? "same conversation" : "from a note";
+      return { acct, q, leaving, isFull: Boolean(full(q)), how };
     });
-    const open = list.filter((r) => !r.leaving && !r.full).map((r, i) => ({ ...r, n: i + 1 }));
-    return [...open, ...list.filter((r) => !r.leaving && r.full), ...list.filter((r) => r.leaving)];
+    const open = list.filter((r) => !r.leaving && !r.isFull).map((r, i) => ({ ...r, n: i + 1 }));
+    return [...open, ...list.filter((r) => !r.leaving && r.isFull), ...list.filter((r) => r.leaving)];
   }
 
   key(e, cx) {
-    if (e.modifiers?.platform || e.modifiers?.control || e.modifiers?.alt || !/^[1-9]$/.test(e.key)) return;
-    const row = this.rows().find((r) => r.n === Number(e.key));
+    const n = held(e) ? null : digit(e), row = n && this.rows().find((r) => r.n === n);
     if (!row) return;
     cx.stop_propagation();
     this.go(row.acct.key, cx);
   }
 
-  row(t, { acct, q, leaving, full: isFull, how, n }) {
+  row(t, { acct, q, leaving, isFull, how, n }) {
     const w = tightestWindow(q), room = marginOf(q), reset = resetClock(w), off = leaving || isFull;
     const right = isFull ? `full${reset ? ` · resets ${reset}` : ""}` : room == null ? "no data" : `${room}% room`;
     return h_flex().id(`handoff-row-${acct.key}`).h(46).px(8).gap(8).items_center().rounded(6)

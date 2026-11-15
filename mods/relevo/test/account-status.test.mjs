@@ -185,7 +185,8 @@ test('the status item has six states, each drawn and each said', () => {
   assert.equal(text(item(tree, other)), `${other.letter} 99% resets ${resetClock(high.h5)}`);
   assert.equal(item(tree, other).fill, meTint(t));
   assert.equal(ringFill(tree, other), t.blocked);
-  assert.match(item(tree, other).accessibleLabel, new RegExp(`Nearly full, resets ${resetClock(high.h5)}`));
+  assert.match(item(tree, other).accessibleLabel, /Nearly full/);
+  assert.equal(item(tree, other).accessibleLabel.match(/resets/g).length, 1, 'the reset is said once');
   ({ tree } = leaf({ [other.key]: high }, 300));
   assert.equal(text(item(tree, other)), `${other.letter} 99%`, 'the reset goes first when the block is short');
 
@@ -193,7 +194,8 @@ test('the status item has six states, each drawn and each said', () => {
   ({ tree } = leaf({ [other.key]: { ...fresh(46), updated: now - 42 * 60 } }));
   assert.equal(text(item(tree, other)), `${other.letter} 42m`);
   assert.equal(ringFill(tree, other), t.dim);
-  assert.match(item(tree, other).accessibleLabel, /Stale reading, read 42m ago/);
+  assert.match(item(tree, other).accessibleLabel, /read 42m ago\. Stale reading/);
+  assert.equal(item(tree, other).accessibleLabel.match(/read 42m ago/g).length, 1, 'the age is said once');
 
   // unknown: "?" in an empty ring, never a number.
   assert.equal(text(item(tree, CODEX)), `${CODEX.letter} ?`);
@@ -260,4 +262,14 @@ test('a provider window longer than a week is labeled by its real length', async
   assert.match(quotaStatusText(codex), /^30d 1% used/);
   const claude = fromClaude({ updated: now, rate_limits: { seven_day: { used_percentage: 40, resets_at: now + 86400 } } });
   assert.equal(windowLabel(claude.d7, '7d'), '7d');
+});
+
+test('one summary per account: freshness, the tightest window and whether to warn', async () => {
+  const { quotaSummary } = await import('../lib/account-status.js');
+  const now = 10_000;
+  const high = quotaSummary({ updated: now, h5: { pct: 30 }, d7: { pct: 80 } }, now);
+  assert.deepEqual([high.freshness, high.known, high.stale, high.window.name, high.pct, high.warn], ['fresh', true, false, 'd7', 80, true]);
+  const old = quotaSummary({ updated: now - 3600, h5: { pct: 79 } }, now);
+  assert.deepEqual([old.freshness, old.stale, old.warn], ['stale', true, false]);
+  assert.deepEqual(quotaSummary(null, now), { freshness: 'unknown', known: false, stale: false, window: null, pct: undefined, warn: false });
 });

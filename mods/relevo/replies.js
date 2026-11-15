@@ -4,6 +4,7 @@ import { theme, exec, notify, props, agents, panes, home, readTextFile, writeTex
 import * as config from "./config.js";
 import { ACCOUNTS } from "./accounts.js";
 import { contextOfPath } from "./context.js";
+import { grabFocus } from "./ui.js";
 import { historySuggestions, rankReplies, recordUse, normal } from "./lib/replies.js";
 
 // Older config.js files have no REPLIES; a missing named import would stop the whole mod.
@@ -90,10 +91,7 @@ export class QuickReplies {
     this.input = InputState.new({ value: "", placeholder: "Type to write a message" });
     this.input.on("change", (_e, cx) => cx.notify());
     this.input.on("submit", (_e, cx) => this.send(this.input.value().trim() || this.list()[this.at]?.text, cx));
-    this.h.focus();
-    cx.timer.after(300, () => {
-      if (!this.closed && !this.sending && !this.input.value()) this.h.focus();
-    });
+    grabFocus(this.h, cx, () => !this.closed && !this.sending && !this.input.value());
   }
 
   close() {
