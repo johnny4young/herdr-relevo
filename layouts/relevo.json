@@ -107,7 +107,7 @@
               "id": "inbox-button",
               "type": "block",
               "size": {
-                "px": 184
+                "px": 244
               },
               "window_drag": true,
               "content": {
