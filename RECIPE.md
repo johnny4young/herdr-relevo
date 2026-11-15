@@ -40,6 +40,8 @@ task to another account.
   (twice); the selected row shows each key beside its button. `/` filters Now by the rows' words, Esc clears it.
   Each list ends with a bar of the keys that work there and `? all keys`. In the review pane `c` comments on
   the file, `v` marks it viewed, `[` and `]` move between files, ⌘↵ sends. Each
+  the Needs me count. Maintenance holds what can wait: SAFE TO REMOVE and NEEDS A LOOK (worktrees), OLD (PRs past 45 days, stale branches), one fold with
+  everything marked addressed or landed (each with **Undo**) and agent time today. `m` and `n` switch views. Each
   open group sits under a caps header with its count and a hairline. Every item is one row: the lane glyph (who
   holds it: a red disc when it needs you, the spinner while agents or CI work, a check when one key finishes it,
   a ring when it can wait), the kind glyph, what it is, the one reason it is here, its age and its one action.
@@ -59,7 +61,9 @@ task to another account.
   - `YOUR PRS` and `REVIEW REQUESTS`: a row per PR, `repo #n`, why it is here ("CI failing", "changes requested",
     "<author> asks for your review", "2 comments"), its age and its first action. A PR waiting on you is a needs-me
     row; one whose CI runs or whose agent works is in flight; one with only the merge left is ready. Selected, it
-    shows its title, CI, unresolved threads and size, what its agent did, and every action: a split skill button
+    shows its title, which checks failed, are running or were cancelled by name, which passed (with one box per
+    check), how many files and lines changed, unresolved threads, whether anyone reviewed it yet and when it was
+    opened, what its agent did, and every action: a split skill button
     (`skill` + account chip | ▾), **Review** on your own PRs, **Open PR** and **✓** (addressed). PRs older than 45
     days fold under "▸ N older than 45 days"; addressed ones under "▸ N addressed", each with **Undo**. Your PRs
     with nothing left but the merge (CI green, not a draft, no changes requested, no open threads) fold under
@@ -77,22 +81,46 @@ task to another account.
   - A summary row heads the list: five tiles (need you, reviews and your PRs from the last 45 days, ready, tokens today), the first with a red
     border while something waits; it runs `⌘J`, ready unfolds the ready PRs, today opens Tokens.
   - "▸ Agent time today · <total>" with **Week** on the line; open, one row per project with today's time, tickets included. The name and the time, nothing else.
-  - "▸ N merged worktrees", with **Remove N** on the line when more than one can go. Folded, it still shows a merged
-    worktree with uncommitted files and the one a merge alert selected; open, the **Backups** row too. One 30px row per worktree whose branch merged: repo, branch, age, **Open**/**Go**,
-    **Remove** (after a day unused; before that the row says `used 22m ago`). "▸ N worktrees without a space" folds the rest. Opened, it reads each one and sorts it: `Nothing to lose`
-    (clean, its commits in the main branch, unused for 7 days; **Remove**, and **Remove N** for those with no ignored
-    files to keep), `Pushed, not merged` (**Remove**; GitHub must still have the commit), `With work` (uncommitted or
-    unpushed, locked or unreadable; **Open** and **⋯**) and "▸ N recent". Rows show their size, with the reason on a
-    line of its own. Remove reads
-    the state again and stops if the row changed. **⋯** opens a second line: **Save patch** (a patch verified to rebuild
-    the same tree, through a copy of the index), **Save commits** (a verified bundle), **Push backup** (to
-    `backup/<worktree>`, never forced; asks first with the real push URL, "Publishes N commits to public <repo>" unless
-    it's a private repo on github.com, then pushes the commit it showed, asking again if anything changed)
-    and **Delete** (idle 7 days, not open, locked or holding a repo; first says what would be lost, then **Delete
-    forever** reads again; `worktree remove --force`, the only forced removal, and `branch -D`). Backups go to
-    `~/<BACKUPS_ROOT>/<repo>/<worktree>/<time>/`, private, with `latest.json` telling whether what's here is saved. A **Backups** row shows the folder's size and
-    **Open**, once it exists. Each worktree Remove or Delete takes adds a JSON line to `~/<BACKUPS_ROOT>/deletions.log`:
-    time, what the row said, repo, path, branch and commit.
+  - **Maintenance** opens with its own legend, `✓ Safe to remove n · ○ Needs a look n · • Old n`, and lists every
+    merged worktree and every worktree without a space as a row: repo, branch and the one reason, its size (`du -sk`)
+    and one action. SAFE TO REMOVE holds merged worktrees that are clean, unlocked, unused for a day and have no
+    ignored files to keep ("merged #38"); its header shows the group's total size and **Remove N** when more than
+    one has no space. Each row has **Remove** → **Confirm** ("closes its space" when it has one). NEEDS A LOOK holds
+    everything else that is not in use: "not merged, nothing to lose" (no changes, no commits outside the main
+    branch, no ignored files to keep, 7 days unused; its own **Remove** on the row, never part of a batch), "merged, but has files git ignores", "merged,
+    but has uncommitted changes", "work that is not saved anywhere" (uncommitted or unpushed), "work saved in
+    Backups, not on GitHub", "pushed, not merged" (**Open**; GitHub must still have the commit for its Remove),
+    locked or unreadable; their action is **Look**, which selects the row. "▸ N recent · checking N" folds the ones
+    used lately (a merged one for a day, "merged #38 · used 22m ago"; a loose one for 7 days) and the ones still being
+    read. Loose worktrees are read once Maintenance has been opened. A selected row says what removing it would
+    lose: "Merged as #212 3d ago, so the code is safe. Removing the folder also deletes 3 things git never saw:" with
+    up to five of those files in a block and "+N more"; and its other actions with their keys: `s` **Save patch** (a
+    patch verified to rebuild the same tree, through a copy of the index) or **Save commits** (a verified bundle),
+    **Push backup** (to `backup/<worktree>`, never forced; asks first with the real push URL, "Publishes N commits
+    to public <repo>" unless it's a private repo on github.com, then pushes the commit it showed, asking again if
+    anything changed), **Open**/**Go**, `o` **Open folder** and `d` **Delete forever** or **Remove**. Remove reads
+    the state again and stops if the row changed; on a clean row with ignored files it is called Delete forever,
+    names them and waits for **Confirm**. On a row with work, Delete forever (idle 7 days, not open, locked or
+    holding a repo) first says what would be lost, then reads again; `worktree remove --force`, the only forced
+    removal, and `branch -D`. `d` only asks; Enter or the button answers, Esc takes the question back.
+  - **Several at once**: `x` selects the focused worktree and `X` every one in Safe to remove that has no space
+    (**Remove N** does the same); selected rows show a checkbox at the edge. A bar at the foot of the list says "N
+    selected · <size>" with `esc` **Cancel** and `d` **Remove N**. Remove N asks once, in a card in place of the bar:
+    "Remove N merged worktrees?" with what holds for the selection (whether they are merged, how many spaces close,
+    "Nothing unsaved is lost. Logged in deletions.log."), `esc` **Cancel** and `↵` **Remove N**. Then each row goes
+    through the same look-again as its own Remove (the day-of-use rule included), never forced; one that gained
+    ignored files, a space, a terminal or changes stays, selected, with the reason on its row, and a toast counts
+    what went. A batch only ever takes merged worktrees: a selection holding any other row can't be removed, and the bar names it.
+  - "▸ N branches nobody touched in 30 days" closes OLD, with **Show**. Opened (and on ↻ while open) it reads each
+    clone's local branches with `git for-each-ref`, 15 minutes per repo, and lists those whose last commit is older
+    than 30 days and that are not the default branch nor checked out anywhere: branch, "last commit 52 days ago",
+    "gone upstream". **Delete branch** runs `git branch -d`, never `-D`, and shows git's refusal as git wrote it. Clones are read four at a time; one git
+    can't read gets its own line, "Couldn't read branches in <repo>" with **Retry**, and is never counted as having none.
+  - Backups go to `~/<BACKUPS_ROOT>/<repo>/<worktree>/<time>/`, private, with `latest.json` telling whether what's
+    here is saved. A **Backups** row shows the folder's size and **Open**, once it exists. Each worktree Remove or
+    Delete takes adds a JSON line to `~/<BACKUPS_ROOT>/deletions.log`: time, what the row said, repo, path, branch
+    and commit.
+  - At 300 px or less the Maintenance legend keeps glyphs and counts, and rows drop their size; the actions stay.
 - **Review pane** (opened beside the terminal): header `Review · <folder>` with an **Uncommitted | All changes**
   picker (or `<repo> #n · against <base>` for a PR), the changed files (max 150px), a bar with the open file and **Comment on file**, the
   diff with old/new line numbers, green and red rows, and a footer "N comments for <agent>" with **Clear**, the
@@ -107,9 +135,15 @@ task to another account.
   one hue, with the peak; **By project** with a bar, new context and output; **What filled it** (main conversations,
   automatic sessions, each subagent type, the rest together, and "After a pause · N times"); **Biggest sessions**
   with title, project and surface. While a read runs it shows "Reading N%".
-- **Agents list additions**: a ✓ on hover settles an idle or done agent under a folded **Settled** group; a
-  **Desktop** group lists Desktop sessions working, asking or ready for review; the second line adds `Opus 5.5 · 273k
-  · cache 48m` (`ansi3` under 10 minutes, "cache gone" after).
+- **Agents list additions**: one line per agent: a glyph for whose turn it is (a filled 8 px disc in `blocked` needs
+  me, the spinner in `working` is in flight, a check in `done` has finished), the name, then what it is doing or needs
+  in muted text (the waiting reason in `blocked`, "result ready", "writing #43", "finished #40"), the age when it rests
+  and the account chip. The focused agent has a full 1 px `accent` outline over `selected` and a second line: PR tag
+  with CI and size, `Opus 5.5`, a context band and `273k`, `· cache 48m` (`ansi3` under 10 minutes, "cache gone"
+  after), machine and folder. Priority groups are **NEEDS ME** (asking, or a result not yet seen, both with the disc and `blocked` text), **IN FLIGHT** and
+  **IDLE**, each with its count; IDLE shows three and folds the rest ("4 more idle"). A ✓ on hover settles an idle or
+  done agent under a folded **SETTLED** group; a **DESKTOP** group lists Desktop sessions working, asking or ready for
+  review.
 - **Settings dialog** (800×700, the gear beside ACCOUNTS): accounts (chip preview, label, letter, launcher, Claude
   dir, colors), Codex's launcher, contexts (label, account, orgs), fallback order, repos root and skills; Save.
 - **Week dialog** (720×460): `Agent time · week of <date>` with ‹ › and **Copy**, a table of tickets × Mon–Sun
@@ -250,12 +284,13 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   contexts and fallback) and writes `config.js` atomically; Herdr reloads the mod.
 - **Worktrees**: **Remove** turns into a red **Confirm** ("closes its space" when it has one); confirming closes the
   space, runs `git worktree remove` (never forced) and `git branch -d`, shows a spinning "Removing…" and folds
-  the row away.
+  the row away. Remove N in Maintenance asks once for the lot and then does this for each row.
 - **Inbox count**: local cards plus fresh, unseen PRs. It pulses while it is higher than when you last opened
   the Inbox.
 - **Keyboard**: `⌥⌘3` shows the Inbox and gives it the keyboard (accent border); ↑/↓ select cards and rows,
   Enter runs the main action (go to the agent, review, run the PR's skill or go to its agent, open the
-  worktree), Esc returns to the previous pane. `⌘J` jumps to the next agent waiting on you and says how many are
+  worktree), Esc returns to the previous pane. In Maintenance `x`, `X`, `d` and Esc work the selection, and `s`, `o`, `d` the
+  selected worktree; `?` lists them. `⌘J` jumps to the next agent waiting on you and says how many are
   left. `⌘]`/`⌘[` walk the agents in the Agents list's order. `⌥⌘1–4` show Files, Changes, Inbox, Issues; `⌥⌘B`
   the panel; `⌥⌘D` review; `⌥⌘A` handoff;
   `⌥⌘G` the branch's PR; `⌥⌘R` respond to it; `⌥⌘S` quick replies; `⌥⌘E` sessions; `⌥⌘W`/`⌥⇧⌘W` new or open worktree; `⌥⌘P/O/X` start an account; `⌥⌘N` the
@@ -344,6 +379,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   check up as failed, so the rollup's checks are read too: only cancelled ones show "CI cancelled", ⊘, no red dot or alert, and
   **Retry CI** (`gh run rerun --failed` on each cancelled Actions run).
 - A merged worktree's **Remove** → **Confirm** removes it with the spinner and the row folds away.
+- In Maintenance, `X` then `d` then Enter removes every safe worktree after one question; Esc at the question removes nothing.
 - **Week** opens the table and **Copy** pastes as a table.
 - `⌥⌘3`, ↓, Enter on a waiting agent focuses that agent; Esc returns to the terminal.
 - ✓ on an uncommitted-work card folds it under "▸ 1 addressed"; a new turn of its agent brings it back.

@@ -1,8 +1,8 @@
 // The Inbox's GitHub query and what it makes of the answer; pure, so the tests can feed it fixtures.
 
-const ROLLUP = "statusCheckRollup { state contexts(first: 50) { pageInfo { hasNextPage } nodes { ... on CheckRun { conclusion } ... on StatusContext { state } } } }";
+const ROLLUP = "statusCheckRollup { state contexts(first: 50) { pageInfo { hasNextPage } nodes { ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } }";
 
-const MINE_FIELDS = `number title url isDraft createdAt updatedAt reviewDecision headRefName baseRefName isCrossRepository headRefOid additions deletions mergeable mergeStateStatus
+const MINE_FIELDS = `number title url isDraft createdAt updatedAt reviewDecision headRefName baseRefName isCrossRepository headRefOid additions deletions changedFiles mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     repository { nameWithOwner viewerDefaultMergeMethod squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed autoMergeAllowed }
     commits(last: 1) { nodes { commit { committedDate ${ROLLUP} } } }
@@ -22,7 +22,7 @@ export const OTHERS_QUERY = `query {
   viewer { login merged: pullRequests(states: MERGED, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
     url number headRefName isCrossRepository repository { nameWithOwner } } } }
   search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 20) { nodes {
-    ... on PullRequest { number title url updatedAt headRefName baseRefName isCrossRepository headRefOid additions deletions author { login } repository { nameWithOwner }
+    ... on PullRequest { number title url createdAt updatedAt headRefName baseRefName isCrossRepository headRefOid additions deletions changedFiles author { login } repository { nameWithOwner }
       commits(last: 1) { nodes { commit { ${ROLLUP} } } }
       reviewThreads(first: 50) { nodes { isResolved } } } } }
 }`;
@@ -52,6 +52,19 @@ const newest = (x, y) => seconds(y.updatedAt) - seconds(x.updatedAt);
 
 const NOT_RED = new Set(["SUCCESS", "NEUTRAL", "SKIPPED", "CANCELLED", "PENDING", "EXPECTED"]);
 
+// Each check of the last commit, in GitHub's order: { name, state: ok | bad | run | cancel }.
+const CHECK_OK = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]), CHECK_BAD = new Set(["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"]);
+export function checksOf(p) {
+  const nodes = p.commits?.nodes[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [];
+  return nodes.map((n) => {
+    const name = n.name ?? n.context ?? "check", end = n.conclusion ?? (n.status && n.status !== "COMPLETED" ? null : n.state);
+    const state = CHECK_OK.has(end) ? "ok" : CHECK_BAD.has(end) ? "bad" : end === "CANCELLED" ? "cancel" : "run";
+    return { name, state };
+  });
+}
+
+export const checksCut = (p) => Boolean(p.commits?.nodes[0]?.commit?.statusCheckRollup?.contexts?.pageInfo?.hasNextPage);
+
 // GitHub rolls a cancelled check up as FAILURE, but nothing failed. Anything else, or a list cut short, stays red.
 export function ciOf(p) {
   const rollup = p.commits?.nodes[0]?.commit?.statusCheckRollup, state = rollup?.state ?? null;
@@ -68,6 +81,9 @@ export function cancelledRuns(checks, states = RETRIED) {
   const ids = checks.filter((c) => states.has(c.state)).map((c) => /\/actions\/runs\/(\d+)/.exec(c.link ?? "")?.[1]);
   return [...new Set(ids.filter(Boolean))];
 }
+
+// Replying to a thread on your own PR files a review of yours, which is not someone reviewing it.
+const reviewedBy = (p, me) => (p.reviews?.nodes ?? []).some((r) => r.state !== "PENDING" && r.author?.login !== me);
 
 // Your open PRs that need something: failing CI, changes requested, new reviews or open threads.
 // A PR opened in the last day stays in sight even when it only waits for the merge.
@@ -98,7 +114,7 @@ export function mapMine(data, now = Date.now() / 1000) {
     if (p.reviewDecision === "CHANGES_REQUESTED" || reviewers.length || threads) skills.push("comments");
     const fresh = !reasons.length && !threads && now - seconds(p.createdAt) < NEW_FOR;
     if (fresh) reasons.push(ci === "SUCCESS" ? "new, CI passed" : ci === "PENDING" || ci === "EXPECTED" ? "new, CI running" : "new");
-    return { ...p, repo: p.repository.nameWithOwner, reasons, skills, threads, fresh, hot: skills.includes("fix") };
+    return { ...p, repo: p.repository.nameWithOwner, reasons, skills, threads, fresh, hot: skills.includes("fix"), reviewed: reviewedBy(p, me) };
   }).filter((p) => p.reasons.length || p.threads);
   return list.sort(newest);
 }
@@ -106,7 +122,7 @@ export function mapMine(data, now = Date.now() / 1000) {
 // Your drafts, to mark ready for review.
 export function mapDrafts(data) {
   return data.viewer.pullRequests.nodes.filter((p) => p.isDraft)
-    .map((p) => ({ ...p, repo: p.repository.nameWithOwner, reasons: ["draft"], skills: [], threads: unresolved(p), hot: false }))
+    .map((p) => ({ ...p, repo: p.repository.nameWithOwner, reasons: ["draft"], skills: [], threads: unresolved(p), hot: false, reviewed: reviewedBy(p, data.viewer.login) }))
     .sort(newest);
 }
 
@@ -156,8 +172,15 @@ export function agentPRs(places, started, prs) {
   return out;
 }
 
-// Branch names of merged PRs from this repo; a fork's branch named like one of yours says nothing about yours.
-export const mergedHeads = (prs) => prs.filter((p) => !p.isCrossRepository).map((p) => p.headRefName);
+// The merged PR of each of this repo's branches; a fork's branch named like one of yours says nothing about yours.
+// gh lists the newest first, so a reused name keeps its last merge.
+export function mergedByHead(prs) {
+  const out = new Map();
+  for (const p of prs.filter((x) => !x.isCrossRepository)) {
+    if (!out.has(p.headRefName)) out.set(p.headRefName, { number: p.number ?? null, mergedAt: p.mergedAt ? seconds(p.mergedAt) : null });
+  }
+  return out;
+}
 
 const RED = new Set(["FAILURE", "ERROR"]);
 
