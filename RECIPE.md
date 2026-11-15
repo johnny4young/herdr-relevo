@@ -87,6 +87,9 @@ task to another account.
   - A summary row heads the list: five tiles (need you, reviews and your PRs from the last 45 days, ready, tokens today), the first with a red
     border while something waits; it runs `⌘J`, ready unfolds the ready PRs, today opens Tokens.
   - "▸ Agent time today · <total>" with **Week** on the line; open, one row per project with today's time, tickets included. The name and the time, nothing else.
+  - **Maintenance** also lists TERMINALS TO TIDY, from the same records as the Terminals tab: a command that failed
+    ("exited 1", **Restart** when the terminal runs its own command), one row for the finished ones (**Close N**), what
+    runs with no pane for over an hour (**Show**) and shells idle over a day (**Close**). `d` closes one, pressed twice.
   - **Maintenance** opens with its own legend, `✓ Safe to remove n · ○ Needs a look n · • Old n`, and lists every
     merged worktree and every worktree without a space as a row: repo, branch and the one reason, its size (`du -sk`)
     and one action. SAFE TO REMOVE holds merged worktrees that are clean, unlocked, unused for a day and have no

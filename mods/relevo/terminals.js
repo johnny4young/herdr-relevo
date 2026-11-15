@@ -11,6 +11,27 @@ export const TERMINALS_FOCUS = "relevo.terminals.focus";
 const TURN = { running: "flight", idle: "open", old: "old", failed: "stuck", done: "ready" };
 const READ_EVERY_MS = 10000;
 
+// Herdr has no restart: end it, remove it so its name is free, and start the same command in the same folder.
+export async function restartTerminal(r) {
+  if (r.live) await exec("hc", ["kill", r.address]);
+  await exec("hc", ["rm", r.address]);
+  const named = r.name ? ["--name", r.name] : [];
+  if (r.background) return exec("hc", ["run", "--bg", ...named, ...(r.cwd ? ["--cwd", r.cwd] : []), "--", ...r.argv]);
+  if (r.spaceId) run("space.select", { id: r.spaceId });
+  run("terminal.open", { argv: r.argv, folder: r.cwd ?? undefined, place: "tab", ...(r.name ? { name: r.name } : {}) });
+}
+
+// A live terminal ends with whatever runs in it; a finished one is removed.
+export function endTerminal(r) {
+  if (r.live) run("terminal.kill", { terminal: r.address });
+  else exec("hc", ["rm", r.address]);
+}
+
+export function openTerminal(r) {
+  if (r.background) run("terminal.keep", { terminal: r.address, place: "tab" });
+  else run("pane.focus", { terminal: r.address });
+}
+
 // A request to show Terminals with the keyboard, and the pane Esc gives it back to.
 export function focusTerminals() {
   showPanel("terminals");
@@ -88,8 +109,7 @@ export class Terminals {
   }
 
   open(r) {
-    if (r.background) run("terminal.keep", { terminal: r.address, place: "tab" });
-    else run("pane.focus", { terminal: r.address });
+    openTerminal(r);
   }
 
   // x arms, x again closes: a live terminal ends with whatever runs in it; a finished one is removed.
@@ -99,19 +119,12 @@ export class Terminals {
       return cx.notify();
     }
     this.armed = null;
-    if (r.live) run("terminal.kill", { terminal: r.address });
-    else exec("hc", ["rm", r.address]);
+    endTerminal(r);
     cx.notify();
   }
 
-  // Herdr has no restart: end it, remove it so its name is free, and start the same command in the same folder.
-  async restart(r) {
-    if (r.live) await exec("hc", ["kill", r.address]);
-    await exec("hc", ["rm", r.address]);
-    const named = r.name ? ["--name", r.name] : [];
-    if (r.background) return exec("hc", ["run", "--bg", ...named, ...(r.cwd ? ["--cwd", r.cwd] : []), "--", ...r.argv]);
-    if (r.spaceId) run("space.select", { id: r.spaceId });
-    run("terminal.open", { argv: r.argv, folder: r.cwd ?? undefined, place: "tab", ...(r.name ? { name: r.name } : {}) });
+  restart(r) {
+    return restartTerminal(r);
   }
 
   closeFinished(rows) {

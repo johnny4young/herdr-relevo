@@ -128,3 +128,44 @@ test("the panel has a Terminals tab and ⌘⌥5 focuses it", () => {
   focusTerminals();
   assert.ok(fake.stored[TERMINALS_FOCUS].at);
 });
+
+test("Maintenance offers the terminals to tidy, each with its action and d twice to close", async () => {
+  const { Inbox } = await import("../inbox.js");
+  const now = Date.now();
+  fake.terminals = [
+    term("f1", { state: "finished", argv: ["npm", "test"], exit_code: 1, finished_ms: now - 60e3 }),
+    term("d1", { state: "finished", exit_code: 0, finished_ms: now - 600e3 }), term("d2", { state: "finished", argv: ["npm", "run", "build"], exit_code: 0, finished_ms: now - 300e3 }),
+    term("b1", { argv: ["go", "run", "."], name: "api-server", pid: 500, foreground: { pid: 500, name: "go", argv: ["go"] }, labels: { where: "api / 2" }, created_ms: now - 3 * 3600e3 }),
+    term("b2", { argv: ["vite"], pid: 600, foreground: { pid: 600, name: "node", argv: ["vite"] }, created_ms: now - 600e3 }),
+    term("o1", { created_ms: now - 3 * DAY, labels: { where: "notes / 1" } }),
+    term("ok", { created_ms: now - 600e3 }),
+  ];
+  fake.panes = [{ pane: "p1", terminal: "f1" }, { pane: "p2", terminal: "d1" }, { pane: "p3", terminal: "d2" }, { pane: "p4", terminal: "o1" }, { pane: "p5", terminal: "ok" }];
+  fake.exec = (cmd) => (cmd === "gh" ? { stdout: JSON.stringify({ data: { viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [] } }, search: { nodes: [] } } }) } : null);
+  const inbox = new Inbox(), cx = fakeCx();
+  inbox.init({}, cx);
+  await flush();
+  fake.stored["relevo.inbox.view"] = "maintenance";
+  inbox.h.is_focused = () => true;
+  const ui = () => inbox.render(cx), key = (k) => { inbox.navKey({ key: k }, cx); return ui(); };
+  const tree = ui();
+  assert.equal(text(find(tree, "leg-terms")), "TERMINALS TO TIDY 5");
+  assert.match(text(find(tree, "term-f1")), /npm test · app exited 1 .*Restart/);
+  assert.match(text(find(tree, "term-finished")), /2 finished zsh, npm run build .*Close 2/);
+  assert.match(text(find(tree, "term-b1")), /^api-server · api no pane 3h$/, "in flight, its action waits for the selection");
+  assert.equal(find(tree, "term-b2"), null, "running with no pane for less than an hour is not clutter yet");
+  assert.match(text(find(tree, "term-o1")), /zsh · notes idle over a day .*Close/);
+  assert.equal(find(tree, "term-ok"), null);
+  inbox.sel = "term-o1";
+  key("d");
+  assert.equal(fake.runs.some(([n]) => n === "terminal.kill"), false, "the first d only arms");
+  assert.match(text(find(ui(), "term-o1")), /Close it/);
+  key("d");
+  assert.deepEqual(fake.runs.at(-1), ["terminal.kill", { terminal: "o1" }]);
+  inbox.sel = "term-finished";
+  key("d");
+  assert.deepEqual(calls(/^hc rm/), ["hc rm d1", "hc rm d2"]);
+  inbox.sel = "term-b1";
+  key("o");
+  assert.deepEqual(fake.runs.at(-1), ["terminal.keep", { terminal: "b1", place: "tab" }]);
+});
