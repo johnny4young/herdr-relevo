@@ -5,6 +5,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { atomic, digest } from './live-relevo.mjs';
 
+// Room for the Reviews, Runs and Terminals tabs with a two-digit count on Reviews.
+const NAV_PX = 244;
+
 export function simplifyLayout(input) {
   const tree = JSON.parse(JSON.stringify(input)), nodes = new Map();
   function visit(node) {
@@ -23,8 +26,8 @@ export function simplifyLayout(input) {
   }
   if (nodes.has('account-status') || nodes.has('workspace-status')) throw Error('Status layout ids already in use');
   sidebar.children = sidebar.children.filter((node) => node !== accounts);
-  if (Number.isFinite(nav.size?.px)) nav.size = { ...nav.size, px: Math.max(nav.size.px, 184) };
-  else nav.min = Math.max(nav.min ?? 0, 184);
+  if (Number.isFinite(nav.size?.px)) nav.size = { ...nav.size, px: Math.max(nav.size.px, NAV_PX) };
+  else nav.min = Math.max(nav.min ?? 0, NAV_PX);
   const originalStatus = { ...status, id: 'workspace-status' };
   delete originalStatus.size;
   delete status.content;
