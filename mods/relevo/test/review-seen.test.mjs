@@ -62,6 +62,7 @@ test("after a mark, Since I looked shows only what changed since, new files too,
   v.setScope("seen", cx);
   await settled();
   assert.deepEqual(v.files.map((f) => f.path).sort(), ["b.txt", "new.txt"]);
+  assert.deepEqual(v.files.filter((f) => f.added).map((f) => f.path), ["new.txt"]);
   assert.match(v.rows.map((r) => r.text).join("\n"), /two/);
   assert.match(v.subject(), /since I last looked/);
   const refs = execFileSync("git", ["-C", repo, "for-each-ref", "refs/relevo/seen"]).toString();
