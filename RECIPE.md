@@ -78,9 +78,14 @@ task to another account.
     **Open**, once it exists. Each worktree Remove or Delete takes adds a JSON line to `~/<BACKUPS_ROOT>/deletions.log`:
     time, what the row said, repo, path, branch and commit.
 - **Review pane** (opened beside the terminal): header `Review · <folder>` with an **Uncommitted | All changes**
-  picker (or `<repo> #n · against <base>` for a PR), the changed files (max 150px) with comment counts, a bar with the open file and **Comment on file**, the
-  diff with old/new line numbers, green and red rows, and a footer "N comments for <agent>" with **Clear** and
-  **Send to agent**.
+  picker (or `<repo> #n · against <base>` for a PR), the changed files (max 150px), a bar with the open file and **Comment on file**, the
+  diff with old/new line numbers, green and red rows, and a footer "N comments for <agent>" with **Clear**, the
+  `⌘` `↵` keycaps and **Send to agent**. A file row is the viewed checkbox, the folder dimmed (11px) before the
+  file name, then on the right an accent tag with the comment icon and the count, a green **new** tag on a file the
+  diff creates, `+adds` `−dels` (a zero side is left out) and five squares split between them. In the diff, the
+  line where a comment starts has the comment icon beside its number and the lines of a range are tinted
+  (`accent` at 12%); the saved comment is a box under its last line: `L5-7`, `L12` or `File` in accent and the
+  text. Above the footer, the open file's saved comments are listed one per line (max 96px, scrolls), each with a ×.
 - **Tokens dialog** (880×620, `⌥⌘U`): a header with Today / 7 / 14 / 30 days and the accounts, the age of the last
   read and ↻; four 76px tiles per surface (share of the output, output, new context); new context per day as bars in
   one hue, with the peak; **By project** with a bar, new context and output; **What filled it** (main conversations,
@@ -160,8 +165,10 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   `history.jsonl` (prefiltered with `grep`, read at most once an hour).
 - **Review pane**: a click on a line opens a comment field, a shift-click extends it to a range, **Comment on file**
   comments on the whole file (Enter saves, Esc cancels); comments survive refreshes
-  (every 10 s while you are not typing), closing the pane and restarting Herdr. **Send to agent** pastes the
-  numbered comments into the agent's terminal with `hc send`. **Clear** asks once more. Review on the same
+  (every 10 s while you are not typing), closing the pane and restarting Herdr. A click on a saved comment's box opens it again (a
+  range as a range); its × in the list above the footer deletes that comment alone and saves the rest. **Send to agent** pastes the
+  numbered comments into the agent's terminal with `hc send`; `⌘↵` in the pane does the same under the same
+  conditions, and in an open comment field it saves the comment instead. **Clear** asks once more. Review on the same
   checkout twice focuses the open pane. **All changes** diffs the working tree from the merge base with origin's default branch, and the message sent says so.
   **Review** on a PR diffs from the merge base with its base branch: the
   checkout's working tree, or the branch itself when it isn't checked out (fetched when not local); with no agent on

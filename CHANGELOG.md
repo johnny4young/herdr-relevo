@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **One set of glyphs.** Folds, refresh, more, check boxes and menu arrows are drawn from 28 icons in `mods/relevo/icons/` instead of text characters, so they line up and take the theme colour.
+- **A clearer review pane.** A file shows its folder dimmed and its name bright, with a tag for its comment count, **new** on a file the change adds and squares for how much was added and removed. A commented line keeps its number, with a comment icon beside it. Each saved comment sits under its lines as a box, the open file's comments are listed above the footer with a × that deletes just that one, and `⌘↵` sends the comments to the agent like **Send to agent**; in an open comment it saves the comment.
 
 ## 0.7.3 · 2026-11-14
 

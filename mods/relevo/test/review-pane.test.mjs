@@ -1,0 +1,251 @@
+// The review pane's file rows, gutter, saved comment boxes and ⌘↵.
+import "./fake/register.mjs";
+import { test, beforeEach } from "node:test";
+import assert from "node:assert/strict";
+import { fake, resetFake, calls } from "./fake/herdr.mjs";
+import { fakeCx, find, click, text, flush } from "./fake/ui.mjs";
+import { diffRows, lineComment, fileComment, commentId } from "../lib/diff.js";
+
+const { ReviewDiff } = await import("../review.js");
+const t = fake.theme ?? new Proxy({}, { get: (_t, name) => `#${String(name)}` });
+const NOTES = "relevo.review.notes";
+const cmdEnter = { key: "enter", keystroke: "cmd-enter", modifiers: { platform: true, shift: false, alt: false, control: false } };
+
+beforeEach(resetFake);
+
+function review() {
+  const v = new ReviewDiff(), cx = fakeCx();
+  v.init({}, cx);
+  v.key = "/synthetic";
+  v.root = "/synthetic";
+  v.files = [
+    { path: "src/limiter/clock.ts", add: 31, del: 0, added: true },
+    { path: "src/limiter/bucket.ts", add: 9, del: 6 },
+    { path: "README.md", add: 2, del: 0 },
+    { path: "notes/draft.txt", add: 0, del: 0, untracked: true },
+  ];
+  v.open = v.files[0];
+  v.hashes = new Map(v.files.map((f) => [f.path, `hash-${f.path}`]));
+  v.rows = diffRows(["@@ -0,0 +1,4 @@", "+one", "+two", "+three", "+four"]);
+  return { v, cx };
+}
+const icons = (node) => (typeof node?.src === "string" ? [node.src] : []).concat((node?.items ?? []).flatMap(icons));
+const fills = (node) => (node && typeof node === "object" ? [node.fill, ...(node.items ?? []).flatMap(fills)] : []);
+const diffList = (v) => find(v.render(), "rv-diff");
+// Any element under a node that would answer a click.
+const clickable = (node) => (node && typeof node === "object"
+  ? (Object.keys(node.handlers ?? {}).length ? [node] : []).concat((node.items ?? []).flatMap(clickable)) : []);
+const clickItem = (v, cx, key) => diffList(v).handlers.on_item_click(key, cx);
+
+test("a file row dims the folder and keeps the name in the foreground", () => {
+  const { v } = review();
+  const row = find(v.fileList(t), "rv-file-src/limiter/bucket.ts"), [, path] = row.items;
+  assert.deepEqual(path.items.map(text), ["src/limiter/", "bucket.ts"]);
+  const top = find(v.fileList(t), "rv-file-README.md");
+  assert.deepEqual(top.items[1].items.map(text), ["README.md"]);
+  assert.match(text(row), /\+9 −6$/);
+  assert.equal(row.items.at(-1).items.length, 5);
+  assert.deepEqual(row.items.at(-1).items.map((box) => box.fill), ["#ansi2", "#ansi2", "#ansi2", "#ansi1", "#ansi1"]);
+});
+
+test("the comment count is a tag with the comment icon, only on files that have comments", () => {
+  const { v } = review();
+  v.setComments([lineComment("src/limiter/clock.ts", v.rows, 1, 1, "a"), fileComment("src/limiter/clock.ts", "b"), fileComment("README.md", "c")]);
+  const list = v.fileList(t), count = find(list, "rv-count-src/limiter/clock.ts");
+  assert.equal(text(count), "2");
+  assert.deepEqual(icons(count), ["mods/relevo/icons/comment.svg"]);
+  assert.equal(count.fill, "#accent26");
+  assert.equal(text(find(list, "rv-count-README.md")), "1");
+  assert.equal(find(list, "rv-count-src/limiter/bucket.ts"), null);
+  assert.doesNotMatch(text(list), /●/);
+});
+
+test("only a file the diff creates carries the new tag", () => {
+  const { v } = review(), list = v.fileList(t);
+  assert.equal(text(find(list, "rv-tag-new-src/limiter/clock.ts")), "new");
+  assert.equal(find(list, "rv-tag-new-src/limiter/clock.ts").fill, "#ansi226");
+  assert.equal(text(find(list, "rv-tag-new-notes/draft.txt")), "new");
+  assert.equal(find(list, "rv-tag-new-src/limiter/bucket.ts"), null);
+  assert.equal(find(list, "rv-tag-new-README.md"), null);
+  assert.match(text(find(list, "rv-file-src/limiter/clock.ts")), /new \+31$/);
+});
+
+test("reading the diff marks the files git says it creates", async () => {
+  const { v, cx } = review();
+  fake.exec = (_cmd, args) => (args.includes("--numstat")
+    ? { stdout: "3\t0\tsrc/new file.ts\n1\t1\told.ts\n create mode 100644 src/new file.ts\n delete mode 100644 gone.ts\n" }
+    : null);
+  await v.read(cx);
+  assert.deepEqual(v.files, [{ path: "src/new file.ts", add: 3, del: 0, added: true }, { path: "old.ts", add: 1, del: 1 }]);
+  assert.equal(calls(/ diff .*--numstat --summary/).length, 1);
+  v.close();
+});
+
+test("the gutter keeps the line number and adds the comment icon where a comment starts", () => {
+  const { v } = review();
+  v.setComments([lineComment("src/limiter/clock.ts", v.rows, 2, 3, "range"), lineComment("src/limiter/clock.ts", v.rows, 4, 4, "line")]);
+  const list = diffList(v);
+  assert.deepEqual(list.keys, ["0", "1", "2", "3", "c:+2..+3", "4", "c:+4"]);
+  const rows = [1, 2, 3, 5].map((n) => list.items[n]);
+  assert.deepEqual(rows.map((row) => text(row.items[0])), ["1", "2", "3", "4"]);
+  assert.deepEqual(rows.map(icons), [[], ["mods/relevo/icons/comment.svg"], [], ["mods/relevo/icons/comment.svg"]]);
+  assert.doesNotMatch(text(list), /●/);
+  // The range is tinted; a single commented line is not.
+  assert.deepEqual(rows.map((row) => row.fill), ["#ansi218", "#accent1f", "#accent1f", "#ansi218"]);
+});
+
+test("a saved comment shows as a box with its lines and text, and nothing in the list answers a click itself", () => {
+  const { v } = review();
+  const range = lineComment("src/limiter/clock.ts", v.rows, 2, 3, "Keep this in test/"), line = lineComment("src/limiter/clock.ts", v.rows, 4, 4, "Why?");
+  v.setComments([range, line, fileComment("src/limiter/clock.ts", "Whole thing")]);
+  const root = v.render(), list = find(root, "rv-diff");
+  assert.equal(text(list.items[4]), "L2-3 Keep this in test/");
+  assert.equal(text(list.items[6]), "L4 Why?");
+  assert.deepEqual(icons(list.items[4]), []);
+  assert.deepEqual(list.items.flatMap(clickable), []);
+  assert.equal(find(list, `rv-del-${commentId(range)}`), null);
+  assert.equal(text(find(root, "rv-file-note")), "File Whole thing");
+  assert.ok(!fills(list.items[4]).includes("#accent"));
+});
+
+test("the strip above the footer lists the open file's comments, each with a real ×", () => {
+  const { v } = review();
+  const range = lineComment("src/limiter/clock.ts", v.rows, 2, 3, "range"), file = fileComment("src/limiter/clock.ts", "file");
+  assert.equal(find(v.render(), "rv-saved"), null);
+  v.setComments([fileComment("README.md", "other")]);
+  assert.equal(find(v.render(), "rv-saved"), null);
+  v.setComments([range, file, fileComment("README.md", "other")]);
+  const strip = find(v.render(), "rv-saved");
+  assert.deepEqual(strip.items.map(text), ["L2-3 range", "File file"]);
+  for (const c of [range, file]) {
+    const x = find(strip, `rv-del-${commentId(c)}`);
+    assert.equal(x.kind, "button");
+    assert.deepEqual(icons(x), ["mods/relevo/icons/x.svg"]);
+    assert.equal(x.tip, "Delete this comment");
+  }
+  v.close();
+});
+
+test("× in the strip deletes only its comment and saves the rest", () => {
+  const { v, cx } = review();
+  const range = lineComment("src/limiter/clock.ts", v.rows, 2, 3, "range"), line = lineComment("src/limiter/clock.ts", v.rows, 4, 4, "line");
+  const file = fileComment("src/limiter/clock.ts", "file"), other = fileComment("README.md", "other");
+  v.setComments([range, line, file, other]);
+  click(find(v.render(), `rv-del-${commentId(range)}`), cx);
+  assert.deepEqual(v.comments, [line, file, other]);
+  assert.deepEqual(fake.stored[NOTES][v.key], [line, file, other]);
+  assert.equal(v.editing, null);
+  click(find(v.render(), "rv-del-file"), cx);
+  assert.deepEqual(fake.stored[NOTES][v.key], [line, other]);
+  click(find(v.render(), `rv-del-${commentId(line)}`), cx);
+  assert.deepEqual(fake.stored[NOTES][v.key], [other]);
+  assert.equal(find(v.render(), "rv-saved"), null);
+  assert.deepEqual(fake.execs, []);
+  v.close();
+});
+
+test("× on one comment leaves an open edit of another alone, and the last one clears the store", () => {
+  const { v, cx } = review();
+  const line = lineComment("src/limiter/clock.ts", v.rows, 4, 4, "line");
+  v.setComments([line]);
+  v.edit({ start: 1, end: 1 }, cx);
+  v.input.set_value("draft");
+  click(find(v.render(), `rv-del-${commentId(line)}`), cx);
+  assert.deepEqual(v.editing, { start: 1, end: 1 });
+  assert.equal(v.input.value(), "draft");
+  assert.equal(fake.stored[NOTES][v.key], undefined);
+  v.close();
+});
+
+test("a click on a comment's box in the diff opens it, a range as a range, and never deletes", () => {
+  const { v, cx } = review();
+  const range = lineComment("src/limiter/clock.ts", v.rows, 2, 3, "range");
+  v.setComments([range]);
+  // Wherever the press lands, right edge included.
+  for (const x of [0, 300, 599, null]) {
+    const at = x === null ? {} : { local_position: { x, y: 0 }, bounds: { x: 0, y: 0, width: 600, height: 400 } };
+    find(v.render(), "rv-diff-area").handlers["on_mouse_down:left"]({ modifiers: { shift: false }, ...at });
+    clickItem(v, cx, `c:${commentId(range)}`);
+    assert.deepEqual(v.editing, { start: 2, end: 3 });
+    assert.equal(v.input.value(), "range");
+    assert.deepEqual(v.comments, [range]);
+    assert.deepEqual(fake.stored[NOTES][v.key], [range]);
+    assert.ok(find(v.render(), "rv-comment-delete"));
+    v.cancelEdit(cx);
+  }
+  v.close();
+});
+
+test("⌘↵ sends like the button", async () => {
+  const sent = [];
+  for (const how of ["button", "key"]) {
+    resetFake();
+    const { v, cx } = review();
+    fake.agents = [{ address: "t1", pane: "p1", tab_name: "fix" }];
+    fake.panes = [{ pane: "p1", cwd: "/synthetic" }];
+    v.snapshot = async () => "abc";
+    v.setComments([fileComment("README.md", "Shorter")]);
+    if (how === "button") click(find(v.render(), "rv-send"), cx);
+    else v.render().handlers.on_key_down(cmdEnter, cx);
+    await flush();
+    sent.push(calls(/^hc send t1 /));
+    assert.equal(sent.at(-1).length, 1);
+    assert.match(v.note, /^Sent to fix/);
+    assert.deepEqual(v.comments, []);
+    assert.equal(fake.stored[NOTES]?.[v.key], undefined);
+    v.close();
+  }
+  assert.deepEqual(sent[0], sent[1]);
+});
+
+test("⌘↵ does nothing where the button is disabled, and other chords never send", async () => {
+  const { v, cx } = review();
+  const down = (e) => v.render().handlers.on_key_down(e, cx);
+  fake.agents = [{ address: "t1", pane: "p1" }];
+  fake.panes = [{ pane: "p1", cwd: "/synthetic" }];
+  down(cmdEnter);
+  v.setComments([fileComment("README.md", "Shorter")]);
+  for (const mods of [{ platform: false }, { platform: true, shift: true }, { platform: true, alt: true }, { platform: true, control: true }]) down({ key: "enter", modifiers: mods });
+  down({ key: "s", modifiers: { platform: true } });
+  down({ ...cmdEnter, is_held: true });
+  v.render().handlers.on_key_up(cmdEnter, cx);
+  fake.agents = [];
+  assert.equal(find(v.render(), "rv-send").isDisabled, true);
+  down(cmdEnter);
+  await flush();
+  assert.deepEqual(fake.execs, []);
+  assert.equal(v.comments.length, 1);
+  v.close();
+});
+
+test("⌘↵ in an open editor saves that comment and sends nothing", async () => {
+  const { v, cx } = review();
+  fake.agents = [{ address: "t1", pane: "p1" }];
+  fake.panes = [{ pane: "p1", cwd: "/synthetic" }];
+  v.setComments([fileComment("README.md", "Shorter")]);
+  v.edit({ start: 1, end: 1 }, cx);
+  v.input.set_value("Rename");
+  // The pane sees the key before the field does, or after it: neither sends.
+  v.render().handlers.on_key_down(cmdEnter, cx);
+  assert.deepEqual(v.editing, { start: 1, end: 1 });
+  v.input.submit({ secondary: true }, cx);
+  assert.equal(v.editing, null);
+  assert.deepEqual(v.comments.map((c) => c.text), ["Shorter", "Rename"]);
+  v.render().handlers.on_key_down(cmdEnter, cx);
+  await flush();
+  assert.deepEqual(fake.execs, []);
+  assert.equal(v.comments.length, 2);
+  // Once the key is up, the next ⌘↵ is a send.
+  v.render().handlers.on_key_up(cmdEnter, cx);
+  v.render().handlers.on_key_down(cmdEnter, cx);
+  await flush();
+  assert.equal(calls(/^hc send t1 /).length, 1);
+  v.close();
+});
+
+test("the footer shows the ⌘↵ keys beside Send", () => {
+  const { v } = review(), key = find(v.render(), "rv-send-key");
+  assert.equal(text(key), "⌘");
+  assert.deepEqual(icons(key), ["mods/relevo/icons/enter.svg"]);
+  v.close();
+});
