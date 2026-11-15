@@ -123,7 +123,7 @@ const SORTS = [
 const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
 // A finished result waits on me as a question does, so done shares the first section.
 const ME = { id: "sec-me", label: "Needs me", status: "blocked" };
-const SECTION = { 4: ME, 3: ME, 2: { id: "sec-flight", label: "In flight", status: "working" }, 1: { id: "sec-idle", label: "Idle", status: null } };
+const SECTION = { 4: ME, 3: ME, 2: { id: "sec-flight", label: "In flight", status: null }, 1: { id: "sec-idle", label: "Idle", status: null } };
 // A long idle section shows this many and folds the rest.
 const IDLE_SHOWN = 3;
 // Where a row's words start, past its glyph; the row's own padding and outline come before it.
