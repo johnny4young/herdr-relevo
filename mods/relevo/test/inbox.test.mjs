@@ -3,9 +3,10 @@ import "./fake/register.mjs";
 import { test, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { fake, resetFake, calls, changeFolder, watched, theme } from "./fake/herdr.mjs";
-import { fakeCx, find, text, click, flush, spinners } from "./fake/ui.mjs";
+import { fakeCx, find, text, click, flush, spinners, element } from "./fake/ui.mjs";
 
 const { Inbox } = await import("../inbox.js");
+const { meTint } = await import("../ui.js");
 const { LAUNCHED } = await import("../skills.js");
 
 const TOP = "/work/app", GIT_DIR = "/work/app/.git";
@@ -76,46 +77,59 @@ test("a card's age starts over when its agent's status changes, and a broken sav
 
 test("a finished agent's diff is a card that can be marked addressed", async () => {
   setAgents(["t1", "done"]);
-  const { ui, inbox } = await open();
+  const { ui, inbox, cx } = await open();
   const view = ui();
   assert.ok(find(view, "in-t1"));
-  assert.match(text(view), /UNCOMMITTED WORK/);
-  assert.ok(find(view, "addressed-t1"));
+  assert.equal(text(find(view, "leg-me")), "NEEDS ME 1");
+  assert.equal(find(view, "addressed-t1"), null);
+  click(find(view, "in-t1"), cx);
+  assert.ok(find(ui(), "addressed-t1"));
   assert.equal(count(), 1);
   assert.equal(inbox.local.length, 1);
 });
 
 test("✓ hides the card at once, before the label comes back, and writes it", async () => {
   setAgents(["t1", "done", 7]);
-  const { ui, cx } = await open();
+  const { ui, cx, inbox } = await open();
+  inbox.sel = "in-t1";
   click(find(ui(), "addressed-t1"), cx);
   await flush();
   const view = ui();
   assert.equal(find(view, "in-t1"), null);
-  assert.match(text(find(view, "addressed-local")), /1 addressed/);
+  click(find(view, "view-maintenance"), cx);
+  assert.match(text(find(ui(), "maintenance-done")), /^1 marked addressed or landed/);
   assert.equal(count(), 0);
   assert.equal(calls(/^hc label t1 relevo\.addressed=\d+:7$/).length, 1);
 });
 
 test("the fold shows the card with Undo, which removes the label", async () => {
   setAgents(["t1", "done", 7, { [LABEL]: "100:7" }]);
-  const { ui, cx } = await open();
+  const { ui, cx, inbox } = await open();
   await flush();
   cx.fire(1500);
   await flush();
-  click(find(ui(), "addressed-local"), cx);
+  assert.equal(find(ui(), "in-t1"), null);
+  fake.stored["relevo.inbox.view"] = "maintenance";
+  click(find(ui(), "maintenance-done"), cx);
+  assert.ok(find(ui(), "in-t1"));
+  assert.equal(find(ui(), "undo-t1"), null);
+  inbox.sel = "in-t1";
   const undo = find(ui(), "undo-t1");
   assert.ok(undo);
   click(undo, cx);
   await flush();
   assert.equal(calls(/^hc label t1 relevo\.addressed=$/).length, 1);
+  assert.equal(find(ui(), "maintenance-done"), null);
+  click(find(ui(), "view-now"), cx);
+  inbox.sel = "in-t1";
   assert.ok(find(ui(), "addressed-t1"));
   assert.equal(count(), 1);
 });
 
 test("a turn ended since brings the card back and removes the label", async () => {
   setAgents(["t1", "done", 8, { [LABEL]: "100:7" }]);
-  const { ui } = await open();
+  const { ui, inbox } = await open();
+  inbox.sel = "in-t1";
   assert.ok(find(ui(), "addressed-t1"));
   assert.equal(calls(/^hc label t1 relevo\.addressed=$/).length, 1);
 });
@@ -123,7 +137,7 @@ test("a turn ended since brings the card back and removes the label", async () =
 test("the same turn keeps the card away across a reload", async () => {
   setAgents(["t1", "idle", 7, { [LABEL]: "100:7" }]);
   const { ui } = await open();
-  assert.equal(find(ui(), "addressed-t1"), null);
+  assert.equal(find(ui(), "in-t1"), null);
   assert.equal(calls(/^hc label/).length, 0);
 });
 
@@ -140,11 +154,14 @@ test("an agent that starts working drops the mark, and a stale one is only clear
 
 test("a waiting agent can't be marked and stays in the list", async () => {
   setAgents(["t1", "blocked", 7, { [LABEL]: "100:7" }]);
-  const { ui } = await open();
+  const { ui, inbox } = await open();
+  inbox.sel = "in-t1";
   const view = ui();
   assert.ok(find(view, "in-t1"));
+  assert.ok(find(view, "go-t1"), "selected");
   assert.equal(find(view, "addressed-t1"), null);
-  assert.equal(find(view, "addressed-local"), null);
+  fake.stored["relevo.inbox.view"] = "maintenance";
+  assert.equal(find(ui(), "maintenance-done"), null, "its stale mark does not count it addressed");
 });
 
 test("a waiting agent stays in the list even if its mark can't be removed", async () => {
@@ -159,7 +176,8 @@ test("a label that can't be written puts the card back and says so", async () =>
   setAgents(["t1", "done", 7]);
   const output = fake.exec;
   fake.exec = (cmd, args) => (cmd === "hc" && args[0] === "label" ? { code: 1, stderr: "no such terminal\n" } : output(cmd, args));
-  const { ui, cx } = await open();
+  const { ui, cx, inbox } = await open();
+  inbox.sel = "in-t1";
   click(find(ui(), "addressed-t1"), cx);
   await flush();
   assert.ok(find(ui(), "addressed-t1"));
@@ -168,9 +186,10 @@ test("a label that can't be written puts the card back and says so", async () =>
 
 test("a repo's one card goes to the agent not marked addressed", async () => {
   setAgents(["t1", "done", 7, { [LABEL]: "100:7" }], ["t2", "done", 2]);
-  const { ui } = await open();
+  const { ui, inbox } = await open();
+  inbox.sel = "in-t2";
   const view = ui();
-  assert.equal(find(view, "addressed-t1"), null);
+  assert.equal(find(view, "in-t1"), null);
   assert.ok(find(view, "addressed-t2"));
 });
 
@@ -468,11 +487,11 @@ test("a first PR scan spins while pending and stops when gh fails", async () => 
   const answer = holdPRs();
   const { inbox, ui } = await open();
   assert.match(find(ui(), "inbox-refresh").tip, /loading/);
-  assert.equal(spinners(ui()), 1);
+  assert.equal(spinners(find(ui(), "inbox-refresh")), 1);
   answer({ code: 1, stderr: "offline\ndetail" });
   await flush();
   assert.match(find(ui(), "inbox-refresh").tip, /PRs unavailable/);
-  assert.equal(spinners(ui()), 0);
+  assert.equal(spinners(find(ui(), "inbox-refresh")) + spinners(find(ui(), "inbox-list")), 0);
   assert.equal(inbox.error, "offline");
 });
 
@@ -482,7 +501,7 @@ test("a cut answer from GitHub, read again and still cut, says so and stops the 
   answer({ stdout: "not json" });
   await flush();
   assert.match(find(ui(), "inbox-refresh").tip, /PRs unavailable/);
-  assert.equal(spinners(ui()), 0);
+  assert.equal(spinners(find(ui(), "inbox-refresh")) + spinners(find(ui(), "inbox-list")), 0);
   assert.equal(inbox.error, "GitHub's answer was cut short");
 });
 
@@ -516,7 +535,7 @@ test("refreshing an existing PR snapshot retains its age in the refresh tooltip"
   click(find(ui(), "inbox-refresh"), cx);
   await flush();
   assert.match(find(ui(), "inbox-refresh").tip, /PRs now/);
-  assert.equal(spinners(ui()), 0);
+  assert.equal(spinners(find(ui(), "inbox-refresh")) + spinners(find(ui(), "inbox-list")), 0);
 });
 
 test("a PR scan already running is not started again", async () => {
@@ -651,7 +670,9 @@ test("a reply while the agent is still being answered keeps its text", async () 
 });
 
 test("a waiting card can continue with another account", async () => {
-  const { ui, cx } = await waiting(DB);
+  const { ui, cx, inbox } = await waiting(DB);
+  assert.equal(find(ui(), "handoff-t1"), null);
+  inbox.sel = "in-t1";
   click(find(ui(), "handoff-t1"), cx);
   assert.equal(fake.overlays.at(-1).props.role, "handoff");
   assert.equal(fake.overlays.at(-1).props.terminal, "t1");
@@ -660,7 +681,7 @@ test("a waiting card can continue with another account", async () => {
 test("Reply on a finished agent's card opens the quick replies for that agent", async () => {
   setAgents(["t1", "done"]);
   const { ui, cx } = await open();
-  click(find(ui(), "more-in-t1"), cx);
+  click(find(ui(), "in-t1"), cx);
   click(find(ui(), "reply-t1"), cx);
   await flush();
   assert.equal(fake.overlays.at(-1).props.role, "quick-replies");
@@ -699,12 +720,16 @@ test("a merged PR alerts once, and the Inbox shortcut lands on its worktree", as
   fake.stored["relevo.inbox.focus"] = { at: 1, pane: null };
   inbox.render(cx);
   assert.equal(inbox.sel, "wt-/wt/x");
+  assert.equal(fake.stored["relevo.inbox.view"], "maintenance");
+  const shown = inbox.render(cx);
+  assert.equal(inbox.sel, "wt-/wt/x", "the selection survives the next draw");
+  assert.ok(find(shown, "wt-/wt/x"));
   inbox.scanPRs(cx);
   await flush();
   assert.equal(fake.notices.filter((n) => n.title === "Merged · app #7").length, 1);
 });
 
-test("your green PRs fold under ready to merge, outside the count, and open from there", async () => {
+test("your green PRs are READY rows, outside the count, and open from there", async () => {
   const node = (url, number) => ({
     url, number, title: `t${number}`, isDraft: false, updatedAt: "2026-11-01T10:00:00Z", reviewDecision: null,
     headRefName: `b${number}`, baseRefName: "main", isCrossRepository: false, repository: { nameWithOwner: "me/app" },
@@ -716,11 +741,13 @@ test("your green PRs fold under ready to merge, outside the count, and open from
     search: { nodes: [] },
   } }) } : null);
   const { ui, cx } = await open();
-  assert.match(text(ui()), /2 ready to merge/);
-  assert.equal(find(ui(), "pr-https://github.com/me/app/pull/1"), null);
+  assert.equal(text(find(ui(), "leg-ready")), "READY 2");
+  assert.equal(find(ui(), "leg-me"), null);
+  assert.equal(text(find(ui(), "view-now")), "Now 2");
   assert.equal(count(), 0);
-  click(find(ui(), "ready-mine"), cx);
-  assert.ok(find(ui(), "open-https://github.com/me/app/pull/1"));
+  click(find(ui(), "open-https://github.com/me/app/pull/1"), cx);
+  await flush();
+  assert.equal(calls(/^open https:\/\/github\.com\/me\/app\/pull\/1$/).length, 1);
   assert.equal(count(), 0);
 });
 
@@ -808,44 +835,55 @@ test("back from away, a waiting agent says why", async () => {
   assert.match(text(ui()), /Run: rm -rf dist/);
 });
 
-test("a card keeps its main actions in sight and folds the rest behind ⋯", async () => {
+test("an unselected row shows only its main action; selected, it shows every other action and its mark", async () => {
   setAgents(["t1", "done"]);
   const { ui, cx } = await open();
-  for (const id of ["review-t1", "agent-t1", "addressed-t1"]) assert.ok(find(ui(), id), id);
-  for (const id of ["diff-t1", "files-t1", "reply-t1"]) assert.equal(find(ui(), id), null, id);
-  click(find(ui(), "more-in-t1"), cx);
-  for (const id of ["diff-t1", "files-t1", "reply-t1"]) assert.ok(find(ui(), id), id);
-  click(find(ui(), "more-in-t1"), cx);
+  assert.ok(find(ui(), "review-t1"));
+  for (const id of ["agent-t1", "diff-t1", "files-t1", "reply-t1", "addressed-t1"]) assert.equal(find(ui(), id), null, id);
+  click(find(ui(), "in-t1"), cx);
+  for (const id of ["review-t1", "agent-t1", "diff-t1", "files-t1", "reply-t1", "addressed-t1"]) assert.ok(find(ui(), id), id);
+  assert.equal(find(ui(), "more-in-t1"), null, "no ⋯ fold");
+  click(find(ui(), "in-t1"), cx);
   assert.equal(find(ui(), "reply-t1"), null);
+  assert.ok(find(ui(), "review-t1"));
 });
 
-test("one button more isn't worth a ⋯", () => {
+test("a selected row lists each action once, its main one at the edge, and in flight shows none until selected", () => {
   const v = new Inbox();
-  v.expanded = {};
-  const three = v.foldActions({}, "c", ["a", "b", "x"], "mark");
-  assert.deepEqual(three, ["a", "b", "x", "mark"]);
-  assert.equal(v.foldActions({}, "c", ["a", "b", "x", "y"]).length, 3);
+  const btn = (id) => element("button").id(id);
+  const ids = (node) => [node?.key, ...(node?.items ?? []).flatMap(ids)].filter((k) => /^(a|b|x|y|mark)$/.test(k ?? ""));
+  const opts = () => { const a = btn("a"); return { turn: "open", title: "c", main: a, actions: [a, btn("b"), btn("x"), btn("y")], mark: btn("mark") }; };
+  assert.deepEqual(ids(v.item(theme(), "c", opts())), ["a"]);
+  v.sel = "c";
+  assert.deepEqual(ids(v.item(theme(), "c", opts())).sort(), ["a", "b", "mark", "x", "y"]);
+  v.sel = null;
+  assert.deepEqual(ids(v.item(theme(), "c", { ...opts(), turn: "flight" })), []);
 });
 
-test("only an agent waiting on you gets the red border, not a PR with failing CI", async () => {
+test("a PR with failing CI is a needs-me row tinted like a waiting agent; a draft is not", async () => {
+  const pr = (number, state, isDraft = false) => ({
+    url: `https://github.com/me/app/pull/${number}`, number, title: "x", isDraft, updatedAt: new Date().toISOString(),
+    reviewDecision: null, headRefName: `feat${number}`, baseRefName: "main", isCrossRepository: false, repository: { nameWithOwner: "me/app" },
+    commits: { nodes: [{ commit: { committedDate: new Date().toISOString(), statusCheckRollup: { state } } }] },
+    reviews: { nodes: [] }, reviewThreads: { nodes: [] },
+  });
   fake.exec = (cmd, args) => (cmd === "gh" && args[0] === "api" ? { stdout: JSON.stringify({ data: {
-    viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [{
-      url: "https://github.com/me/app/pull/1", number: 1, title: "x", isDraft: false, updatedAt: new Date().toISOString(),
-      reviewDecision: null, headRefName: "feat", baseRefName: "main", isCrossRepository: false, repository: { nameWithOwner: "me/app" },
-      commits: { nodes: [{ commit: { committedDate: new Date().toISOString(), statusCheckRollup: { state: "FAILURE" } } }] },
-      reviews: { nodes: [] }, reviewThreads: { nodes: [] },
-    }] } },
+    viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [pr(1, "FAILURE"), pr(2, "SUCCESS", true)] } },
     search: { nodes: [] },
   } }) } : null);
   const { inbox } = await open();
-  const hot = [];
-  const card = inbox.card.bind(inbox);
-  inbox.card = (t, id, red, ...rest) => {
-    hot.push(red);
-    return card(t, id, red, ...rest);
-  };
-  inbox.render(fakeCx());
-  assert.deepEqual(hot, [false]);
+  const folded = inbox.render(fakeCx());
+  assert.equal(find(folded, "pr-https://github.com/me/app/pull/2"), null, "a draft waits on others, folded");
+  inbox.expanded["now-open"] = true;
+  const t = theme(), view = inbox.render(fakeCx());
+  assert.ok(find(find(view, "inbox-list"), "leg-me"));
+  const failing = find(view, "pr-https://github.com/me/app/pull/1"), draft = find(view, "pr-https://github.com/me/app/pull/2");
+  assert.equal(failing.fill, meTint(t));
+  assert.ok(draft);
+  assert.notEqual(draft.fill, meTint(t));
+  assert.notEqual(failing.stroke, t.blocked, "a tint, not a red border");
+  inbox.sel = "pr-https://github.com/me/app/pull/1";
+  assert.equal(find(inbox.render(fakeCx()), inbox.sel).fill, t.selected);
 });
 
 function cancelledPR() {
@@ -877,10 +915,11 @@ test("a cancelled CI says so and Retry CI runs only its cancelled jobs, once", a
   cancelledPR.rerun = null;
   const runs = cancelledPR();
   const { inbox } = await open();
-  const cx = fakeCx(), ui = inbox.render(cx);
-  assert.match(text(ui), /CI cancelled/);
-  assert.doesNotMatch(text(ui), /CI failing/);
   const url = "https://github.com/me/app/pull/1";
+  inbox.sel = `pr-${url}`;
+  const cx = fakeCx(), ui = inbox.render(cx);
+  assert.match(text(find(ui, `ci-${url}`)), /CI cancelled/);
+  assert.doesNotMatch(text(ui), /CI failing/);
   inbox.retryCI(inbox.mine[0], cx);
   inbox.retryCI(inbox.mine[0], cx);
   await flush();
@@ -969,6 +1008,8 @@ test("a PR whose agent left a monitor running stays with that agent, not a new s
     : repoOutput(cmd, args));
   const { ui, inbox } = await open();
   inbox.clones["me/app"] = "/work/app";
+  inbox.sel = `pr-${url}`;
+  assert.ok(find(ui(), `agent-${url}`), "selected");
   const card = text(find(ui(), `pr-${url}`));
   assert.match(card, /waiting in the background · ⧗ 1 shell/);
   assert.equal(find(ui(), `skill-fix-${url}`), null);
@@ -991,6 +1032,8 @@ test("a waiting card follows the agent to its next question without a status cha
 
 test("open folds are kept for the next Inbox; a card's extra lines are not", async () => {
   const { inbox, cx, ui } = await open();
+  assert.equal(find(ui(), "today-time"), null, "agent time lives in Maintenance");
+  fake.stored["relevo.inbox.view"] = "maintenance";
   assert.match(text(find(ui(), "today-time")), /Agent time today/);
   inbox.expanded["more-x"] = true;
   click(find(ui(), "today-time"), cx);
@@ -1005,18 +1048,20 @@ test("the keyboard goes through review requests, then your PRs, then uncommitted
   inbox.expanded = {};
   const ids = inbox.navItems({
     local: [{ kind: "diff", agent: { address: "t1" }, top: "/r" }], desktop: [], ready: [], worktrees: [],
-    mine: [{ url: "mine", updatedAt: now }], requested: [{ url: "theirs", updatedAt: now }],
+    mine: [{ url: "mine", updatedAt: now, reasons: ["CI failing"] }], requested: [{ url: "theirs", updatedAt: now }],
   }).map((i) => i.id);
   assert.deepEqual(ids, ["pr-theirs", "pr-mine", "in-t1"]);
 });
 
-test("Reviews navigation includes recent PRs and keeps older PRs folded", () => {
+test("Now navigation holds recent PRs; older ones are navigated in Maintenance", () => {
   const inbox = new Inbox(), now = new Date().toISOString(), old = "2020-01-01T00:00:00Z";
   inbox.expanded = {};
   const v = {
     local: [], desktop: [], ready: [], worktrees: [],
-    mine: [{ url: "m1", updatedAt: now }, { url: "m2", updatedAt: old }],
+    mine: [{ url: "m1", updatedAt: now, reasons: ["CI failing"] }, { url: "m2", updatedAt: old }],
     requested: [{ url: "r1", updatedAt: old }],
   };
   assert.deepEqual(inbox.navItems(v).map((entry) => entry.id), ["pr-m1"]);
+  fake.stored["relevo.inbox.view"] = "maintenance";
+  assert.deepEqual(inbox.navItems(v).map((entry) => entry.id), ["pr-r1", "pr-m2"]);
 });

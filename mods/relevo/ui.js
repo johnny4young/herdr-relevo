@@ -64,10 +64,6 @@ export const tabButton = (t, id, label, selected, onClick, tip = null) =>
     .rounded(0).border_b(2).border_color(selected ? t.accent : t.background).text_color(selected ? t.foreground : t.muted)
     .when(selected, (el) => el.bg(t.background));
 
-// A list section's title with its count or total on the right.
-export const sectionHeader = (t, label, right) =>
-  h_flex().pt(6).px(2).justify_between().text_size(11).text_color(t.dim).child(label).child(String(right));
-
 // Shortcuts come from keys.json, so a tooltip never shows a key that changed.
 let keys = {};
 
@@ -142,6 +138,12 @@ export function row(t, id, { turn = "open", kind = null, title, reason = null, s
 
 // Rows are separated by a hairline that starts at the body, past the lane; an inset of 0 runs edge to edge.
 export const hairline = (t, inset = LANE) => div().h(1).ml(inset).mr(inset ? 8 : 0).flex_none().bg(t.border).opacity(0.55);
+export const joined = (t, rows) => rows.filter(Boolean).flatMap((el, i) => (i ? [hairline(t), el] : [el]));
+
+// ✓ hides an item until something new happens; Undo brings it back. `key` names both buttons.
+export const markButton = (t, key, addressed, set, tip, { on = "addressed", off = "undo" } = {}) => (addressed
+  ? button(t, `${off}-${key}`, "Undo", (cx) => set(false, cx), { tip: "Back to the list" })
+  : button(t, `${on}-${key}`, [icon("check")], (cx) => set(true, cx), { tip }));
 
 // A section label in caps with its count and a hairline to the edge.
 export const legHeader = (t, id, label, count, { me = false } = {}) => h_flex().id(id).h(28).pt(6).pl(LANE).pr(8).gap(8).items_center()
@@ -155,7 +157,7 @@ export const legend = (t, id, counts) => h_flex().id(id).h(36).flex_none().pl(16
   .children(counts.map(({ turn, label = TURN_LABEL[turn], n }) => {
     const hot = (turn === "me" || turn === "stuck") && n > 0;
     return h_flex().gap(6).items_center()
-      .child(laneGlyph(t, turn))
+      .child(turn === "flight" && !n ? div().size(12).flex_none().rounded_full().border_1().border_color(t.dim) : laneGlyph(t, turn))
       .child(div().text_size(13).text_color(hot ? t.blocked : t.muted).child(label))
       .child(div().text_size(13).font_semibold().text_color(hot ? t.blocked : t.foreground).child(String(n)));
   }));
@@ -247,7 +249,7 @@ export function foldRow(view, t, id, key, label, { gap = false, onOpen = null, a
   const open = Boolean(view.expanded[key]);
   return Button.new(id).id(id).tab_index(0).selected(open).accessibility_label(`${label}. ${open ? "Collapse" : "Expand"}`)
     .tooltip(`${open ? "Collapse" : "Expand"} ${label}`).focus((el) => el.border_2().border_color(t.accent))
-    .min_h(28).px(4).when(gap, (el) => el.pt(6)).when(!gap, (el) => el.py(2))
+    .min_h(28).pl(LANE).pr(8).when(gap, (el) => el.pt(6)).when(!gap, (el) => el.py(2))
     .flex().items_center().gap(5).text_size(11).text_color(t.dim).cursor_pointer()
     .hover((s) => s.text_color(t.muted))
     .on_click((_e, cx) => {

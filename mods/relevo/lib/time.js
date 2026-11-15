@@ -2,12 +2,13 @@
 
 export const FIVE_HOURS = 5 * 3600, WEEK = 7 * 86400;
 
-export function ago(seconds) {
-  const s = Math.max(0, Math.floor(Date.now() / 1000 - seconds));
+// `short` drops the "ago", for the age at a row's edge.
+export function ago(seconds, short = false) {
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - seconds)), end = short ? "" : " ago";
   if (s < 60) return "now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s <= 2 * 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m${end}`;
+  if (s <= 2 * 86400) return `${Math.floor(s / 3600)}h${end}`;
+  return `${Math.floor(s / 86400)}d${end}`;
 }
 
 // When each agent entered its status (seconds). Gone agents stay a while: the list is empty right after a start.

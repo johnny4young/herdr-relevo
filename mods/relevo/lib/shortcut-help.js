@@ -77,6 +77,8 @@ export const INBOX_SHORTCUT_ACTIONS = [
   { id: "inbox.open", label: "Open selected item", section: "Inbox navigation", fixedShortcut: "enter" },
   { id: "inbox.return", label: "Return focus", section: "Inbox navigation", fixedShortcut: "escape" },
   { id: "inbox.answer", label: "Choose a numbered answer", section: "Inbox navigation", fixedShortcut: "1" },
+  { id: "inbox.now", label: "Show Now", section: "Inbox navigation", fixedShortcut: "n" },
+  { id: "inbox.maintenance", label: "Show Maintenance", section: "Inbox navigation", fixedShortcut: "m" },
   { id: "relevo.panel-reviews", label: "Show Reviews", section: "Relevo commands" },
   { id: "relevo.panel-runs", label: "Show Runs", section: "Relevo commands" },
   { id: "relevo.next-waiting", label: "Focus next waiting agent", section: "Relevo commands" },

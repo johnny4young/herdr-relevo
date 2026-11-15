@@ -1,7 +1,6 @@
 // Marking a local card addressed. Mixed into Inbox, so `this` is the Inbox.
 import { exec, notify, terminals } from "herdr";
 import { ADDRESSED_LABEL, addressedValue, staleAddressed } from "./lib/addressed.js";
-import { foldRow } from "./ui.js";
 
 export class LocalAddressed {
   // A label takes a moment to come back from the core; until then `labelling` answers ("" = removed).
@@ -39,13 +38,5 @@ export class LocalAddressed {
       this.publish();
       cx.notify();
     });
-  }
-
-  addressedFold(t, key, done, draw) {
-    if (!done.length) return [];
-    return [
-      foldRow(this, t, `addressed-${key}`, `${key}-done`, `${done.length} addressed`),
-      ...(this.expanded[`${key}-done`] ? done.map(draw) : []),
-    ];
   }
 }
