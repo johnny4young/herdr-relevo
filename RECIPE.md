@@ -396,6 +396,11 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   folders carry over); `git.js` reads branch, ahead/behind and `git status --porcelain` with optional locks off;
   `model.js` builds the groups and the order the spaces move to. Git is read again when a place is new, when a
   command or an agent's turn ends, when the repo's git folder changes and once a minute while the window is in front.
+  The open space (the one you are in, unless closed; others by their chevron) lists `aliveBySpace`: agents by space,
+  Claude Desktop and other terminals' sessions and outside servers by folder (the deepest space's repo), live terminals
+  by space, from shared `relevo.alive`, which the Relevo mod's `AliveWatch` (`alive.js`) writes every 10 s while the
+  window is in front (terminal rows with ports, and `outsideServers`: listening processes no Herdr terminal owns, run from
+  home, with the `.app` they came from). Terminal actions go back as `relevo.term-<open|peek|restart|stop|close>-<address>`.
 - **Community mods**: issues (jankeesvw).
 - **herdr**: `agents`, `panes`, `spaces`, `terminals`, `focused`, `layout`, `shared`/`setShared`, `exec`, `run`,
   `notify`, `openOverlay`, `playSound`, `readTextFile`, `writeTextFile`, `watchFolder`, `nextCommand`, `window`; commands `tab.new`, `space.new`,

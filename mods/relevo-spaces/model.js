@@ -63,3 +63,37 @@ export function spaceTurn(status) {
   return { blocked: "me", done: "ready", working: "flight" }[status] ?? null;
 }
 export const mostUrgent = (statuses) => statuses.reduce((m, s) => ((RANK[s] ?? 0) > (RANK[m] ?? 0) ? s : m), null);
+
+export const within = (path, root) => Boolean(path && root) && (path === root || path.startsWith(`${root}/`));
+const base = (path) => String(path ?? "").replace(/\/+$/, "").split("/").pop();
+
+// Everything alive under the space whose repo (or folder) holds it, the deepest first so a worktree keeps its own.
+// What no space holds comes back as `loose`, one entry per project.
+export function aliveBySpace(rows, { agents = [], desktop = [], elsewhere = [], alive = null, home = null } = {}) {
+  // A space that just sits in the home folder holds nothing by place: everything is under home.
+  const roots = rows.map((r) => ({ id: r.w.id, root: r.g?.top ?? (r.path === home ? null : r.path) })).filter((x) => x.root).sort((a, b) => b.root.length - a.root.length);
+  const spaceOf = (cwd) => roots.find((x) => within(cwd, x.root))?.id ?? null;
+  const by = new Map(rows.map((r) => [r.w.id, { agents: [], sessions: [], terminals: [], servers: [] }]));
+  const loose = new Map();
+  const put = (cwd, kind, item, project) => {
+    const id = spaceOf(cwd);
+    if (id) return by.get(id)[kind].push(item);
+    const key = project || base(cwd) || "unknown";
+    const entry = loose.get(key) ?? { project: key, cwd, agents: [], sessions: [], terminals: [], servers: [] };
+    entry[kind].push(item);
+    loose.set(key, entry);
+  };
+  for (const a of agents) by.get(a.space)?.agents.push(a);
+  for (const s of desktop) put(s.cwd, "sessions", { ...s, from: "desktop" }, s.project);
+  for (const s of elsewhere) put(s.cwd, "sessions", { ...s, from: "elsewhere" }, s.project);
+  // A finished terminal is Maintenance's to tidy, not something alive here.
+  for (const t of (alive?.terminals ?? []).filter((x) => x.live)) {
+    if (by.has(t.spaceId)) by.get(t.spaceId).terminals.push(t);
+    else put(t.cwd, "terminals", t);
+  }
+  for (const s of alive?.outside ?? []) put(s.cwd, "servers", s);
+  return { by, loose: [...loose.values()] };
+}
+
+// Every port a space's terminals and servers listen on, lowest first.
+export const portsIn = (life) => [...new Set([...life.terminals, ...life.servers].flatMap((x) => x.ports ?? []))].sort((a, b) => a - b);

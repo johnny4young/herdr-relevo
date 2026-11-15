@@ -117,3 +117,55 @@ export function tidyRows(rows, now = Date.now()) {
   const background = rows.filter((r) => r.background && r.state === "running" && now - r.at > HOUR_MS), old = rows.filter((r) => r.state === "old");
   return { failed, done, background, old, count: failed.length + done.length + background.length + old.length };
 }
+
+// `ps -ax -o pid=,ppid=,comm=` → Map pid → { ppid, comm }.
+export function parseProcs(text) {
+  const out = new Map();
+  for (const line of String(text ?? "").split("\n")) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (m) out.set(Number(m[1]), { ppid: Number(m[2]), comm: m[3].trim() });
+  }
+  return out;
+}
+
+// `lsof -a -d cwd -p <pids> -Fpn` → Map pid → folder.
+export function parseCwds(text) {
+  const out = new Map();
+  let pid = null;
+  for (const line of String(text ?? "").split("\n")) {
+    if (line.startsWith("p")) pid = Number(line.slice(1));
+    else if (line.startsWith("n") && pid) out.set(pid, line.slice(1));
+  }
+  return out;
+}
+
+// The app a process was started from: its nearest ancestor inside an .app bundle ("Ghostty", "iTerm").
+export function appOf(pid, procs) {
+  for (let at = procs.get(pid)?.ppid, hops = 0; at > 1 && hops < 32; at = procs.get(at)?.ppid, hops++) {
+    const app = /\/([^/]+)\.app\//.exec(procs.get(at)?.comm ?? "")?.[1];
+    if (app) return app;
+  }
+  return null;
+}
+
+// Listening processes no Herdr terminal owns, one per process with all its ports: a server started in another app.
+// Ports from 49152 up are handed out by the system (an editor's or an agent's side channel), not a server someone started.
+export const DYNAMIC_PORT = 49152;
+export function outsideServers(listening, procs, owned, cwds, home) {
+  const ownedBy = (pid) => {
+    for (let at = pid, hops = 0; at > 1 && hops < 32; at = procs.get(at)?.ppid, hops++) if (owned.has(at)) return true;
+    return false;
+  };
+  const byPid = new Map();
+  for (const { pid, port } of listening) {
+    // Claude sessions show as sessions, not as servers.
+    if (port >= DYNAMIC_PORT || ownedBy(pid) || base(procs.get(pid)?.comm) === "claude") continue;
+    const cwd = cwds.get(pid);
+    // Only the person's own servers: system services run from / or outside home.
+    if (!cwd || !(cwd === home || cwd.startsWith(`${home}/`))) continue;
+    const s = byPid.get(pid) ?? { pid, ports: [], cwd, title: base(procs.get(pid)?.comm) || "server", app: appOf(pid, procs) };
+    if (!s.ports.includes(port)) s.ports.push(port);
+    byPid.set(pid, s);
+  }
+  return [...byPid.values()].map((s) => ({ ...s, ports: s.ports.sort((a, b) => a - b) })).sort((a, b) => a.ports[0] - b.ports[0]);
+}

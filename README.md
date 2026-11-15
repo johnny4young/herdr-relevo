@@ -86,6 +86,11 @@ repo one row: its branch when it is not main, how far it is ahead or behind, how
 agent there needs you. A worktree sits under its checkout. Drag a space onto a folder to keep it there. The list
 order is the spaces' order, so Herdr's `⌃1`…`⌃9` go to the row you see.
 
+The space you are in opens to show everything alive in that repo, wherever it runs: its agents, its Claude Desktop
+sessions and Claude Code in other terminals, every terminal with the port it listens on (Restart, Stop and Close on
+hover), and servers started in other apps ("vite in Ghostty :5173"). Any other space shows its port and opens with its
+chevron. A repo with something alive but no space is a "no space" row in its folder, with `+` to give it one.
+
 ### Answer agents without leaving your work
 
 A waiting agent's question shows in the Inbox with its choices, its preview and a note field. Click a choice and
@@ -206,6 +211,9 @@ shows.
 
 - Spaces runs `git rev-parse`, `git rev-list` and `git status --porcelain` in each space's folder, with optional locks
   off so it never holds `index.lock` while an agent commits.
+- Every 10 seconds while the window is in front it runs `lsof -iTCP -sTCP:LISTEN`, `ps -ax -o pid,ppid,comm` and
+  `lsof -d cwd` for the listening processes, to show each terminal's ports and servers started in other apps under
+  your home folder. Nothing is written.
 - Runs `git`, `gh`, `hc`, `cat` (the hook's notes of a permission the screen cuts), `find` (to look for repos in a worktree's ignored folders) and the launchers in `config.js`; Files runs `/usr/bin/trash`, `open -R`, `mv -n` and `mkdir`.
 - Reaches the network for quotas: each Claude account's login from the macOS Keychain goes to Anthropic's usage
   endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token.
