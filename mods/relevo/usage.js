@@ -143,7 +143,7 @@ export class UsageDialog {
       .when(Boolean(reading), (el) => el.child(h_flex().gap(5).items_center().text_size(11).text_color(t.dim)
         .child(spinner(t.dim, 11)).child(`Reading ${Math.round(100 * usage.done / usage.total)}%`)))
       .when(!reading && Boolean(this.report), (el) => el.child(div().text_size(11).text_color(t.dim).child(ago(this.report.updated))))
-      .child(button(t, "usage-refresh", [icon("refresh", t.muted)], () => run("relevo.usage-scan"), { tip: withKey("Read again", "relevo.usage"), disabled: Boolean(reading) }));
+      .child(button(t, "usage-refresh", [icon("refresh")], () => run("relevo.usage-scan"), { tip: withKey("Read again", "relevo.usage"), disabled: Boolean(reading) }));
     const center = (el) => h_flex().flex_1().justify_center().items_center().text_size(13).text_color(t.dim).child(el);
     const body = !s
       ? center("Reading transcripts…")

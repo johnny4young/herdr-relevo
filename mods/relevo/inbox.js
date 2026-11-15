@@ -329,7 +329,7 @@ export class Inbox {
     const last = mark ? [mark] : [], extra = actions.slice(2);
     if (extra.length < 2) return [...actions, ...last];
     const key = `more-${id}`, open = this.expanded[key];
-    return [...actions.slice(0, 2), ...last, button(t, key, [icon("more", t.muted)], (cx) => {
+    return [...actions.slice(0, 2), ...last, button(t, key, [icon("more")], (cx) => {
       this.expanded[key] = !open;
       cx.notify();
     }, { tip: open ? "Fewer actions" : "More actions" }), ...(open ? extra : [])];
@@ -381,6 +381,7 @@ export class Inbox {
       .cursor_pointer()
       .when(p.cursor === o.n, (el) => el.bg(t.selected)).hover((st) => st.bg(t.hover))
       .tooltip(o.detail ? `${o.label} · ${o.detail}` : o.label)
+      .accessibility_label(`${o.n}. ${o.label}${"checked" in o ? (o.checked ? ", checked" : ", not checked") : ""}`)
       .on_click((_e, cx) => {
         cx.stop_propagation();
         this.answer(a, o, cx, p);
@@ -692,14 +693,14 @@ export class Inbox {
       .child(h_flex().h(38).flex_none().px(8).gap(6).items_center()
         .when(goalMode, (el) => el.child(this.goalNewButton(t)))
         .child(div().flex_1())
-        .child(button(t, "inbox-focus-list", [icon("down", t.muted)], () => this.h.focus(), { size: "sm", accessibleLabel: "Focus work queue", tip: "Focus the queue: arrow keys select, Enter opens" }))
+        .child(button(t, "inbox-focus-list", [icon("down")], () => this.h.focus(), { size: "sm", accessibleLabel: "Focus work queue", tip: "Focus the queue: arrow keys select, Enter opens" }))
         .child(button(t, "goal-key-help", "?", (cx) => {
           this.goalHelp = !this.goalHelp;
           if (this.goalHelp) this.shortcutHelp.focus();
           else this.h.focus();
           cx.notify();
         }, { size: "sm", tip: "Search keyboard shortcuts", accessibleLabel: "Keyboard help" }))
-        .child(button(t, "inbox-refresh", !this.prsAt && this.scanningPRs ? [spinner(t.dim, 10)] : [icon("refresh", t.muted)], (cx) => {
+        .child(button(t, "inbox-refresh", !this.prsAt && this.scanningPRs ? [spinner(t.dim, 10)] : [icon("refresh")], (cx) => {
           this.scanLocal(cx); this.scanPRs(cx); this.scanTrees(cx, true); this.loadGoals(cx);
         }, { size: "sm", accessibleLabel: "Refresh work", tip: `Refresh · ${this.prsAt ? `PRs ${ago(this.prsAt)}` : this.scanningPRs ? "PRs loading" : "PRs unavailable"}${this.error ? ` · ${this.error}` : ""}` })))
       .when(this.goalHelp, (el) => {

@@ -18,6 +18,8 @@ export { openWorkflow } from "./workflow-window.js";
 export { runAgentArgs } from "./workflow-runs.js";
 
 const TABS = ["Overview", "Changes", "Evidence", "Activity", "Preferences"];
+const isPicked = (ids, task) => Boolean(ids?.includes(task.id));
+const pickLabel = (ids, task) => `${task.title}. ${isPicked(ids, task) ? "Selected" : "Not selected"}`;
 const WINDOW_SHORTCUTS = [
   ...TABS.map((tab, index) => ({ id: `view-${tab}`, label: ["Decision / summary", "Result / findings", "Evidence", "Activity", "Preferences"][index], fixedShortcut: String(index + 1), section: "Run window" })),
   ...[["accept", "Prepare acceptance (Enter confirms)", "a"], ["changes", "Write change request", "r"], ["new", "New task", "n"], ["plan", "Plan work", "p"], ["tools", "Task actions and skills", "t"], ["next", "Next task", "down"], ["previous", "Previous task", "up"], ["help", "Keyboard help", "?"], ["close", "Return to queue focus, then close window", "escape"]]
@@ -97,10 +99,6 @@ export class Workflow extends WorkflowDetail {
   }
 
   // Opening a run that already has a pane focuses it and asks it to show one task.
-  picked(ids, task) {
-    return Boolean(ids?.includes(task.id));
-  }
-
   takeRequest() {
     const request = shared(RUN_REQUEST);
     if (request?.goalId !== this.goalId || !(request.at > this.lastRequest)) return;
@@ -364,9 +362,9 @@ export class Workflow extends WorkflowDetail {
         (context) => this.selectFilter(filter, context), { kind: "ghost", size: "sm", selected: this.tab !== "Plan" && this.filter === filter }).w_full()))
       .child(div().h(1).my(6).bg(t.border))
       .child(v_flex().w_full().min_w(0).flex_1().min_h(0).overflow_y_scrollbar().gap(5).children((selecting ? batchable : visible).map((task) => selecting ? button(t,
-        `workflow-batch-select-${task.id}`, [checkbox(t, this.picked(this.batchIds, task)), caption(task.title, 36)],
+        `workflow-batch-select-${task.id}`, [checkbox(t, isPicked(this.batchIds, task)), caption(task.title, 36)],
         (cx) => { this.batchIds ??= []; this.batchIds = this.batchIds.includes(task.id) ? this.batchIds.filter((id) => id !== task.id) : [...this.batchIds, task.id]; this.batchPreview = null; this.batchSnapshot = null; cx.notify(); },
-        { selected: this.picked(this.batchIds, task), tip: `Select ${task.title} for a same-project batch` }).w_full().min_w(0).h(56).overflow_hidden()
+        { selected: isPicked(this.batchIds, task), accessibleLabel: `${pickLabel(this.batchIds, task)}. Select for a same-project batch`, tip: `Select ${task.title} for a same-project batch` }).w_full().min_w(0).h(56).overflow_hidden()
         : button(t, `workflow-task-${task.id}`,
         [v_flex().w_full().min_w(0).gap(2).text_left().child(div().w_full().min_w(0).truncate().text_color(t.foreground).child(task.title))
           .child(div().text_size(11).text_color(task.state === "needs_you" ? t.accent : ["blocked", "failed"].includes(task.state) ? t.blocked : t.muted).child(taskState(task.state)))],
@@ -510,9 +508,9 @@ export class Workflow extends WorkflowDetail {
         .child(div().font_semibold().child("Wait for earlier tasks"))
         .child(row(t, "Only selected prerequisites must be accepted before this task can start."))
         .children((this.tasks ?? []).filter((task) => task.goalId === this.goalId && !["cancelled", "failed"].includes(task.state))
-          .map((task) => button(t, `workflow-dependency-${task.id}`, [checkbox(t, this.picked(this.dependsOn, task)), caption(task.title, 50)],
+          .map((task) => button(t, `workflow-dependency-${task.id}`, [checkbox(t, isPicked(this.dependsOn, task)), caption(task.title, 50)],
             (context) => { this.dependsOn ??= []; this.dependsOn = this.dependsOn.includes(task.id) ? this.dependsOn.filter((id) => id !== task.id) : [...this.dependsOn, task.id]; context.notify(); },
-            { selected: this.picked(this.dependsOn, task), tip: `Wait for acceptance of ${task.title}` })))))
+            { selected: isPicked(this.dependsOn, task), accessibleLabel: `${pickLabel(this.dependsOn, task)}. Wait for its acceptance`, tip: `Wait for acceptance of ${task.title}` })))))
       .child(h_flex().gap(6).items_center()
         .child(button(t, "workflow-start-new", this.busy ? "Starting…" : "Start", (context) => this.create(context, { start: true }),
           { kind: "solid", disabled: this.busy, tip: "⌘Enter" }))

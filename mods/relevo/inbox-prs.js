@@ -192,7 +192,7 @@ export class PrViews {
           cx.stop_propagation();
           this.openSkillMenu(pr, skill);
         })
-        .child(icon("chevron-down", fg, 10)));
+        .child(icon("chevron-down", null, 10)));
   }
 
   threadBadge(t, n, key) {

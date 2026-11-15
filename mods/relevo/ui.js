@@ -89,11 +89,12 @@ export const withKey = (tip, action) => (shortcut(action) ? `${tip} · ${shortcu
 // Native rotation: no timer, no redraws.
 export const spinner = (color, size = 11) => svg("mods/relevo/spinner.svg").size(size).flex_none().text_color(color).spin(900);
 
-// One of the glyphs in icons/, drawn on a 12 px grid and tinted like text.
+// A glyph from icons/ on a 12 px grid; with no colour it takes the text colour, so it follows button states.
 export const ICONS = ["agent", "ask", "check", "chevron-down", "chevron-right", "clock", "comment", "desktop", "down", "enter", "file",
   "folder", "gear", "handoff", "land", "more", "note", "pr", "refresh", "relay", "relevo", "review", "run", "search", "tree", "up", "warn", "x"];
-export const icon = (name, color, size = 12) => svg(`mods/relevo/icons/${name}.svg`).size(size).flex_none().text_color(color);
-export const chevron = (open, color, size = 12) => icon(open ? "chevron-down" : "chevron-right", color, size);
+export const icon = (name, color = null, size = 12) => svg(`mods/relevo/icons/${name}.svg`).size(size).flex_none()
+  .when(Boolean(color), (el) => el.text_color(color));
+export const chevron = (open, color = null, size = 12) => icon(open ? "chevron-down" : "chevron-right", color, size);
 
 // A quota's colour: accent, ansi3 from half, blocked from QUOTA_WARN.
 export const quotaTone = (t, pct) => (pct >= QUOTA_WARN ? t.blocked : pct >= 50 ? t.ansi3 : t.accent);
@@ -106,10 +107,10 @@ export const LANE = 24;
 export function laneGlyph(t, turn) {
   if (turn === "flight") return spinner(t.working, 12);
   if (turn === "ready") return icon("check", t.done, 13);
-  if (turn === "open") return div().size(8).flex_none().rounded_full().border_1().border_color(t.accent);
   if (turn === "stuck") return icon("warn", t.blocked, 12);
   if (turn === "old") return div().size(6).flex_none().rounded_full().bg(t.idle).opacity(0.6);
-  return div().size(8).flex_none().rounded_full().bg(t.blocked);
+  if (turn === "me") return div().size(8).flex_none().rounded_full().bg(t.blocked);
+  return div().size(8).flex_none().rounded_full().border_1().border_color(t.accent);
 }
 const lane = (t, turn) => h_flex().w(LANE).flex_none().justify_center().child(laneGlyph(t, turn));
 
@@ -121,8 +122,8 @@ export const meTint = (t) => `${t.blocked}12`;
 export function row(t, id, { turn = "open", kind = null, title, reason = null, sub = null, age = null, action = null,
   selected = false, onSelect = null, below = null, tip = null } = {}) {
   const hot = turn === "me" || turn === "stuck";
-  return v_flex().id(id).flex_none().rounded(6)
-    .when(selected, (el) => el.border_1().border_color(t.accent).bg(t.selected)).when(!selected && hot, (el) => el.bg(meTint(t)))
+  return v_flex().id(id).flex_none().rounded(6).border_1().border_color(selected ? t.accent : `${t.accent}00`)
+    .when(selected, (el) => el.bg(t.selected)).when(!selected && hot, (el) => el.bg(meTint(t)))
     .when(Boolean(onSelect), (el) => el.cursor_pointer().on_click((_e, cx) => onSelect(cx)))
     .when(Boolean(tip), (el) => el.tooltip(tip))
     .child(h_flex().min_h(38).py(4).pr(8).gap(8).items_center()
@@ -152,7 +153,7 @@ export const legHeader = (t, id, label, count, { me = false } = {}) => h_flex().
 // The counters are the legend: glyph, plain label, count.
 export const legend = (t, id, counts) => h_flex().id(id).h(36).flex_none().pl(16).pr(8).gap(14).items_center()
   .children(counts.map(({ turn, label = TURN_LABEL[turn], n }) => {
-    const hot = turn === "me" && n > 0;
+    const hot = (turn === "me" || turn === "stuck") && n > 0;
     return h_flex().gap(6).items_center()
       .child(laneGlyph(t, turn))
       .child(div().text_size(13).text_color(hot ? t.blocked : t.muted).child(label))
@@ -244,7 +245,7 @@ export function foldRow(view, t, id, key, label, { gap = false, onOpen = null, a
       if (!open) onOpen?.(cx);
       cx.notify();
     })
-    .child(chevron(open, t.dim))
+    .child(chevron(open))
     .child(label)
     .when(Boolean(after), (el) => el.child(after));
 }

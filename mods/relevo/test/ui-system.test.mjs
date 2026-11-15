@@ -90,8 +90,10 @@ test("micro charts: check boxes, diff squares, age ticks, relay legs and a usage
 test("colours come from the theme: no view hard-codes one", () => {
   for (const mod of ["relevo", "relevo-agents", "relevo-files", "relevo-tabs"]) {
     const dir = new URL(`../../${mod}/`, import.meta.url);
-    for (const name of readdirSync(dir).filter((f) => f.endsWith(".js") && !/^config(\.example)?\.js$/.test(f) && f !== "settings.js")) {
-      assert.doesNotMatch(readFileSync(new URL(name, dir), "utf8"), /["'`]#[0-9a-f]{6}([0-9a-f]{2})?["'`]/i, `${mod}/${name}`);
+    const files = readdirSync(dir, { recursive: true }).filter((f) => f.endsWith(".js") && !/(^|\/)test\//.test(f)
+      && !/^(config(\.example)?|settings|folder-colors)\.js$/.test(f));
+    for (const name of files) {
+      assert.doesNotMatch(readFileSync(new URL(name, dir), "utf8"), /["'`]#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})["'`]/i, `${mod}/${name}`);
     }
   }
 });
@@ -112,4 +114,9 @@ test("a fold shows which way it points, and an icon label is read by its words",
   assert.equal(ui.button(t, "r", [ui.icon("refresh", t.muted)], () => {}, { tip: "Read again" }).accessibleLabel, "Read again");
   assert.equal(ui.quotaTone(t, 80), t.blocked);
   assert.equal(ui.quotaTone(t, 50), t.ansi3);
+});
+
+test("an unknown turn is never drawn as urgent", () => {
+  assert.equal(ui.laneGlyph(t, "done").stroke, t.accent);
+  assert.equal(ui.laneGlyph(t, undefined).fill, null);
 });

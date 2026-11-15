@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **One set of glyphs.** Folds, refresh, more, check boxes and menu arrows are drawn from 28 icons in `mods/relevo/icons/` instead of text characters, so they line up and take the theme colour. Space folder marks in the agents list follow the theme too.
+- **One set of glyphs.** Folds, refresh, more, check boxes and menu arrows are drawn from 28 icons in `mods/relevo/icons/` instead of text characters, so they line up and take the theme colour.
 
 ## 0.7.3 · 2026-11-14
 

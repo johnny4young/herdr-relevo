@@ -344,7 +344,7 @@ export class TreeViews {
       .when(offersRemove, (el) => el.child(action(`wt-rm-${w.path}`, sure ? "Confirm" : "Remove",
         w.group === "pushed" ? "Removes the worktree and its local branch. The branch stays on GitHub" : "Removes the worktree and its local branch. Files git ignores go with it",
         (cx) => this.removeTree(w, cx), sure)))
-      .when(Boolean(w.actions?.length) && w.group === "work", (el) => el.child(action(`wt-more-${w.path}`, [icon("more", t.muted)], "Save, back up or delete", (cx) => {
+      .when(Boolean(w.actions?.length) && w.group === "work", (el) => el.child(action(`wt-more-${w.path}`, [icon("more")], "Save, back up or delete", (cx) => {
         this.treeMenu = open ? null : w.path;
         this.deleteAsk = null;
         this.pushAsk = null;

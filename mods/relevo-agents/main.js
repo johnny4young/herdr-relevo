@@ -4,6 +4,7 @@
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, exec, terminals, panes, focused, home, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
+import { folderColor } from "./folder-colors.js";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -53,7 +54,7 @@ export function folderNote(cwd, space) {
   return parts.at(-1) === space ? null : parts.slice(-2).join("/");
 }
 
-// The sidebar's folders, by the space-folders mod's rules: a dragged space stays
+// The sidebar's folders, by the space-folders mod's rules and colours: a dragged space stays
 // where it was put, else the first folder whose rules take where it works.
 
 const rules = new Map();
@@ -552,7 +553,7 @@ export default class Agents extends View {
           })).child(pic)))
         .child(h_flex().flex_1().min_w(0).gap(5).items_center()
           .when(Boolean(place), (el) => el.child(div().id(`in-folder-${a.address}`).flex_none().tooltip(place.name)
-            .child(svg("mods/workspace-chrome/folder.svg").size(12).text_color(t[place.color] ?? t.dim))))
+            .child(svg("mods/workspace-chrome/folder.svg").size(12).text_color(folderColor(place.color, t.dim)))))
           .child(div().min_w(0).max_w(full && more ? 120 : 200).truncate().text_color(idle ? t.muted : t.foreground).child(name))
           .when(full && Boolean(more), el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`\u00b7 ${more}`))))
         .when(Boolean(machine), el => el.child(div().text_size(11).text_color(t.dim).child(machine)))
