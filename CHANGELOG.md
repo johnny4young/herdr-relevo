@@ -3,7 +3,6 @@
 ## Unreleased
 
 - **Read what a Claude Desktop session is doing without leaving Herdr.** The group is called Claude Desktop, and each session reads like an agent: what it is doing now ("editing ui.js", "Run the tests"), the question it asks, or its last words. A click opens its last message and its title right in the list, with **Open in Claude Desktop**; the selected Reviews row shows the last message too. Relevo reads only the end of the session's local transcript, and only when it changed.
-||||||| 9dfb1f8
 - **Reviews opens on Now.** The Reviews tab, its shortcut and the command always land on Now; Maintenance is one `Tab` away, and `Tab` again comes back. `m` still goes to Maintenance, and `n` starts a new run from either view.
 
 - **The way back stays in a narrow key bar.** When a list's keys do not fit, whole keys from the end hide instead of being cut mid-word, and Esc stays at the right next to `?`. In an open task, Ask for changes reads "r changes" in the bar.
