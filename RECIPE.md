@@ -33,15 +33,13 @@ task to another account.
   base to catch up with, uncommitted agent work), IN
   FLIGHT (CI running, an agent on the PR, a landing in progress) and READY (only the merge left, Desktop sessions
   ready for review), then "N waiting on others" folded (PRs you already ran a skill on, drafts). The Reviews badge is
-  the Needs me count. Maintenance holds what can wait: OLD (PRs past 45 days), the worktree groups, one fold with
+  the Needs me count. Maintenance holds what can wait: SAFE TO REMOVE and NEEDS A LOOK (worktrees), OLD (PRs past 45 days, stale branches), one fold with
   everything marked addressed or landed (each with **Undo**) and agent time today. `m` and `n` switch views. Keys: `j`/`k` or the arrows move, `g g` goes to the top and `G` to the bottom,
   Enter runs the row's action, `1`–`9` answer an agent, and on the selected row `r` reviews, `o` opens it (the PR on
   GitHub, the agent, Desktop), `a` marks it addressed (`u` takes the last one back) and `l` lands a ready PR
   (twice); the selected row shows each key beside its button. `/` filters Now by the rows' words, Esc clears it.
   Each list ends with a bar of the keys that work there and `? all keys`. In the review pane `c` comments on
   the file, `v` marks it viewed, `[` and `]` move between files, ⌘↵ sends. Each
-  the Needs me count. Maintenance holds what can wait: SAFE TO REMOVE and NEEDS A LOOK (worktrees), OLD (PRs past 45 days, stale branches), one fold with
-  everything marked addressed or landed (each with **Undo**) and agent time today. `m` and `n` switch views. Each
   open group sits under a caps header with its count and a hairline. Every item is one row: the lane glyph (who
   holds it: a red disc when it needs you, the spinner while agents or CI work, a check when one key finishes it,
   a ring when it can wait), the kind glyph, what it is, the one reason it is here, its age and its one action.

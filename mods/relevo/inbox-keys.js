@@ -19,7 +19,7 @@ export function focusInbox(row = null) {
 export class KeyNav {
   // The selectable rows of the view on screen, in screen order, each with what Enter and the number keys do.
   navItems(v) {
-    return this.reviewView() === "now" ? this.nowNav(this.nowEntries(theme(), v)) : this.maintenanceNav(v);
+    return this.reviewView() === "now" ? this.nowNav(this.filterNow(this.nowEntries(theme(), v))) : this.maintenanceNav(v);
   }
 
   // Its agent if one runs, else the suggested skill when the repo is cloned, else the PR on GitHub.
@@ -111,20 +111,22 @@ export class KeyNav {
     const held = e.modifiers?.platform || e.modifiers?.control || e.modifiers?.alt;
     if (held) return;
     this.clicked = false;
-    const reviews = shared(GOAL_MODE) !== true, key = e.key === "j" ? "down" : e.key === "k" ? "up" : e.key;
+    const shifted = e.key === "g" && e.modifiers?.shift;
+    const reviews = shared(GOAL_MODE) !== true, key = e.key === "j" ? "down" : e.key === "k" ? "up" : shifted ? "G" : e.key;
     // g then g goes to the top, as in vim, and any other key in between starts over; G goes to the bottom.
     const gg = key === "g" && reviews && this.pendingG;
     this.pendingG = key === "g" && reviews && !gg;
     if (this.pendingG) return cx.stop_propagation();
     const rowKey = reviews && at >= 0 ? items[at].keys?.()[key] : null;
     if (rowKey) {
-      rowKey(cx);
+      // A held key repeats; l arms on the first press, so a repeat must not confirm the merge.
+      if (!e.is_held) rowKey(cx);
     } else if (gg || (key === "G" && reviews)) {
       this.sel = items[gg ? 0 : items.length - 1]?.id ?? null;
     } else if (key === "u" && reviews && this.lastMark) {
       this.lastMark(cx);
       this.lastMark = null;
-    } else if (key === "/" && reviews) {
+    } else if (key === "/" && reviews && this.reviewView() === "now") {
       this.openFilter(cx);
     } else if (key === "n" && !reviews) {
       openGoal();

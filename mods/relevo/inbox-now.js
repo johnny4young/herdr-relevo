@@ -38,6 +38,7 @@ export class NowViews {
     this.sel = id;
     this.clicked = false;
     if (entry) {
+      if (!this.filterNow([entry]).length) this.filterField.set_value("");
       if (this.reviewView() !== "now") setShared(REVIEW_VIEW, "now");
       if (entry.turn === "open") this.expanded["now-open"] = true;
     } else {
@@ -101,10 +102,15 @@ export class NowViews {
     }
     for (const pr of this.drafts ?? []) add({ id: `pr-${pr.url}`, turn: "open", text: `${pr.repo} ${pr.number} ${pr.title}`, draw: () => this.draftCard(t, pr), go: () => exec("open", [pr.url]),
       keys: () => keysOf(this.draftActions(pr)) });
-    // A filter typed after / keeps the rows whose words contain it.
-    const seen = new Set(), query = (this.filterField?.value() ?? "").trim().toLowerCase();
-    return out.filter((e) => !seen.has(e.id) && seen.add(e.id) && (!query || `${e.id} ${e.text ?? ""}`.toLowerCase().includes(query)))
+    const seen = new Set();
+    return out.filter((e) => !seen.has(e.id) && seen.add(e.id))
       .map((e) => ({ ...e, turn: GROUPS.includes(e.turn) ? e.turn : "open", section: GROUPS.includes(e.turn) ? e.turn : "open" }));
+  }
+
+  // A filter typed after / keeps the rows whose words contain it; only the list and its keys see it, never the badge.
+  filterNow(entries) {
+    const query = (this.filterField?.value() ?? "").trim().toLowerCase();
+    return query ? entries.filter((e) => (e.text ?? "").toLowerCase().includes(query)) : entries;
   }
 
   // The selectable rows in screen order: what you were away for, then each group; "open" only once unfolded.

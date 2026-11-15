@@ -347,6 +347,7 @@ export class Inbox {
   pick(id, cx) {
     this.sel = this.sel === id ? null : id;
     this.clicked = true;
+    this.filtering = false;
     this.h.focus();
     cx.notify();
   }
@@ -682,7 +683,8 @@ export class Inbox {
     this.goalProjection = this.projectGoals(v);
     const reviewView = goalMode ? null : this.reviewView();
     const counts = this.nowCounts(entries), upkeep = goalMode ? null : this.maintenanceModel(v);
-    this.nav = goalMode ? this.goalNav(this.goalProjection.ordered) : reviewView === "now" ? this.nowNav(entries) : this.maintenanceNav(v, upkeep);
+    const shownNow = this.filterNow(entries);
+    this.nav = goalMode ? this.goalNav(this.goalProjection.ordered) : reviewView === "now" ? this.nowNav(shownNow) : this.maintenanceNav(v, upkeep);
     this.keyboard = this.h.is_focused();
     if (this.sel && !this.nav.some((i) => i.id === this.sel)) this.sel = null;
     const view = goalMode ? this.goalViewport() : this.viewport(reviewView === "now" ? NOW_SECTIONS : MAINTENANCE_SECTIONS);
@@ -736,7 +738,7 @@ export class Inbox {
         .when(reviewView === "now" && !entries.length && !this.digest && !this.error && Boolean(this.prsAt), (el) => el.child(this.emptyNow(t)))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
         .children(goalMode ? this.goalsGroup(t) : [])
-        .children(reviewView === "now" ? [...part("away", this.awayGroup(t)), ...this.nowGroups(t, entries, part)] : [])
+        .children(reviewView === "now" ? [...part("away", this.awayGroup(t)), ...this.nowGroups(t, shownNow, part)] : [])
         .children(reviewView === "maintenance" ? this.maintenanceGroups(t, v, part, upkeep) : []))
       .when(Boolean(bulk), (el) => el.child(bulk))
       .when(!bulk, (el) => el.child(this.listKeys(t, reviewView ?? "runs")));

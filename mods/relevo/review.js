@@ -444,7 +444,7 @@ export class ReviewDiff {
   paneKey(e, cx) {
     const m = e.modifiers ?? {};
     if (this.editing !== null || m.platform || m.control || m.alt || !this.open) return false;
-    const at = (this.files ?? []).indexOf(this.open), step = e.key === "[" ? -1 : e.key === "]" ? 1 : 0;
+    const at = (this.files ?? []).findIndex((f) => f.path === this.open.path), step = e.key === "[" ? -1 : e.key === "]" ? 1 : 0;
     if (e.key === "c") this.edit("file", cx);
     else if (e.key === "v" && this.hashes?.get(this.open.path)) this.toggleViewed(this.open.path, cx);
     else if (step && this.files[at + step]) cx.spawn(async (cx) => { await this.pick(this.files[at + step], cx); });

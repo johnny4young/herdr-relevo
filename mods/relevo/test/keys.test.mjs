@@ -152,3 +152,50 @@ test("the ? sheet lists the review pane's keys too", async () => {
   inbox.goalHelp = true;
   assert.ok(find(inbox.render(cx), "shortcut-help-review.comment"));
 });
+
+test("the filter narrows the list but never the badge, and only Now opens it", async () => {
+  const { COUNT } = await import("../toolbar.js");
+  const { inbox, cx, key } = await open([pr(1, { title: "Retry payments" }), pr(2, { title: "Invoice rounding" })]);
+  const before = fake.stored[COUNT];
+  key("/");
+  inbox.filterField.type("invoice", cx);
+  inbox.render(cx);
+  assert.equal(fake.stored[COUNT], before);
+  inbox.filterField.type("github", cx);
+  assert.equal(find(inbox.render(cx), `pr-${url(2)}`), null, "a row's URL is not its words");
+  key("escape");
+  fake.stored["relevo.inbox.view"] = "maintenance";
+  key("/");
+  assert.equal(inbox.filtering, false, "/ does nothing in Maintenance");
+});
+
+test("a click on a row while filtering gives the keys back to the list", async () => {
+  const { inbox, cx, key } = await open();
+  key("/");
+  inbox.pick(`pr-${url(1)}`, cx);
+  key("j");
+  assert.equal(inbox.sel, `pr-${url(2)}`);
+});
+
+test("shift-g goes to the bottom, and a held l does not confirm a land", async () => {
+  const { inbox, cx, key } = await open([pr(1), pr(2, { mergeStateStatus: "CLEAN" })]);
+  inbox.navKey({ key: "g", modifiers: { shift: true } }, cx);
+  assert.equal(inbox.sel, `pr-${url(2)}`);
+  key("l");
+  assert.ok(inbox.arming, "the first l arms");
+  inbox.navKey({ key: "l", is_held: true }, cx);
+  assert.ok(inbox.arming, "a repeat leaves it armed");
+});
+
+test("] moves on after the file list is read again with the same files", async () => {
+  const { ReviewDiff } = await import("../review.js");
+  const v = new ReviewDiff(), cx = fakeCx();
+  v.init({}, cx);
+  v.files = [{ path: "a.ts" }, { path: "b.ts" }, { path: "c.ts" }];
+  v.open = { path: "b.ts" };
+  let picked = null;
+  v.pick = async (f) => { picked = f.path; };
+  v.handleKey({ key: "]", modifiers: {} }, cx);
+  await flush();
+  assert.equal(picked, "c.ts");
+});
