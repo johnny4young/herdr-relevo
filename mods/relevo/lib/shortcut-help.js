@@ -69,30 +69,54 @@ export function filterShortcutHelpRows(rows, query) {
   return rows.filter((row) => terms.every((term) => row.searchText.includes(term)));
 }
 
+// The key bar at a list's foot: the actions tagged with `bar[view]`, in list order; neighbours with one label share it.
+export function barKeys(actions, view) {
+  const groups = [];
+  for (const action of actions) {
+    const label = action.bar?.[view], last = groups.at(-1);
+    if (!label) continue;
+    if (last?.[1] === label) last[0].push(action.fixedShortcut);
+    else groups.push([[action.fixedShortcut], label]);
+  }
+  return groups;
+}
+
+const MOVE = { now: "move", maintenance: "move", runs: "move" };
+
 export const INBOX_SHORTCUT_ACTIONS = [
   { id: "inbox.up", label: "Select previous item", section: "Inbox navigation", fixedShortcut: "up" },
   { id: "inbox.down", label: "Select next item", section: "Inbox navigation", fixedShortcut: "down" },
+  { id: "inbox.j", label: "Select next item", section: "Inbox navigation", fixedShortcut: "j", bar: MOVE },
+  { id: "inbox.k", label: "Select previous item", section: "Inbox navigation", fixedShortcut: "k", bar: MOVE },
+  { id: "inbox.top", label: "Go to the top (g g)", section: "Inbox navigation", fixedShortcut: "g" },
+  { id: "inbox.bottom", label: "Go to the bottom", section: "Inbox navigation", fixedShortcut: "shift-g" },
+  { id: "inbox.review", label: "Review the selected PR or work", section: "Selected row", fixedShortcut: "r" },
+  { id: "inbox.open-github", label: "Open it (PR on GitHub, agent, Desktop)", section: "Selected row", fixedShortcut: "o" },
+  { id: "inbox.addressed", label: "Mark it addressed", section: "Selected row", fixedShortcut: "a" },
+  { id: "inbox.undo", label: "Undo the last addressed", section: "Selected row", fixedShortcut: "u" },
+  { id: "inbox.land", label: "Land a ready PR (press twice)", section: "Selected row", fixedShortcut: "l" },
+  { id: "inbox.filter", label: "Filter the list", section: "Inbox navigation", fixedShortcut: "/" },
   { id: "inbox.first", label: "Select first item", section: "Inbox navigation", fixedShortcut: "home" },
   { id: "inbox.last", label: "Select last item", section: "Inbox navigation", fixedShortcut: "end" },
-  { id: "inbox.open", label: "Open selected item", section: "Inbox navigation", fixedShortcut: "enter" },
+  { id: "inbox.open", label: "Open selected item", section: "Inbox navigation", fixedShortcut: "enter", bar: { now: "do the action", maintenance: "open", runs: "open the run" } },
   { id: "inbox.return", label: "Return focus", section: "Inbox navigation", fixedShortcut: "escape" },
   { id: "inbox.answer", label: "Choose a numbered answer", section: "Inbox navigation", fixedShortcut: "1" },
-  { id: "inbox.now", label: "Show Now", section: "Inbox navigation", fixedShortcut: "n" },
-  { id: "inbox.maintenance", label: "Show Maintenance", section: "Inbox navigation", fixedShortcut: "m" },
-  { id: "runs.move", label: "Select next or previous run or task", section: "Runs", fixedShortcut: "j" },
-  { id: "runs.open", label: "Open the run or task in the panel", section: "Runs", fixedShortcut: "enter" },
-  { id: "runs.back", label: "Back to tasks, then to runs", section: "Runs", fixedShortcut: "escape" },
-  { id: "runs.new", label: "New run", section: "Runs", fixedShortcut: "n" },
-  { id: "runs.window", label: "Open the run window", section: "Runs", fixedShortcut: "w" },
-  { id: "runs.accept", label: "Accept a result (Enter confirms)", section: "Runs", fixedShortcut: "a" },
-  { id: "runs.changes", label: "Ask for changes", section: "Runs", fixedShortcut: "r" },
-  { id: "runs.diff", label: "See the diff", section: "Runs", fixedShortcut: "d" },
-  { id: "inbox.mark", label: "Select or unselect the worktree", section: "Maintenance", fixedShortcut: "x" },
+  { id: "inbox.mark", label: "Select or unselect the worktree", section: "Maintenance", fixedShortcut: "x", bar: { maintenance: "select" } },
   { id: "inbox.mark-safe", label: "Select every worktree that is safe to remove", section: "Maintenance", fixedShortcut: "shift-x" },
   { id: "inbox.remove-marked", label: "Remove the selected worktrees, or ask to remove this one", section: "Maintenance", fixedShortcut: "d" },
   { id: "inbox.unmark", label: "Cancel the question or the selection", section: "Maintenance", fixedShortcut: "escape" },
   { id: "inbox.tree-save", label: "Save a copy of this worktree's work", section: "Maintenance", fixedShortcut: "s" },
   { id: "inbox.tree-folder", label: "Open this worktree's folder", section: "Maintenance", fixedShortcut: "o" },
+  { id: "runs.move", label: "Select next or previous run or task", section: "Runs", fixedShortcut: "j" },
+  { id: "runs.open", label: "Open the run or task in the panel", section: "Runs", fixedShortcut: "enter" },
+  { id: "runs.back", label: "Back to tasks, then to runs", section: "Runs", fixedShortcut: "escape" },
+  { id: "runs.new", label: "New run", section: "Runs", fixedShortcut: "n", bar: { runs: "new run" } },
+  { id: "runs.window", label: "Open the run window", section: "Runs", fixedShortcut: "w" },
+  { id: "runs.accept", label: "Accept a result (Enter confirms)", section: "Runs", fixedShortcut: "a" },
+  { id: "runs.changes", label: "Ask for changes", section: "Runs", fixedShortcut: "r" },
+  { id: "runs.diff", label: "See the diff", section: "Runs", fixedShortcut: "d" },
+  { id: "inbox.now", label: "Show Now", section: "Inbox navigation", fixedShortcut: "n", bar: { maintenance: "now" } },
+  { id: "inbox.maintenance", label: "Show Maintenance", section: "Inbox navigation", fixedShortcut: "m", bar: { now: "maintenance" } },
   { id: "relevo.panel-reviews", label: "Show Reviews", section: "Relevo commands" },
   { id: "relevo.panel-runs", label: "Show Runs", section: "Relevo commands" },
   { id: "relevo.next-waiting", label: "Focus next waiting agent", section: "Relevo commands" },

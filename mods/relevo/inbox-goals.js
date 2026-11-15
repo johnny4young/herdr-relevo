@@ -3,7 +3,7 @@ import { h_flex } from "gpui-base";
 import { shared, setShared, readTextFile, appHome } from "herdr";
 import { runtimeCommand } from "./runtime-cli.js";
 import { accountFor, inFocus } from "./context.js";
-import { button, markButton } from "./ui.js";
+import { button } from "./ui.js";
 import { openGoal } from "./goals-editor.js";
 import { readGoals, writeGoal, GOALS_CHANGED } from "./goals-store.js";
 import { emptyGoals, groupSources, sourceKey, closeGoal, goalState } from "./lib/goals.js";
@@ -194,6 +194,15 @@ export class GoalViews {
     this.h.focus();
   }
 
+  // What a run result or a decision row can do, for its buttons, its keys and its keycaps alike.
+  reviewActions(entry, addressed = false) {
+    const result = entry.id.startsWith("result-");
+    return {
+      main: { id: `open-${entry.id}`, label: result ? "Review result" : "Review decision", run: entry.go, kind: "go" },
+      mark: this.markAction(entry.id, addressed, (on, cx) => this.setReviewAddressed(entry, on, cx), "Hide until it changes. Nothing is accepted."),
+    };
+  }
+
   // A run result or a decision that waits on you.
   reviewRow(t, entry, addressed = false) {
     const result = entry.id.startsWith("result-");
@@ -203,16 +212,15 @@ export class GoalViews {
         div().text_size(11).text_color(t.muted).truncate().child(entry.detail),
         entry.meta ? div().id(`meta-${entry.id}`).text_size(11).text_color(t.muted).truncate().tooltip(entry.meta).child(entry.meta) : null,
       ],
-      main: button(t, `open-${entry.id}`, result ? "Review result" : "Review decision", entry.go, { kind: "go" }),
-      mark: markButton(t, entry.id, addressed, (on, cx) => this.setReviewAddressed(entry, on, cx), "Hide until it changes. Nothing is accepted."),
+      ...this.reviewActions(entry, addressed),
     });
   }
 
-  sourceContextButton(t, key) {
+  sourceContextAction(key) {
     const source = this.goalSources(this.shown()).find((source) => source.key === key);
     if (!source) return null;
     const goal = this.goalDoc?.goals.find((goal) => goal.sources.includes(key));
-    return button(t, `source-link-${key}`, goal ? "Open run" : "Link run", () => openGoal(goal?.id ?? null, source), { size: "sm" });
+    return { id: `source-link-${key}`, label: goal ? "Open run" : "Link run", run: () => openGoal(goal?.id ?? null, source), size: "sm" };
   }
 
   projectGoals(v) {

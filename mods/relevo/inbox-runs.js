@@ -279,9 +279,9 @@ export class RunViews {
 
   runsKeys(t) {
     const help = [["?"], "all keys"], task = this.shownTask();
-    if (task) return keyBar(t, "runs-keys", [...(task.state === "needs_you" ? [[["a", "enter"], "accept"], [["r"], "ask for changes"]] : []), [["d"], "diff"], [["esc"], "tasks"]], help);
-    if (this.goalProjection.scope) return keyBar(t, "runs-keys", [[["j", "k"], "move"], [["enter"], "open the task"], [["esc"], "runs"]], help);
-    return keyBar(t, "runs-keys", [[["j", "k"], "move"], [["enter"], "open the run"], [["n"], "new run"]], help);
+    if (task) return keyBar(t, "list-keys", [...(task.state === "needs_you" ? [[["a", "enter"], "accept"], [["r"], "ask for changes"]] : []), [["d"], "diff"], [["esc"], "tasks"]], help);
+    if (this.goalProjection.scope) return keyBar(t, "list-keys", [[["j", "k"], "move"], [["enter"], "open the task"], [["esc"], "runs"]], help);
+    return this.listKeys(t, "runs");
   }
 
   runsBody(t, runs) {
@@ -355,13 +355,13 @@ export class RunViews {
   taskRow(t, goal, task) {
     const turn = taskTurn(task), id = `task-${task.id}`, at = taskAt(task);
     const open = (cx) => { this.resetRun(task.id); this.h.focus(); cx.notify(); };
-    const main = turn === "me" ? button(t, `task-review-${task.id}`, "Review", open, { kind: "go" })
-      : turn === "stuck" ? button(t, `task-why-${task.id}`, "See why", (cx) => { this.sel = id; this.clicked = true; this.h.focus(); cx.notify(); }) : null;
+    const main = turn === "me" ? { id: `task-review-${task.id}`, label: "Review", run: open, kind: "go" }
+      : turn === "stuck" ? { id: `task-why-${task.id}`, label: "See why", run: (cx) => { this.sel = id; this.clicked = true; this.h.focus(); cx.notify(); } } : null;
     return this.item(t, id, {
       turn: turn === "done" ? (task.state === "accepted" ? "ready" : "old") : turn, kind: "relay", title: task.title, reason: taskReason(task),
       age: at ? ago(at, true) : null, tip: task.title, main,
       lines: turn === "stuck" ? () => this.stuckLines(t, goal, task) : [],
-      actions: turn === "me" ? [] : [button(t, `task-open-${task.id}`, "Open", open, { tip: "Who did what on this task" })],
+      actions: turn === "me" ? [] : [{ id: `task-open-${task.id}`, label: "Open", run: open, tip: "Who did what on this task" }],
     });
   }
 

@@ -82,6 +82,15 @@ const live = () => Object.fromEntries(
 
 const sendChord = (e) => e.key === "enter" && Boolean(e.modifiers?.platform) && !e.modifiers.alt && !e.modifiers.control && !e.modifiers.shift;
 
+// What handleKey and paneKey answer, for the Inbox's ? sheet.
+export const REVIEW_SHORTCUT_ACTIONS = [
+  { id: "review.comment", label: "Comment on the file", section: "Review pane", fixedShortcut: "c" },
+  { id: "review.viewed", label: "Mark the file viewed", section: "Review pane", fixedShortcut: "v" },
+  { id: "review.prev", label: "Previous file", section: "Review pane", fixedShortcut: "[" },
+  { id: "review.next", label: "Next file", section: "Review pane", fixedShortcut: "]" },
+  { id: "review.send", label: "Send the comments to the agent", section: "Review pane", fixedShortcut: "cmd-enter" },
+];
+
 // A comment's label and text; `oneLine` cuts the text instead of wrapping it.
 const noteLine = (t, c, oneLine = false) => h_flex().min_w(0).gap(8).items_center()
   .child(div().flex_none().text_size(11).text_color(t.accent).child(commentLabel(c)))
@@ -425,9 +434,23 @@ export class ReviewDiff {
 
   // ⌘↵ is the Send button and waits for the same things; a held key repeats, and one press sends once.
   handleKey(e, cx) {
-    if (this.escapeKey(e, cx) || !sendChord(e) || e.is_held || !this.ready()) return;
+    if (this.escapeKey(e, cx) || this.paneKey(e, cx)) return;
+    if (!sendChord(e) || e.is_held || !this.ready()) return;
     cx.stop_propagation();
     this.send(cx);
+  }
+
+  // While no comment is open: c comments on the file, v marks it viewed, [ and ] go to the previous or next file.
+  paneKey(e, cx) {
+    const m = e.modifiers ?? {};
+    if (this.editing !== null || m.platform || m.control || m.alt || !this.open) return false;
+    const at = (this.files ?? []).findIndex((f) => f.path === this.open.path), step = e.key === "[" ? -1 : e.key === "]" ? 1 : 0;
+    if (e.key === "c") this.edit("file", cx);
+    else if (e.key === "v" && this.hashes?.get(this.open.path)) this.toggleViewed(this.open.path, cx);
+    else if (step && this.files[at + step]) cx.spawn(async (cx) => { await this.pick(this.files[at + step], cx); });
+    else return false;
+    cx.stop_propagation();
+    return true;
   }
 
   // Runs inside the virtual list: no handlers here, clicks go through on_item_click.

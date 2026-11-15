@@ -116,7 +116,7 @@ test('Runs at a glance: header, legend, groups by turn, Now and Shipped, older r
   assert.equal(find(tree, 'goal-old'), null);
   assert.equal(text(find(tree, 'runs-closed-fold')), '1 older finished run');
   assert.match(text(find(tree, 'runs-setups')), /^Saved setups · 1 Show$/);
-  assert.equal(text(find(tree, 'runs-keys')), 'j k move open the run n new run ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'j k move open the run n new run ? all keys');
   click(find(tree, 'runs-setups-show'), cx);
   assert.deepEqual(windows(), [{ role: 'workflow', goalId: 'g', setups: true }]);
   v.navKey({ key: 'n' }, cx);
@@ -140,7 +140,7 @@ test('Enter or a click opens a run in the panel, never the run window; j, k and 
   assert.match(text(find(tree, 'task-b')), /^Task b approved, 2nd attempt/);
   assert.match(text(find(tree, 'task-e')), /^Task e Codex Luna is writing it/);
   assert.equal(find(tree, 'task-p'), null);
-  assert.equal(text(find(tree, 'runs-keys')), 'j k move open the task esc runs ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'j k move open the task esc runs ? all keys');
   v.navKey({ key: 'j' }, cx); v.navKey({ key: 'j' }, cx); v.navKey({ key: 'k' }, cx);
   assert.equal(v.sel, 'task-b');
   click(find(tree, 'run-rest-fold'), cx); tree = v.render(cx);
@@ -195,7 +195,7 @@ test('a task opens with the summary, who did what and the decision; Accept is A 
   assert.equal(text(find(tree, 'task-accept')), 'a Accept'); assert.equal(find(tree, 'task-accept').fill, t.accent);
   assert.equal(text(find(tree, 'task-changes')), 'r Ask for changes'); assert.equal(text(find(tree, 'task-diff')), 'd See the diff');
   assert.equal(text(find(tree, 'task-effect')), 'Accepting keeps the worktree and commits to its run branch; More offers the draft pull request. Accepting finishes this task. No follow-up task is defined.');
-  assert.equal(text(find(tree, 'runs-keys')), 'a accept r ask for changes d diff esc tasks ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'a accept r ask for changes d diff esc tasks ? all keys');
 
   v.navKey({ key: 'enter' }, cx); await flush();
   assert.deepEqual(decided(), [], 'Enter alone accepts nothing');

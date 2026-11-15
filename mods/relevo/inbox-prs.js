@@ -7,7 +7,7 @@ import { contextFor } from "./context.js";
 import { reviewAlerts, prAlerts, mergedAlert } from "./alerts.js";
 import { REPOS_ROOT } from "./config.js";
 import { LAUNCHED, SKILLS, configuredSkill, launched, launchSkill } from "./skills.js";
-import { button, spinner, withKey, icon, markButton, seg, diffRatio } from "./ui.js";
+import { spinner, withKey, icon, seg, diffRatio } from "./ui.js";
 import { CI_WORDS, ciRunning, prName, prReason, prTurn } from "./lib/lanes.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
@@ -238,16 +238,24 @@ export class PrViews {
     });
   }
 
+  // What a draft row can do, for its buttons, its keys and its keycaps alike.
+  draftActions(pr) {
+    const open = { id: `open-${pr.url}`, key: "o", label: "Open PR", run: () => exec("open", [pr.url]) };
+    return {
+      main: { id: `ready-${pr.url}`, label: "Ready for review", run: (cx) => this.prCommand(pr, ["ready"], "Ready for review", cx) },
+      actions: [
+        open,
+        this.sourceContextAction(`pr:${pr.url}`),
+        { id: `source-skills-pr:${pr.url}`, label: "Skills…", run: () => this.openSkillMenu(pr), size: "sm", disabled: !this.clones[pr.repo], tip: "Choose a skill and account before running" },
+      ],
+    };
+  }
+
   draftCard(t, pr) {
     return this.item(t, `pr-${pr.url}`, {
       turn: "open", kind: "pr", title: prName(pr), reason: "draft", tip: pr.title, age: ago(seconds(pr.updatedAt), true),
       lines: this.prLines(t, pr),
-      main: button(t, `ready-${pr.url}`, "Ready for review", (cx) => this.prCommand(pr, ["ready"], "Ready for review", cx)),
-      actions: [
-        button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url])),
-        this.sourceContextButton(t, `pr:${pr.url}`),
-        button(t, `source-skills-pr:${pr.url}`, "Skills…", () => this.openSkillMenu(pr), { size: "sm", disabled: !this.clones[pr.repo], tip: "Choose a skill and account before running" }),
-      ],
+      ...this.draftActions(pr),
     });
   }
 
@@ -305,47 +313,47 @@ export class PrViews {
     return l.skill === "review" ? "draft review ready on GitHub" : `${name} finished`;
   }
 
-  prCard(t, pr, requested, addressed = false, ready = false) {
+  // What a PR row can do, for its buttons, its keys and its keycaps alike: r reviews, o opens, l lands (twice), a marks.
+  prActions(t, pr, requested, addressed = false) {
     const l = this.launchedMap()[pr.url], agent = this.prAgents[pr.url], seen = this.seen(pr), busy = Boolean(l) && this.prBusy(pr);
-    const done = Boolean(l && seen) && (!agent || agent.status === "idle" || agent.status === "done");
-    const openPR = button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url]), {
-      kind: done && l.skill === "review" ? "solid" : "outline",
-    });
-    const actions = done && l.skill === "review" ? [openPR] : [];
-    if (agent) actions.push(button(t, `agent-${pr.url}`, "Agent", () => run("agent.focus", { terminal: agent.address })));
+    const reviewed = Boolean(l && seen) && (!agent || agent.status === "idle" || agent.status === "done") && l.skill === "review";
+    const openPR = { id: `open-${pr.url}`, key: "o", label: "Open PR", run: () => exec("open", [pr.url]), kind: reviewed ? "solid" : "outline" };
+    const actions = reviewed ? [openPR] : [];
+    if (agent) actions.push({ id: `agent-${pr.url}`, label: "Agent", run: () => run("agent.focus", { terminal: agent.address }) });
     if (this.clones[pr.repo] && !(seen && agent) && !busy) {
-      pr.skills.forEach((s) => actions.push(this.skillButton(t, pr, s, !seen && !requested && (s === "conflicts" || (pr.hot && s === "fix")))));
+      pr.skills.forEach((s) => actions.push({ el: this.skillButton(t, pr, s, !seen && !requested && (s === "conflicts" || (pr.hot && s === "fix"))) }));
     }
     if (!requested && this.clones[pr.repo]) {
-      actions.push(button(t, `review-pr-${pr.url}`, "Review", () => this.reviewPR(pr), {
-        tip: withKey("The whole PR against its base, line by line", "relevo.review"),
-      }));
+      actions.push({ id: `review-pr-${pr.url}`, key: "r", label: "Review", run: () => this.reviewPR(pr), tip: withKey("The whole PR against its base, line by line", "relevo.review") });
     }
-    const moves = requested ? {} : prMoves(pr), landing = Boolean(this.landing()[pr.url]);
-    if ((moves.land || moves.auto) && !landing) {
+    const moves = requested ? {} : prMoves(pr);
+    if ((moves.land || moves.auto) && !this.landing()[pr.url]) {
       const key = `land-${pr.url}`, armed = this.armed(key), how = mergeFlag(pr.repository).slice(2);
       const label = moves.land ? "Land" : "Land when ready";
-      actions.unshift(button(t, `land-btn-${pr.url}`, armed ? `Confirm ${label.toLowerCase()}` : label,
-        (cx) => this.arm(key, cx, () => this.land(pr, !moves.land, cx)), {
-          kind: armed ? "danger" : "outline",
-          tip: moves.land
-            ? `Merges (${how}), follows the workflows it starts, then removes its worktree if nothing would be lost`
-            : `Turns on auto-merge (${how}) and follows it like Land`,
-        }));
+      actions.unshift({
+        id: `land-btn-${pr.url}`, key: "l", label: armed ? `Confirm ${label.toLowerCase()}` : label,
+        run: (cx) => this.arm(key, cx, () => this.land(pr, !moves.land, cx)), kind: armed ? "danger" : "outline",
+        tip: moves.land
+          ? `Merges (${how}), follows the workflows it starts, then removes its worktree if nothing would be lost`
+          : `Turns on auto-merge (${how}) and follows it like Land`,
+      });
     }
     if (moves.update) {
-      actions.push(button(t, `update-${pr.url}`, "Update branch", (cx) => this.prCommand(pr, ["update-branch"], "Branch updated", cx), {
-        tip: `Merges ${pr.baseRefName} into it on GitHub`,
-      }));
+      actions.push({ id: `update-${pr.url}`, label: "Update branch", run: (cx) => this.prCommand(pr, ["update-branch"], "Branch updated", cx), tip: `Merges ${pr.baseRefName} into it on GitHub` });
     }
     if (moves.rerun) {
-      actions.push(button(t, `retry-ci-${pr.url}`, "Retry CI", (cx) => this.retryCI(pr, cx), {
-        tip: "Runs the failed and cancelled jobs again", disabled: this.retrying?.has(pr.url),
-      }));
+      actions.push({ id: `retry-ci-${pr.url}`, label: "Retry CI", run: (cx) => this.retryCI(pr, cx), tip: "Runs the failed and cancelled jobs again", disabled: this.retrying?.has(pr.url) });
     }
     if (!actions.includes(openPR)) actions.push(openPR);
-    const context = this.sourceContextButton(t, `pr:${pr.url}`);
-    if (context) actions.push(context);
+    actions.push(this.sourceContextAction(`pr:${pr.url}`));
+    return {
+      main: actions[0], actions,
+      mark: this.markAction(pr.url, addressed, (on, cx) => this.setAddressed(pr, on, cx), "Addressed: hide until there's new activity"),
+    };
+  }
+
+  prCard(t, pr, requested, addressed = false, ready = false) {
+    const l = this.launchedMap()[pr.url], agent = this.prAgents[pr.url], seen = this.seen(pr), busy = Boolean(l) && this.prBusy(pr);
     const working = agent?.status === "working" || this.backgroundOf(agent) !== null;
     return this.item(t, `pr-${pr.url}`, {
       turn: prTurn(pr, { requested, seen, busy, ready }), done: addressed, kind: requested ? "review" : "pr",
@@ -353,8 +361,7 @@ export class PrViews {
       age: ago(seconds(pr.updatedAt), true),
       lines: () => this.prLines(t, pr, l && (seen || busy)
         ? div().text_size(11).text_color(working ? t.working : t.dim).child(this.agentLine(pr, agent)) : null),
-      main: actions[0], actions,
-      mark: markButton(t, pr.url, addressed, (on, cx) => this.setAddressed(pr, on, cx), "Addressed: hide until there's new activity"),
+      ...this.prActions(t, pr, requested, addressed),
     });
   }
 
