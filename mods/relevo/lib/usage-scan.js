@@ -1,6 +1,9 @@
 // Token usage from Claude's and Codex's transcripts: the shell pulls out the few fields per message, and these
 // pure functions add them up, so the tests can feed them fixtures.
 import { dayKey } from "./usage.js";
+import { WORKTREES, runFolder } from "./run-folder.js";
+
+const HERDR_WORKTREES = `/${WORKTREES.join("/")}/`;
 
 export const KEEP_DAYS = 31;
 const PAUSE_SECONDS = 3600;
@@ -159,13 +162,32 @@ export function parseScan(text) {
 // The repo a folder belongs to when its path alone says it, else null.
 export function projectFromPath(cwd) {
   if (!cwd) return "unknown";
-  if (cwd.includes("/.herdr/worktrees/")) return cwd.split("/.herdr/worktrees/")[1].split("/")[0] || "unknown";
+  if (cwd.includes(HERDR_WORKTREES)) return cwd.split(HERDR_WORKTREES)[1].split("/")[0] || "unknown";
   if (cwd.includes("/.claude/worktrees/")) return cwd.split("/.claude/worktrees/")[0].split("/").pop() || "unknown";
   if (cwd.includes("/scratch-workspaces/")) return "scratch";
   return null;
 }
 
-export const emptyState = () => ({ v: 1, files: {}, projects: {}, rows: {}, sessions: {}, seen: {} });
+export const emptyState = () => ({ v: 1, files: {}, projects: {}, rows: {}, sessions: {}, runs: {}, seen: {} });
+
+// A transcript's session: its file name without the extension.
+export const sessionOf = (path) => path.split("/").pop().replace(/\.jsonl$/, "");
+
+export const RUN_BUCKET_MS = 300000;
+// Tokens spent inside a run's worktree, by session and five minutes, so a run's attempts can be costed by their time.
+function addRun(state, id, cwd, ts, context, output) {
+  const folder = runFolder(cwd), at = Date.parse(ts);
+  if (!folder || !id || !Number.isFinite(at)) return;
+  const runs = state.runs ?? (state.runs = {}), key = `${folder}\t${id}`;
+  const s = runs[key] ?? (runs[key] = { last: ts, spans: {} });
+  if (at > Date.parse(s.last)) s.last = ts;
+  const bucket = Math.floor(at / RUN_BUCKET_MS), span = s.spans[bucket] ?? (s.spans[bucket] = [0, 0]);
+  span[0] += context;
+  span[1] += output;
+}
+
+// The run folders the scanner holds tokens for.
+export const runFolders = (state) => [...new Set(Object.keys(state.runs ?? {}).map((key) => key.split("\t")[0]))];
 
 export const cutDay = (now = new Date()) => dayKey(new Date(now.getTime() - KEEP_DAYS * 86400000));
 
@@ -201,6 +223,7 @@ export function addClaude(state, seen, file, { account, kind, project, cut }) {
     const paused = own === "main" && gap > PAUSE_SECONDS && m.write > PAUSE_MIN_WRITE;
     addRow(state, [day, account, surface, where, own, m.model || "unknown"].join("\t"),
       [m.input, m.write, m.read, m.output, 1, paused ? m.write : 0, paused ? 1 : 0]);
+    addRun(state, m.sid, m.cwd, m.ts, m.input + m.write + m.read, m.output);
     if (surface === "automatic") continue;
     const s = state.sessions[m.sid] ?? (state.sessions[m.sid] = { title: null, write: 0, output: 0 });
     Object.assign(s, { account, surface, project: where, last: m.ts });
@@ -233,8 +256,9 @@ export function addCodex(state, file, { project, cut }) {
     f.total = total;
     const day = dayKey(new Date(ts));
     if (day < cut) continue;
-    addRow(state, [day, "codex", "codex", project(f.cwd), "main", "codex"].join("\t"),
-      [Math.max(0, input - cached), 0, Math.max(0, cached), Math.max(0, output), 1, 0, 0]);
+    const tokens = [Math.max(0, input - cached), 0, Math.max(0, cached), Math.max(0, output)];
+    addRow(state, [day, "codex", "codex", project(f.cwd), "main", "codex"].join("\t"), [...tokens, 1, 0, 0]);
+    addRun(state, sessionOf(file.path), f.cwd, ts, tokens[0] + tokens[2], tokens[3]);
   }
   f.size = file.size;
 }
@@ -251,19 +275,32 @@ export function prune(state, cut, listed) {
   for (const day of Object.keys(state.seen)) if (day < cut) drop(state.seen, day);
   for (const path of Object.keys(state.files)) if (!listed.has(path)) drop(state.files, path);
   for (const [id, s] of Object.entries(state.sessions)) if (!s.last || s.last.slice(0, 10) < cut) drop(state.sessions, id);
+  for (const [key, s] of Object.entries(state.runs ?? {})) if (dayKey(new Date(s.last)) < cut) drop(state.runs, key);
   return gone;
 }
 
+// A span is under 30 bytes, so the report's runs stay under 250 KB; the report is read whole, up to 1 MiB.
+const MAX_RUN_SPANS = 8000;
 const COLUMNS = ["input", "write", "read", "output", "msgs", "pause_write", "pauses"];
 
-export function reportOf(state, updated) {
+// `folders`: the run folders worth reporting (still on disk or still in the queue); without it, all of them.
+export function reportOf(state, updated, folders = null) {
   const rows = Object.entries(state.rows).map(([key, values]) => {
     const [day, account, surface, project, kind, model] = key.split("\t");
     return { day, account, surface, project, kind, model, ...Object.fromEntries(COLUMNS.map((c, i) => [c, values[i]])) };
   });
   const sessions = Object.entries(state.sessions).map(([id, s]) => ({ id, ...s }))
     .sort((a, b) => b.write - a.write).slice(0, 200);
-  return { updated, rows, sessions };
+  // One entry per session that worked in a run's worktree, newest first; a span is [five-minute bucket, context tokens, output tokens].
+  const runs = [];
+  let room = MAX_RUN_SPANS;
+  for (const [key, s] of Object.entries(state.runs ?? {}).sort((a, b) => (a[1].last < b[1].last ? 1 : -1))) {
+    const [folder, id] = key.split("\t"), spans = Object.entries(s.spans).map(([bucket, [context, output]]) => [Number(bucket), context, output]);
+    if ((folders && !folders.has(folder)) || spans.length > room) continue;
+    room -= spans.length;
+    runs.push({ id, folder, last: s.last, spans });
+  }
+  return { updated, rows, sessions, runs };
 }
 
 // The newest message of a transcript: model, context size, and how long its prompt cache lasts.

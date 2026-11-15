@@ -261,3 +261,16 @@ test("a token read that found nothing new writes no report and redraws nothing",
   assert.deepEqual(writes, []);
   assert.equal(fake.stored["relevo.usage"].updated, written);
 });
+
+test("the report lists run sessions only for worktrees still on disk or still in the run queue", async () => {
+  const { home, projects } = realHome();
+  const folder = (slug) => join(dir, ".herdr", "worktrees", "app", slug), [there, queued, gone] = ["there-0a1b2c", "queued-0a1b2c", "gone-0a1b2c"].map(folder);
+  mkdirSync(there, { recursive: true });
+  mkdirSync(join(home, ".config", "herdr-app", "relevo-workflow"), { recursive: true });
+  writeFileSync(join(home, ".config", "herdr-app", "relevo-workflow", "state.json"), JSON.stringify({ tasks: [{ worktree: { path: queued, removed: true } }, {}] }));
+  writeFileSync(join(projects, "a.jsonl"), [there, queued, gone].map((cwd, i) => line(i + 1, stamp(), { cwd, sid: `s${i}` })).join(""));
+  await new UsageScanner().scan();
+  const report = JSON.parse(fake.read("/home/test/.local/state/relevo/usage/report.json"));
+  assert.deepEqual(report.runs.map((s) => s.folder).sort(), [queued, there].sort());
+  assert.deepEqual(report.runs[0].spans[0].slice(1), [106, 10]);
+});
