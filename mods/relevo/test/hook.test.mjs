@@ -268,3 +268,30 @@ test("a request that can't be read is still noted, by its time alone", () => {
   assert.deepEqual({ ...note, at: 0 }, { at: 0, terminal: "t1", tool: "", input: {} });
   assert.ok(Math.abs(note.at - Date.now() / 1000) < 60);
 });
+
+test("outside Herdr a terminal session is noted for Elsewhere, and its end removes the note", () => {
+  const outside = (data, extra = {}) => {
+    const r = spawnSync("bash", [script], { env: env({ TERM_PROGRAM: "Apple_Terminal", __CFBundleIdentifier: "com.apple.Terminal", ...extra }), input: JSON.stringify(data), encoding: "utf8" });
+    assert.equal(r.status, 0);
+  };
+  const note = path.join(home, ".local/state/relevo/elsewhere/s-1.json");
+  const base = { session_id: "s-1", cwd: "/w/app", transcript_path: "/w/t.jsonl" };
+  outside({ hook_event_name: "SessionStart", ...base });
+  const saved = JSON.parse(fs.readFileSync(note, "utf8"));
+  assert.deepEqual({ ...saved, at: 0 }, { session: "s-1", event: "SessionStart", cwd: "/w/app", transcript: "/w/t.jsonl", app: "Apple_Terminal",
+    bundle: "com.apple.Terminal", dir: ".claude", at: 0, tool: "" });
+  outside({ hook_event_name: "PermissionRequest", tool_name: "Bash", ...base });
+  assert.equal(JSON.parse(fs.readFileSync(note, "utf8")).tool, "Bash");
+  outside({ hook_event_name: "SessionEnd", ...base });
+  assert.equal(fs.existsSync(note), false);
+  outside({ hook_event_name: "SessionStart", ...base }, { CLAUDE_CODE_ENTRYPOINT: "claude-desktop" });
+  outside({ hook_event_name: "SessionStart", ...base, session_id: "../x" });
+  assert.equal(fs.existsSync(note), false);
+  assert.deepEqual(fs.readdirSync(path.join(home, ".local/state/relevo/elsewhere")), []);
+  assert.equal(fs.existsSync(log), false, "outside Herdr it sets no labels");
+});
+
+test("inside Herdr nothing is noted for Elsewhere", () => {
+  hook({ hook_event_name: "SessionStart", session_id: "s-2", cwd: home });
+  assert.equal(fs.existsSync(path.join(home, ".local/state/relevo/elsewhere")), false);
+});

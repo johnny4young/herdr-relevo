@@ -21,6 +21,7 @@ import { spinner, withKey, quotaTone } from "./ui.js";
 import { openSettings } from "./settings.js";
 import { UsageScanner, ContextWatch } from "./usage-scan.js";
 import { DesktopWatch } from "./desktop.js";
+import { ElsewhereWatch } from "./elsewhere.js";
 import { TurnWatch } from "./turns.js";
 
 // Chip and label; wide enough for an 8-letter account name.
@@ -63,8 +64,10 @@ export class Sidebar {
       await syncFolders();
     }));
     this.desktop = new DesktopWatch(this.turns);
+    this.elsewhere = new ElsewhereWatch();
     const readDesktop = (cx) => cx.spawn(async () => {
       await this.desktop.tick();
+      await this.elsewhere.tick();
     });
     readDesktop(cx);
     cx.timer.every(30000, readDesktop);

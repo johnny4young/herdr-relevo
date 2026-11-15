@@ -353,13 +353,18 @@ export default class Agents extends View {
     return (shared("relevo.desktop") ?? []).filter((s) => DESKTOP_STATUS[s.state] && !settled.has(s.id));
   }
 
-  // A Claude Desktop session reads like an agent: what it does or needs. A click opens its last words here.
-  desktopRow(t, s, now) {
-    const turn = plainTurn(DESKTOP_STATUS[s.state]), open = this.openDesk === s.id, me = turn === "me";
+  // Claude Code in a terminal outside Herdr, from the hook's notes.
+  elsewhereSessions() {
+    return (shared("relevo.elsewhere") ?? []).filter((s) => DESKTOP_STATUS[s.state]);
+  }
+
+  // A session outside Herdr reads like an agent: what it does or needs. A click opens its last words here.
+  outsideRow(t, s, now, { prefix, where = null, open: go = null }) {
+    const turn = plainTurn(DESKTOP_STATUS[s.state]), open = this.openOutside === s.id, me = turn === "me";
     const what = s.state === "working" ? s.doing ?? firstLine(s.said) ?? "working" : s.state === "blocked" ? s.needs || "asks you" : firstLine(s.said) || s.detail || s.title;
     const said = open && s.said ? (s.said.length > 320 ? `${s.said.slice(0, 319)}…` : s.said) : null;
     return v_flex()
-      .id(`dk-${s.id}`)
+      .id(`${prefix}-${s.id}`)
       .px(ROW_PAD)
       .flex_none()
       .rounded(8)
@@ -368,21 +373,31 @@ export default class Agents extends View {
       .when(open, (el) => el.bg(t.selected))
       .cursor_pointer()
       .hover((el) => el.bg(t.hover))
-      .tooltip(s.title || s.project)
-      .on_click((_e, cx) => { this.openDesk = open ? null : s.id; cx.notify(); })
+      .tooltip(s.title || s.cwd || s.project)
+      .on_click((_e, cx) => { this.openOutside = open ? null : s.id; cx.notify(); })
       .child(h_flex().h(28).flex_none().items_center().gap(8)
         .child(h_flex().w(14).flex_none().justify_center().child(laneGlyph(t, turn)))
         .child(h_flex().flex_1().min_w(0).gap(7).items_center()
           .child(div().flex_none().max_w(what ? 130 : 220).truncate().font_medium().text_color(t.foreground).child(s.project))
-          .when(Boolean(what), (el) => el.child(div().id(`dk-what-${s.id}`).flex_1().min_w(0).truncate().text_color(me ? t.blocked : t.muted).child(what))))
+          .when(Boolean(what), (el) => el.child(div().id(`${prefix}-what-${s.id}`).flex_1().min_w(0).truncate().text_color(me ? t.blocked : t.muted).child(what))))
+        .when(Boolean(where), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(where)))
         .when(s.state !== "working", (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - s.at * 1000)))))
-      .when(open, (el) => el.child(v_flex().id(`dk-more-${s.id}`).pl(GUTTER).pb(6).gap(5).text_size(11).text_color(t.muted)
+      .when(open, (el) => el.child(v_flex().id(`${prefix}-more-${s.id}`).pl(GUTTER).pb(6).gap(5).text_size(11).text_color(t.muted)
         .when(Boolean(s.title) && s.title !== s.project, (c) => c.child(div().truncate().text_color(t.dim).child(s.title)))
-        .when(Boolean(said), (c) => c.child(div().id(`dk-said-${s.id}`).text_color(t.foreground).child(said)))
-        .child(h_flex().child(div().id(`dk-open-${s.id}`).px(6).h(22).flex().items_center().rounded(5).border_1().border_color(t.border)
-          .text_color(t.foreground).hover((b) => b.bg(t.hover))
-          .on_click((_e, cx) => { cx.stop_propagation(); exec("open", [desktopLink(s.id)]); })
-          .child("Open in Claude Desktop")))));
+        .when(Boolean(said), (c) => c.child(div().id(`${prefix}-said-${s.id}`).text_color(t.foreground).child(said)))
+        .when(Boolean(go), (c) => c.child(h_flex().child(div().id(`${prefix}-open-${s.id}`).px(6).h(22).flex().items_center().rounded(5).border_1()
+          .border_color(t.border).text_color(t.foreground).hover((b) => b.bg(t.hover))
+          .on_click((_e, cx) => { cx.stop_propagation(); go.run(); })
+          .child(go.label))))));
+  }
+
+  desktopRow(t, s, now) {
+    return this.outsideRow(t, s, now, { prefix: "dk", open: { label: "Open in Claude Desktop", run: () => exec("open", [desktopLink(s.id)]) } });
+  }
+
+  elsewhereRow(t, s, now) {
+    return this.outsideRow(t, s, now, { prefix: "ew", where: s.app || null,
+      open: s.bundle ? { label: `Show ${s.app || "the app"}`, run: () => exec("open", ["-b", s.bundle]) } : null });
   }
 
   peek(addr) {
@@ -700,12 +715,15 @@ export default class Agents extends View {
         .child(open ? "fewer idle" : `${hidden} more idle`)];
     };
     const desktop = collapsed ? [] : this.desktopSessions();
+    const elsewhere = collapsed ? [] : this.elsewhereSessions();
     const rows = collapsed
       ? list.flatMap(withKids)
       : [
         ...groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : members(g))]),
         ...(desktop.length ? [header({ id: "desktop", label: "Claude Desktop", status: null, members: desktop, turn: (s) => plainTurn(DESKTOP_STATUS[s.state]) }),
           ...(this.folded.has("desktop") ? [] : desktop.map((s) => this.desktopRow(t, s, now)))] : []),
+        ...(elsewhere.length ? [header({ id: "elsewhere", label: "Elsewhere", status: null, members: elsewhere, turn: (s) => plainTurn(DESKTOP_STATUS[s.state]) }),
+          ...(this.folded.has("elsewhere") ? [] : elsewhere.map((s) => this.elsewhereRow(t, s, now)))] : []),
       ];
 
     return v_flex()
