@@ -76,8 +76,17 @@ test("marking one addressed folds it and frees the count", async () => {
   await flush();
   assert.equal(find(ui(), "dk-local_1"), null);
   assert.equal(fake.stored["relevo.inbox.count"], 0);
-  assert.ok(find(ui(), "addressed-desktop"));
   assert.deepEqual(fake.stored["relevo.desktop.settled"], ["local_1"]);
+  assert.equal(find(ui(), "leg-me"), null);
+  click(find(ui(), "view-maintenance"), cx);
+  assert.match(text(find(ui(), "maintenance-done")), /^1 marked addressed or landed/);
+  click(find(ui(), "maintenance-done"), cx);
+  click(find(ui(), "dk-local_1"), cx);
+  click(find(ui(), "dk-undo-local_1"), cx);
+  click(find(ui(), "view-now"), cx);
+  assert.ok(find(ui(), "dk-local_1"));
+  assert.equal(fake.stored["relevo.inbox.count"], 1);
+  assert.deepEqual(fake.stored["relevo.desktop.settled"], []);
 });
 
 const FILE = "/home/test/Library/Application Support/Claude/claude-code-sessions/o/a/local_1.json";
@@ -196,16 +205,14 @@ test("with terminal-notifier a banner brings Herdr forward and focuses the agent
   assert.equal(calls(/terminal-notifier -remove relevo-t1/).length, 1);
 });
 
-test("Desktop sessions ready for review fold under one line; questions stay open", async () => {
+test("Desktop questions need you; sessions ready for review sit under READY, outside the count", async () => {
   const now = Date.now() / 1000;
   fake.stored[DESKTOP] = [session({ at: now }), session({ id: "local_2", state: "review", at: now }), session({ id: "local_3", state: "review", at: now })];
   const { box, cx } = await inbox();
-  let ui = box.render(cx);
-  assert.ok(find(ui, "dk-local_1"));
-  assert.equal(find(ui, "dk-local_2"), null);
-  assert.match(text(find(ui, "desktop-review")), /2 ready for review/);
-  click(find(ui, "desktop-review"), cx);
-  ui = box.render(cx);
-  assert.ok(find(ui, "dk-local_2"));
+  const ui = box.render(cx);
+  assert.equal(text(find(ui, "leg-me")), "NEEDS ME 1");
+  assert.equal(text(find(ui, "leg-ready")), "READY 2");
+  assert.ok(find(ui, "dk-local_2")); assert.ok(find(ui, "dk-local_3"));
+  assert.deepEqual(box.nav.map((n) => n.id), ["dk-local_1", "dk-local_2", "dk-local_3"]);
   assert.equal(fake.stored["relevo.inbox.count"], 1);
 });

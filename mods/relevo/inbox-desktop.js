@@ -5,7 +5,7 @@ import { DESKTOP, openDesktop } from "./desktop.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { desktopKey, isSettled } from "./lib/desktop.js";
 import { ago } from "./lib/time.js";
-import { button, foldRow, icon, legHeader, joined } from "./ui.js";
+import { button, icon } from "./ui.js";
 
 const SETTLED = "relevo.desktop.settled";
 const RANK = { blocked: 0, review: 1 };
@@ -44,19 +44,5 @@ export class DesktopViews {
           tip: "Addressed: hide until the session does something new",
         }),
     });
-  }
-
-  // Only questions stay open; sessions ready for review fold under one line, since they wait on nobody.
-  desktopGroup(t, list, done) {
-    if (!list.length && !done.length) return [];
-    const asks = list.filter((s) => s.state === "blocked"), review = list.filter((s) => s.state !== "blocked");
-    const open = this.expanded["desktop-review"];
-    return [
-      legHeader(t, "leg-desktop", "In Desktop", asks.length),
-      ...joined(t, asks.map((s) => this.desktopCard(t, s))),
-      ...(review.length ? [foldRow(this, t, "desktop-review", "desktop-review", `${review.length} ready for review`)] : []),
-      ...(open ? joined(t, review.map((s) => this.desktopCard(t, s))) : []),
-      ...this.addressedFold(t, "desktop", done, (s) => this.desktopCard(t, s, true)),
-    ];
   }
 }

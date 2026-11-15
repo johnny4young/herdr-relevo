@@ -7,12 +7,12 @@ import { contextFor } from "./context.js";
 import { reviewAlerts, prAlerts, mergedAlert } from "./alerts.js";
 import { REPOS_ROOT } from "./config.js";
 import { LAUNCHED, SKILLS, configuredSkill, launched, launchSkill } from "./skills.js";
-import { button, spinner, withKey, foldRow, icon, legHeader, joined, diffRatio } from "./ui.js";
+import { button, spinner, withKey, icon, diffRatio } from "./ui.js";
 import { CI_WORDS, prReason, prTurn } from "./lib/lanes.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
-import { MINE_PAGES, OTHERS_QUERY, joinPRs, mineQuery, cancelledRuns, ciOf, seconds, recent, mapDrafts, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
+import { MINE_PAGES, OTHERS_QUERY, joinPRs, mineQuery, cancelledRuns, ciOf, seconds, mapDrafts, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
 import { mergeFlag, prMoves } from "./lib/land.js";
 import { keepListed } from "./lib/addressed.js";
 import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
@@ -357,28 +357,5 @@ export class PrViews {
       info.ref = pullRef(pr);
     }
     openReview(folder ?? clone, this.prAgents[pr.url]?.address ?? null, info);
-  }
-
-  // Old PRs fold under one line so each group shows what needs you this month, addressed ones under another,
-  // and yours that only wait for the merge under a third, out of the count.
-  prGroup(t, key, label, list, requested, done = [], ready = []) {
-    if (!list.length && !done.length && !ready.length && (requested || !this.drafts?.length)) return [];
-    const fresh = list.filter(recent), old = list.filter((p) => !recent(p)), open = this.expanded[key];
-    const rows = [legHeader(t, `leg-${key}`, label, fresh.length), ...joined(t, fresh.map((p) => this.prCard(t, p, requested)))];
-    if (old.length) {
-      rows.push(foldRow(this, t, `older-${key}`, key, `${old.length} older than 45 days`));
-      if (open) rows.push(...joined(t, old.map((p) => this.prCard(t, p, requested))));
-    }
-    if (ready.length) {
-      rows.push(foldRow(this, t, `ready-${key}`, `${key}-ready`, `${ready.length} ready to merge`));
-      if (this.expanded[`${key}-ready`]) rows.push(...joined(t, ready.map((p) => this.prCard(t, p, requested))));
-    }
-    const drafts = requested ? [] : this.drafts ?? [];
-    if (drafts.length) {
-      rows.push(foldRow(this, t, `drafts-${key}`, `${key}-drafts`, `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"}`));
-      if (this.expanded[`${key}-drafts`]) rows.push(...joined(t, drafts.map((p) => this.draftCard(t, p))));
-    }
-    rows.push(...this.addressedFold(t, key, done, (p) => this.prCard(t, p, requested, true)));
-    return rows;
   }
 }

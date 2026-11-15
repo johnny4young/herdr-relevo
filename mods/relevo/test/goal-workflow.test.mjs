@@ -213,7 +213,11 @@ test('Runs contains only run navigation; Reviews receives each ready result and 
   tree = v.render(cx);
   assert.ok(find(tree, 'result-first')); assert.ok(find(tree, 'result-second'));
   assert.equal(find(tree, 'result-working'), null);
+  assert.equal(text(find(tree, 'leg-me')), 'NEEDS ME 2');
+  assert.equal(find(tree, `pr-${pr.url}`), null, 'a quiet PR waits on others, folded');
+  click(find(tree, 'now-open'), cx); tree = v.render(cx);
   assert.ok(find(tree, `pr-${pr.url}`));
+  assert.equal(v.sel, 'result-first');
   assert.equal(find(tree, 'goal-g'), null);
   const count = fake.stored['relevo.inbox.count'];
   v.sel = 'result-second'; v.navKey({ key: 'enter' }, cx);
@@ -261,7 +265,9 @@ test('linked PRs outside the ordinary queue remain reachable once in Reviews, in
   assert.ok(find(tree, `pr-${pr.url}`));
   assert.ok(find(tree, `source-link-pr:${pr.url}`));
   assert.equal(v.nav.filter((entry) => entry.id === `pr-${pr.url}`).length, 1);
-  v.mine = [pr]; tree = v.render(cx);
+  v.mine = [pr]; v.expanded['now-open'] = true; tree = v.render(cx);
   assert.equal(v.linkedReviews(v.shown()).length, 0, 'ordinary queue entry owns the PR');
+  assert.equal(find(tree, 'leg-me'), null, 'without the link it no longer needs you');
+  assert.ok(find(tree, `pr-${pr.url}`));
   assert.equal(v.nav.filter((entry) => entry.id === `pr-${pr.url}`).length, 1);
 });

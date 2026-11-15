@@ -54,7 +54,7 @@ test('G reaches a goal behind blockers, E opens context, and S opens choices wit
 test('folds and skill launchers are native keyboard controls', async () => {
   const { v, cx } = await inbox(); v.drafts = [{ ...pr, isDraft: true }]; v.mine = [];
   fake.stored[GOAL_MODE] = false;
-  let tree = v.render(cx); const fold = find(tree, 'drafts-mine');
+  let tree = v.render(cx); const fold = find(tree, 'now-open');
   assert.equal(fold.kind, 'button'); assert.match(fold.accessibleLabel, /Expand/);
   click(fold, cx); v.sel = `pr-${pr.url}`; tree = v.render(cx);
   assert.equal(find(tree, `source-skills-pr:${pr.url}`).kind, 'button');

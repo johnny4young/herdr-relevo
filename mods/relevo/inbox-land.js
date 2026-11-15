@@ -7,7 +7,7 @@ import { localBranch } from "./lib/prmenu.js";
 import { ago } from "./lib/time.js";
 import { scanWorktrees, removalCheck, removeWorktree } from "./worktrees.js";
 import { headOf, logRemoval } from "./worktree-actions.js";
-import { button, foldRow, icon, legHeader, joined } from "./ui.js";
+import { button, icon } from "./ui.js";
 
 export const LANDING = "relevo.landing";
 const TICK_MS = 20000;
@@ -170,19 +170,5 @@ export class LandViews {
       if (r.code !== 0) return notify({ title: "Could not turn auto-merge off", body: first(r), level: "warning" });
       this.setLanding(url, null);
     });
-  }
-
-  // Landed PRs ask nothing more, so they fold under one line; what's still landing or failed stays open.
-  landingGroup(t) {
-    const all = Object.entries(this.landing());
-    const open = all.filter(([, e]) => e.phase !== "landed"), landed = all.filter(([, e]) => e.phase === "landed");
-    const shown = this.expanded["landed"];
-    return [
-      ...(open.length ? [legHeader(t, "leg-landing", "Landing", open.length), ...joined(t, open.map(([url, e]) => this.landCard(t, url, e)))] : []),
-      ...(landed.length
-        ? [foldRow(this, t, "landed", "landed", `${landed.length} landed`, { after: div().size(6).rounded_full().bg(t.ansi5) })]
-        : []),
-      ...(shown ? joined(t, landed.map(([url, e]) => this.landCard(t, url, e))) : []),
-    ];
   }
 }

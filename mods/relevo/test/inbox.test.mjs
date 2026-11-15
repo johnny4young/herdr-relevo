@@ -80,7 +80,7 @@ test("a finished agent's diff is a card that can be marked addressed", async () 
   const { ui, inbox, cx } = await open();
   const view = ui();
   assert.ok(find(view, "in-t1"));
-  assert.match(text(view), /UNCOMMITTED WORK/);
+  assert.equal(text(find(view, "leg-me")), "NEEDS ME 1");
   assert.equal(find(view, "addressed-t1"), null);
   click(find(view, "in-t1"), cx);
   assert.ok(find(ui(), "addressed-t1"));
@@ -96,7 +96,8 @@ test("✓ hides the card at once, before the label comes back, and writes it", a
   await flush();
   const view = ui();
   assert.equal(find(view, "in-t1"), null);
-  assert.match(text(find(view, "addressed-local")), /1 addressed/);
+  click(find(view, "view-maintenance"), cx);
+  assert.match(text(find(ui(), "maintenance-done")), /^1 marked addressed or landed/);
   assert.equal(count(), 0);
   assert.equal(calls(/^hc label t1 relevo\.addressed=\d+:7$/).length, 1);
 });
@@ -107,7 +108,9 @@ test("the fold shows the card with Undo, which removes the label", async () => {
   await flush();
   cx.fire(1500);
   await flush();
-  click(find(ui(), "addressed-local"), cx);
+  assert.equal(find(ui(), "in-t1"), null);
+  fake.stored["relevo.inbox.view"] = "maintenance";
+  click(find(ui(), "maintenance-done"), cx);
   assert.ok(find(ui(), "in-t1"));
   assert.equal(find(ui(), "undo-t1"), null);
   inbox.sel = "in-t1";
@@ -116,6 +119,9 @@ test("the fold shows the card with Undo, which removes the label", async () => {
   click(undo, cx);
   await flush();
   assert.equal(calls(/^hc label t1 relevo\.addressed=$/).length, 1);
+  assert.equal(find(ui(), "maintenance-done"), null);
+  click(find(ui(), "view-now"), cx);
+  inbox.sel = "in-t1";
   assert.ok(find(ui(), "addressed-t1"));
   assert.equal(count(), 1);
 });
@@ -154,7 +160,8 @@ test("a waiting agent can't be marked and stays in the list", async () => {
   assert.ok(find(view, "in-t1"));
   assert.ok(find(view, "go-t1"), "selected");
   assert.equal(find(view, "addressed-t1"), null);
-  assert.equal(find(view, "addressed-local"), null);
+  fake.stored["relevo.inbox.view"] = "maintenance";
+  assert.equal(find(ui(), "maintenance-done"), null, "its stale mark does not count it addressed");
 });
 
 test("a waiting agent stays in the list even if its mark can't be removed", async () => {
@@ -480,11 +487,11 @@ test("a first PR scan spins while pending and stops when gh fails", async () => 
   const answer = holdPRs();
   const { inbox, ui } = await open();
   assert.match(find(ui(), "inbox-refresh").tip, /loading/);
-  assert.equal(spinners(ui()), 1);
+  assert.equal(spinners(find(ui(), "inbox-refresh")), 1);
   answer({ code: 1, stderr: "offline\ndetail" });
   await flush();
   assert.match(find(ui(), "inbox-refresh").tip, /PRs unavailable/);
-  assert.equal(spinners(ui()), 0);
+  assert.equal(spinners(find(ui(), "inbox-refresh")) + spinners(find(ui(), "inbox-list")), 0);
   assert.equal(inbox.error, "offline");
 });
 
@@ -494,7 +501,7 @@ test("a cut answer from GitHub, read again and still cut, says so and stops the 
   answer({ stdout: "not json" });
   await flush();
   assert.match(find(ui(), "inbox-refresh").tip, /PRs unavailable/);
-  assert.equal(spinners(ui()), 0);
+  assert.equal(spinners(find(ui(), "inbox-refresh")) + spinners(find(ui(), "inbox-list")), 0);
   assert.equal(inbox.error, "GitHub's answer was cut short");
 });
 
@@ -528,7 +535,7 @@ test("refreshing an existing PR snapshot retains its age in the refresh tooltip"
   click(find(ui(), "inbox-refresh"), cx);
   await flush();
   assert.match(find(ui(), "inbox-refresh").tip, /PRs now/);
-  assert.equal(spinners(ui()), 0);
+  assert.equal(spinners(find(ui(), "inbox-refresh")) + spinners(find(ui(), "inbox-list")), 0);
 });
 
 test("a PR scan already running is not started again", async () => {
@@ -713,12 +720,16 @@ test("a merged PR alerts once, and the Inbox shortcut lands on its worktree", as
   fake.stored["relevo.inbox.focus"] = { at: 1, pane: null };
   inbox.render(cx);
   assert.equal(inbox.sel, "wt-/wt/x");
+  assert.equal(fake.stored["relevo.inbox.view"], "maintenance");
+  const shown = inbox.render(cx);
+  assert.equal(inbox.sel, "wt-/wt/x", "the selection survives the next draw");
+  assert.ok(find(shown, "wt-/wt/x"));
   inbox.scanPRs(cx);
   await flush();
   assert.equal(fake.notices.filter((n) => n.title === "Merged · app #7").length, 1);
 });
 
-test("your green PRs fold under ready to merge, outside the count, and open from there", async () => {
+test("your green PRs are READY rows, outside the count, and open from there", async () => {
   const node = (url, number) => ({
     url, number, title: `t${number}`, isDraft: false, updatedAt: "2026-11-01T10:00:00Z", reviewDecision: null,
     headRefName: `b${number}`, baseRefName: "main", isCrossRepository: false, repository: { nameWithOwner: "me/app" },
@@ -730,11 +741,13 @@ test("your green PRs fold under ready to merge, outside the count, and open from
     search: { nodes: [] },
   } }) } : null);
   const { ui, cx } = await open();
-  assert.match(text(ui()), /2 ready to merge/);
-  assert.equal(find(ui(), "pr-https://github.com/me/app/pull/1"), null);
+  assert.equal(text(find(ui(), "leg-ready")), "READY 2");
+  assert.equal(find(ui(), "leg-me"), null);
+  assert.equal(text(find(ui(), "view-now")), "Now 2");
   assert.equal(count(), 0);
-  click(find(ui(), "ready-mine"), cx);
-  assert.ok(find(ui(), "open-https://github.com/me/app/pull/1"));
+  click(find(ui(), "open-https://github.com/me/app/pull/1"), cx);
+  await flush();
+  assert.equal(calls(/^open https:\/\/github\.com\/me\/app\/pull\/1$/).length, 1);
   assert.equal(count(), 0);
 });
 
@@ -859,8 +872,11 @@ test("a PR with failing CI is a needs-me row tinted like a waiting agent; a draf
     search: { nodes: [] },
   } }) } : null);
   const { inbox } = await open();
-  inbox.expanded["mine-drafts"] = true;
+  const folded = inbox.render(fakeCx());
+  assert.equal(find(folded, "pr-https://github.com/me/app/pull/2"), null, "a draft waits on others, folded");
+  inbox.expanded["now-open"] = true;
   const t = theme(), view = inbox.render(fakeCx());
+  assert.ok(find(find(view, "inbox-list"), "leg-me"));
   const failing = find(view, "pr-https://github.com/me/app/pull/1"), draft = find(view, "pr-https://github.com/me/app/pull/2");
   assert.equal(failing.fill, meTint(t));
   assert.ok(draft);
@@ -1016,6 +1032,8 @@ test("a waiting card follows the agent to its next question without a status cha
 
 test("open folds are kept for the next Inbox; a card's extra lines are not", async () => {
   const { inbox, cx, ui } = await open();
+  assert.equal(find(ui(), "today-time"), null, "agent time lives in Maintenance");
+  fake.stored["relevo.inbox.view"] = "maintenance";
   assert.match(text(find(ui(), "today-time")), /Agent time today/);
   inbox.expanded["more-x"] = true;
   click(find(ui(), "today-time"), cx);
@@ -1030,18 +1048,20 @@ test("the keyboard goes through review requests, then your PRs, then uncommitted
   inbox.expanded = {};
   const ids = inbox.navItems({
     local: [{ kind: "diff", agent: { address: "t1" }, top: "/r" }], desktop: [], ready: [], worktrees: [],
-    mine: [{ url: "mine", updatedAt: now }], requested: [{ url: "theirs", updatedAt: now }],
+    mine: [{ url: "mine", updatedAt: now, reasons: ["CI failing"] }], requested: [{ url: "theirs", updatedAt: now }],
   }).map((i) => i.id);
   assert.deepEqual(ids, ["pr-theirs", "pr-mine", "in-t1"]);
 });
 
-test("Reviews navigation includes recent PRs and keeps older PRs folded", () => {
+test("Now navigation holds recent PRs; older ones are navigated in Maintenance", () => {
   const inbox = new Inbox(), now = new Date().toISOString(), old = "2020-01-01T00:00:00Z";
   inbox.expanded = {};
   const v = {
     local: [], desktop: [], ready: [], worktrees: [],
-    mine: [{ url: "m1", updatedAt: now }, { url: "m2", updatedAt: old }],
+    mine: [{ url: "m1", updatedAt: now, reasons: ["CI failing"] }, { url: "m2", updatedAt: old }],
     requested: [{ url: "r1", updatedAt: old }],
   };
   assert.deepEqual(inbox.navItems(v).map((entry) => entry.id), ["pr-m1"]);
+  fake.stored["relevo.inbox.view"] = "maintenance";
+  assert.deepEqual(inbox.navItems(v).map((entry) => entry.id), ["pr-r1", "pr-m2"]);
 });

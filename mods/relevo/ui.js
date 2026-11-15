@@ -156,7 +156,7 @@ export const legend = (t, id, counts) => h_flex().id(id).h(36).flex_none().pl(16
   .children(counts.map(({ turn, label = TURN_LABEL[turn], n }) => {
     const hot = (turn === "me" || turn === "stuck") && n > 0;
     return h_flex().gap(6).items_center()
-      .child(laneGlyph(t, turn))
+      .child(turn === "flight" && !n ? div().size(12).flex_none().rounded_full().border_1().border_color(t.dim) : laneGlyph(t, turn))
       .child(div().text_size(13).text_color(hot ? t.blocked : t.muted).child(label))
       .child(div().text_size(13).font_semibold().text_color(hot ? t.blocked : t.foreground).child(String(n)));
   }));
