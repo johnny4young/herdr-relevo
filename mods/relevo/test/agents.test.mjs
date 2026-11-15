@@ -133,10 +133,10 @@ test("a ticket with no account has no handoff click", async () => {
 test("a waiting agent's row says why, in its own line and colour; another's old reason is not shown", async () => {
   fake.stored["relevo.reasons"] = { t1: "Run: rm -rf dist", t2: "stale" };
   const { ui } = await open([agent("t1", { status: "blocked" }), agent("t2", { status: "working" })]);
-  const view = ui(), why = find(view, "why-t1");
+  const view = ui(), why = find(view, "what-t1");
   assert.equal(text(why), "Run: rm -rf dist");
   assert.equal(text(find(view, "ag-t1")), "app Run: rm -rf dist");
-  assert.equal(find(view, "why-t2"), null);
+  assert.equal(text(find(view, "what-t2")), "t2");
   assert.doesNotMatch(text(find(view, "ag-t2")), /stale/);
   assert.doesNotMatch(text(view), /Needs me/);
 });
@@ -240,7 +240,7 @@ test("an agent's row says its model, context and how long its cache lasts while 
   fake.stored["relevo.agentContext"] = { t1: { model: "claude-opus-5-5", context: 273265, ttl: 3600, at: now - 600 } };
   const { ui } = await open([agent("t1", { focused: true })]);
   assert.match(text(find(ui(), "ctx-t1")), /^Opus 5\.5 273k · cache 50m$/);
-  assert.equal(find(ui(), "band-t1").items[0].fill, "#accent");
+  assert.equal(find(ui(), "ctx-t1").items[1].items[0].fill, "#accent");
   fake.stored["relevo.agentContext"].t1.at = now - 4000;
   assert.match(text(find(ui(), "ctx-t1")), /cache gone/);
 });
@@ -284,6 +284,7 @@ test("the priority view groups by whose turn it is, with counts", async () => {
   fake.stored["agents.sort"] = "grouped";
   assert.equal(find(ui(), "sec-me"), null);
   assert.equal(text(find(ui(), "sp-sp1")), "app");
+  assert.equal(find(ui(), "settled"), null);
 });
 
 test("a long idle group shows three and folds the rest, but never the selected agent", async () => {
@@ -321,7 +322,7 @@ test("the glyph says whose turn it is: a disc needs me, the spinner is in flight
   assert.equal(glyph("t4").kind, "div");
   assert.equal(text(find(drawn, "what-t4")), "result ready");
   assert.equal(find(drawn, "what-t4").ink, "#blocked");
-  assert.equal(find(drawn, "why-t1").ink, "#blocked");
+  assert.equal(find(drawn, "what-t1").ink, "#blocked");
   assert.equal(find(drawn, "what-t2").ink, "#muted");
   assert.equal(text(find(drawn, "sec-me")), "NEEDS ME 2");
   list[3].status = "idle";
@@ -348,4 +349,12 @@ test("no row draws a narrow strip on its leading edge, selected or not", async (
   assert.deepEqual(strips, []);
   const source = readFileSync(new URL("../../relevo-agents/main.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /\.border_(l|s)\(\s*[2-6]\s*\)|\.w\(\s*[2-6]\s*\)/);
+});
+
+test("the agents list draws whose turn with the same glyphs as Reviews", async () => {
+  const { laneGlyph } = await import("../../relevo-agents/main.js");
+  const ui = await import("../ui.js");
+  const t = new Proxy({}, { get: (_x, name) => (typeof name === "string" ? `#${name}` : undefined) });
+  const shape = (el) => ({ src: typeof el.src === "string" ? el.src : null, fill: el.fill, stroke: el.stroke, spinning: el.spinning === true });
+  for (const turn of ["me", "flight", "ready"]) assert.deepEqual(shape(laneGlyph(t, turn)), shape(ui.laneGlyph(t, turn)), turn);
 });
