@@ -25,6 +25,7 @@ import { launched } from "./skills.js";
 import { openWeek } from "./week.js";
 import { PrViews } from "./inbox-prs.js";
 import { TreeViews } from "./inbox-trees.js";
+import { BranchViews } from "./inbox-branches.js";
 import { KeyNav, INBOX_FOCUS } from "./inbox-keys.js";
 import { LiveViews } from "./inbox-live.js";
 import { LocalAddressed } from "./inbox-addressed.js";
@@ -672,10 +673,15 @@ export class Inbox {
     const view = goalMode ? this.goalViewport() : this.viewport(reviewView === "now" ? NOW_SECTIONS : MAINTENANCE_SECTIONS);
     this.hiddenIds = view.hidden;
     const part = (key, els) => (view.sections.has(key) ? [] : els.filter(Boolean));
+    const bulk = reviewView === "maintenance" ? this.bulkBar(t, v.worktrees) : null;
     return v_flex().id("relevo-inbox").size_full().min_w(0).min_h(0).rounded(10).overflow_hidden()
       .on_size_change((size, context) => {
-        const narrow = size.width < 350;
-        if (this.narrowInbox !== narrow) { this.narrowInbox = narrow; context.notify(); }
+        const narrow = size.width < 350, tight = size.width <= 300;
+        if (this.narrowInbox !== narrow || this.tightInbox !== tight) {
+          this.narrowInbox = narrow;
+          this.tightInbox = tight;
+          context.notify();
+        }
       })
       .bg(t.surface ?? t.chrome).border_1().border_color(this.keyboard ? t.accent : t.border).text_color(t.foreground)
       .track_focus(this.h)
@@ -704,6 +710,7 @@ export class Inbox {
       .when(reviewView === "now", (el) => el.child(h_flex().flex_none().pr(12).items_center().border_b(1).border_color(t.border)
         .child(div().flex_1().min_w(0).child(this.nowLegend(t, counts)))
         .when(Boolean(this.prsAt), (row) => row.child(div().id("read-age").flex_none().text_size(11).text_color(t.dim).child(`read ${ago(this.prsAt)}`)))))
+      .when(reviewView === "maintenance", (el) => el.child(h_flex().flex_none().border_b(1).border_color(t.border).child(this.maintenanceLegend(t, v))))
       .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().px(4).py(6).gap(2)
         .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
         .when(Boolean(this.localError), (el) => el.child(div().id("local-error").p(8).text_size(11).text_color(t.blocked).child(this.localError)))
@@ -712,7 +719,8 @@ export class Inbox {
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
         .children(goalMode ? this.goalsGroup(t) : [])
         .children(reviewView === "now" ? [...part("away", this.awayGroup(t)), ...this.nowGroups(t, entries, part)] : [])
-        .children(reviewView === "maintenance" ? this.maintenanceGroups(t, v, part) : []));
+        .children(reviewView === "maintenance" ? this.maintenanceGroups(t, v, part) : []))
+      .when(Boolean(bulk), (el) => el.child(bulk));
   }
 
   // A view of Reviews as an underlined tab with its count.
@@ -724,7 +732,7 @@ export class Inbox {
 }
 
 
-for (const views of [PrViews, TreeViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews, GoalViews, NowViews]) {
+for (const views of [PrViews, TreeViews, BranchViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews, GoalViews, NowViews]) {
   for (const name of Object.getOwnPropertyNames(views.prototype)) {
     if (name !== "constructor") Inbox.prototype[name] = views.prototype[name];
   }

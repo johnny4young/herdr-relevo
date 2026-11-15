@@ -1,6 +1,6 @@
 import { exec, home, notify, spaces, panes } from "herdr";
 import { REPOS_ROOT as ROOT } from "./config.js";
-import { mergedHeads } from "./lib/github.js";
+import { mergedByHead } from "./lib/github.js";
 import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
 import { groupOf, justUsed } from "./lib/trees.js";
 
@@ -33,22 +33,23 @@ const mergedOnGitHub = new Map();
 async function githubMerged(main, force) {
   const hit = mergedOnGitHub.get(main);
   if (hit && !force && Date.now() - hit.at < MERGED_TTL) return hit.branches;
-  const branches = new Set();
+  let branches = new Map();
   const repo = githubRepo(withoutLogin((await exec("git", ["-C", main, "remote", "get-url", "origin"])).stdout));
   if (repo) {
-    const r = await exec("gh", ["pr", "list", "-R", repo, "--state", "merged", "--limit", "100", "--json", "headRefName,isCrossRepository"]);
+    const r = await exec("gh", ["pr", "list", "-R", repo, "--state", "merged", "--limit", "100", "--json", "headRefName,isCrossRepository,number,mergedAt"]);
     if (r.code !== 0) return hit?.branches ?? branches;
-    for (const name of mergedHeads(JSON.parse(r.stdout))) branches.add(name);
+    branches = mergedByHead(JSON.parse(r.stdout));
   }
   mergedOnGitHub.set(main, { at: Date.now(), branches });
   return branches;
 }
 
-// Branches whose PR merged on GitHub, and local branches whose upstream is gone (local, so always fresh).
+// Branches whose PR merged on GitHub, each with that PR, and local branches whose upstream is gone (local, so
+// always fresh), which have none.
 async function mergedBranches(main, force) {
-  const out = new Set(await githubMerged(main, force));
+  const out = new Map(await githubMerged(main, force));
   const refs = await exec("git", ["-C", main, "for-each-ref", "--format=%(refname:short)\t%(upstream:track)", "refs/heads"]);
-  for (const l of refs.stdout.split("\n")) if (l.endsWith("[gone]")) out.add(l.split("\t")[0]);
+  for (const l of refs.stdout.split("\n")) if (l.endsWith("[gone]") && !out.has(l.split("\t")[0])) out.set(l.split("\t")[0], null);
   return out;
 }
 
@@ -68,6 +69,7 @@ export async function scanWorktrees(force = false) {
     w.open = [...open].some((p) => p === w.path || p.startsWith(`${w.path}/`));
     w.merged = Boolean(w.branch && merged[w.main].has(w.branch));
     if (w.merged) {
+      w.pr = merged[w.main].get(w.branch);
       w.dirty = (await statusOf(w)).stdout.trim() !== "";
       w.ignored = worthKeeping((await ignoredFiles(w)).paths);
     }

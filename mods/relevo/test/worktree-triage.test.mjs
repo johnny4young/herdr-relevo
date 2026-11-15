@@ -60,7 +60,7 @@ const row = (name, at = OLD) => ({ main: "/w/app", path: `/w/${name}`, branch: n
 function view(states) {
   const v = new TreeViews(), worktrees = Object.keys(states).map((n) => row(n));
   Object.assign(v, {
-    worktrees, removing: new Set(), gone: new Set(), wtError: {}, expanded: { loose: true }, confirm: null, selected: () => false,
+    worktrees, removing: new Set(), gone: new Set(), wtError: {}, expanded: { loose: true }, confirm: null, selected(id) { return this.sel === id; },
     treeStates: new Map(Object.entries(states).map(([n, state]) => [`/w/${n}`, { at: OLD, state }])),
   });
   return { v, worktrees };
@@ -79,26 +79,39 @@ test("only rows with nothing to lose or already on GitHub offer Remove", () => {
     gone: clean, pushed: { ...clean, unique: 2 }, dirty: { ...clean, files: 3 }, ahead: { ...clean, unpushed: 1 }, broken: { unreadable: true },
   });
   const ui = draw(v, worktrees);
+  assert.equal(find(ui, "leg-safe"), null, "nothing here is merged");
+  assert.equal(text(find(ui, "leg-look")), "NEEDS A LOOK 5");
   assert.ok(find(ui, "wt-rm-/w/gone"));
-  assert.ok(find(ui, "wt-rm-/w/pushed"));
+  assert.match(text(find(ui, "wt-/w/gone")), /not merged, nothing to lose/);
+  // Pushed, not merged: Remove waits for the row to be selected.
+  assert.equal(find(ui, "wt-rm-/w/pushed"), null);
+  assert.match(text(find(ui, "wt-/w/pushed")), /pushed, not merged/);
+  v.sel = "wt-/w/pushed";
+  assert.ok(find(draw(v, worktrees), "wt-rm-/w/pushed"));
   for (const n of ["dirty", "ahead", "broken"]) {
-    assert.ok(find(ui, `wt-/w/${n}`), n);
-    assert.equal(find(ui, `wt-rm-/w/${n}`), null, n);
+    v.sel = null;
+    assert.ok(find(draw(v, worktrees), `wt-look-/w/${n}`), n);
+    assert.equal(find(draw(v, worktrees), `wt-rm-/w/${n}`), null, n);
+    v.sel = `wt-/w/${n}`;
+    assert.equal(find(draw(v, worktrees), `wt-rm-/w/${n}`), null, `${n}, selected`);
   }
-  const shown = text(ui);
-  assert.match(shown, /Nothing to lose/);
-  assert.match(shown, /Pushed, not merged/);
-  assert.match(shown, /With work/);
-  assert.match(shown, /3 files uncommitted/);
-  assert.match(shown, /could not check/);
+  v.sel = null;
+  assert.match(text(find(draw(v, worktrees), "wt-/w/dirty")), /work that is not saved anywhere/);
+  assert.match(text(find(draw(v, worktrees), "wt-/w/broken")), /could not check/);
+  v.sel = "wt-/w/dirty";
+  assert.match(text(find(draw(v, worktrees), "wt-/w/dirty")), /Not saved anywhere: 3 files uncommitted\./);
 });
 
 test("a row not read yet offers nothing", () => {
   const v = new TreeViews(), worktrees = [row("new")];
   Object.assign(v, { worktrees, removing: new Set(), gone: new Set(), wtError: {}, expanded: { loose: true }, confirm: null, selected: () => false, treeStates: new Map() });
+  assert.match(text(find(draw(v, worktrees), "loose-recent")), /^Checking 1/);
+  assert.equal(find(draw(v, worktrees), "wt-/w/new"), null);
+  v.expanded["loose-recent"] = true;
   const ui = draw(v, worktrees);
-  assert.match(text(ui), /Checking/);
+  assert.match(text(find(ui, "wt-/w/new")), /checking/);
   assert.equal(find(ui, "wt-rm-/w/new"), null);
+  assert.equal(find(ui, "wt-look-/w/new"), null);
 });
 
 test("recent rows fold, and the keyboard doesn't reach them until they show", () => {
@@ -108,19 +121,38 @@ test("recent rows fold, and the keyboard doesn't reach them until they show", ()
   const ui = draw(v, worktrees);
   assert.match(text(ui), /1 recent/);
   assert.equal(find(ui, "wt-/w/used"), null);
-  assert.deepEqual(v.looseRows(worktrees).map((w) => w.name), ["gone"]);
+  assert.deepEqual(v.treeRows(worktrees).map((w) => w.name), ["gone"]);
   v.expanded["loose-recent"] = true;
   assert.ok(find(draw(v, worktrees), "wt-/w/used"));
-  assert.equal(v.looseRows(worktrees).length, 2);
+  assert.equal(v.treeRows(worktrees).length, 2);
 });
 
-test("Remove all takes only rows with no ignored files to keep, and asks first", async () => {
+test("Remove N takes only rows with no ignored files to keep, and asks first", async () => {
   const { v, worktrees } = view({ a: clean, b: clean, kept: { ...clean, ignored: ["output"] } });
+  for (const w of worktrees) Object.assign(w, { merged: true, pr: { number: 7 } });
   const ui = draw(v, worktrees), cx = fakeCx();
-  const all = find(ui, "wt-rm-all-safe");
+  const all = find(ui, "wt-rm-all");
   assert.match(text(all), /Remove 2/);
+  assert.match(text(find(ui, "wt-/w/kept")), /merged #7, but has files git ignores/);
+  assert.equal(find(ui, "wt-rm-/w/kept"), null);
   all.handlers.on_click({}, cx);
-  assert.equal(v.confirm, "all-safe");
+  assert.deepEqual(v.bulkAsk.paths, ["/w/a", "/w/b"]);
+  assert.match(text(v.bulkBar(theme(), worktrees)), /Remove 2 merged worktrees\?/);
+  await settled();
+  assert.equal(calls(/worktree remove/).length, 0);
+});
+
+test("worktrees that are not merged never get Remove N, and a batch refuses them", async () => {
+  const { v, worktrees } = view({ a: clean, b: clean });
+  const ui = draw(v, worktrees);
+  assert.equal(find(ui, "wt-rm-all"), null);
+  assert.ok(find(ui, "wt-rm-/w/a"), "each keeps its own Remove");
+  v.markAllSafe(fakeCx());
+  assert.equal(v.marked.size, 0);
+  v.askBulk(fakeCx(), worktrees);
+  assert.equal(v.bulkAsk, null);
+  v.confirmBulk(fakeCx());
+  await settled();
   assert.equal(calls(/worktree remove/).length, 0);
 });
 
@@ -235,9 +267,10 @@ test("actionsOf: only what applies, and Delete only once idle", () => {
 test("a row with work opens its actions; nothing runs until a button is pressed", () => {
   const { v, worktrees } = view({ dirty: { ...clean, files: 3 } });
   const cx = fakeCx();
-  const more = find(draw(v, worktrees), "wt-more-/w/dirty");
+  const look = find(draw(v, worktrees), "wt-look-/w/dirty");
   assert.equal(find(draw(v, worktrees), "wt-delete-/w/dirty"), null);
-  more.handlers.on_click({}, cx);
+  look.handlers.on_click({}, cx);
+  assert.equal(v.sel, "wt-/w/dirty");
   const ui = draw(v, worktrees);
   assert.ok(find(ui, "wt-patch-/w/dirty"));
   assert.ok(find(ui, "wt-delete-/w/dirty"));
@@ -503,9 +536,13 @@ test("the merged-PR lookup and a push read a remote URL the same way", () => {
 test("a row's note has its own line, so the buttons can't cut it", () => {
   const v = Object.assign(new TreeViews(), { expanded: {}, removing: new Set(), gone: new Set(), wtError: {}, selected: () => false });
   const why = "12 files uncommitted, saved · 75 commits not pushed, saved";
-  const drawn = v.treeRow(theme(), { path: "/w/a", repo: "app", branch: "feat", why });
+  const w = { path: "/w/a", repo: "app", branch: "feat", why, group: "work", work: true, unsaved: false };
+  assert.ok(!text(v.treeRow(theme(), w)).includes(why), "the row itself keeps to its one reason");
+  v.selected = () => true;
+  const drawn = v.treeRow(theme(), w);
   const holder = (node, id) => node.items?.find((c) => c?.key === id) ? node : node.items?.map((c) => holder(c, id)).find(Boolean);
-  assert.ok(text(drawn).includes(why));
+  assert.ok(text(drawn).includes(`Saved in Backups, not on GitHub: ${why}.`));
+  assert.ok(!text(drawn.items[0]).includes(why), "not on the line with the title and the size");
   assert.ok(!text(holder(drawn, "wt-open-/w/a")).includes(why));
 });
 
@@ -564,20 +601,25 @@ test("a worktree in use says its age once, on the note", () => {
   assert.equal(shown.match(/1h/g).length, 1, shown);
 });
 
-test("merged worktrees fold under one line with Remove all on it; one with uncommitted files stays out", () => {
+test("merged worktrees that are clean sit under Safe to remove with Remove N; one with uncommitted files stays out", async () => {
   const v = Object.assign(new TreeViews(), {
     expanded: {}, removing: new Set(), gone: new Set(), wtError: {}, confirm: null, selected: () => false, backupsKb: 2048,
   });
   const merged = (name, more = {}) => ({ ...row(name), merged: true, ...more });
   const worktrees = [merged("a"), merged("b"), merged("dirty", { dirty: true })];
-  let ui = draw(v, worktrees);
-  assert.match(text(find(ui, "merged-trees")), /3 merged worktrees.*Remove 2/s);
-  assert.equal(find(ui, "wt-/w/a"), null);
-  assert.ok(find(ui, "wt-/w/dirty"));
-  assert.doesNotMatch(text(ui), /Backups/);
-  find(ui, "merged-trees").handlers.on_click({}, fakeCx());
-  ui = draw(v, worktrees);
-  assert.ok(find(ui, "wt-/w/a"));
+  v.worktrees = worktrees;
+  const ui = draw(v, worktrees);
+  assert.match(text(find(ui, "leg-safe")), /^SAFE TO REMOVE 2.*Remove 2$/s);
+  assert.equal(text(find(ui, "leg-look")), "NEEDS A LOOK 1");
+  assert.ok(find(ui, "wt-rm-/w/a"));
+  assert.match(text(find(ui, "wt-/w/dirty")), /merged, but has uncommitted changes/);
+  assert.equal(find(ui, "wt-rm-/w/dirty"), null);
   assert.match(text(ui), /Backups/);
-  assert.deepEqual(fake.stored["relevo.inbox.folds"], { merged: true });
+  find(ui, "wt-rm-all").handlers.on_click({}, fakeCx());
+  assert.deepEqual(v.bulkAsk.paths, ["/w/a", "/w/b"]);
+  v.marked.add("/w/dirty");
+  v.askBulk(fakeCx());
+  assert.equal(v.bulkAsk, null, "one that is not safe stops the question");
+  await settled();
+  assert.equal(calls(/worktree remove/).length, 0);
 });
