@@ -56,7 +56,8 @@ async function opened(tasks, goals, engine) {
 const sent = (action) => calls(new RegExp(`"action":"${action}"`)).map((line) => JSON.parse(line.slice(line.indexOf('{'))));
 // The coordinator's answer to each command, by the payload it was sent.
 const coordinator = (answer) => { fake.exec = (cmd, args) => (/cli\.mjs$/.test(args[0] ?? '') ? answer(JSON.parse(args.at(-1))) : null); };
-const windows = () => fake.runs.filter(([name]) => name === 'pane.split').map(([, args]) => args.props);
+const windows = () => fake.runs.filter(([name]) => name === 'pane.split').map(([, args]) => { const { at: _at, ...props } = args.props; return props; });
+const asked = () => fake.runs.findLast(([name]) => name === 'pane.split')[1].props;
 
 test('the cost line: agent minutes and tokens against their caps, attempts, tests and pull requests', () => {
   const bucket = runBucket([twice(), ready('a'), task('p', 'planned', { checks: [['npm', 'test']] })], 'g'), cost = goalCost(goal, bucket.all, sessions);
@@ -148,7 +149,7 @@ test('a selected task lists its attempts; the task shows them above the decision
   v.navKey({ key: 'enter' }, cx); tree = v.render(cx);
   assert.equal(text(find(tree, 'task-attempts')), 'attempt 1: Codex Luna → Team Haiku · 18 min · asked for changes attempt 2: Codex Luna → Team Haiku · 9 min · approved');
   assert.equal(text(find(tree, 'task-compare')), 'c Compare attempts');
-  assert.equal(text(find(tree, 'runs-keys')), 'a accept r ask for changes d diff c compare esc tasks ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'a accept r ask for changes d diff c compare esc tasks ? all keys');
   v.navKey({ key: 'escape' }, cx); v.render(cx); v.navKey({ key: 'j' }, cx); v.navKey({ key: 'enter' }, cx); tree = v.render(cx);
   assert.equal(v.runTask, 'a');
   assert.equal(find(tree, 'task-attempts'), null); assert.equal(find(tree, 'task-compare'), null);
@@ -178,7 +179,7 @@ test('the compare table: what the reviewer said, tests, change, time, cost and y
 test('c opens the comparison of a task written more than once; See what changed asks for the diff of its last two attempts', async () => {
   fake.files[REPORT] = JSON.stringify({ updated: 1, rows: [], sessions: [], runs: sessions });
   const { v, cx } = await opened([twice(), ready('a')]);
-  assert.equal(text(find(v.render(cx), 'runs-keys')), 'j k move open the task c compare esc runs ? all keys');
+  assert.equal(text(find(v.render(cx), 'list-keys')), 'j k move open the task c compare esc runs ? all keys');
   v.navKey({ key: 'c' }, cx);
   let tree = v.render(cx);
   assert.equal(text(find(tree, 'compare-back')), '‹ Tasks'); assert.equal(text(find(tree, 'compare-title')), 'Task t'); assert.equal(text(find(tree, 'compare-attempts')), 'took 2 attempts');
@@ -188,7 +189,7 @@ test('c opens the comparison of a task written more than once; See what changed 
     'Took 18 min 9 min', 'Cost 6.2M tokens 2.9M tokens', 'Your note Keep it on one line none']);
   assert.equal(find(tree, 'compare-said-1').items[1].ink, t.blocked); assert.equal(find(tree, 'compare-said-2').items[1].ink, t.done);
   assert.deepEqual(v.nav, [], 'the list keys rest while it is open');
-  assert.equal(text(find(tree, 'runs-keys')), 'esc back ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'esc back ? all keys');
   assert.equal(calls(/cli\.mjs/).length, 0, 'opening it sends nothing');
 
   const list = Array.from({ length: 55 }, (_, i) => ({ path: `src/file-${i}.js`, added: i, removed: 1 }));
@@ -211,7 +212,7 @@ test('c opens the comparison of a task written more than once; See what changed 
   assert.equal(v.runCompare, null); assert.equal(v.sel, 'task-t'); assert.ok(find(tree, 'task-t'), 'Esc goes back to the tasks');
   v.navKey({ key: 'j' }, cx); v.navKey({ key: 'c' }, cx);
   assert.equal(v.runCompare, null, 'a task written once has nothing to compare');
-  assert.equal(text(find(v.render(cx), 'runs-keys')), 'j k move open the task esc runs ? all keys');
+  assert.equal(text(find(v.render(cx), 'list-keys')), 'j k move open the task esc runs ? all keys');
 
   v.navKey({ key: 'k' }, cx); v.navKey({ key: 'enter' }, cx); v.render(cx);
   v.navKey({ key: 'a' }, cx); v.navKey({ key: 'c' }, cx); tree = v.render(cx);
@@ -248,7 +249,7 @@ test('x selects results, X every one of the same repository; Enter previews, the
   assert.equal(find(tree, 'task-pick-a').items[0].fill, t.accent); assert.equal(find(tree, 'task-pick-b').items[0].fill, null);
   assert.equal(find(tree, 'task-pick-a').accessibleLabel, 'Selected: Task a');
   assert.equal(text(find(tree, 'runs-batch')), '1 selected all approved, all tests pass esc Cancel Accept 1');
-  assert.equal(find(tree, 'runs-batch-accept').fill, t.accent); assert.equal(find(tree, 'runs-keys'), null);
+  assert.equal(find(tree, 'runs-batch-accept').fill, t.accent); assert.equal(find(tree, 'list-keys'), null);
   v.navKey({ key: 'x' }, cx); assert.deepEqual(v.runPicked, [], 'x again unselects');
   v.navKey({ key: 'x', modifiers: { shift: true } }, cx);
   assert.deepEqual(v.runPicked, ['a', 'b'], 'X stays inside the repository of the selected result');
@@ -275,7 +276,7 @@ test('x selects results, X every one of the same repository; Enter previews, the
   assert.equal(text(find(tree, 'run-notice')), '2 results accepted: Task a, Task b.');
   assert.deepEqual(v.runPicked, []); assert.equal(v.sel, 'task-c'); assert.equal(v.runTask, null);
   assert.equal(text(find(tree, 'run-summary')), '4 tasks: 1 needs you · 1 in flight · 2 done');
-  assert.equal(text(find(tree, 'runs-keys')), 'j k move open the task esc runs ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'j k move open the task esc runs ? all keys');
 });
 
 test('Esc cancels a selection without leaving the run, and a refused preview accepts nothing', async () => {
@@ -319,13 +320,16 @@ test('an accepted or cancelled task offers Re-run with changes, which the run wi
   v.navKey({ key: 'escape' }, cx); v.sel = 'task-a'; click(find(v.render(cx), 'task-review-a'), cx);
   assert.equal(find(v.render(cx), 'task-rerun'), null, 'a result that still waits has Ask for changes');
 
-  fake.props = { ...windows()[0], overlay: 'o' }; fake.stored['relevo.runs.mode'] = 'sessions';
+  fake.props = { ...asked(), overlay: 'o' }; fake.stored['relevo.runs.mode'] = 'sessions';
   const win = new Workflow(), wcx = fakeCx(); win.init({}, wcx); await flush();
   assert.equal(win.form.title.value(), 'Follow up: Task x');
   assert.equal(win.form.criteria.value(), 'Rows fit\nRequested changes: ');
   assert.deepEqual([win.form.root.value(), win.form.maxRounds.value(), win.form.maxMinutes.value(), win.form.checks.value()], ['/work/app', '3', '30', '[["npm","test"]]']);
   assert.equal(win.explicitNew, true); assert.equal(win.selected, null); assert.equal(calls(/cli\.mjs/).length, 0);
   win.close();
+  const again = new Workflow(); again.init({}, fakeCx()); await flush();
+  assert.equal(again.explicitNew, false, "a pane that reloads with the same stamp only selects the task"); assert.equal(again.selected, "x");
+  again.close();
   fake.props = { role: 'workflow', goalId: 'g', taskId: 'a', followUp: 'rerun', overlay: 'o' };
   const other = new Workflow(); other.init({}, fakeCx()); await flush();
   assert.equal(other.explicitNew, false, 'a result that still waits is not re-run'); assert.equal(other.selected, 'a');
@@ -351,13 +355,16 @@ test('Saved setups open in the Runs list: Start fills a new task in the run wind
   click(find(tree, 'runs-setups-show'), cx);
   assert.equal(find(v.render(cx), 'setup-s1'), null, 'and fold shut again');
 
-  fake.props = { ...windows()[0], overlay: 'o' }; fake.stored['relevo.runs.mode'] = 'sessions';
+  fake.props = { ...asked(), overlay: 'o' }; fake.stored['relevo.runs.mode'] = 'sessions';
   const win = new Workflow(), wcx = fakeCx(); win.init({}, wcx); await flush();
   assert.deepEqual([win.form.root.value(), win.form.maxRounds.value(), win.form.maxMinutes.value(), win.checkPreset], ['/work/app', '3', '25', 'npm-test']);
   assert.equal(win.explicitNew, true); assert.equal(win.selected, null);
   assert.match(win.setupReuseNotice, /^“App” applied · 3 attempts · 25 min per attempt/);
   assert.equal(calls(/cli\.mjs/).length, 0, 'applying a setup starts nothing');
   win.close();
+  const again = new Workflow(); again.init({}, fakeCx()); await flush();
+  assert.equal(again.setupReuseNotice ?? null, null, 'a reloaded pane does not apply the setup again');
+  again.close();
 });
 
 test('the ? sheet lists compare, select and accepting a selection', () => {

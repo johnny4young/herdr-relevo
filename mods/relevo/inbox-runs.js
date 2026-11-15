@@ -4,7 +4,7 @@ import { shared, setShared } from "herdr";
 import { button, foldRow, legHeader, legend, joined, keyBar, keycap, row, onSubmitChord } from "./ui.js";
 import { GOAL_MODE, GOAL_SCOPE, workflowCommand } from "./inbox-goals.js";
 import { openGoal } from "./goals-editor.js";
-import { openWorkflow } from "./workflow-window.js";
+import { openWorkflow, RUN_FOLLOW_UP } from "./workflow-window.js";
 import { goalState } from "./lib/goals.js";
 import { ago } from "./lib/time.js";
 import { reviewableWork, linkedDecision, runProgress } from "./lib/goal-workflow.js";
@@ -49,7 +49,7 @@ export class RunViews {
 
   // A run's tasks by turn, grouped once per task list; an unreadable state shows none.
   runBucket(goal, stale = false) {
-    if (this.bucketsOf !== this.workflowTasks) {
+    if (!this.buckets || this.bucketsOf !== this.workflowTasks) {
       this.bucketsOf = this.workflowTasks;
       this.buckets = bucketTasks(this.workflowTasks ?? []);
     }
@@ -86,13 +86,27 @@ export class RunViews {
     if (scope) this.loadRunUsage(cx);
     if (this.runChangeFor && this.runChangeFor !== this.runTask) this.runChangeFor = null;
     if (this.acceptIntent && (task?.state !== "needs_you" || !acceptArmed(this.acceptIntent, task))) this.acceptIntent = null;
+    // A notice or an error belongs to the run and task it was said on, however the view moved on.
+    if (this.runPlace() !== this.runAt) { this.runNotice = null; this.runError = null; this.runAt = this.runPlace(); }
     return this.runEntries();
   }
 
+  runPlace() { return `${shared(GOAL_SCOPE) ?? ""}\0${this.runTask ?? ""}`; }
+
   // What every level change clears; `task` is the one to show, if any.
   resetRun(task = null) {
-    this.runTask = task; this.runChangeFor = null; this.acceptIntent = null; this.runNotice = null; this.runError = null;
+    this.runTask = task; this.runChangeFor = null; this.acceptIntent = null;
     this.runPicked = []; this.closeCompare();
+  }
+
+  // The words sent as a follow-up stay typed until the run window has taken them.
+  followUpTaken(cx) {
+    if (!this.runFollowUp || shared(RUN_FOLLOW_UP) === this.runFollowUp) return;
+    this.runFollowUp = null;
+    cx.spawn(async (cx) => {
+      this.runChange.set_value(""); this.runChangeFor = null; this.runNotice = "The follow-up is ready in the run window.";
+      cx.notify();
+    });
   }
 
   runNav(runs) {
@@ -154,7 +168,7 @@ export class RunViews {
         this.runNotice = outcome !== "accept" ? "Feedback saved. The next result will return for your review."
           : kept ? "Accepted and committed to its run branch. More offers the draft pull request." : "Acceptance saved.";
         if (!kept && this.runTask === task.id) {
-          this.runTask = null;
+          this.runTask = null; this.runAt = this.runPlace();
           const next = this.orderedTasks({ id: task.goalId }, false).find((item) => item.id !== task.id);
           this.sel = next ? `task-${next.id}` : null;
         }
@@ -189,8 +203,9 @@ export class RunViews {
     const task = this.shownTask(), text = this.runChange.value().trim();
     if (!task || task.id !== this.runChangeFor || task.state !== "needs_you" || this.runBusy || !text) return;
     if (changesPlan(task).spent) {
-      openWorkflow(task.goalId, task.id, { followUp: "changes", text });
-      this.runChange.set_value(""); this.runChangeFor = null;
+      this.runFollowUp = openWorkflow(task.goalId, task.id, { followUp: "changes", text });
+      setShared(RUN_FOLLOW_UP, this.runFollowUp);
+      this.runNotice = "Sent to the run window."; this.runError = null;
       cx.notify();
     } else this.decideRun(task, "changes", cx, text);
   }
@@ -203,7 +218,7 @@ export class RunViews {
     if (this.runCompare) {
       if (e.key === "?") return false;
       if (e.key === "escape") this.leaveCompare();
-      return true;
+      return e.key !== "tab";
     }
     if (task) {
       if (e.key === "?") return false;
@@ -214,10 +229,16 @@ export class RunViews {
       } else if (waiting && e.key === "a") this.acceptStep(task, cx, false);
       else if (waiting && e.key === "enter" && this.acceptIntent) this.acceptStep(task, cx);
       else {
+        const armed = this.acceptIntent;
         this.acceptIntent = null;
         if (waiting && e.key === "r") this.askRunChanges(task, cx);
         else if (e.key === "d") this.seeDiff(task);
-        else if (e.key === "c") this.openCompare(task);
+        else if (e.key === "c" && canCompare(task)) this.openCompare(task);
+        else {
+          // Other keys, Tab among them, keep their default once Accept is disarmed.
+          if (armed) cx.notify();
+          return false;
+        }
       }
       return true;
     }
@@ -280,12 +301,12 @@ export class RunViews {
   runsKeys(t) {
     const help = [["?"], "all keys"], task = this.shownTask(), scope = this.goalProjection.scope;
     const compare = (item) => (item && canCompare(item) ? [[["c"], "compare"]] : []);
-    if (this.runCompare) return keyBar(t, "runs-keys", [[["esc"], "back"]], help);
-    if (task) return keyBar(t, "runs-keys", [...(task.state === "needs_you" ? [[["a", "enter"], "accept"], [["r"], "ask for changes"]] : []), [["d"], "diff"], ...compare(task), [["esc"], "tasks"]], help);
+    if (this.runCompare) return keyBar(t, "list-keys", [[["esc"], "back"]], help);
+    if (task) return keyBar(t, "list-keys", [...(task.state === "needs_you" ? [[["a", "enter"], "accept"], [["r"], "ask for changes"]] : []), [["d"], "diff"], ...compare(task), [["esc"], "tasks"]], help);
     if (scope && this.runPicked.length) return this.batchBar(t, scope);
-    if (scope) return keyBar(t, "runs-keys", [[["j", "k"], "move"], [["enter"], "open the task"],
+    if (scope) return keyBar(t, "list-keys", [[["j", "k"], "move"], [["enter"], "open the task"],
       ...compare(this.runBucket(scope).all.find((item) => `task-${item.id}` === this.sel)), [["esc"], "runs"]], help);
-    return keyBar(t, "runs-keys", [[["j", "k"], "move"], [["enter"], "open the run"], [["n"], "new run"]], help);
+    return this.listKeys(t, "runs");
   }
 
   runsBody(t, runs) {
@@ -360,14 +381,14 @@ export class RunViews {
     const turn = taskTurn(task), id = `task-${task.id}`, at = taskAt(task);
     const open = (cx) => { this.resetRun(task.id); this.h.focus(); cx.notify(); };
     const picking = turn === "me" && this.runPicked.length > 0;
-    const main = picking ? this.pickBox(t, task) : turn === "me" ? button(t, `task-review-${task.id}`, "Review", open, { kind: "go" })
-      : turn === "stuck" ? button(t, `task-why-${task.id}`, "See why", (cx) => { this.sel = id; this.clicked = true; this.h.focus(); cx.notify(); }) : null;
+    const main = picking ? { el: this.pickBox(t, task) } : turn === "me" ? { id: `task-review-${task.id}`, label: "Review", run: open, kind: "go" }
+      : turn === "stuck" ? { id: `task-why-${task.id}`, label: "See why", run: (cx) => { this.sel = id; this.clicked = true; this.h.focus(); cx.notify(); } } : null;
     return this.item(t, id, {
       turn: turn === "done" ? (task.state === "accepted" ? "ready" : "old") : turn, kind: "relay", title: task.title, reason: picking ? this.thenReason(task, goal) : taskReason(task),
       age: at ? ago(at, true) : null, tip: task.title, main,
       lines: () => [...this.attemptLines(t, task), ...(turn === "stuck" ? this.stuckLines(t, goal, task) : [])],
-      actions: [turn === "me" ? null : button(t, `task-open-${task.id}`, "Open", open, { tip: "Who did what on this task" }),
-        canCompare(task) ? this.compareButton(t, task, `task-compare-${task.id}`) : null].filter(Boolean),
+      actions: [turn === "me" ? null : { id: `task-open-${task.id}`, label: "Open", run: open, tip: "Who did what on this task" },
+        canCompare(task) ? { el: this.compareButton(t, task, `task-compare-${task.id}`) } : null].filter(Boolean),
     });
   }
 

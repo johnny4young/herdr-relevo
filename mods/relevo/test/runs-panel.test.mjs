@@ -35,7 +35,9 @@ async function runs(tasks = [], goals = [goal]) {
 // The coordinator's answer to a command: the new state, saved and returned.
 const answers = (tasks) => { fake.exec = (cmd, args) => { if (!/cli\.mjs$/.test(args[0] ?? '')) return null; save(tasks); return { stdout: JSON.stringify({ doc: { tasks, engine: { enabled: true } } }) }; }; };
 const decided = () => calls(/"action":"decide"/).map((line) => JSON.parse(line.slice(line.indexOf('{'))));
-const windows = () => fake.runs.filter(([name]) => name === 'pane.split').map(([, args]) => args.props);
+// The panes opened, without the stamp of a one-time ask.
+const windows = () => fake.runs.filter(([name]) => name === 'pane.split').map(([, args]) => { const { at: _at, ...props } = args.props; return props; });
+const asked = () => fake.runs.findLast(([name]) => name === 'pane.split')[1].props;
 
 test('a run row says what it does now, by whose turn it is, with its one action', () => {
   const row = (tasks, options) => runRow(goal, runBucket(tasks, 'g'), { engine: { enabled: true }, ...options });
@@ -114,7 +116,7 @@ test('Runs at a glance: header, legend, groups by turn, Now and Shipped, older r
   assert.equal(find(tree, 'goal-old'), null);
   assert.equal(text(find(tree, 'runs-closed-fold')), '1 older finished run');
   assert.match(text(find(tree, 'runs-setups')), /^Saved setups · 1 Show$/);
-  assert.equal(text(find(tree, 'runs-keys')), 'j k move open the run n new run ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'j k move open the run n new run ? all keys');
   click(find(tree, 'runs-setups-show'), cx); tree = v.render(cx);
   assert.match(text(find(tree, 'runs-setups')), /^Saved setups · 1 Hide$/);
   assert.ok(find(tree, 'setup-s1'), 'the setups open in place'); assert.deepEqual(windows(), []);
@@ -139,7 +141,7 @@ test('Enter or a click opens a run in the panel, never the run window; j, k and 
   assert.match(text(find(tree, 'task-b')), /^Task b approved, 2nd attempt/);
   assert.match(text(find(tree, 'task-e')), /^Task e Codex Luna is writing it/);
   assert.equal(find(tree, 'task-p'), null);
-  assert.equal(text(find(tree, 'runs-keys')), 'j k move open the task esc runs ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'j k move open the task esc runs ? all keys');
   v.navKey({ key: 'j' }, cx); v.navKey({ key: 'j' }, cx); v.navKey({ key: 'k' }, cx);
   assert.equal(v.sel, 'task-b');
   click(find(tree, 'run-rest-fold'), cx); tree = v.render(cx);
@@ -194,7 +196,7 @@ test('a task opens with the summary, who did what and the decision; Accept is A 
   assert.equal(text(find(tree, 'task-accept')), 'a Accept'); assert.equal(find(tree, 'task-accept').fill, t.accent);
   assert.equal(text(find(tree, 'task-changes')), 'r Ask for changes'); assert.equal(text(find(tree, 'task-diff')), 'd See the diff');
   assert.equal(text(find(tree, 'task-effect')), 'Accepting keeps the worktree and commits to its run branch; More offers the draft pull request. Accepting finishes this task. No follow-up task is defined.');
-  assert.equal(text(find(tree, 'runs-keys')), 'a accept r ask for changes d diff esc tasks ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'a accept r ask for changes d diff esc tasks ? all keys');
 
   v.navKey({ key: 'enter' }, cx); await flush();
   assert.deepEqual(decided(), [], 'Enter alone accepts nothing');
@@ -323,4 +325,92 @@ test('a stuck task in detail offers the follow-up, never Accept; a task that van
   assert.deepEqual(windows(), [{ role: 'workflow', goalId: 'g', taskId: 'd', followUp: 'blocked' }]);
   v.workflowTasks = [ready('a')]; tree = v.render(cx);
   assert.equal(v.runTask, null); assert.ok(find(tree, 'task-a'));
+});
+
+test('an unreadable task state still draws the runs, as status unavailable', async () => {
+  fake.files[goalsPath()] = JSON.stringify(saveGoal(emptyGoals(), goal, 0));
+  fake.files[STATE] = '{broken';
+  const v = new Inbox(), cx = fakeCx(); v.init({}, cx); await flush();
+  fake.stored[GOAL_MODE] = true;
+  assert.match(text(v.render(cx)), /status unavailable/);
+});
+
+test('a change request left open in Runs does not take the keys of Reviews', async () => {
+  const { v, cx } = await runs([ready('a')]);
+  click(find(v.render(cx), 'goal-action-g'), cx); click(find(v.render(cx), 'task-review-a'), cx);
+  v.navKey({ key: 'r' }, cx); assert.equal(v.runChangeFor, 'a');
+  fake.stored[GOAL_MODE] = false; v.render(cx);
+  v.navKey({ key: 'm' }, cx);
+  assert.equal(v.reviewView(), 'maintenance');
+});
+
+test('in a task, keys it does not use keep their default', async () => {
+  const { v, cx } = await runs([ready('a')]);
+  click(find(v.render(cx), 'goal-action-g'), cx); click(find(v.render(cx), 'task-review-a'), cx);
+  let stopped = 0; cx.stop_propagation = () => { stopped++; };
+  v.navKey({ key: 'tab' }, cx);
+  assert.equal(stopped, 0);
+  v.navKey({ key: 'a' }, cx);
+  assert.equal(stopped, 1);
+});
+
+test('a follow-up asked of the run window is prepared once: a reloaded pane does not refill the draft', async () => {
+  const { v, cx } = await runs([stuck('d', { criteria: 'Rows fit' })]);
+  click(find(v.render(cx), 'goal-action-g'), cx); v.render(cx);
+  click(find(v.render(cx), 'task-follow-up-d'), cx);
+  assert.ok(asked().at > 0, 'the ask carries a stamp');
+  fake.props = { ...asked(), overlay: 'o' }; fake.stored['relevo.runs.mode'] = 'sessions';
+  const open = async () => { const win = new Workflow(), wcx = fakeCx(); win.init({}, wcx); await flush(); return win; };
+  let win = await open();
+  assert.equal(win.form.title.value(), 'Follow up: Task d'); assert.equal(win.explicitNew, true);
+  win.close();
+  win = await open();
+  assert.equal(win.form.title.value(), '', 'the reload does not write the draft again');
+  assert.deepEqual([win.selected, win.explicitNew], ['d', false], 'it only selects the task');
+  win.close();
+  click(find(v.render(cx), 'task-follow-up-d'), cx);
+  fake.props = { ...asked(), overlay: 'o' };
+  win = await open();
+  assert.equal(win.form.title.value(), 'Follow up: Task d', 'asking again is a new ask');
+  assert.ok(fake.stored['relevo.runs.applied'].length <= 20);
+  win.close();
+});
+
+test('a change request sent as a follow-up stays typed until the run window takes it', async () => {
+  const { v, cx } = await runs([ready('b', { round: 2, criteria: 'Rows fit' })]);
+  click(find(v.render(cx), 'goal-action-g'), cx); click(find(v.render(cx), 'task-review-b'), cx);
+  click(find(v.render(cx), 'task-changes'), cx); v.runChange.type('Fix the header', cx);
+  click(find(v.render(cx), 'task-send-changes'), cx); await flush();
+  let tree = v.render(cx); await flush();
+  assert.equal(text(find(tree, 'run-notice')), 'Sent to the run window.');
+  assert.equal(v.runChange.value(), 'Fix the header', 'nothing is lost while the window has not answered');
+  assert.ok(find(tree, 'task-changes-field'));
+  assert.equal(fake.stored['relevo.runs.followup'], asked().at);
+
+  fake.props = { ...asked(), overlay: 'o' }; fake.stored['relevo.runs.mode'] = 'sessions';
+  const win = new Workflow(), wcx = fakeCx(); win.init({}, wcx); await flush();
+  assert.match(win.form.criteria.value(), /Requested changes: Fix the header$/);
+  assert.equal(fake.stored['relevo.runs.followup'], null, 'the window says it took the follow-up');
+  win.close();
+  v.render(cx); await flush(); tree = v.render(cx);
+  assert.equal(v.runChange.value(), ''); assert.equal(find(tree, 'task-changes-field'), null);
+  assert.equal(text(find(tree, 'run-notice')), 'The follow-up is ready in the run window.');
+  assert.equal(decided().length, 0, 'a spent task is never sent feedback');
+});
+
+test('a notice or an error leaves with the run or task it was said on, whatever moved the view', async () => {
+  const other = newGoal('h', 'Another run');
+  const { v, cx } = await runs([ready('a'), ready('b'), { ...ready('c'), goalId: 'h' }], [goal, other]);
+  const said = () => { const tree = v.render(cx); return [text(find(tree, 'run-notice')), text(find(tree, 'run-error'))]; };
+  const say = () => { v.runNotice = 'Acceptance saved.'; v.runError = 'Action needs attention: locked'; };
+  click(find(v.render(cx), 'goal-action-g'), cx); v.render(cx);
+  say(); assert.deepEqual(said(), ['Acceptance saved.', 'Action needs attention: locked'], 'a redraw in place keeps them');
+  fake.stored[GOAL_SCOPE] = 'h';
+  assert.deepEqual(said(), ['', ''], 'another run opened from a command');
+  say(); v.runTask = 'c';
+  assert.deepEqual(said(), ['', ''], 'a task opened');
+  say(); fake.stored[GOAL_MODE] = false; v.render(cx); fake.stored[GOAL_SCOPE] = null; fake.stored[GOAL_MODE] = true;
+  assert.deepEqual(said(), ['', ''], 'the run closed while Reviews was showing');
+  say(); v.navKey({ key: 'j' }, cx);
+  assert.deepEqual(said(), ['Acceptance saved.', 'Action needs attention: locked'], 'moving the selection is not leaving');
 });

@@ -4,7 +4,7 @@ import { openReview } from "./review.js";
 import { openDesktop } from "./desktop.js";
 import { recent } from "./lib/github.js";
 import { prTurn } from "./lib/lanes.js";
-import { foldRow, joined, legend, legHeader, saveFolds, TURN_LABEL } from "./ui.js";
+import { foldRow, icon, joined, keysOf, legend, legHeader, saveFolds, TURN_LABEL } from "./ui.js";
 
 // Reviews has two views: Now, by whose turn it is, and Maintenance, for what can wait.
 export const REVIEW_VIEW = "relevo.inbox.view";
@@ -38,6 +38,7 @@ export class NowViews {
     this.sel = id;
     this.clicked = false;
     if (entry) {
+      if (!this.filterNow([entry]).length) this.filterField.set_value("");
       if (this.reviewView() !== "now") setShared(REVIEW_VIEW, "now");
       if (entry.turn === "open") this.expanded["now-open"] = true;
     } else {
@@ -51,41 +52,65 @@ export class NowViews {
     saveFolds(this.expanded);
   }
 
-  // Everything in Now, in the order to work through it: each entry has its turn, how it draws, and what Enter
-  // and the number keys do.
+  // ✓ hides a row until something new happens, and u takes the last one back; Undo brings it back. `key` names both.
+  markAction(key, addressed, set, tip, { on = "addressed", off = "undo" } = {}) {
+    if (addressed) return { id: `${off}-${key}`, label: "Undo", run: (cx) => set(false, cx), tip: "Back to the list" };
+    return { id: `${on}-${key}`, key: "a", label: [icon("check")], tip, run: (cx) => {
+      set(true, cx);
+      this.lastMark = (c) => set(false, c);
+    } };
+  }
+
+  // Everything in Now, in the order to work through it: each entry has its turn, how it draws, and what Enter,
+  // the number keys and the row's keys do; `keys` reads the row's action table only when a key asks.
   nowEntries(t, v) {
     const out = [], add = (entry) => out.push(entry);
     const ready = new Set((v.ready ?? []).map((p) => p.url));
     const prTurnOf = (pr, requested) => prTurn(pr, { requested, seen: this.seen(pr), busy: Boolean(this.launchedMap()[pr.url]) && this.prBusy(pr), ready: ready.has(pr.url) });
     for (const i of v.local.filter((x) => x.kind === "blocked")) {
       const drawn = i.prompt;
-      add({ id: `in-${i.agent.address}`, turn: "me", draw: () => this.localCard(t, i), go: () => run("agent.focus", { terminal: i.agent.address }),
+      add({ id: `in-${i.agent.address}`, turn: "me", text: `${i.repo} ${i.branch ?? ""} ${drawn?.question ?? ""}`, draw: () => this.localCard(t, i), go: () => run("agent.focus", { terminal: i.agent.address }),
+        keys: () => keysOf(this.localActions(i)),
         choose: (n, cx) => {
           const option = drawn?.options.find((o) => o.n === n);
           if (option) this.answer(i.agent, option, cx, drawn);
         } });
     }
-    for (const s of v.desktop) add({ id: `dk-${s.id}`, turn: s.state === "blocked" ? "me" : "ready", draw: () => this.desktopCard(t, s), go: () => openDesktop(s.id) });
+    for (const s of v.desktop) add({ id: `dk-${s.id}`, turn: s.state === "blocked" ? "me" : "ready", text: `${s.project} ${s.title ?? ""} ${s.needs ?? ""}`,
+      draw: () => this.desktopCard(t, s), go: () => openDesktop(s.id), keys: () => keysOf(this.desktopActions(s)) });
     for (const [url, e] of Object.entries(this.landing()).filter(([, e]) => e.phase !== "landed")) {
-      add({ id: `land-${url}`, turn: e.phase === "failed" ? "me" : "flight", draw: () => this.landCard(t, url, e), go: () => exec("open", [e.failed?.url ?? url]) });
+      add({ id: `land-${url}`, turn: e.phase === "failed" ? "me" : "flight", text: `${e.repo} ${e.number} ${e.title}`,
+        draw: () => this.landCard(t, url, e), go: () => exec("open", [e.failed?.url ?? url]), keys: () => keysOf(this.landActions(url, e)) });
     }
-    for (const entry of this.openReviews()) add({ id: entry.id, turn: "me", draw: () => this.reviewRow(t, entry), go: entry.go });
+    for (const entry of this.openReviews()) add({ id: entry.id, turn: "me", text: `${entry.title} ${entry.detail ?? ""}`, draw: () => this.reviewRow(t, entry), go: entry.go,
+      keys: () => keysOf(this.reviewActions(entry)) });
     const prs = [...v.requested.filter(recent).map((pr) => [pr, true]), ...[...v.mine, ...(v.ready ?? [])].filter(recent).map((pr) => [pr, false])];
     for (const [pr, requested] of prs) {
-      add({ id: `pr-${pr.url}`, turn: prTurnOf(pr, requested), draw: () => this.prCard(t, pr, requested, false, ready.has(pr.url)), go: () => this.runPR(pr) });
+      add({ id: `pr-${pr.url}`, turn: prTurnOf(pr, requested), text: `${pr.repo} ${pr.number} ${pr.title} ${pr.author?.login ?? ""}`,
+        draw: () => this.prCard(t, pr, requested, false, ready.has(pr.url)), go: () => this.runPR(pr), keys: () => keysOf(this.prActions(t, pr, requested)) });
     }
     for (const i of v.local.filter((x) => x.kind === "diff")) {
-      add({ id: `in-${i.agent.address}`, turn: "me", draw: () => this.localCard(t, i), go: () => openReview(i.top, i.agent.address) });
+      add({ id: `in-${i.agent.address}`, turn: "me", text: `${i.repo} ${i.branch ?? ""}`, draw: () => this.localCard(t, i), go: () => openReview(i.top, i.agent.address),
+        keys: () => keysOf(this.localActions(i)) });
     }
     for (const source of this.linkedReviews(v).filter((s) => !s.addressed)) {
-      add({ id: `pr-${source.pr.url}`, turn: source.draft ? "open" : prTurnOf(source.pr, false),
-        draw: () => (source.draft ? this.draftCard(t, source.pr) : this.prCard(t, source.pr, false)),
-        go: () => (source.draft ? exec("open", [source.pr.url]) : this.runPR(source.pr)) });
+      const pr = source.pr;
+      add({ id: `pr-${pr.url}`, turn: source.draft ? "open" : prTurnOf(pr, false), text: `${pr.repo} ${pr.number} ${pr.title}`,
+        keys: () => keysOf(source.draft ? this.draftActions(pr) : this.prActions(t, pr, false)),
+        draw: () => (source.draft ? this.draftCard(t, pr) : this.prCard(t, pr, false)),
+        go: () => (source.draft ? exec("open", [pr.url]) : this.runPR(pr)) });
     }
-    for (const pr of this.drafts ?? []) add({ id: `pr-${pr.url}`, turn: "open", draw: () => this.draftCard(t, pr), go: () => exec("open", [pr.url]) });
+    for (const pr of this.drafts ?? []) add({ id: `pr-${pr.url}`, turn: "open", text: `${pr.repo} ${pr.number} ${pr.title}`, draw: () => this.draftCard(t, pr), go: () => exec("open", [pr.url]),
+      keys: () => keysOf(this.draftActions(pr)) });
     const seen = new Set();
     return out.filter((e) => !seen.has(e.id) && seen.add(e.id))
       .map((e) => ({ ...e, turn: GROUPS.includes(e.turn) ? e.turn : "open", section: GROUPS.includes(e.turn) ? e.turn : "open" }));
+  }
+
+  // A filter typed after / keeps the rows whose words contain it; only the list and its keys see it, never the badge.
+  filterNow(entries) {
+    const query = (this.filterField?.value() ?? "").trim().toLowerCase();
+    return query ? entries.filter((e) => (e.text ?? "").toLowerCase().includes(query)) : entries;
   }
 
   // The selectable rows in screen order: what you were away for, then each group; "open" only once unfolded.
@@ -163,17 +188,20 @@ export class NowViews {
     ].filter(Boolean);
   }
 
+  // Rows drawn by item() answer their table's keys here too, so a keycap never shows a key that does nothing.
   maintenanceNav(v, m = this.maintenanceModel(v)) {
-    const old = m.old.map(([pr]) => ({ id: `pr-${pr.url}`, section: "old", go: () => this.runPR(pr) })), lanes = m.lanes;
+    const t = theme(), prKeys = (pr, requested, done = false) => () => keysOf(this.prActions(t, pr, requested, done));
+    const old = m.old.map(([pr, requested]) => ({ id: `pr-${pr.url}`, section: "old", go: () => this.runPR(pr), keys: prKeys(pr, requested) })), lanes = m.lanes;
     const trees = (key) => (key === "quiet" && !this.expanded["loose-recent"] ? [] : lanes[key])
       .map((w) => ({ id: `wt-${w.path}`, section: key, go: () => this.openTree(w) }));
     // Unfolded, what you marked addressed is selectable too, so its Undo can be reached.
     const done = !this.expanded["maintenance-done"] ? [] : [
-      ...v.localDone.map((i) => ({ id: `in-${i.agent.address}`, go: () => openReview(i.top, i.agent.address) })),
-      ...[...v.requestedDone, ...v.mineDone].map((pr) => ({ id: `pr-${pr.url}`, go: () => this.runPR(pr) })),
-      ...v.desktopDone.map((d) => ({ id: `dk-${d.id}`, go: () => openDesktop(d.id) })),
-      ...this.doneReviews().map((entry) => ({ id: entry.id, go: entry.go })),
-      ...Object.entries(this.landing()).filter(([, e]) => e.phase === "landed").map(([url]) => ({ id: `land-${url}`, go: () => exec("open", [url]) })),
+      ...v.localDone.map((i) => ({ id: `in-${i.agent.address}`, go: () => openReview(i.top, i.agent.address), keys: () => keysOf(this.localActions(i, true)) })),
+      ...v.requestedDone.map((pr) => ({ id: `pr-${pr.url}`, go: () => this.runPR(pr), keys: prKeys(pr, true, true) })),
+      ...v.mineDone.map((pr) => ({ id: `pr-${pr.url}`, go: () => this.runPR(pr), keys: prKeys(pr, false, true) })),
+      ...v.desktopDone.map((d) => ({ id: `dk-${d.id}`, go: () => openDesktop(d.id), keys: () => keysOf(this.desktopActions(d, true)) })),
+      ...this.doneReviews().map((entry) => ({ id: entry.id, go: entry.go, keys: () => keysOf(this.reviewActions(entry, true)) })),
+      ...Object.entries(this.landing()).filter(([, e]) => e.phase === "landed").map(([url, e]) => ({ id: `land-${url}`, go: () => exec("open", [url]), keys: () => keysOf(this.landActions(url, e)) })),
     ].map((item) => ({ ...item, section: "done" }));
     return [...trees("safe"), ...trees("look"), ...old, ...this.staleNav(), ...trees("quiet"), ...done];
   }
