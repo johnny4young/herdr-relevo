@@ -149,7 +149,7 @@ test('a selected task lists its attempts; the task shows them above the decision
   v.navKey({ key: 'enter' }, cx); tree = v.render(cx);
   assert.equal(text(find(tree, 'task-attempts')), 'attempt 1: Codex Luna → Team Haiku · 18 min · asked for changes attempt 2: Codex Luna → Team Haiku · 9 min · approved');
   assert.equal(text(find(tree, 'task-compare')), 'c Compare attempts');
-  assert.equal(text(find(tree, 'list-keys')), 'a accept r ask for changes d diff c compare esc tasks ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'a accept r changes d diff c compare esc tasks ? all keys');
   v.navKey({ key: 'escape' }, cx); v.render(cx); v.navKey({ key: 'j' }, cx); v.navKey({ key: 'enter' }, cx); tree = v.render(cx);
   assert.equal(v.runTask, 'a');
   assert.equal(find(tree, 'task-attempts'), null); assert.equal(find(tree, 'task-compare'), null);

@@ -72,6 +72,11 @@ test("a key bar lists its keys and keeps help at the far edge", () => {
   assert.deepEqual(svgs(bar), ["mods/relevo/icons/enter.svg"]);
 });
 
+test("a narrow key bar hides actions before the way back", () => {
+  const bar = ui.keyBar(t, "keys", [[["a"], "accept"], [["esc"], "tasks"], [["c"], "compare"]], [["?"], "all keys"]);
+  assert.deepEqual(bar.items.map(text), ["a accept c compare", "esc tasks", "? all keys"]);
+});
+
 test("micro charts: check boxes, diff squares, age ticks, relay legs and a usage band", () => {
   assert.deepEqual(ui.seg(t, ["ok", "bad", "run", "wait"]).items.map((i) => i.fill), [t.done, t.blocked, t.working, t.raised]);
   assert.deepEqual(ui.diffRatio(t, 48, 6).items.map((i) => i.fill), [t.ansi2, t.ansi2, t.ansi2, t.ansi2, t.ansi1]);

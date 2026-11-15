@@ -186,10 +186,12 @@ export function keyBar(t, id, keys, right = null) {
   const font = monoFont();
   const group = ([caps, label]) => h_flex().gap(4).items_center().flex_none()
     .children(caps.map((c) => keycap(t, c, { font }))).child(div().child(label));
-  // A narrow panel clips the left keys first; the far edge always stays.
+  const back = keys.filter(([caps]) => caps[0] === "esc"), acts = keys.filter(([caps]) => caps[0] !== "esc");
+  // A narrow panel wraps whole keys onto a hidden second line; the way back and the far edge always stay.
   return h_flex().id(id).h(32).flex_none().pl(16).pr(8).gap(14).items_center()
     .border_t(1).border_color(t.border).bg(t.background).text_size(11).text_color(t.muted)
-    .child(h_flex().flex_1().min_w(0).gap(14).items_center().overflow_hidden().children(keys.map(group)))
+    .child(h_flex().flex_1().min_w(0).h(20).flex_wrap().gap(14).items_center().overflow_hidden().children(acts.map(group)))
+    .children(back.map(group))
     .when(Boolean(right), (el) => el.child(group(right)));
 }
 
