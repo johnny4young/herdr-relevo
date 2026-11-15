@@ -52,16 +52,18 @@ const newest = (x, y) => seconds(y.updatedAt) - seconds(x.updatedAt);
 
 const NOT_RED = new Set(["SUCCESS", "NEUTRAL", "SKIPPED", "CANCELLED", "PENDING", "EXPECTED"]);
 
-// Each check of the last commit, in GitHub's order: { name, state: ok | bad | run | wait }.
-const CHECK_OK = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]), CHECK_BAD = new Set(["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"]);
+// Each check of the last commit, in GitHub's order: { name, state: ok | bad | run | cancel }.
+const CHECK_OK = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]), CHECK_BAD = new Set(["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"]);
 export function checksOf(p) {
   const nodes = p.commits?.nodes[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [];
   return nodes.map((n) => {
     const name = n.name ?? n.context ?? "check", end = n.conclusion ?? (n.status && n.status !== "COMPLETED" ? null : n.state);
-    const state = CHECK_OK.has(end) ? "ok" : CHECK_BAD.has(end) ? "bad" : end === "CANCELLED" ? "wait" : "run";
+    const state = CHECK_OK.has(end) ? "ok" : CHECK_BAD.has(end) ? "bad" : end === "CANCELLED" ? "cancel" : "run";
     return { name, state };
   });
 }
+
+export const checksCut = (p) => Boolean(p.commits?.nodes[0]?.commit?.statusCheckRollup?.contexts?.pageInfo?.hasNextPage);
 
 // GitHub rolls a cancelled check up as FAILURE, but nothing failed. Anything else, or a list cut short, stays red.
 export function ciOf(p) {
@@ -79,6 +81,9 @@ export function cancelledRuns(checks, states = RETRIED) {
   const ids = checks.filter((c) => states.has(c.state)).map((c) => /\/actions\/runs\/(\d+)/.exec(c.link ?? "")?.[1]);
   return [...new Set(ids.filter(Boolean))];
 }
+
+// Replying to a thread on your own PR files a review of yours, which is not someone reviewing it.
+const reviewedBy = (p, me) => (p.reviews?.nodes ?? []).some((r) => r.state !== "PENDING" && r.author?.login !== me);
 
 // Your open PRs that need something: failing CI, changes requested, new reviews or open threads.
 // A PR opened in the last day stays in sight even when it only waits for the merge.
@@ -109,7 +114,7 @@ export function mapMine(data, now = Date.now() / 1000) {
     if (p.reviewDecision === "CHANGES_REQUESTED" || reviewers.length || threads) skills.push("comments");
     const fresh = !reasons.length && !threads && now - seconds(p.createdAt) < NEW_FOR;
     if (fresh) reasons.push(ci === "SUCCESS" ? "new, CI passed" : ci === "PENDING" || ci === "EXPECTED" ? "new, CI running" : "new");
-    return { ...p, repo: p.repository.nameWithOwner, reasons, skills, threads, fresh, hot: skills.includes("fix") };
+    return { ...p, repo: p.repository.nameWithOwner, reasons, skills, threads, fresh, hot: skills.includes("fix"), reviewed: reviewedBy(p, me) };
   }).filter((p) => p.reasons.length || p.threads);
   return list.sort(newest);
 }
@@ -117,7 +122,7 @@ export function mapMine(data, now = Date.now() / 1000) {
 // Your drafts, to mark ready for review.
 export function mapDrafts(data) {
   return data.viewer.pullRequests.nodes.filter((p) => p.isDraft)
-    .map((p) => ({ ...p, repo: p.repository.nameWithOwner, reasons: ["draft"], skills: [], threads: unresolved(p), hot: false }))
+    .map((p) => ({ ...p, repo: p.repository.nameWithOwner, reasons: ["draft"], skills: [], threads: unresolved(p), hot: false, reviewed: reviewedBy(p, data.viewer.login) }))
     .sort(newest);
 }
 

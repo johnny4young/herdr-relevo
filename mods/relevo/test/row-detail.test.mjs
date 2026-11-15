@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { resetFake } from "./fake/herdr.mjs";
 import { find, text, fakeCx, flush } from "./fake/ui.mjs";
 
-const { checksOf, mineQuery, OTHERS_QUERY } = await import("../lib/github.js");
+const { checksOf, mapDrafts, mineQuery, OTHERS_QUERY } = await import("../lib/github.js");
 const { Inbox } = await import("../inbox.js");
 beforeEach(resetFake);
 
@@ -23,7 +23,7 @@ test("each check reads as passed, failed, running or cancelled, in GitHub's orde
     run("deploy", "COMPLETED", "CANCELLED"), { context: "ci/legacy", state: "PENDING" }, run("docs", "COMPLETED", "SKIPPED")]);
   assert.deepEqual(checksOf(pr), [
     { name: "lint", state: "ok" }, { name: "unit", state: "bad" }, { name: "e2e", state: "run" },
-    { name: "deploy", state: "wait" }, { name: "ci/legacy", state: "run" }, { name: "docs", state: "ok" },
+    { name: "deploy", state: "cancel" }, { name: "ci/legacy", state: "run" }, { name: "docs", state: "ok" },
   ]);
   assert.deepEqual(checksOf({}), []);
 });
@@ -35,10 +35,28 @@ test("a selected PR names what failed and what passed, with its size and whether
   const url = "https://github.com/acme/web/pull/142";
   const pr = { url, repo: "acme/web", number: 142, title: "test(ratelimit): pin the limiter", reasons: ["CI failing"], skills: [], threads: 0,
     updatedAt: new Date().toISOString(), createdAt: new Date(Date.now() - 86400e3).toISOString(), additions: 48, deletions: 6, changedFiles: 3,
-    reviews: { nodes: [] }, ...rollup([run("unit", "COMPLETED", "FAILURE"), run("lint", "COMPLETED", "SUCCESS"), run("build", "COMPLETED", "SUCCESS")]) };
-  const tree = inbox.prLines(inbox.constructor.prototype.theme ?? new Proxy({}, { get: (_t, n) => `#${String(n)}` }), pr);
+    reviewed: false, ...rollup([run("unit", "COMPLETED", "FAILURE"), run("lint", "COMPLETED", "SUCCESS"), run("build", "COMPLETED", "SUCCESS")]) };
+  const tree = inbox.prLines(new Proxy({}, { get: (_t, n) => `#${String(n)}` }), pr);
   const wrap = { items: tree.filter(Boolean) };
   assert.equal(text(find(wrap, `ci-failed-${url}`)), "unit failed");
   assert.match(text(find(wrap, `ci-passed-${url}`)), /^lint, build passed/);
   assert.match(text(find(wrap, `size-${url}`)), /^3 files \+48 −6 nobody reviewed it yet opened 24h ago$/);
+});
+
+test("a stale check is not running, and a cut list keeps the rollup's word", () => {
+  assert.deepEqual(checksOf(rollup([run("old", "COMPLETED", "STALE")])), [{ name: "old", state: "bad" }]);
+  const inbox = new Inbox(), url = "https://github.com/acme/web/pull/7";
+  const pr = { url, title: "t", threads: 0, ...rollup([run("lint", "COMPLETED", "SUCCESS")]) };
+  pr.commits.nodes[0].commit.statusCheckRollup.contexts.pageInfo.hasNextPage = true;
+  const wrap = { items: inbox.prLines(new Proxy({}, { get: (_t, n) => `#${String(n)}` }), pr).filter(Boolean) };
+  assert.equal(text(find(wrap, `ci-${url}`)), "CI failing");
+});
+
+test("your own replies on your PR are not someone reviewing it", () => {
+  const node = (login, state) => ({ author: { login }, state, submittedAt: new Date().toISOString() });
+  const pr = (reviews) => ({ number: 1, title: "t", url: "u", isDraft: true, createdAt: "", updatedAt: "", repository: { nameWithOwner: "me/app" },
+    commits: { nodes: [] }, reviews: { nodes: reviews }, reviewThreads: { nodes: [] } });
+  const data = (reviews) => ({ viewer: { login: "me", pullRequests: { nodes: [pr(reviews)] } } });
+  assert.equal(mapDrafts(data([node("me", "COMMENTED")]))[0].reviewed, false);
+  assert.equal(mapDrafts(data([node("ana", "COMMENTED")]))[0].reviewed, true);
 });

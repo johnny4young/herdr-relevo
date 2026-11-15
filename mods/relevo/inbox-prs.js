@@ -7,12 +7,12 @@ import { contextFor } from "./context.js";
 import { reviewAlerts, prAlerts, mergedAlert } from "./alerts.js";
 import { REPOS_ROOT } from "./config.js";
 import { LAUNCHED, SKILLS, configuredSkill, launched, launchSkill } from "./skills.js";
-import { button, spinner, withKey, icon, markButton, seg } from "./ui.js";
+import { button, spinner, withKey, icon, markButton, seg, diffRatio } from "./ui.js";
 import { CI_WORDS, ciRunning, prName, prReason, prTurn } from "./lib/lanes.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
-import { MINE_PAGES, OTHERS_QUERY, joinPRs, mineQuery, cancelledRuns, checksOf, ciOf, seconds, mapDrafts, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
+import { MINE_PAGES, OTHERS_QUERY, joinPRs, mineQuery, cancelledRuns, checksCut, checksOf, ciOf, seconds, mapDrafts, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
 import { mergeFlag, prMoves } from "./lib/land.js";
 import { keepListed } from "./lib/addressed.js";
 import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
@@ -251,30 +251,33 @@ export class PrViews {
     });
   }
 
-  // The selected PR's lines: its title, CI and comments, its size, and what its agent did.
   // The selected PR's lines: title, which checks failed by name and which passed, its size and review, its agent.
   prLines(t, pr, agentLine = null) {
-    const ci = ciOf(pr), checks = checksOf(pr), names = (state) => checks.filter((c) => c.state === state).map((c) => c.name);
-    const failed = names("bad"), passed = names("ok"), running = names("run"), cancelled = names("wait");
+    const ci = ciOf(pr), checks = checksOf(pr), names = (state) => [...new Set(checks.filter((c) => c.state === state).map((c) => c.name))];
+    const boxes = div().flex_none().max_w(160).overflow_hidden().child(seg(t, checks.map((c) => c.state)));
+    const failed = names("bad"), passed = names("ok"), running = names("run"), cancelled = names("cancel");
     const line = (id, glyph, text, tone, after = null) => h_flex().id(id).gap(6).items_center().min_w(0).text_size(11).text_color(t.muted)
       .child(glyph).child(div().flex_1().min_w(0).truncate().text_color(tone ?? t.muted).child(text)).when(Boolean(after), (el) => el.child(after));
     const files = Number.isFinite(pr.changedFiles) ? `${pr.changedFiles} ${pr.changedFiles === 1 ? "file" : "files"}` : null;
-    const reviewed = (pr.reviews?.nodes ?? []).some((r) => r.state !== "PENDING");
+    const ciLine = ci ? line(`ci-${pr.url}`, ciRunning(ci) ? spinner(t.working, 11) : ci === "SUCCESS" ? icon("check", t.done) : ci === "CANCELLED" ? icon("warn", t.ansi3) : icon("x", t.blocked), CI_WORDS[ci] ?? ci) : null;
     return [
       div().min_w(0).truncate().text_size(13).text_color(t.foreground).child(pr.title),
       ...(checks.length ? [
-        failed.length ? line(`ci-failed-${pr.url}`, icon("x", t.blocked), `${failed.join(", ")} failed`, t.blocked) : null,
+        failed.length ? line(`ci-failed-${pr.url}`, icon("x", t.blocked), `${failed.join(", ")} failed`, t.blocked, passed.length ? null : boxes) : null,
         cancelled.length ? line(`ci-cancelled-${pr.url}`, icon("warn", t.ansi3), `${cancelled.join(", ")} cancelled`) : null,
         running.length ? line(`ci-running-${pr.url}`, spinner(t.working, 11), `${running.join(", ")} running`) : null,
-        passed.length ? line(`ci-passed-${pr.url}`, icon("check", t.done), `${passed.join(", ")} passed`, null, seg(t, checks.map((c) => c.state))) : null,
-      ] : ci ? [line(`ci-${pr.url}`, ciRunning(ci) ? spinner(t.working, 11) : ci === "SUCCESS" ? icon("check", t.done) : ci === "CANCELLED" ? icon("warn", t.ansi3) : icon("x", t.blocked), CI_WORDS[ci] ?? ci)] : []),
+        passed.length ? line(`ci-passed-${pr.url}`, icon("check", t.done), `${passed.join(", ")} passed`, null,
+          boxes) : null,
+        // Past the first 50 checks the names say too little: the rollup has the last word.
+        checksCut(pr) ? ciLine : null,
+      ] : [ciLine]),
       h_flex().id(`size-${pr.url}`).gap(6).items_center().min_w(0).overflow_hidden().text_size(11).text_color(t.muted)
         .child(icon("file", t.muted))
         .when(Boolean(files), (el) => el.child(div().flex_none().child(files)))
         .when(Number.isFinite(pr.additions), (el) => el.child(div().flex_none().text_color(t.ansi2).child(`+${pr.additions}`))
-          .child(div().flex_none().text_color(t.ansi1).child(`−${pr.deletions ?? 0}`)))
+          .child(div().flex_none().text_color(t.ansi1).child(`−${pr.deletions ?? 0}`)).child(diffRatio(t, pr.additions, pr.deletions ?? 0)))
         .when(pr.threads > 0, (el) => el.child(h_flex().id(`threads-${pr.url}`).flex_none().gap(4).items_center().child(icon("comment", t.ansi3)).child(`${pr.threads} unresolved`)))
-        .when(Boolean(pr.reviews) && !reviewed, (el) => el.child(div().min_w(0).truncate().child("nobody reviewed it yet")))
+        .when(pr.reviewed === false, (el) => el.child(div().min_w(0).truncate().child("nobody reviewed it yet")))
         .child(div().flex_1())
         .when(Boolean(pr.createdAt), (el) => el.child(div().flex_none().text_color(t.dim).child(`opened ${ago(seconds(pr.createdAt))}`))),
       agentLine,
@@ -348,7 +351,7 @@ export class PrViews {
       turn: prTurn(pr, { requested, seen, busy, ready }), done: addressed, kind: requested ? "review" : "pr",
       title: prName(pr), reason: prReason(pr, { requested, ready }), tip: pr.title,
       age: ago(seconds(pr.updatedAt), true),
-      lines: this.prLines(t, pr, l && (seen || busy)
+      lines: () => this.prLines(t, pr, l && (seen || busy)
         ? div().text_size(11).text_color(working ? t.working : t.dim).child(this.agentLine(pr, agent)) : null),
       main: actions[0], actions,
       mark: markButton(t, pr.url, addressed, (on, cx) => this.setAddressed(pr, on, cx), "Addressed: hide until there's new activity"),

@@ -95,7 +95,7 @@ export const chevron = (open, color = null, size = 12) => icon(open ? "chevron-d
 // A quota's colour: accent, ansi3 from half, blocked from QUOTA_WARN.
 export const quotaTone = (t, pct) => (pct >= QUOTA_WARN ? t.blocked : pct >= 50 ? t.ansi3 : t.accent);
 // What a check, a leg of a run or a step is doing, as a colour; anything else is not started.
-const STATE = { ok: "done", bad: "blocked", run: "working", you: "blocked", acc: "accent" };
+const STATE = { ok: "done", bad: "blocked", run: "working", cancel: "ansi3", you: "blocked", acc: "accent" };
 const stateTone = (t, state, idle) => (STATE[state] ? t[STATE[state]] : idle);
 
 // The lane: a 24 px column whose glyph says whose turn it is.
