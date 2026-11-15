@@ -5,7 +5,7 @@ export const STALE_AFTER = 30 * 86400;
 export const checkedOut = (porcelain) => new Set(porcelain.split("\n")
   .filter((l) => l.startsWith("branch refs/heads/")).map((l) => l.slice(18)));
 
-export const REFS_FORMAT = "--format=%(refname:short) %(committerdate:unix) %(upstream:track)";
+export const REFS_FORMAT = "--format=%(refname:lstrip=2) %(committerdate:unix) %(upstream:track)";
 
 // Lines of `for-each-ref` in REFS_FORMAT; `skip` holds the default branch and every branch checked out. Oldest first.
 export function staleBranches(out, { now, skip = new Set(), after = STALE_AFTER } = {}) {

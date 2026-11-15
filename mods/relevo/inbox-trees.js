@@ -50,7 +50,7 @@ export class TreeViews {
     }
     this.loadingStates = true;
     const list = this.worktrees.filter((w) => (w.merged ? w.dirty : this.expanded.loose && !w.open));
-    const sized = this.worktrees.filter((w) => w.merged || (this.expanded.loose && !w.open));
+    const sized = this.expanded.loose ? this.worktrees.filter((w) => w.merged || !w.open) : [];
     cx.spawn(async (cx) => {
       try {
         const stale = list.filter((w) => force || this.treeStates.get(w.path)?.at !== w.at);
@@ -76,7 +76,8 @@ export class TreeViews {
   applyState(w, now) {
     const known = this.treeStates?.get(w.path), s = known?.state;
     w.kb = this.treeSizes?.get(w.path)?.kb;
-    if (w.merged && !known) return;
+    // A merged worktree is read again only while dirty, so a state from before its last use no longer holds.
+    if (w.merged && known?.at !== w.at) return;
     w.group = known ? groupOf(s, w.at, now) : undefined;
     w.why = whyOf(s);
     w.actions = actionsOf(s, w.at, now);
@@ -476,13 +477,6 @@ export class TreeViews {
     ].filter(Boolean);
   }
 
-  look(id, cx) {
-    this.sel = id;
-    this.clicked = true;
-    this.h?.focus();
-    cx.notify();
-  }
-
   // One row per worktree: whose turn, repo, branch and reason, its size and one action. Remove asks once more
   // before git runs; selected, the row says what would be lost and offers the rest.
   treeRow(t, w) {
@@ -497,7 +491,7 @@ export class TreeViews {
         : lane === "quiet" ? this.openButton(t, w)
           : sel || asking ? null
             : w.group === "pushed" ? this.openButton(t, w)
-              : button(t, `wt-look-${w.path}`, "Look", (cx) => this.look(id, cx), { size: "sm", tip: "What removing it would lose" });
+              : button(t, `wt-look-${w.path}`, "Look", (cx) => this.pick(id, cx), { size: "sm", tip: "What removing it would lose" });
     const below = [
       err || warn ? div().id(`wt-note-${w.path}`).min_w(0).text_size(11).text_color(t.blocked).child(err ?? warn) : null,
       ...(sel || asking ? [...this.loseLines(t, w), this.actionsLine(t, w, moves, { open: lane !== "quiet", remove: !sure && !moves.direct })] : []),

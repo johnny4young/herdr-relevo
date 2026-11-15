@@ -3,9 +3,9 @@ import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { notify } from "herdr";
 import { contextOfPath, inFocus } from "./context.js";
-import { deleteBranch, scanStale } from "./branches.js";
+import { deleteBranch, scanStale, staleOf } from "./branches.js";
 import { staleReason } from "./lib/branches.js";
-import { button, foldRow, joined, row, saveFolds, spinner } from "./ui.js";
+import { button, foldRow, joined, row, spinner, toggleFold, LANE } from "./ui.js";
 
 const idOf = (b) => `br-${b.main}:${b.name}`;
 
@@ -17,7 +17,9 @@ export class BranchViews {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        this.stale = await scanStale(force);
+        const read = await scanStale(force);
+        this.stale = read.branches;
+        this.staleMissed = read.failed;
         this.staleFailed = null;
       } catch (e) {
         this.staleFailed = String(e?.message ?? e);
@@ -31,6 +33,38 @@ export class BranchViews {
   // The branches read so far, in the focused context; none before the fold first opens.
   staleShown() {
     return (this.stale ?? []).filter((b) => inFocus(contextOfPath(b.main)));
+  }
+
+  // Repos whose branches could not be read: said, never shown as "no stale branches".
+  missedShown() {
+    return (this.staleMissed ?? []).filter((main) => inFocus(contextOfPath(main)));
+  }
+
+  retryStale(main, cx) {
+    this.staleRetrying ??= new Set();
+    if (this.staleRetrying.has(main)) return;
+    this.staleRetrying.add(main);
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const read = await staleOf(main);
+        if (!read.failed) {
+          this.stale = [...(this.stale ?? []).filter((b) => b.main !== main), ...read.list];
+          this.staleMissed = (this.staleMissed ?? []).filter((m) => m !== main);
+        }
+      } finally {
+        this.staleRetrying.delete(main);
+      }
+      cx.notify();
+    });
+  }
+
+  missedRow(t, main) {
+    const busy = Boolean(this.staleRetrying?.has(main));
+    return h_flex().id(`stale-miss-${main}`).min_h(30).pl(LANE).pr(8).gap(6).items_center().text_size(11).text_color(t.muted).tooltip(main)
+      .child(div().flex_1().min_w(0).truncate().child(`Couldn't read branches in ${main.split("/").pop()}`))
+      .when(busy, (el) => el.child(spinner(t.dim, 10)))
+      .child(button(t, `stale-retry-${main}`, "Retry", (cx) => this.retryStale(main, cx), { size: "sm", disabled: busy }));
   }
 
   staleNav() {
@@ -76,25 +110,20 @@ export class BranchViews {
 
   // `under` says an Old header sits above; with none read yet the fold names no count.
   staleGroup(t, under = false) {
-    const list = this.staleShown(), open = Boolean(this.expanded.stale), read = Array.isArray(this.stale);
-    if (read && !list.length && !this.staleFailed) return [];
+    const list = this.staleShown(), missed = this.missedShown(), open = Boolean(this.expanded.stale), read = Array.isArray(this.stale);
+    if (read && !list.length && !missed.length && !this.staleFailed) return [];
     const label = read ? `${list.length} ${list.length === 1 ? "branch" : "branches"} nobody touched in 30 days` : "Branches nobody touched in 30 days";
-    const toggle = (cx) => {
-      this.expanded.stale = !open;
-      saveFolds(this.expanded);
-      if (!open) this.scanStale(cx);
-      cx.notify();
-    };
+    const scan = (cx) => this.scanStale(cx);
     const fold = foldRow(this, t, "stale-branches", "stale", label, {
-      gap: !under, onOpen: (cx) => this.scanStale(cx),
+      gap: !under, onOpen: scan,
       after: h_flex().flex_1().gap(6).justify_end().items_center()
         .when(Boolean(this.scanningStale), (el) => el.child(spinner(t.dim, 10)))
-        .child(button(t, "stale-show", open ? "Hide" : "Show", toggle, { size: "sm" })),
+        .child(button(t, "stale-show", open ? "Hide" : "Show", (cx) => toggleFold(this, "stale", cx, scan), { size: "sm" })),
     });
     if (!open) return [fold];
     const now = Date.now() / 1000;
     return [fold,
       this.staleFailed ? div().id("stale-error").pl(24).pr(8).text_size(11).text_color(t.blocked).child(this.staleFailed) : null,
-      ...joined(t, list.map((b) => this.staleRow(t, b, now)))].filter(Boolean);
+      ...joined(t, list.map((b) => this.staleRow(t, b, now))), ...missed.map((main) => this.missedRow(t, main))].filter(Boolean);
   }
 }

@@ -42,6 +42,8 @@ export class NowViews {
       if (entry.turn === "open") this.expanded["now-open"] = true;
     } else {
       if (this.reviewView() !== "maintenance") setShared(REVIEW_VIEW, "maintenance");
+      // As setReviewView does: the next scan reads the loose worktrees, or they stay "checking".
+      this.expanded.loose = true;
       const m = this.maintenanceModel(v);
       if (m.lanes.quiet.some((w) => `wt-${w.path}` === id)) this.expanded["loose-recent"] = true;
       this.expanded["maintenance-done"] = this.expanded["maintenance-done"] || !this.maintenanceNav(v, m).some((n) => n.id === id);

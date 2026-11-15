@@ -423,15 +423,79 @@ function repo(name, { refuse = null } = {}) {
 
 test("the scan reads each repo with read-only git, and again only after 15 minutes or a refresh", async () => {
   const main = repo("cached");
-  const list = await scanStale();
+  const { branches: list, failed } = await scanStale();
+  assert.deepEqual(failed, []);
   assert.deepEqual(list.map((b) => [b.repo, b.main, b.name]), [["cached", main, "old/plain"], ["cached", main, "old/gone"], ["cached", main, "old/kept"]]);
-  const read = calls(/for-each-ref --format=%\(refname:short\) %\(committerdate:unix\) %\(upstream:track\) refs\/heads/);
+  const read = calls(/for-each-ref --format=%\(refname:lstrip=2\) %\(committerdate:unix\) %\(upstream:track\) refs\/heads/);
   assert.equal(read.length, 1);
   assert.match(read[0], /^git --no-optional-locks -c core\.fsmonitor=false /);
   await scanStale();
   assert.equal(calls(/committerdate/).length, 1);
   await scanStale(true);
   assert.equal(calls(/committerdate/).length, 2);
+});
+
+test("the scan reads four clones at a time, and keeps their order", async () => {
+  const mains = ["p1", "p2", "p3", "p4", "p5", "p6"].map((n) => `/home/test/work/${n}`);
+  let active = 0, most = 0;
+  fake.exec = async (cmd, args) => {
+    if (cmd === "sh") return { stdout: `${mains.join("\n")}\n` };
+    if (!args.includes("for-each-ref")) return args.includes("symbolic-ref") ? { stdout: "origin/main\n" } : null;
+    most = Math.max(most, active += 1);
+    await flush();
+    active -= 1;
+    return { stdout: `old/plain ${NOW - 90 * DAY} \n` };
+  };
+  const read = await scanStale(true);
+  assert.equal(most, 4);
+  assert.deepEqual(read.branches.map((b) => b.main), mains);
+});
+
+test("a repo git can't read is named with Retry, never shown as no stale branches", async () => {
+  const main = "/home/test/work/unread";
+  let broken = true;
+  fake.exec = (cmd, args) => {
+    if (cmd === "gh") return { stdout: JSON.stringify({ data: { viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [] } }, search: { nodes: [] } } }) };
+    if (cmd === "sh") return args[1].includes("|| printf") ? { stdout: `${main}\n` } : null;
+    if (args.includes("for-each-ref") && args.some((a) => a.includes("committerdate"))) return broken ? { code: 128, stderr: "fatal: not a git repository\n" } : { stdout: `old/plain ${NOW - 90 * DAY} \n` };
+    return args.includes("symbolic-ref") ? { stdout: "origin/main\n" } : null;
+  };
+  assert.deepEqual(await scanStale(true), { branches: [], failed: [main] });
+  const { inbox, cx, ui } = await open();
+  click(find(ui(), "stale-branches"), cx);
+  await settled();
+  let view = ui();
+  assert.ok(find(view, "stale-branches"), "the fold stays");
+  assert.equal(text(find(view, `stale-miss-${main}`)), "Couldn't read branches in unread Retry");
+  assert.deepEqual(inbox.nav, []);
+  const before = calls(/committerdate/).length;
+  click(find(view, `stale-retry-${main}`), cx);
+  await settled();
+  assert.equal(calls(/committerdate/).length, before + 1, "a failed read is not kept for 15 minutes");
+  assert.ok(find(ui(), `stale-miss-${main}`), "still unread, still said");
+  broken = false;
+  click(find(ui(), `stale-retry-${main}`), cx);
+  await settled();
+  view = ui();
+  assert.equal(find(view, `stale-miss-${main}`), null);
+  assert.match(text(find(view, "stale-branches")), /^1 branch nobody touched in 30 days Hide$/);
+  assert.ok(find(view, `br-${main}:old/plain`));
+});
+
+test("Show and the fold row are one switch: either opens it and reads, either shuts it without reading", async () => {
+  repo("switch");
+  const { inbox, cx, ui } = await open();
+  click(find(ui(), "stale-show"), cx);
+  await settled();
+  assert.deepEqual([inbox.expanded.stale, fake.stored["relevo.inbox.folds"].stale, calls(/committerdate/).length], [true, true, 1]);
+  click(find(ui(), "stale-branches"), cx);
+  await settled();
+  assert.deepEqual([inbox.expanded.stale, calls(/committerdate/).length], [false, 1]);
+  click(find(ui(), "stale-branches"), cx);
+  await settled();
+  click(find(ui(), "stale-show"), cx);
+  assert.equal(inbox.expanded.stale, false);
+  assert.equal(fake.stored["relevo.inbox.folds"].stale, undefined);
 });
 
 test("git's refusal comes back as git said it, and nothing is forced", async () => {

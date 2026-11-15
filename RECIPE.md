@@ -107,7 +107,8 @@ task to another account.
   - "▸ N branches nobody touched in 30 days" closes OLD, with **Show**. Opened (and on ↻ while open) it reads each
     clone's local branches with `git for-each-ref`, 15 minutes per repo, and lists those whose last commit is older
     than 30 days and that are not the default branch nor checked out anywhere: branch, "last commit 52 days ago",
-    "gone upstream". **Delete branch** runs `git branch -d`, never `-D`, and shows git's refusal as git wrote it.
+    "gone upstream". **Delete branch** runs `git branch -d`, never `-D`, and shows git's refusal as git wrote it. Clones are read four at a time; one git
+    can't read gets its own line, "Couldn't read branches in <repo>" with **Retry**, and is never counted as having none.
   - Backups go to `~/<BACKUPS_ROOT>/<repo>/<worktree>/<time>/`, private, with `latest.json` telling whether what's
     here is saved. A **Backups** row shows the folder's size and **Open**, once it exists. Each worktree Remove or
     Delete takes adds a JSON line to `~/<BACKUPS_ROOT>/deletions.log`: time, what the row said, repo, path, branch

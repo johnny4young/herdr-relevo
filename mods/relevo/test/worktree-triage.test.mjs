@@ -61,6 +61,8 @@ function view(states) {
   const v = new TreeViews(), worktrees = Object.keys(states).map((n) => row(n));
   Object.assign(v, {
     worktrees, removing: new Set(), gone: new Set(), wtError: {}, expanded: { loose: true }, confirm: null, selected(id) { return this.sel === id; },
+    // As the Inbox's own: a click opens a row, or closes the one already open.
+    pick(id) { this.sel = this.sel === id ? null : id; },
     treeStates: new Map(Object.entries(states).map(([n, state]) => [`/w/${n}`, { at: OLD, state }])),
   });
   return { v, worktrees };

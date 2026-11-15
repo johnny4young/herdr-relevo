@@ -245,6 +245,15 @@ export function saveFolds(expanded) {
   if (JSON.stringify(kept) !== JSON.stringify(shared(FOLDS) ?? {})) setShared(FOLDS, kept);
 }
 
+// Opens or shuts a fold and remembers it; `onOpen` runs when it opens. Every control of a fold goes through here.
+export function toggleFold(view, key, cx, onOpen = null) {
+  const open = Boolean(view.expanded[key]);
+  view.expanded[key] = !open;
+  saveFolds(view.expanded);
+  if (!open) onOpen?.(cx);
+  cx.notify();
+}
+
 // A "N things" line that folds a list open or shut; `key` names its state in view.expanded.
 export function foldRow(view, t, id, key, label, { gap = false, onOpen = null, after = null } = {}) {
   const open = Boolean(view.expanded[key]);
@@ -255,10 +264,7 @@ export function foldRow(view, t, id, key, label, { gap = false, onOpen = null, a
     .hover((s) => s.text_color(t.muted))
     .on_click((_e, cx) => {
       cx.stop_propagation();
-      view.expanded[key] = !open;
-      saveFolds(view.expanded);
-      if (!open) onOpen?.(cx);
-      cx.notify();
+      toggleFold(view, key, cx, onOpen);
     })
     .child(chevron(open))
     .child(label)
