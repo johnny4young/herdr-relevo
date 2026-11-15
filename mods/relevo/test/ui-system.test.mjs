@@ -120,3 +120,23 @@ test("an unknown turn is never drawn as urgent", () => {
   assert.equal(ui.laneGlyph(t, "done").stroke, t.accent);
   assert.equal(ui.laneGlyph(t, undefined).fill, null);
 });
+
+test("popup keys: a chord is not a key press, 1–9 are row numbers, and focus is asked for twice", () => {
+  assert.equal(ui.held({ key: "1", modifiers: {} }), false);
+  assert.equal(ui.held({ key: "1" }), false);
+  for (const name of ["platform", "control", "alt"]) assert.equal(ui.held({ key: "1", modifiers: { [name]: true } }), true);
+  assert.equal(ui.held({ key: "R", modifiers: { shift: true } }), false);
+  assert.equal(ui.digit({ key: "7" }), 7);
+  for (const key of ["0", "10", "r", "enter"]) assert.equal(ui.digit({ key }), null);
+
+  let focused = 0, open = true;
+  const handle = { focus: () => { focused += 1; } }, cx = fakeCx();
+  ui.grabFocus(handle, cx, () => open);
+  assert.equal(focused, 1);
+  assert.equal(cx.timers[0].ms, 300);
+  cx.timers[0].fn();
+  assert.equal(focused, 2);
+  open = false;
+  cx.timers[0].fn();
+  assert.equal(focused, 2, "a closed popup doesn't take the keyboard back");
+});

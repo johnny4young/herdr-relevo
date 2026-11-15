@@ -3,6 +3,7 @@ import { ACCOUNTS, CODEX, accountOf } from "./accounts.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { CONTEXTS } from "./config.js";
 import { runsOut, clock, FIVE_HOURS, WEEK, windowLabel } from "./lib/time.js";
+import { HANDOFF_AT } from "./lib/account-status.js";
 
 const ALERTED = "relevo.alerted";
 const KNOWN = "relevo.reviews.known";
@@ -95,7 +96,6 @@ export class BackgroundWatch {
 
 // One soft alert per account window at 80% and another at 95%, again only after it resets.
 // At 95% an account's alert offers to continue its agent with another account, before it stops.
-const HANDOFF_AT = 95;
 export function quotaAlerts(quotas) {
   const first = shared(ALERTED) == null, seen = { ...(shared(ALERTED) ?? {}) };
   let changed = first;

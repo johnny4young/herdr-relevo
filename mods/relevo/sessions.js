@@ -4,7 +4,7 @@ import { theme, exec, home, props, terminals, openOverlay, closeOverlay } from "
 import { ACCOUNTS, accountOf, chip, openInFolder, resumeArgv } from "./accounts.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { focusedCwd } from "./panelbar.js";
-import { spinner } from "./ui.js";
+import { grabFocus, spinner } from "./ui.js";
 import { ago } from "./lib/time.js";
 import { parseIndex, parseDetails, titleOf, inRepo, matches } from "./lib/sessions.js";
 
@@ -44,8 +44,7 @@ export class SessionFinder {
     this.all = null;
     this.details = {};
     this.missing = new Set();
-    this.h.focus();
-    cx.timer.after(300, () => this.h.focus());
+    grabFocus(this.h, cx);
     cx.spawn(async (cx) => {
       const specs = ACCOUNTS.filter((a) => a.claudeDir).map((a) => `${a.key}|${home()}/${a.claudeDir}/history.jsonl`);
       const r = await exec("sh", ["-c", INDEX, "sh", ...specs]);
