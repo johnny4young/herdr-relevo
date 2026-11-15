@@ -53,3 +53,39 @@ export function desktopChanges(before, sessions) {
 export const desktopKey = (s) => `desktop:${s.id}`;
 // Settled until the session does something after the mark.
 export const isSettled = (s, marks) => (marks?.[desktopKey(s)] ?? 0) >= s.at;
+
+const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+// Markdown read as text: links keep their words, emphasis and code marks go.
+const plain = (s) => s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/\*\*|__|`/g, "").trim();
+const firstLine = (s) => String(s ?? "").trim().split("\n")[0].trim();
+
+// A tool call in a few plain words: "editing ui.js", "running the tests".
+export function toolWords({ name = "", input = {} }) {
+  const file = basename(input.file_path ?? input.notebook_path ?? input.path ?? "");
+  if (/^(Edit|MultiEdit|Write|NotebookEdit)$/.test(name)) return file ? `editing ${file}` : "editing";
+  if (name === "Read") return file ? `reading ${file}` : "reading";
+  if (name === "Bash") return clip(firstLine(input.description) || `running ${firstLine(input.command).split(" ")[0]}`, 80);
+  if (name === "Grep" || name === "Glob") return "searching the code";
+  if (name === "WebFetch" || name === "WebSearch") return "searching the web";
+  if (name === "Agent" || name === "Task") return clip(firstLine(input.description) || "running a helper", 80);
+  if (name === "AskUserQuestion") return clip(`asks: ${firstLine(input.questions?.[0]?.question)}`, 120);
+  if (name === "TodoWrite") return "planning";
+  const mcp = /^mcp__([^_]+(?:_[^_]+)*?)__/.exec(name);
+  return `using ${mcp ? mcp[1].replace(/^claude_ai_/, "").replace(/_/g, " ") : name}`;
+}
+
+// The tail of a session's transcript: what the agent does now (its last block is a tool call) and its last words.
+export function desktopActivity(text) {
+  let doing, said = null;
+  const lines = String(text ?? "").split("\n");
+  for (let i = lines.length - 1; i >= 0 && (doing === undefined || said === null); i--) {
+    let e;
+    try { e = JSON.parse(lines[i]); } catch { continue; }
+    if (e?.type !== "assistant" || !Array.isArray(e.message?.content)) continue;
+    for (const c of [...e.message.content].reverse()) {
+      if (doing === undefined) doing = c.type === "tool_use" ? toolWords(c) : null;
+      if (said === null && c.type === "text" && c.text?.trim()) said = clip(plain(c.text), 600);
+    }
+  }
+  return { doing: doing ?? null, said };
+}

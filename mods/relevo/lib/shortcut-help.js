@@ -91,7 +91,7 @@ export const INBOX_SHORTCUT_ACTIONS = [
   { id: "inbox.top", label: "Go to the top (g g)", section: "Inbox navigation", fixedShortcut: "g" },
   { id: "inbox.bottom", label: "Go to the bottom", section: "Inbox navigation", fixedShortcut: "shift-g" },
   { id: "inbox.review", label: "Review the selected PR or work", section: "Selected row", fixedShortcut: "r" },
-  { id: "inbox.open-github", label: "Open it (PR on GitHub, agent, Desktop)", section: "Selected row", fixedShortcut: "o" },
+  { id: "inbox.open-github", label: "Open it (PR on GitHub, agent, Claude Desktop)", section: "Selected row", fixedShortcut: "o" },
   { id: "inbox.addressed", label: "Mark it addressed", section: "Selected row", fixedShortcut: "a" },
   { id: "inbox.undo", label: "Undo the last addressed", section: "Selected row", fixedShortcut: "u" },
   { id: "inbox.land", label: "Land a ready PR (press twice)", section: "Selected row", fixedShortcut: "l" },

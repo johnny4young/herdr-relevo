@@ -218,21 +218,28 @@ test("an agent that works again is back in the list even with an old mark", asyn
   assert.equal(find(ui(), "settled"), null);
 });
 
-test("Desktop sessions that work, ask or wait for review show under Desktop; settled ones don't", async () => {
+test("Claude Desktop sessions that work, ask or wait for review show under Claude Desktop; settled ones don't", async () => {
   const now = Date.now() / 1000;
   fake.stored["relevo.desktop"] = [
-    { id: "local_1", project: "app", title: "Fix login", state: "blocked", at: now },
+    { id: "local_1", project: "app", title: "Fix login", state: "blocked", at: now, needs: "Pick one", said: "Two ways to fix it.\nWhich one?" },
     { id: "local_2", project: "web", title: "Done one", state: "review", at: now },
     { id: "local_3", project: "web", title: "Idle", state: "idle", at: now },
   ];
   fake.stored["relevo.desktop.settled"] = ["local_2"];
   const { ui, cx } = await open([]);
-  assert.match(text(find(ui(), "dk-local_1")), /app · Fix login/);
+  assert.match(text(find(ui(), "desktop")), /^CLAUDE DESKTOP 1$/);
+  assert.match(text(find(ui(), "dk-local_1")), /^app Pick one/);
   assert.equal(find(ui(), "dk-local_2"), null);
   assert.equal(find(ui(), "dk-local_3"), null);
+  assert.equal(find(ui(), "dk-said-local_1"), null);
   find(ui(), "dk-local_1").handlers.on_click({}, cx);
+  assert.match(text(find(ui(), "dk-said-local_1")), /Two ways to fix it/);
+  assert.match(text(find(ui(), "dk-more-local_1")), /Fix login/);
+  find(ui(), "dk-open-local_1").handlers.on_click({ }, { ...cx, stop_propagation() {} });
   await flush();
   assert.equal(fake.execs.at(-1), "open claude://code/continue?session=local_1");
+  find(ui(), "dk-local_1").handlers.on_click({}, cx);
+  assert.equal(find(ui(), "dk-said-local_1"), null, "a second click closes it");
 });
 
 test("an agent's row says its model, context and how long its cache lasts while it rests", async () => {

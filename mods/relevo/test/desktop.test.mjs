@@ -4,7 +4,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { fake, resetFake, calls } from "./fake/herdr.mjs";
 import { fakeCx, find, text, click, flush } from "./fake/ui.mjs";
-import { desktopChanges, desktopLink, desktopSession, isSettled, showable } from "../lib/desktop.js";
+import { desktopActivity, desktopChanges, desktopLink, desktopSession, isSettled, showable, toolWords } from "../lib/desktop.js";
 
 const { Inbox } = await import("../inbox.js");
 const { AgentWatch, clickCommand, prAlerts } = await import("../alerts.js");
@@ -108,8 +108,44 @@ test("the watch publishes sessions and tells of a new question", async () => {
   mtime = 2;
   fake.files[FILE] = desktopFile({ postTurnSummary: { status_category: "blocked", needs_action: "Pick one" } });
   await watch.tick();
-  assert.equal(fake.notices[0].title, "app needs you in Desktop");
+  assert.equal(fake.notices[0].title, "app needs you in Claude Desktop");
   assert.equal(fake.stored[DESKTOP][0].needs, "Pick one");
+});
+
+test("a transcript's tail says what the session does now and what it said last", () => {
+  const line = (...content) => JSON.stringify({ type: "assistant", message: { content } });
+  const text = (s) => ({ type: "text", text: s }), tool = (name, input) => ({ type: "tool_use", name, input });
+  const tail = ['{"type":"assist', line(text("Reading the code first.")), JSON.stringify({ type: "user", message: { content: [{ type: "tool_result" }] } }),
+    line(text("Now the fix."), tool("Edit", { file_path: "/w/app/src/ui.js" }))].join("\n");
+  assert.deepEqual(desktopActivity(tail), { doing: "editing ui.js", said: "Now the fix." });
+  assert.deepEqual(desktopActivity(line(text("All done, 882 tests pass."))), { doing: null, said: "All done, 882 tests pass." });
+  assert.deepEqual(desktopActivity(""), { doing: null, said: null });
+  assert.equal(desktopActivity(line(text("Both are **merged** ([#121](https://example.com/pr/121)), see `ui.js`."))).said, "Both are merged (#121), see ui.js.");
+  assert.equal(toolWords(tool("Bash", { command: "npm test -- --watch=false", description: "Run the tests" })), "Run the tests");
+  assert.equal(toolWords(tool("Bash", { command: "npm test" })), "running npm");
+  assert.equal(toolWords(tool("AskUserQuestion", { questions: [{ question: "Which strategy?" }] })), "asks: Which strategy?");
+  assert.equal(toolWords(tool("mcp__claude_ai_Notion__notion-search", {})), "using Notion");
+  assert.equal(toolWords(tool("Grep", {})), "searching the code");
+});
+
+test("the watch reads each session's transcript tail, only when it changed", async () => {
+  const cli = "095b22b3-52e6-4b1f-8856-0a6e66de3a2b", log = `/home/demo/.claude/projects/-w-app/${cli}.jsonl`;
+  let tails = 0, logTime = 1;
+  fake.exec = (cmd, args) => {
+    if (cmd === "sh" && args[1].includes("claude-code-sessions")) return { stdout: `1 ${FILE}\n` };
+    if (cmd === "sh") return { stdout: args.includes(cli) ? `${logTime} ${log}\n` : "" };
+    if (cmd === "tail") { tails += 1; return { stdout: JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "Opened a PR." }] } }) }; }
+    return null;
+  };
+  fake.files[FILE] = desktopFile({ cliSessionId: cli, postTurnSummary: { status_category: "review_ready" } });
+  const watch = new DesktopWatch();
+  await watch.tick();
+  assert.equal(fake.stored[DESKTOP][0].said, "Opened a PR.");
+  await watch.tick();
+  assert.equal(tails, 1);
+  logTime = 2;
+  await watch.tick();
+  assert.equal(tails, 2);
 });
 
 test("an unchanged file isn't read again", async () => {
