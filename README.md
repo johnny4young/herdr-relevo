@@ -68,7 +68,7 @@ when the branch isn't checked out.
 
 Each quota bar says when it runs out at the current pace. Click an agent's account chip, or press `⌥⌘A`, to continue it
 with another account; an alert offers the same at 95%. Between Claude accounts the next one resumes the same conversation; to or from Codex it starts from a note
-with the last screen and the working tree. `⌥⌘N` starts a new agent on the Claude account with the most room left.
+with the last screen and the working tree. The popup shows how much room each account has left and which of the two it will do; a number key picks one. `⌥⌘N` starts a new agent on the Claude account with the most room left.
 
 ![A quota at 95% and the handoff to another account](screenshots/handoff.png)
 

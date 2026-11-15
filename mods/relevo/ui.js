@@ -136,8 +136,8 @@ export function row(t, id, { turn = "open", kind = null, title, reason = null, s
     .when(Boolean(below), (el) => el.child(v_flex().pl(LANE + 19).pr(8).pb(8).gap(5).children(below)));
 }
 
-// Rows are separated by a hairline that starts at the body, past the lane.
-export const hairline = (t) => div().h(1).ml(LANE).mr(8).flex_none().bg(t.border).opacity(0.55);
+// Rows are separated by a hairline that starts at the body, past the lane; an inset of 0 runs edge to edge.
+export const hairline = (t, inset = LANE) => div().h(1).ml(inset).mr(inset ? 8 : 0).flex_none().bg(t.border).opacity(0.55);
 export const joined = (t, rows) => rows.filter(Boolean).flatMap((el, i) => (i ? [hairline(t), el] : [el]));
 
 // ✓ hides an item until something new happens; Undo brings it back. `key` names both buttons.
@@ -223,6 +223,18 @@ export function band(t, width, pct, pace = null, { thin = false, tone = null } =
     .child(div().absolute().left(0).top(top).h(bar).rounded(2).bg(tone ?? quotaTone(t, fill)).w(Math.max(fill ? 2 : 0, Math.round((width * fill) / 100))))
     .when(pace != null, (el) => el.child(div().absolute().top(0).w(1).h(box).bg(t.foreground).opacity(0.7)
       .left(Math.round(width * clamp(pace, 0, 1)))));
+}
+
+// What a popup's key handler asks first: a chord is the app's, and 1–9 pick a numbered row.
+export const held = (e) => Boolean(e.modifiers?.platform || e.modifiers?.control || e.modifiers?.alt);
+export const digit = (e) => (/^[1-9]$/.test(e.key) ? Number(e.key) : null);
+
+// An overlay takes the keyboard a moment after it opens, so focus is asked for now and again once it has.
+export function grabFocus(handle, cx, still = () => true) {
+  handle.focus();
+  cx.timer.after(300, () => {
+    if (still()) handle.focus();
+  });
 }
 
 // Which folds are open, kept across reloads; a card's "more" lines are not kept.
