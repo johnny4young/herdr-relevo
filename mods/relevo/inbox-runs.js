@@ -309,7 +309,7 @@ export class RunViews {
     const help = [["?"], "all keys"], task = this.shownTask(), scope = this.goalProjection.scope;
     const compare = (item) => (item && canCompare(item) ? [[["c"], "compare"]] : []);
     if (this.runCompare) return keyBar(t, "list-keys", [[["esc"], "back"]], help);
-    if (task) return keyBar(t, "list-keys", [...(task.state === "needs_you" ? [[["a", "enter"], "accept"], [["r"], "ask for changes"]] : []), [["d"], "diff"], ...compare(task), [["esc"], "tasks"]], help);
+    if (task) return keyBar(t, "list-keys", [...(task.state === "needs_you" ? [[["a", "enter"], "accept"], [["r"], "changes"]] : []), [["d"], "diff"], ...compare(task), [["esc"], "tasks"]], help);
     if (scope && this.runPicked.length) return this.batchBar(t, scope);
     if (scope) return keyBar(t, "list-keys", [[["j", "k"], "move"], [["enter"], "open the task"],
       ...compare(this.runBucket(scope).all.find((item) => `task-${item.id}` === this.sel)), [["esc"], "runs"]], help);

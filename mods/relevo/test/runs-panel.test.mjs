@@ -196,7 +196,7 @@ test('a task opens with the summary, who did what and the decision; Accept is A 
   assert.equal(text(find(tree, 'task-accept')), 'a Accept'); assert.equal(find(tree, 'task-accept').fill, t.accent);
   assert.equal(text(find(tree, 'task-changes')), 'r Ask for changes'); assert.equal(text(find(tree, 'task-diff')), 'd See the diff');
   assert.equal(text(find(tree, 'task-effect')), 'Accepting keeps the worktree and commits to its run branch; More offers the draft pull request. Accepting finishes this task. No follow-up task is defined.');
-  assert.equal(text(find(tree, 'list-keys')), 'a accept r ask for changes d diff esc tasks ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'a accept r changes d diff esc tasks ? all keys');
 
   v.navKey({ key: 'enter' }, cx); await flush();
   assert.deepEqual(decided(), [], 'Enter alone accepts nothing');
