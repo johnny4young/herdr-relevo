@@ -8,6 +8,7 @@ import { Sidebar } from "./sidebar.js";
 import { AccountStatus } from "./account-status.js";
 import { Inbox } from "./inbox.js";
 import { InboxButton, PanelToggle, landOnReviews, showPanel } from "./toolbar.js";
+import { Terminals, focusTerminals } from "./terminals.js";
 import { AccountMenu } from "./account-menu.js";
 import { PanelBar, FileFinder, CheckoutMenu, openFinder, openCheckoutsHere } from "./panelbar.js";
 import { nextWaiting, openPR, respondPR, worktrees } from "./commands.js";
@@ -28,7 +29,7 @@ const ROLES = {
   accounts: Sidebar, inbox: Inbox, "inbox-button": InboxButton, "account-menu": AccountMenu,
   "panel-bar": PanelBar, "panel-toggle": PanelToggle, "find-file": FileFinder, "checkout-menu": CheckoutMenu,
   handoff: Handoff, "review-diff": ReviewDiff, "ledger-week": LedgerWeek, settings: Settings,
-  "quick-replies": QuickReplies, sessions: SessionFinder, usage: UsageDialog,
+  "quick-replies": QuickReplies, sessions: SessionFinder, usage: UsageDialog, terminals: Terminals,
 };
 
 export default class Relevo extends View {
@@ -90,6 +91,7 @@ export default class Relevo extends View {
     else if (name.startsWith("reveal-")) { setShared(GOAL_MODE, false); focusInbox(name.slice(7)); }
     else if (name === "panel-reviews") { landOnReviews(); focusInbox(); }
     else if (name === "panel-runs") { setShared(GOAL_MODE, true); focusInbox(); }
+    else if (name === "panel-terminals") focusTerminals();
     else if (name.startsWith("panel-")) showPanel(name.slice(6));
     else if (name.startsWith("launch-")) this.part.launch(name.slice(7));
   }

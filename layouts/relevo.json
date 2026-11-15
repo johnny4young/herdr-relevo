@@ -222,6 +222,16 @@
                       }
                     },
                     {
+                      "id": "terminals",
+                      "type": "block",
+                      "content": {
+                        "mod": "relevo",
+                        "props": {
+                          "role": "terminals"
+                        }
+                      }
+                    },
+                    {
                       "id": "files",
                       "type": "block",
                       "content": {

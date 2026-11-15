@@ -22,7 +22,15 @@ task to another account.
 - **Tab bar** (42px): relevo-tabs (Herdr's tabs), an **Inbox** button (92px) with a red count badge, the issues button (78px)
   and a panel toggle (44px, `panel.svg`).
 - **Right panel** (380px): a panel bar (66px) with the branch chips of the focused checkout and an
-  "Open file in …" finder field (`⌘O`), over a stack of Inbox, Files, Changes and Issues.
+  "Open file in …" finder field (`⌘O`), over a stack of Inbox, Terminals, Files, Changes and Issues.
+- **Terminals** (the third tab beside Reviews and Runs, `⌥⌘5`): every terminal that is not an agent, grouped by space,
+  then **In the background** (running with no pane), **Idle over a day** and a folded **Finished** with **Close N**. A
+  legend counts Running, Idle and Failed. Each row says what runs in it ("npm run dev", "zsh" with its branch), the port
+  it listens on (from `lsof`, matched through the process tree) and its age. Selected, it shows its folder, branch, start
+  and its last two lines, with Enter open (or **Show** for one in the background), `p` peek, `w` open its port, `r`
+  restart (a terminal that runs its own command: ended, removed and started again with the same command, folder and
+  name), `s` stop (Ctrl-C to a program typed into a shell), `b` to the background and `x` twice to close. Ports and
+  last lines are read every 10 s, only while the view is on screen.
 - **Files**: Herdr's tree with a right-click menu (New file, New folder, Rename, Move to Trash, Reveal in Finder,
   Copy path, Copy relative path). A preview, and a file opened from the finder, show **Edit**; editing adds a
   7px unsaved dot and **Save** (`⌘S`), and a change on disk shows a bar with **Reload** and **Keep mine**.
@@ -324,7 +332,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   Enter runs the main action (go to the agent, review, run the PR's skill or go to its agent, open the
   worktree), Esc returns to the previous pane. In Maintenance `x`, `X`, `d` and Esc work the selection, and `s`, `o`, `d` the
   selected worktree; `?` lists them. `⌘J` jumps to the next agent waiting on you and says how many are
-  left. `⌘]`/`⌘[` walk the agents in the Agents list's order. `⌥⌘1–4` show Files, Changes, Inbox, Issues; `⌥⌘B`
+  left. `⌘]`/`⌘[` walk the agents in the Agents list's order. `⌥⌘1–6` show Files, Changes, Reviews, Runs, Terminals and Issues; `⌥⌘B`
   the panel; `⌥⌘D` review; `⌥⌘A` handoff;
   `⌥⌘G` the branch's PR; `⌥⌘R` respond to it; `⌥⌘S` quick replies; `⌥⌘E` sessions; `⌥⌘W`/`⌥⇧⌘W` new or open worktree; `⌥⌘P/O/X` start an account; `⌥⌘N` the
   Claude account with the most room left (100 minus its fuller window; ties go to the folder's account, then

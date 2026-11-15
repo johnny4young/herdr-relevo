@@ -145,6 +145,14 @@ disk while you edit asks **Reload** or **Keep mine**, so nothing is overwritten 
 
 ![The Files panel's menu and a file being edited](screenshots/files.png)
 
+### Every terminal, and what runs in it
+
+**Terminals**, the third tab of the panel (`⌥⌘5`), lists every terminal that is not an agent: shells, dev servers,
+watchers and what runs in the background with no pane, by space, with the port each one listens on. Open, peek, open
+its port, restart its command, stop what runs in a shell, send it to the background or close it, each on one key.
+
+![Terminals: a dev server open with its port, last lines and actions](screenshots/terminals.png)
+
 ### Every checkout, one click away
 
 The panel bar's selector lists every checkout of the repo with uncommitted files, ahead/behind and last use. Merged
