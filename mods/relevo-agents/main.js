@@ -121,11 +121,14 @@ const SORTS = [
   { id: "grouped", label: "Grouped by space", icon: "layers" },
 ];
 const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
-// A finished result waits on me as a question does, so done shares the first section.
+// A queue by turn: what asks, what came back and is not seen yet, then what works, folded to one line. Idle ones live in their space.
 const ME = { id: "sec-me", label: "Needs me", status: "blocked" };
-const SECTION = { 4: ME, 3: ME, 2: { id: "sec-flight", label: "In flight", status: null }, 1: { id: "sec-idle", label: "Idle", status: null } };
-// A long idle section shows this many and folds the rest.
-const IDLE_SHOWN = 3;
+const BACK = { id: "sec-back", label: "Came back", status: null };
+const FLIGHT = { id: "sec-flight", label: "Working", status: null };
+const SECTION = { 4: ME, 3: BACK, 2: FLIGHT, 1: { id: "sec-idle", label: "Idle", status: null } };
+const OUTSIDE_SECTION = { blocked: ME.id, review: BACK.id, working: FLIGHT.id };
+// Past this share of its window an agent's context shows on its line.
+const CTX_WARN = 80;
 // Where a row's words start, past its glyph; the row's own padding and outline come before it.
 const GUTTER = 22, ROW_PAD = 7;
 // A status as the lane's turn; an agent's own turn also counts its helpers and a result not yet seen (turnOf).
@@ -285,11 +288,9 @@ export default class Agents extends View {
     if (!same || cur.status !== "idle") this.held = cur ? { address: cur.address, rank: RANK[cur.status] ?? 0 } : null;
   }
 
-  // Asking, or a result not yet seen: both wait on me and are drawn alike. A held done agent
-  // keeps its place (rank) but has been seen, so it draws as finished.
-  // A helper that asks or works puts its parent there too.
+  // Asking needs me; a result not yet seen came back. A helper that asks or works puts its parent there too.
   turnOf(a) {
-    const own = a.status === "done" ? "me" : plainTurn(a.status), subs = this.subStates?.get(a.address) ?? [];
+    const own = plainTurn(a.status), subs = this.subStates?.get(a.address) ?? [];
     if (own === "me" || subs.includes("blocked")) return "me";
     return own === "flight" || subs.includes("working") ? "flight" : own;
   }
@@ -398,6 +399,52 @@ export default class Agents extends View {
   elsewhereRow(t, s, now) {
     return this.outsideRow(t, s, now, { prefix: "ew", where: s.app || null,
       open: s.bundle ? { label: `Show ${s.app || "the app"}`, run: () => exec("open", ["-b", s.bundle]) } : null });
+  }
+
+  // Priority as a queue: Needs me, Came back (Claude Desktop and other terminals among them), what works on one
+  // line that opens, and how many rest, which live in their space.
+  queue(t, { pinned, rest, settled, desktop, elsewhere, header, withKids, rankOf, now }) {
+    const outside = [...desktop.map((s) => ({ s, row: () => this.outsideRow(t, s, now, { prefix: "dk", where: "Desktop",
+      open: { label: "Open in Claude Desktop", run: () => exec("open", [desktopLink(s.id)]) } }) })),
+    ...elsewhere.map((s) => ({ s, row: () => this.elsewhereRow(t, s, now) }))];
+    const turnOf = (x) => (x.s ? plainTurn(DESKTOP_STATUS[x.s.state]) : this.turnOf(x));
+    const section = (sec) => {
+      const agents = rest.filter((a) => SECTION[rankOf(a) || RANK.idle].id === sec.id), others = outside.filter((o) => OUTSIDE_SECTION[o.s.state] === sec.id);
+      if (!agents.length && !others.length) return [];
+      const g = { ...sec, members: [...agents, ...others], turn: turnOf };
+      if (sec.id === FLIGHT.id && !this.workingOpen) return [this.workingLine(t, g.members)];
+      const head = sec.id === FLIGHT.id ? this.workingLine(t, g.members) : header(g);
+      return [head, ...(this.folded.has(g.id) && sec.id !== FLIGHT.id ? [] : [...agents.flatMap(withKids), ...others.map((o) => o.row())])];
+    };
+    const idle = rest.filter((a) => (rankOf(a) || RANK.idle) === RANK.idle);
+    const waiting = [ME, BACK, FLIGHT].flatMap(section);
+    return [
+      ...(pinned.length ? [header({ id: "pinned", label: "Pinned", status: null, members: pinned }), ...(this.folded.has("pinned") ? [] : pinned.flatMap(withKids))] : []),
+      ...waiting,
+      ...(!waiting.length && !pinned.length && (idle.length || settled.length) ? [h_flex().id("queue-clear").h(30).px(8).gap(8).items_center().text_size(13).text_color(t.dim)
+        .child(h_flex().w(14).flex_none().justify_center().child(laneGlyph(t, "ready"))).child("Nothing needs you")] : []),
+      ...(idle.length ? [h_flex().id("idle-more").h(26).px(8).mt(4).flex_none().gap(6).items_center().text_size(11).text_color(t.dim)
+        .cursor_pointer().hover((s) => s.text_color(t.foreground))
+        .on_click((_e, cx) => { this.allIdle = !this.allIdle; cx.notify(); })
+        .child(svg(`mods/workspace-chrome/chevron-${this.allIdle ? "down" : "right"}.svg`).size(11).flex_none())
+        .child(`${idle.length} resting in their space${idle.length === 1 ? "" : "s"}`)] : []),
+      ...(this.allIdle ? idle.flatMap(withKids) : []),
+      ...(settled.length ? [header({ id: "settled", label: "Settled", status: null, members: settled, turn: (a) => plainTurn(a.status) }),
+        ...(this.folded.has("settled") ? [] : settled.flatMap(withKids))] : []),
+    ];
+  }
+
+  // What works, on one line: how many and where. A click lists them.
+  workingLine(t, members) {
+    const open = this.workingOpen === true;
+    const where = [...new Set(members.map((x) => (x.s ? x.s.project : x.space_name)).filter(Boolean))].join(" · ");
+    return h_flex().id("sec-flight").h(30).px(8).pt(4).flex_none().gap(7).items_center().text_size(11).cursor_pointer()
+      .hover((s) => s.text_color(t.foreground))
+      .on_click((_e, cx) => { this.workingOpen = !open; cx.notify(); })
+      .child(svg(`mods/workspace-chrome/chevron-${open ? "down" : "right"}.svg`).size(11).flex_none().text_color(t.dim))
+      .child(laneGlyph(t, "flight"))
+      .child(div().flex_none().font_medium().text_color(t.muted).child(`${members.length} working`))
+      .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(open ? "" : where));
   }
 
   peek(addr) {
@@ -595,7 +642,7 @@ export default class Agents extends View {
       const helper = me && a.status !== "blocked" && a.status !== "done" ? "a helper needs you"
         : turn === "flight" && a.status !== "working" ? "a helper is working" : null;
       const what = a.status === "blocked" ? reasons[a.address] ?? told ?? "needs an answer"
-        : helper ?? (me ? "result ready"
+        : helper ?? (a.status === "done" ? (pr ? `finished #${pr.number}` : told ?? "finished")
         : pr ? `${a.status === "working" ? "writing" : "finished"} #${pr.number}` : told);
       const selected = Boolean(a.focused);
       const rested = a.status === "idle" || a.status === "done";
@@ -611,7 +658,8 @@ export default class Agents extends View {
             cx.notify();
           })).child(laneGlyph(t, turn)))
         .child(h_flex().flex_1().min_w(0).gap(7).items_center()
-          .child(div().flex_none().max_w(what ? 130 : 220).truncate().font_medium().text_color(idle ? t.muted : t.foreground).child(name))
+          .child(div().flex_none().max_w(what ? 130 : 220).truncate().when(a.status === "done", (n) => n.font_semibold()).when(a.status !== "done", (n) => n.font_medium())
+            .text_color(idle ? t.muted : t.foreground).child(name))
           .when(Boolean(what), el => el.child(div().id(`what-${a.address}`).flex_1().min_w(0).truncate()
             .text_color(me ? t.blocked : t.muted).child(what))))
         .when(Boolean(bg), el => el.child(bg))
@@ -638,7 +686,20 @@ export default class Agents extends View {
           .when(Boolean(folder), (el) => el.child(div().id(`folder-${a.address}`).flex_none().max_w(110).truncate().child(folder)))
           .when(Boolean(extra), (el) => el.child(div().id(`detail-${a.address}`).flex_1().min_w(0).truncate().child(extra)));
       };
-      const second = selected ? below() : null;
+      // In the queue, what waits on me carries one dim line: its branch, its PR, and its context once nearly full.
+      const meta = () => {
+        const ctx = contexts[a.address], raw = paneOf.get(a.pane)?.branch;
+        const branch = raw && raw !== "main" && raw !== "master" ? raw : null;
+        const pct = ctx ? Math.round(Math.min(100, (ctx.context / (ctx.context > WINDOW ? LONG_WINDOW : WINDOW)) * 100)) : 0;
+        if (!(branch || pr || pct >= CTX_WARN)) return null;
+        return h_flex().id(`meta-${a.address}`).h(16).mb(4).pl(GUTTER).gap(8).items_center().overflow_hidden().text_size(11).text_color(t.dim)
+          .when(Boolean(branch), (el) => el.child(div().flex_shrink(1).min_w(0).truncate().child(branch)))
+          .when(Boolean(pr), (el) => el.child(prTag(t, a, pr)))
+          .when(pct >= CTX_WARN, (el) => el.child(div().id(`ctx-hot-${a.address}`).flex_none().text_color(t.ansi3)
+            .tooltip(`${pct}% of its context window used`).child(`ctx ${pct}%`)));
+      };
+      const queued = byPriority && !isPinned && !isSettled(a) && (turn === "me" || this.rank(a) === RANK.done);
+      const second = selected ? below() : queued ? meta() : null;
       return v_flex()
         .id(`ag-${a.address}`)
         .px(ROW_PAD)
@@ -699,25 +760,12 @@ export default class Agents extends View {
           .child(svg("mods/workspace-chrome/chevron-right.svg").size(11).flex_none().text_color(t.dim)));
     };
     if (settled.length) groups.push({ id: "settled", label: "Settled", status: null, members: settled, turn: (a) => plainTurn(a.status) });
-    // The idle section past its first rows; the focused agent is never the one folded away.
-    const members = (g) => {
-      if (g.id !== "sec-idle" || g.members.length <= IDLE_SHOWN + 1) return g.members.flatMap(withKids);
-      const open = this.allIdle === true;
-      const head = open ? g.members : g.members.filter((a, i) => i < IDLE_SHOWN || a.focused);
-      const hidden = g.members.length - head.length;
-      return [...head.flatMap(withKids), h_flex().id("idle-more").h(26).pl(ROW_PAD + 1 + GUTTER).flex_none().gap(6).items_center().text_size(11)
-        .text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground))
-        .on_click((_e, cx) => {
-          this.allIdle = !open;
-          cx.notify();
-        })
-        .child(svg(`mods/workspace-chrome/chevron-${open ? "down" : "right"}.svg`).size(11).flex_none())
-        .child(open ? "fewer idle" : `${hidden} more idle`)];
-    };
+    const members = (g) => g.members.flatMap(withKids);
     const desktop = collapsed ? [] : this.desktopSessions();
     const elsewhere = collapsed ? [] : this.elsewhereSessions();
     const rows = collapsed
       ? list.flatMap(withKids)
+      : byPriority ? this.queue(t, { pinned, rest, settled, desktop, elsewhere, header, withKids, rankOf, now })
       : [
         ...groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : members(g))]),
         ...(desktop.length ? [header({ id: "desktop", label: "Claude Desktop", status: null, members: desktop, turn: (s) => plainTurn(DESKTOP_STATUS[s.state]) }),

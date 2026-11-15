@@ -134,8 +134,8 @@ project, subagent type and day. It reads the transcripts on your Mac and sends n
 
 ### Claude Desktop and other terminals too
 
-Claude Desktop sessions that ask you something or wait for a review show in Reviews and the Agents list, and Claude
-Code started in Terminal, iTerm, VS Code or any terminal outside Herdr shows under **Elsewhere**. Each says what it is
+Claude Desktop sessions that ask you something or wait for a review show in Reviews, in the Agents queue and under their
+repo in Spaces, and so does Claude Code started in Terminal, iTerm, VS Code or any terminal outside Herdr. Each says what it is
 doing or asks, and a click opens its last message in place, with **Open in Claude Desktop** or **Show <app>**. With Herdr behind another app, alerts reach macOS; with `terminal-notifier`, a click lands on the agent.
 
 ### Land a PR, and review only what changed
