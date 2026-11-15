@@ -176,10 +176,11 @@ export function keyBar(t, id, keys, right = null) {
   const font = monoFont();
   const group = ([caps, label]) => h_flex().gap(4).items_center().flex_none()
     .children(caps.map((c) => keycap(t, c, { font }))).child(div().child(label));
+  // A narrow panel clips the left keys first; the far edge always stays.
   return h_flex().id(id).h(32).flex_none().pl(16).pr(8).gap(14).items_center()
-    .border_t(1).border_color(t.border).bg(t.background).text_size(11).text_color(t.muted).overflow_hidden()
-    .children(keys.map(group))
-    .when(Boolean(right), (el) => el.child(div().flex_1()).child(group(right)));
+    .border_t(1).border_color(t.border).bg(t.background).text_size(11).text_color(t.muted)
+    .child(h_flex().flex_1().min_w(0).gap(14).items_center().overflow_hidden().children(keys.map(group)))
+    .when(Boolean(right), (el) => el.child(group(right)));
 }
 
 // A small label: tone colours the text over a 15% wash of itself.
