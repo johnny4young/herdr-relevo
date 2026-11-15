@@ -169,3 +169,15 @@ test("Maintenance offers the terminals to tidy, each with its action and d twice
   key("o");
   assert.deepEqual(fake.runs.at(-1), ["terminal.keep", { terminal: "b1", place: "tab" }]);
 });
+
+test("a tab's command runs in a shell that stays: it reads as that command, ended, and runs again in the same shell", async () => {
+  const wrap = ["/bin/zsh", "-lic", "\"$@\"; exec \"$0\" -li", "zsh", "/opt/node/bin/node", "server.mjs", "4310"];
+  const ran = terminalRow(term("w1", { argv: wrap, foreground: { pid: 140, name: "node", argv: ["/opt/node/bin/node", "server.mjs", "4310"] } }), { now: NOW });
+  assert.deepEqual([ran.state, ran.title, ran.canRestart, ran.canStop, ran.ended], ["running", "node server.mjs 4310", true, true, false]);
+  const ended = terminalRow(term("w2", { argv: [...wrap.slice(0, 4), "node", "fail.mjs"] }), { now: NOW });
+  assert.deepEqual([ended.state, ended.title, ended.ended, ended.canRestart, ended.canStop], ["idle", "node fail.mjs", true, true, false]);
+  const { restartTerminal } = await import("../terminals.js");
+  await restartTerminal(ended);
+  await restartTerminal({ ...ran, rerun: ["node", "it's here.mjs"] });
+  assert.deepEqual(calls(/^hc /), ["hc send w2 node fail.mjs", "hc interrupt w1", "hc send w1 node 'it'\\''s here.mjs'"]);
+});
