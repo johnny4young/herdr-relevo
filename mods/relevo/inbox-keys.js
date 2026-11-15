@@ -8,9 +8,10 @@ import { showPanel } from "./toolbar.js";
 // A request to focus the Inbox, with the pane to give the keyboard back to on Esc.
 export const INBOX_FOCUS = "relevo.inbox.focus";
 
-export function focusInbox() {
+// `row` asks for that row to be selected once the Inbox has the keyboard.
+export function focusInbox(row = null) {
   showPanel("inbox");
-  setShared(INBOX_FOCUS, { at: Date.now(), pane: focused()?.pane ?? null });
+  setShared(INBOX_FOCUS, { at: Date.now(), pane: focused()?.pane ?? null, row });
 }
 
 // ↑/↓ pick a card or row and Enter runs its main action. Mixed into Inbox, so `this` is the Inbox.
@@ -56,7 +57,8 @@ export class KeyNav {
     this.focusAt = req.at;
     this.returnPane = req.pane;
     // Only while the merge alert is fresh; later the shortcut opens the Inbox as usual.
-    if (this.pendingSel && Date.now() - this.pendingSel.at < 10 * 60000) this.reveal(this.pendingSel.id);
+    if (req.row) this.reveal(req.row);
+    else if (this.pendingSel && Date.now() - this.pendingSel.at < 10 * 60000) this.reveal(this.pendingSel.id);
     this.pendingSel = null;
     // Focus can't move during render, so it moves on the next tick.
     cx.timer.after(30, (cx) => {

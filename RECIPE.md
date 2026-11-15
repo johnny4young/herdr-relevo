@@ -185,6 +185,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   new review threads appear, or a PR is approved or gets changes requested (a sound on the bad ones). A PR that
   leaves the open list and shows among your merged ones says **Merged**; when its worktree is still here, the scan
   marks it at once and the toast's click opens the Inbox with that row selected, so **Remove** is right there.
+- **Run alerts**: a run result that comes to wait on you posts "Result ready · <task>" with the reviewer's verdict; the click opens Reviews with that result selected. Each result is announced once per revision and attempt, and the first read after a start only learns what already waits. Accepting several results at once posts "Batch accepted · N results" with their repository; its click opens the run. Results outside the focused context stay quiet.
 - **While you were away**: back after 10 minutes or more behind other apps (or with the Mac asleep), a card tops
   the Inbox with the agents that finished (and their last line), the ones waiting, what changed on your PRs, the
   quota each account spent and the agent time. Each row goes to its agent or PR; **✓** dismisses it.

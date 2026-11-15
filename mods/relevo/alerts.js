@@ -3,6 +3,10 @@ import { ACCOUNTS, CODEX, accountOf } from "./accounts.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { CONTEXTS } from "./config.js";
 import { runsOut, clock, FIVE_HOURS, WEEK, windowLabel } from "./lib/time.js";
+import { newResults } from "./lib/run-alerts.js";
+import { batchScope } from "./lib/workflow-preferences.js";
+import { VERDICT } from "./lib/run-words.js";
+import { lastReview } from "./lib/workflow-navigation.js";
 import { HANDOFF_AT } from "./lib/account-status.js";
 
 const ALERTED = "relevo.alerted";
@@ -160,4 +164,33 @@ export function prAlerts(events, contextOf) {
   const shown = events.filter((e) => inFocus(contextOf(e.repo)));
   if (shown.some((e) => LOUD.has(e.kind))) playSound("sounds/review.mp3");
   for (const e of shown) notify({ title: e.title, level: LEVEL[e.kind], action: { name: "relevo.panel-reviews" } });
+}
+
+// A run result that now waits on you; the click opens Reviews with that result selected.
+const NOTIFIED = "relevo.runs.notified";
+export function runResultAlerts(tasks) {
+  const stored = shared(NOTIFIED), { fresh, marks } = newResults(stored ?? null, tasks);
+  const shown = fresh.filter((t) => inFocus(contextOfPath(batchScope(t))));
+  for (const task of shown) {
+    const review = lastReview(task), who = task.reviewer?.label ?? task.reviewer?.address, verdict = VERDICT[review?.report.status];
+    notify({
+      title: `Result ready · ${task.title}`,
+      body: who && verdict ? `${who} ${verdict.toLowerCase()}` : undefined,
+      level: "success", action: { name: `relevo.reveal-result-${task.id}` },
+    });
+  }
+  // Merged with what another Relevo copy stored, so an older read can't drop a mark; marks of gone tasks go.
+  const ids = new Set(tasks.map((task) => task.id));
+  const next = [...new Set([...marks, ...(stored ?? []).filter((m) => ids.has(String(m).split("@")[0]))])];
+  if (stored == null || JSON.stringify(stored) !== JSON.stringify(next)) setShared(NOTIFIED, next);
+}
+
+// Several results accepted at once; the click opens their run.
+export function batchAlert(tasks, goalId) {
+  const repos = [...new Set(tasks.map((task) => batchScope(task)?.split("/").pop()).filter(Boolean))];
+  notify({
+    title: `Batch accepted · ${tasks.length} ${tasks.length === 1 ? "result" : "results"}`,
+    body: [repos.join(", "), tasks.map((task) => task.title).slice(0, 3).join(" · ")].filter(Boolean).join(" · "),
+    level: "success", timeout: 6000, action: { name: `relevo.workflow-${goalId}` },
+  });
 }

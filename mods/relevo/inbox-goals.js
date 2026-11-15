@@ -8,6 +8,8 @@ import { openGoal } from "./goals-editor.js";
 import { readGoals, writeGoal, GOALS_CHANGED } from "./goals-store.js";
 import { emptyGoals, groupSources, sourceKey, closeGoal, goalState } from "./lib/goals.js";
 import { isAddressed } from "./lib/addressed.js";
+import { runResultAlerts } from "./alerts.js";
+import { resultMark } from "./lib/run-alerts.js";
 import { openReview } from "./review.js";
 import { reviewableWork, scopeGoals, runNextAction, linkedDecision, runProgress } from "./lib/goal-workflow.js";
 import { openWorkflow } from "./workflow.js";
@@ -57,7 +59,10 @@ export class GoalViews {
           this.workflowError = null; this.goalsKey = key;
         } catch { this.workflowError = "Workflow status unavailable; open Workflow to retry."; }
         this.goalsError = null;
-        if (!this.workflowError) this.pruneReviewMarks();
+        if (!this.workflowError) {
+          this.pruneReviewMarks();
+          runResultAlerts(this.workflowTasks);
+        }
       } catch (e) { this.goalsError = `Runs: ${e.message ?? e}. Reviews is still available.`; }
       this.goalChange = shared(GOALS_CHANGED);
       this.goalsLoading = false;
@@ -163,7 +168,7 @@ export class GoalViews {
   runReviews() {
     if (this.workflowError) return [];
     return (this.workflowTasks ?? []).filter((task) => task.state === "needs_you").map((task) => ({
-      id: `result-${task.id}`, mark: `review:result-${task.id}@${task.revision ?? ""}:${task.round ?? 0}`, title: task.title, detail: this.goalDoc?.goals.find((goal) => goal.id === task.goalId)?.title ?? "Run result", meta: resultMeta(task),
+      id: `result-${task.id}`, mark: `review:result-${resultMark(task)}`, title: task.title, detail: this.goalDoc?.goals.find((goal) => goal.id === task.goalId)?.title ?? "Run result", meta: resultMeta(task),
       go: () => openWorkflow(task.goalId, task.id),
     }));
   }
