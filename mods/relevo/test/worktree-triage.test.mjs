@@ -571,7 +571,7 @@ test("merged worktrees fold under one line with Remove all on it; one with uncom
   const merged = (name, more = {}) => ({ ...row(name), merged: true, ...more });
   const worktrees = [merged("a"), merged("b"), merged("dirty", { dirty: true })];
   let ui = draw(v, worktrees);
-  assert.match(text(find(ui, "merged-trees")), /▸ 3 merged worktrees.*Remove 2/s);
+  assert.match(text(find(ui, "merged-trees")), /3 merged worktrees.*Remove 2/s);
   assert.equal(find(ui, "wt-/w/a"), null);
   assert.ok(find(ui, "wt-/w/dirty"));
   assert.doesNotMatch(text(ui), /Backups/);

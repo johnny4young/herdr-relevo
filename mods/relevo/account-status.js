@@ -5,7 +5,7 @@ import { Sidebar } from './sidebar.js';
 import { ACCOUNTS, CODEX, chip } from './accounts.js';
 import { accountFor } from './context.js';
 import { openSettings } from './settings.js';
-import { button, overlayHeight } from './ui.js';
+import { button, overlayHeight, quotaTone } from './ui.js';
 import { ago, resetText, windowLabel } from './lib/time.js';
 import { QUOTA_WARN, quotaFreshness, quotaRingDots, quotaStatusText, tightestWindow } from './lib/account-status.js';
 
@@ -40,7 +40,7 @@ export class AccountStatus extends Sidebar {
   level(t, quota) {
     const freshness = quotaFreshness(quota), pct = tightestWindow(quota)?.pct;
     if (freshness === 'unknown') return t.dim;
-    const color = pct >= QUOTA_WARN ? t.blocked : pct >= 50 ? t.ansi3 : t.accent;
+    const color = quotaTone(t, pct);
     return freshness === 'stale' && pct < QUOTA_WARN ? t.dim : color;
   }
 

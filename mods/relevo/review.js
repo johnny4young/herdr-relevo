@@ -2,7 +2,7 @@ import { div, list } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, Scrollbar } from "gpui-base";
 import { theme, exec, run, agents, panes, focused, props, settings, notify, shared, setShared, window } from "herdr";
 import { focusedCwd } from "./panelbar.js";
-import { button } from "./ui.js";
+import { button, checkbox } from "./ui.js";
 import { ago } from "./lib/time.js";
 import { launchInRepo } from "./accounts.js";
 import { accountFor } from "./context.js";
@@ -482,7 +482,7 @@ export class ReviewDiff {
           .on_click((_e, cx) => cx.spawn(async (cx) => {
             await this.pick(f, cx);
           }))
-          .child(button(t, `rv-viewed-${f.path}`, seen ? "☑" : "☐", (cx) => this.toggleViewed(f.path, cx),
+          .child(button(t, `rv-viewed-${f.path}`, [checkbox(t, seen)], (cx) => this.toggleViewed(f.path, cx),
             { size: "sm", selected: seen, disabled: !this.hashes.get(f.path), accessibleLabel: `${seen ? "Mark unviewed" : "Mark viewed"}: ${f.path}`, tip: "Viewed files become unviewed if their contents change" }))
           .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(seen ? t.dim : t.foreground).child(f.path))
           .when(count > 0, (el) => el.child(div().text_size(11).text_color(t.accent).child(`● ${count}`)))

@@ -96,7 +96,7 @@ task to another account.
 - **Handoff popup** (300px): "Continue <tab> with…" and every other account, Codex included, with its quota. A full
   account can't be picked.
 
-Text is 11px for what supports a row and 13px for what it names; a test keeps it to those two. Only an agent waiting on you gets a red border.
+Text is 11px for what supports a row and 13px for what it names; a test keeps it to those two. Glyphs are the SVG files in `mods/relevo/icons/` (12 px grid), colours are theme tokens only, and the shared row grammar is in [docs/design/v6.md](docs/design/v6.md). Only an agent waiting on you gets a red border.
 
 ## How it behaves
 

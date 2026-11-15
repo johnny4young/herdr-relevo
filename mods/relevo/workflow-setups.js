@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { agents, shared, setShared } from "herdr";
-import { button } from "./ui.js";
+import { button, chevron } from "./ui.js";
 import { WorkflowPlan } from "./workflow-plan.js";
 
 export const SETUPS_KEY = "relevo.workflow.setups.v1";
@@ -66,7 +66,7 @@ export class WorkflowSetup extends WorkflowPlan {
     const root = this.form.root.value().trim();
     const items = savedSetups().filter((item) => !root || item.root === root);
     return v_flex().w_full().min_w(0).gap(6)
-      .child(button(t, "workflow-saved-setups", `${this.setupsOpen ? "▾" : "▸"} Saved setups${items.length ? ` · ${items.length}` : ""}`, (cx) => {
+      .child(button(t, "workflow-saved-setups", [chevron(this.setupsOpen), `Saved setups${items.length ? ` · ${items.length}` : ""}`], (cx) => {
         this.setupsOpen = !this.setupsOpen; this.setupError = null; cx.notify();
       }, { size: "sm", selected: Boolean(this.setupsOpen), tip: "Reuse repository, agent and check choices. Selecting a setup never starts work." }).w_full().justify_start())
       .when(this.setupsOpen, (el) => el.child(v_flex().w_full().min_w(0).gap(8)

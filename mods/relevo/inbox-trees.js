@@ -5,7 +5,7 @@ import { exec, notify, run } from "herdr";
 import { scanWorktrees, removeWorktree, removalCheck, treeState, treeSize } from "./worktrees.js";
 import { actionsOf, groupOf, justUsed, whyOf, sizeOf } from "./lib/trees.js";
 import { backupsRoot, backupsSize, deleteCheck, deleteWorktree, headOf, logRemoval, pushBackup, pushPlan, savedState, saveCommits, savePatch } from "./worktree-actions.js";
-import { button, spinner, foldRow } from "./ui.js";
+import { button, spinner, foldRow, icon } from "./ui.js";
 import { ago } from "./lib/time.js";
 
 const GROUPS = [["safe", "Nothing to lose"], ["pushed", "Pushed, not merged"], ["work", "With work"], ["checking", "Checking"], ["recent", "Recent"]];
@@ -344,7 +344,7 @@ export class TreeViews {
       .when(offersRemove, (el) => el.child(action(`wt-rm-${w.path}`, sure ? "Confirm" : "Remove",
         w.group === "pushed" ? "Removes the worktree and its local branch. The branch stays on GitHub" : "Removes the worktree and its local branch. Files git ignores go with it",
         (cx) => this.removeTree(w, cx), sure)))
-      .when(Boolean(w.actions?.length) && w.group === "work", (el) => el.child(action(`wt-more-${w.path}`, "⋯", "Save, back up or delete", (cx) => {
+      .when(Boolean(w.actions?.length) && w.group === "work", (el) => el.child(action(`wt-more-${w.path}`, [icon("more")], "Save, back up or delete", (cx) => {
         this.treeMenu = open ? null : w.path;
         this.deleteAsk = null;
         this.pushAsk = null;

@@ -106,7 +106,7 @@ test("a landed PR whose worktree holds only the merged commit loses its worktree
   assert.equal(calls(new RegExp(`^git -C ${MAIN} worktree remove ${WT}$`)).length, 1);
   assert.equal(calls(/branch -D feat/).length, 1);
   assert.equal(find(box.render(cx), `land-${URL}`), null);
-  assert.match(text(find(box.render(cx), "landed")), /▸ 1 landed/);
+  assert.match(text(find(box.render(cx), "landed")), /1 landed/);
   click(find(box.render(cx), "landed"), cx);
   assert.match(text(find(box.render(cx), `land-${URL}`)), /Landed · worktree removed/);
 });

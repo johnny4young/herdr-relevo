@@ -4,7 +4,7 @@ import { theme, exec, run, spaces, panes, focused, props, openOverlay, closeOver
 import { touchedAt } from "./worktrees.js";
 import { ago } from "./lib/time.js";
 import { GIT_READ } from "./lib/git.js";
-import { spinner, withKey } from "./ui.js";
+import { spinner, withKey, icon } from "./ui.js";
 
 const MAX_FILES = 20000, SHOWN = 60;
 
@@ -77,7 +77,7 @@ export class PanelBar {
       .tooltip(this.list.length > 1 ? `${this.list.length} checkouts of ${this.top?.split("/").pop()}` : this.top ?? "")
       .on_click(() => this.list.length && openCheckouts(this.top, this.list))
       .child(div().flex_1().min_w(0).truncate().text_size(11).child(name))
-      .when(this.list.length > 1, (el) => el.child(div().text_size(11).text_color(t.dim).child("▾")));
+      .when(this.list.length > 1, (el) => el.child(icon("chevron-down", t.dim, 10)));
   }
 
   render() {

@@ -199,7 +199,7 @@ test("Desktop sessions ready for review fold under one line; questions stay open
   let ui = box.render(cx);
   assert.ok(find(ui, "dk-local_1"));
   assert.equal(find(ui, "dk-local_2"), null);
-  assert.match(text(find(ui, "desktop-review")), /▸ 2 ready for review/);
+  assert.match(text(find(ui, "desktop-review")), /2 ready for review/);
   click(find(ui, "desktop-review"), cx);
   ui = box.render(cx);
   assert.ok(find(ui, "dk-local_2"));

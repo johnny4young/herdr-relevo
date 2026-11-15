@@ -7,7 +7,7 @@ import { contextFor } from "./context.js";
 import { reviewAlerts, prAlerts, mergedAlert } from "./alerts.js";
 import { REPOS_ROOT } from "./config.js";
 import { LAUNCHED, SKILLS, configuredSkill, launched, launchSkill } from "./skills.js";
-import { button, sectionHeader, spinner, withKey, foldRow } from "./ui.js";
+import { button, sectionHeader, spinner, withKey, foldRow, icon } from "./ui.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
@@ -192,7 +192,7 @@ export class PrViews {
           cx.stop_propagation();
           this.openSkillMenu(pr, skill);
         })
-        .child("▾"));
+        .child(icon("chevron-down", null, 10)));
   }
 
   threadBadge(t, n, key) {

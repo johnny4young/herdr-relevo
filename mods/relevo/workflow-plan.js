@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { agents } from "herdr";
-import { button } from "./ui.js";
+import { button, checkbox } from "./ui.js";
 import { projectGoalPlan, defaultPlanStepIds } from "./lib/goal-plan.js";
 import { workflowBucket } from "./lib/workflow-navigation.js";
 
@@ -149,7 +149,8 @@ export class WorkflowPlan {
         return v_flex().gap(4)
           .child(item.state === "done" ? row(t, `✓ ${item.step.title} · ${item.source === "workflow" ? "accepted in Workflow" : "manually validated"}`)
             : button(t, `workflow-plan-select-${item.step.id}`, [v_flex().w_full().min_w(0).gap(2).text_left()
-              .child(div().w_full().truncate().child(`${this.planStepIds?.includes(item.step.id) ? "☑" : "☐"} ${item.step.title}`))
+              .child(h_flex().w_full().min_w(0).gap(6).items_center().child(checkbox(t, Boolean(this.planStepIds?.includes(item.step.id))))
+                .child(div().flex_1().min_w(0).truncate().child(item.step.title)))
               .child(div().text_size(11).child(status))], (cx) => {
               this.planStepIds ??= [];
               this.planStepIds = this.planStepIds.includes(item.step.id) ? this.planStepIds.filter((id) => id !== item.step.id) : [...this.planStepIds, item.step.id]; cx.notify();
