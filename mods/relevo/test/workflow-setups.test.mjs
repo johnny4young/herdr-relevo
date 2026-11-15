@@ -20,7 +20,7 @@ test('saved setup previews limits and preserves the new brief without dispatch o
   const { v, cx } = await setup();
   v.form.title.set_value('New work'); v.form.criteria.set_value('New expected result');
   v.tasks = [{ id: 'running', goalId: 'g', title: 'Already running', state: 'running', maxRounds: 4 }]; v.explicitNew = true;
-  assert.match(text(v.render()), /Small change.*1 round · 8 min · 1 check/);
+  assert.match(text(v.render()), /Small change.*1 attempt · 8 min · 1 test/);
   click(find(v.render(), 'workflow-apply-setup-bounded'), cx);
   assert.equal(v.form.title.value(), 'New work'); assert.equal(v.form.criteria.value(), 'New expected result');
   assert.equal(v.form.root.value(), '/work/app'); assert.equal(v.executor, 'build'); assert.equal(v.reviewer, 'review');
@@ -68,6 +68,6 @@ test('invalid stored setups and invalid check commands are not applied or saved'
   assert.deepEqual(savedSetups(), []);
   v.form.root.set_value('/work/app'); v.executor = 'build'; v.reviewer = 'review'; v.form.setupName.set_value('Check');
   v.checkPreset = 'custom'; v.form.checks.set_value('not JSON'); v.saveSetup(cx);
-  assert.match(v.setupError, /Fix the custom checks/); assert.deepEqual(savedSetups(), []);
+  assert.match(v.setupError, /Fix the custom test commands/); assert.deepEqual(savedSetups(), []);
   assert.equal(fake.execs.length, 0); v.close();
 });

@@ -73,6 +73,9 @@ test("a ticket stays the key, with the repo beside it", async (t) => {
 });
 
 test("work in a worktree and in the main checkout add up as one project, overlaps once", async (t) => {
+  // At noon, so the ten minutes never cross midnight and get cut to today.
+  mock.timers.enable({ apis: ["Date"], now: new Date().setHours(12, 0, 0, 0) });
+  t.after(() => mock.timers.reset());
   const { main, tree } = repos(t);
   working(["t1", main], ["t2", tree, "review-pr-19"]);
   await ledgerTick();
