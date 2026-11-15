@@ -54,7 +54,9 @@ task to another account.
   - `YOUR PRS` and `REVIEW REQUESTS`: a row per PR, `repo #n`, why it is here ("CI failing", "changes requested",
     "<author> asks for your review", "2 comments"), its age and its first action. A PR waiting on you is a needs-me
     row; one whose CI runs or whose agent works is in flight; one with only the merge left is ready. Selected, it
-    shows its title, CI, unresolved threads and size, what its agent did, and every action: a split skill button
+    shows its title, which checks failed, are running or were cancelled by name, which passed (with one box per
+    check), how many files and lines changed, unresolved threads, whether anyone reviewed it yet and when it was
+    opened, what its agent did, and every action: a split skill button
     (`skill` + account chip | ▾), **Review** on your own PRs, **Open PR** and **✓** (addressed). PRs older than 45
     days fold under "▸ N older than 45 days"; addressed ones under "▸ N addressed", each with **Undo**. Your PRs
     with nothing left but the merge (CI green, not a draft, no changes requested, no open threads) fold under
