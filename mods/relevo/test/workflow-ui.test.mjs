@@ -696,7 +696,10 @@ test('run agents start with their model, sandbox and access to the report folder
 
 test('a worktree launch starts with no first message, accepts a working agent and Start resumes a stalled wait', async () => {
   const { launchArgv } = await import('../accounts.js');
-  assert.deepEqual(launchArgv('codex', null, ['-m', 'x']), ['zsh', '-ilc', 'codex "$1" "$2"', 'zsh', '-m', 'x']);
+  const argv = launchArgv('codex', null, ['-m', 'x']);
+  assert.deepEqual(argv.slice(-6), ['zsh', '-ilc', 'codex "$1" "$2"', 'zsh', '-m', 'x']);
+  assert.equal(argv[0], '/usr/bin/env');
+  for (const name of ['CLAUDECODE', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_CHILD_SESSION']) assert.ok(argv.join(' ').includes(`-u ${name} `), name);
   fake.stored['relevo.runs.mode'] = 'worktree';
   const { v, cx } = await setup();
   v.launch = { stage: 'stalled', fields: { goalId: 'g', title: 'T', root: '/work/app', criteria: 'c', checks: [], dependsOn: [], maxRounds: 2, maxMinutes: 5 },
@@ -777,5 +780,46 @@ test('a run terminal stuck on the Codex update prompt is skipped once, and other
   v.launchTick(cx); await flush();
   assert.deepEqual(calls.filter((line) => line.startsWith('hc keys')), ['hc keys t1 esc'], 'only the update prompt, only once');
   assert.equal(calls.some((line) => /read t2|read t9/.test(line)), false, 'registered agents and other folders are not read');
+  v.close();
+});
+
+test('an agent started from a core that came from a Claude session gets none of its variables, and keeps the shell\'s own', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { shellArgv } = await import('../accounts.js');
+  const [env, ...rest] = shellArgv('printf "%s|%s|%s|%s" "${CLAUDE_CONFIG_DIR-unset}" "${CLAUDE_CODE_CHILD_SESSION-unset}" "${CLAUDE_CODE_USE_BEDROCK-unset}" "$1"', 'a b');
+  const zsh = rest.indexOf('zsh');
+  const inherited = { PATH: process.env.PATH, HOME: '/nonexistent', CLAUDE_CONFIG_DIR: '/x/.claude-work', CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_CODE_USE_BEDROCK: '1' };
+  // A plain sh in zsh's place: the variables go before any shell runs, and CI has no zsh.
+  const out = execFileSync(env, [...rest.slice(0, zsh), 'sh', '-c', rest[zsh + 2], 'sh', ...rest.slice(zsh + 4)], { env: inherited, encoding: 'utf8' });
+  assert.equal(out, 'unset|unset|1|a b');
+});
+
+test('a result waiting on the person shows what nobody could verify beside Accept, and keeps the review itself in Result', async () => {
+  const { v } = await setup();
+  v.tasks = [{ id: 'result', goalId: 'g', title: 'Multiply', state: 'needs_you', round: 1, maxRounds: 2, revision: 'current',
+    executor: { address: 'builder' }, reviewer: { address: 'reviewer' }, checksResult: [{ code: 0 }],
+    attempts: [{ id: 'a1', role: 'executor', report: { status: 'completed', summary: 'Multiply works', notProven: ['Large numbers'] } },
+      { id: 'a2', role: 'reviewer', report: { status: 'completed', summary: 'Matches the task',
+        findings: [{ level: 'minor', where: 'math.js:2', issue: 'Name could be clearer', fix: '' }], notRun: ['node --test'], notProven: ['The output is from this state'] } }] }];
+  v.selected = 'result';
+  const tree = v.render(), words = text(tree);
+  assert.ok(find(tree, 'workflow-review-notes'));
+  assert.match(words, /Before you accept \[minor\] math\.js:2: Name could be clearer Not run: node --test Not proven: The output is from this state Not proven by the implementer: Large numbers/);
+  assert.doesNotMatch(words, /Matches the task/);
+  assert.ok(find(tree, 'workflow-decide-accept'));
+  v.close();
+});
+
+test('an accepted worktree run in a repository without origin offers only Remove worktree', async () => {
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [{ id: 't', goalId: 'g', title: 'Notes', state: 'accepted', revision: 'r', root: '/wt',
+    executor: { address: 'a', label: 'Codex' }, reviewer: { address: 'b', label: 'Personal' }, checks: [], checksResult: [], evidence: [], round: 1, maxRounds: 2, attempts: [],
+    worktree: { path: '/wt', branch: 'run/notes-1', base: '/work/app', commit: 'a'.repeat(40) } }], events: [], preferences: [], engine: { enabled: false } });
+  fake.exec = async (_cmd, args) => { const p = JSON.parse(args.at(-1));
+    return { code: 0, stdout: JSON.stringify(p.action === 'worktree-status' ? { result: { exists: true, dirty: false, ahead: 1, origin: false } } : { result: {} }) }; };
+  const { v, cx } = await setup(); v.selected = 't';
+  v.launchTick(cx); await flush();
+  const tree = v.render();
+  assert.equal(find(tree, 'workflow-worktree-pr'), null);
+  assert.ok(find(tree, 'workflow-worktree-remove'));
   v.close();
 });

@@ -56,7 +56,7 @@ test("typing filters, Enter resumes it in its folder with its account, Tab shows
   assert.equal(name, "space.new");
   assert.equal(args.folder, "/home/test/.herdr/worktrees/app/feat");
   assert.equal(args.argv.at(-1), id(2));
-  assert.match(args.argv[2], /--resume "\$1"$/);
+  assert.match(args.argv[args.argv.indexOf("-ilc") + 1], /--resume "\$1"$/);
   for (let i = 0; i < 4; i++) press("backspace");
   press("tab");
   await flush();
@@ -108,7 +108,8 @@ test("a running session only hides the copy in its own account", async () => {
   press("enter");
 
   assert.deepEqual(view.rows().map((r) => [r.account, r.title]), [[other, "Resting copy"]]);
-  assert.equal(fake.runs.at(-1)[1].argv[2], `${ACCOUNTS[1].launcher} --resume "$1"`);
+  const argv = fake.runs.at(-1)[1].argv;
+  assert.equal(argv[argv.indexOf("-ilc") + 1], `${ACCOUNTS[1].launcher} --resume "$1"`);
 });
 
 test("the session detail shell keeps account copies separate, with spaces and pipes in their paths", async (t) => {

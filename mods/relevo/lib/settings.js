@@ -52,6 +52,19 @@ const flat = (name, v) => {
   return [`export const ${name} = [`, ...v.map((x) => `  ${value(x)},`), "];"].join("\n");
 };
 
+// What Settings edits; anything else config.js exports is written back as it was.
+const EDITED = ["ACCOUNTS", "CODEX", "CONTEXTS", "FALLBACK", "REPOS_ROOT", "BACKUPS_ROOT", "SKILLS", "REPLIES"];
+const NOTES = {
+  RUN_CODEX_MODEL: "// The model a run's Codex agent uses.",
+  RUN_MUST_FIX: "// A run's reviewer sends the work back only for findings at this level or above: \"blocker\", \"major\" or \"minor\".",
+};
+
+function others(c) {
+  return Object.entries(c).filter(([name, v]) => !EDITED.includes(name) && /^[A-Za-z_$][\w$]*$/.test(name) && v !== undefined && typeof v !== "function")
+    .flatMap(([name, v]) => [...(NOTES[name] ? [NOTES[name]] : []),
+      v && typeof v === "object" && !Array.isArray(v) ? block(v, 0, `export const ${name} = `, ";") : flat(name, v), ""]);
+}
+
 export function renderConfig(c) {
   return [
     "// Everything personal to one setup: accounts, contexts, folders and skills. Relevo's Settings rewrites this file.",
@@ -81,6 +94,7 @@ export function renderConfig(c) {
     "// What the quick replies menu offers to send an agent (⌥⌘S, or ↩ beside an agent).",
     flat("REPLIES", c.REPLIES ?? []),
     "",
+    ...others(c),
   ].join("\n");
 }
 

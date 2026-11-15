@@ -161,14 +161,13 @@ export class Settings {
   save(cx) {
     if (this.saving) return;
     this.tried = true;
-    const config = this.collect();
-    this.errors = validate(config);
+    this.errors = validate(this.collect());
     if (this.errors.length) return cx.notify();
     this.saving = true;
     cx.notify();
     const path = `${appHome()}/mods/relevo/config.js`;
     cx.spawn(async (cx) => {
-      const r = await exec("sh", ["-c", WRITE_SCRIPT, "sh", path, renderConfig(config)])
+      const r = await exec("sh", ["-c", WRITE_SCRIPT, "sh", path, renderConfig({ ...config, ...this.collect() })])
         .catch((e) => ({ code: 1, stderr: String(e) }));
       if (r.code === 0) return closeOverlay(props()?.overlay);
       this.saving = false;

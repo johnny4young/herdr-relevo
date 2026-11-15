@@ -17,7 +17,7 @@ const CONFIG = `export const ACCOUNTS = [
 ];
 export const CODEX = { key: "codex", label: "Codex", letter: "X", launcher: "codex", bg: "#000", fg: "#fff" };
 `;
-const EVENTS = ["SessionStart", "Stop", "SessionEnd"];
+const EVENTS = ["SessionStart", "Stop", "SessionEnd", "PermissionRequest"];
 
 let home, script, settingsPath, log;
 beforeEach(() => {
@@ -192,4 +192,79 @@ test("an account folder that doesn't exist is skipped and never created", () => 
 
 test("an unknown option exits 2", () => {
   assert.equal(run(["--nope"]).status, 2);
+});
+
+const asksDir = () => path.join(home, ".local/state/relevo/asks/t1");
+const files = () => (fs.existsSync(asksDir()) ? fs.readdirSync(asksDir()) : []);
+const notes = () => files().map((f) => JSON.parse(fs.readFileSync(path.join(asksDir(), f), "utf8"))).sort((a, b) => a.at - b.at);
+const request = (extra = {}) => ({
+  hook_event_name: "PermissionRequest", cwd: "/repo", tool_name: "Bash",
+  tool_input: { command: 'printf "a\\nb\\n" > out.txt && cat out.txt', description: "Write two lines" }, ...extra,
+});
+
+test("a permission request is noted for the Inbox, answers nothing and sets no label", () => {
+  const r = spawnSync("bash", [script], { env: env({ HC_TERMINAL_ID: "t1" }), input: JSON.stringify(request()), encoding: "utf8" });
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, "");
+  assert.equal(fs.existsSync(log), false);
+  assert.match(files().join(), /^ask-\w+\.json$/);
+  const [note] = notes();
+  assert.equal(note.terminal, "t1");
+  assert.equal(note.tool, "Bash");
+  assert.deepEqual(note.input, request().tool_input);
+  assert.ok(Math.abs(note.at - Date.now() / 1000) < 60);
+  assert.equal(fs.statSync(path.join(asksDir(), files()[0])).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(asksDir()).mode & 0o777, 0o700);
+  assert.equal(fs.statSync(path.dirname(asksDir())).mode & 0o777, 0o700);
+});
+
+test("requests asked at the same moment each keep their own note", async () => {
+  const { spawn } = await import("node:child_process");
+  const one = (command) => new Promise((done) => {
+    const child = spawn("bash", [script], { env: env({ HC_TERMINAL_ID: "t1" }) });
+    child.on("close", done);
+    child.stdin.end(JSON.stringify(request({ tool_input: { command } })));
+  });
+  const commands = Array.from({ length: 12 }, (_, i) => `command ${i}`);
+  await Promise.all(commands.map(one));
+  assert.deepEqual(notes().map((n) => n.input.command).sort(), [...commands].sort());
+  assert.equal(files().every((f) => f.startsWith("ask-")), true);
+});
+
+test("a note older than a minute goes when the next request comes", () => {
+  hook(request({ tool_input: { command: "old" } }));
+  const old = path.join(asksDir(), files()[0]), then = new Date(Date.now() - 5 * 60000);
+  fs.utimesSync(old, then, then);
+  hook(request({ tool_input: { command: "new" } }));
+  assert.deepEqual(notes().map((n) => n.input.command), ["new"]);
+});
+
+test("a huge request keeps its start, and a terminal id that is a path writes nothing", () => {
+  hook(request({ tool_input: { command: "x".repeat(50000) } }));
+  assert.equal(notes()[0].input.command.length, 20001);
+  hook(request(), { HC_TERMINAL_ID: "../t1" });
+  hook(request(), { HC_TERMINAL_ID: "mac/t1" });
+  assert.deepEqual(fs.readdirSync(path.dirname(asksDir())), ["t1"]);
+  assert.equal(files().length, 1);
+});
+
+test("the notes go when a session starts, or the turn or the session ends", () => {
+  for (const event of ["SessionStart", "Stop", "SessionEnd"]) {
+    hook(request());
+    assert.equal(files().length, 1);
+    hook({ hook_event_name: event });
+    assert.equal(fs.existsSync(asksDir()), false, event);
+  }
+});
+
+test("another event whose text names a permission request is not one", () => {
+  hook({ hook_event_name: "Stop", cwd: '"hook_event_name": "PermissionRequest"' });
+  assert.deepEqual(files(), []);
+});
+
+test("a request that can't be read is still noted, by its time alone", () => {
+  spawnSync("bash", [script], { env: env({ HC_TERMINAL_ID: "t1" }), input: '{"hook_event_name": "PermissionRequest", broken', encoding: "utf8" });
+  const [note] = notes();
+  assert.deepEqual({ ...note, at: 0 }, { at: 0, terminal: "t1", tool: "", input: {} });
+  assert.ok(Math.abs(note.at - Date.now() / 1000) < 60);
 });

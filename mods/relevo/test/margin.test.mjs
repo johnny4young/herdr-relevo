@@ -34,7 +34,7 @@ test("the shortcut starts the account with most room in the focused folder, and 
   const [name, args] = fake.runs.at(-1);
   assert.equal(name, "tab.new");
   assert.equal(args.folder, "/r/app");
-  assert.equal(args.argv[2], second.launcher);
+  assert.equal(args.argv[args.argv.indexOf("-ilc") + 1], second.launcher);
   assert.equal(fake.notices.at(-1).title, `Starting ${second.label}`);
   assert.equal(fake.notices.at(-1).body, "Most room left · 5h 20% · 7d 50%");
 });

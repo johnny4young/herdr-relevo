@@ -1,5 +1,7 @@
 // What a waiting agent is asking, read from the bottom of its screen: the question, its numbered choices,
 // whether they are checkboxes, where the cursor is and where a Submit item sits.
+import { noteAsk } from "./asks.js";
+
 const OPTION = /^([❯›>]\s*)?(\d+)\.\s+(.+?)\s*$/;
 const SUBMIT = /^([❯›>]\s*)?(Submit|Submit answers)$/i;
 const BOX = /^\[([ xX✔✓✗])?\]\s*/;
@@ -27,7 +29,8 @@ const asksBlind = (question, options) => !options.some((o) => /^(type something|
 // Claude's own words for a plan: approving one isn't running what a cut screen hides.
 export const isPlan = (question) => /has written up a plan\b.*would you like to proceed\?$/i.test((question ?? "").replace(/\s+/g, " "));
 
-export function readPrompt(screen) {
+// notes: what the hook wrote down for this agent, if anything; one may fill in a command or plan the screen cuts.
+export function readPrompt(screen, notes = null, since = null) {
   const lines = (screen ?? "").split("\n").map((l) => l.replace(FRAME, "")).slice(-60);
   const none = { question: "", options: [], multi: false, submit: null, cursor: null, dialog: "" };
   let last = -1;
@@ -78,12 +81,19 @@ export function readPrompt(screen) {
   if (cursor === null) return cantRead;
   const multi = options.some((o) => "checked" in o);
   const preview = previewBeside(screen);
-  const question = questionAbove(lines, found[0].i), ask = askAbove(screen, found[0].i, question, options);
-  if (ask?.ask.cut ? !isPlan(question) : !ask && asksBlind(question, options)) {
-    return { ...cantRead, ask: ask?.ask ?? null, question: "Can't read all of what this asks. Open the agent." };
+  // A question of the agent's own (its free-text choices) asks nothing to run: its paragraph is all question.
+  const asked = options.some((o) => /^(type something|chat about this)/i.test(o.label));
+  const question = questionAbove(lines, found[0].i, asked ? QUESTION_MAX : 2), ask = asked ? null : askAbove(screen, found[0].i, question, options);
+  let shown = ask?.ask ?? null;
+  if (shown?.cut) {
+    const whole = noteAsk(notes, shown.body, { since, plan: isPlan(question) });
+    if (whole) shown = { ...whole, title: shown?.title || whole.title, about: shown?.about || whole.about };
+  }
+  if (shown?.cut ? !isPlan(question) : !shown && asksBlind(question, options)) {
+    return { ...cantRead, ask: shown, question: "Can't read all of what this asks. Open the agent." };
   }
   return {
-    question: ask?.question ?? question, ask: ask?.ask ?? null, options, multi, submit, cursor, preview,
+    question: ask?.question ?? question, ask: shown, options, multi, submit, cursor, preview,
     summary: summaryAbove(lines, found[0].i),
     dialog: dialogWords(screen, found[0].i, last),
     above: aboveEdge(screen, found[0].i),
@@ -247,12 +257,13 @@ const aboveInput = (lines) => {
 // The question's own lines: not the tab strip of a multi-question form ("← ☒ CI gates ✔ Submit →").
 const lastLines = (lines, n) => lines.filter((l) => l.trim() && !/^←.*→$/.test(l.trim())).slice(-n).join("\n");
 
-// The paragraph right above the choices, at most 2 lines: it ends at a blank, the input prompt or a tab strip.
-function questionAbove(lines, first) {
+// The paragraph right above the choices: it ends at a blank, the input prompt or a tab strip.
+const QUESTION_MAX = 8;
+function questionAbove(lines, first, max) {
   const out = [];
   let i = first - 1;
   while (i >= 0 && !lines[i].trim()) i--;
-  for (; i >= 0 && out.length < 2; i--) {
+  for (; i >= 0 && out.length < max; i--) {
     const l = lines[i].trim();
     if (!l || FENCE.test(l) || /^[❯›>]\s/.test(l) || /^←.*→$/.test(l) || /^[☐☒]\s/.test(l)) break;
     out.unshift(l);

@@ -1,7 +1,8 @@
 # Set up Relevo's hook (runbook for an agent)
 
-`relevo-labels.sh` is an optional Claude Code hook on SessionStart, Stop and SessionEnd. It runs no network calls and
-only sets terminal labels. It needs `jq`, which macOS 15 and later ship in `/usr/bin`; elsewhere, `brew install jq`.
+`relevo-labels.sh` is an optional Claude Code hook on SessionStart, Stop, SessionEnd and PermissionRequest. It runs no
+network calls. On the first three it only sets terminal labels; on a permission request it writes what is asked to
+`~/.local/state/relevo/asks/<terminal>/` for the Inbox card and never answers it. It needs `jq`, which macOS 15 and later ship in `/usr/bin`; elsewhere, `brew install jq`.
 
 | Label | What it is | What needs it |
 |---|---|---|
@@ -9,6 +10,7 @@ only sets terminal labels. It needs `jq`, which macOS 15 and later ship in `/usr
 | `agent.jira` | the ticket key in the branch name | ticket chips |
 | `agent.transcript` | the session file | handoffs that resume the conversation |
 | `agent.wait`, `agent.bg` | background shells and wakeups still running | the ⧗ marker and its alert |
+| (no label) the request file | the tool and its input of a permission request | cards for a command or plan longer than the screen |
 
 ## Rules
 

@@ -63,5 +63,5 @@ export function publishArchive(dir, staged) {
   fs.rmSync(staged.pending, { force: true });
   const safe = /^[A-Za-z0-9-]+$/;
   for (const id of staged.taskIds.filter((id) => safe.test(id))) fs.rmSync(path.join(dir, 'artifacts', id), { recursive: true, force: true });
-  for (const id of staged.attemptIds.filter((id) => safe.test(id))) fs.rmSync(path.join(dir, 'reports', `${id}.json`), { force: true });
+  for (const id of staged.attemptIds.filter((id) => safe.test(id))) for (const name of [`${id}.json`, `${id}.status.json`]) fs.rmSync(path.join(dir, 'reports', name), { force: true });
 }

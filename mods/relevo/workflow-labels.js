@@ -6,6 +6,7 @@ export const taskState = (state) => STATES[state] ?? state ?? "Unknown";
 export const reportState = (state) => ({ completed: "Completed", changes_requested: "Changes requested", blocked: "Blocked" }[state] ?? taskState(state));
 export const caption = (value, limit = 42) => value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 export const SUMMARY_PREVIEW = 1200;
+export { reportNotes } from "./lib/run-report.js";
 // A terminal title follows the agent's state; the program and a named tab stay put.
 export const agentLabel = (agent) => {
   const name = agent.program?.name || agent.title || agent.app || agent.address;
