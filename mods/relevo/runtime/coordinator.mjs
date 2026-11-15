@@ -656,6 +656,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         if (a?.id !== attempt.id || a.state !== 'running' || terminalStates.has(t.state)) return;
         a.state = 'reported'; a.report = { status, summary: report.summary, ...extra }; a.summary = report.summary; delete a.progress;
         a.endedAt = new Date(clock()).toISOString(); Object.assign(a, kept);
+        // Each attempt keeps its own test count; the task only holds the latest results.
+        if (attempt.role === 'executor' && status === 'completed' && checks.length) a.tests = { passed: checks.filter((check) => check.code === 0).length, total: checks.length };
         if (kept?.snapshotError) log(doc, t, 'Attempt snapshot not kept', kept.snapshotError);
         // The full prompt matters while the attempt runs; afterwards its opening is enough to audit it.
         if (a.prompt?.length > REPORTED_PROMPT) a.prompt = `${a.prompt.slice(0, REPORTED_PROMPT)}…`;

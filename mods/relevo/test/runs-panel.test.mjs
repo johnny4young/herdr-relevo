@@ -117,8 +117,9 @@ test('Runs at a glance: header, legend, groups by turn, Now and Shipped, older r
   assert.equal(text(find(tree, 'runs-closed-fold')), '1 older finished run');
   assert.match(text(find(tree, 'runs-setups')), /^Saved setups · 1 Show$/);
   assert.equal(text(find(tree, 'list-keys')), 'j k move open the run n new run ? all keys');
-  click(find(tree, 'runs-setups-show'), cx);
-  assert.deepEqual(windows(), [{ role: 'workflow', goalId: 'g', setups: true }]);
+  click(find(tree, 'runs-setups-show'), cx); tree = v.render(cx);
+  assert.match(text(find(tree, 'runs-setups')), /^Saved setups · 1 Hide$/);
+  assert.ok(find(tree, 'setup-s1'), 'the setups open in place'); assert.deepEqual(windows(), []);
   v.navKey({ key: 'n' }, cx);
   assert.equal(fake.overlays.at(-1).props.mode, 'run', 'n starts a new run in its planning window');
 });
@@ -132,11 +133,11 @@ test('Enter or a click opens a run in the panel, never the run window; j, k and 
   assert.equal(fake.stored[GOAL_SCOPE], 'g'); assert.deepEqual(windows(), []);
   assert.equal(text(find(tree, 'runs-back')), '‹ Runs'); assert.equal(text(find(tree, 'run-title')), 'Direct work from one Inbox');
   assert.equal(text(find(tree, 'run-summary')), '6 tasks: 2 need you · 1 stuck · 1 in flight · 1 not started · 1 done');
-  assert.deepEqual(['me', 'stuck', 'flight'].map((turn) => text(find(tree, `run-leg-${turn}`))), ['NEEDS ME 2', 'STUCK 1', 'IN FLIGHT 1']);
+  assert.deepEqual(['me', 'stuck', 'flight'].map((turn) => text(find(tree, `run-leg-${turn}`))), ['NEEDS ME 2 x select', 'STUCK 1', 'IN FLIGHT 1']);
   assert.equal(text(find(tree, 'run-rest-fold')), '1 not started · 1 done');
   assert.deepEqual(v.nav.map((entry) => entry.id), ['task-a', 'task-b', 'task-d', 'task-e']);
   assert.equal(v.sel, 'task-a');
-  assert.match(text(find(tree, 'task-a')), /^Task a reviewer approved \S+ Review$/);
+  assert.match(text(find(tree, 'task-a')), /^Task a reviewer approved \S+ Review attempt 1: Codex Luna → Team Haiku · 10 min · approved$/);
   assert.match(text(find(tree, 'task-b')), /^Task b approved, 2nd attempt/);
   assert.match(text(find(tree, 'task-e')), /^Task e Codex Luna is writing it/);
   assert.equal(find(tree, 'task-p'), null);

@@ -1,17 +1,17 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, TextareaState, Textarea } from "gpui-base";
 import { shared, setShared } from "herdr";
-import { button, foldRow, legHeader, legend, joined, keyBar, keycap, row, LANE, chevron, onSubmitChord } from "./ui.js";
+import { button, foldRow, legHeader, legend, joined, keyBar, keycap, row, onSubmitChord } from "./ui.js";
 import { GOAL_MODE, GOAL_SCOPE, workflowCommand } from "./inbox-goals.js";
 import { openGoal } from "./goals-editor.js";
 import { openWorkflow, RUN_FOLLOW_UP } from "./workflow-window.js";
-import { savedSetups } from "./workflow-setups.js";
 import { goalState } from "./lib/goals.js";
 import { ago } from "./lib/time.js";
 import { reviewableWork, linkedDecision, runProgress } from "./lib/goal-workflow.js";
 import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed } from "./lib/workflow-navigation.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
   taskSummary, taskCaveats, isMerged } from "./lib/run-panel.js";
+import { canCompare, tookWords } from "./lib/run-compare.js";
 
 // Linked PR URLs known to have merged, kept after the landing list lets them go.
 export const MERGED = "relevo.runs.merged";
@@ -30,6 +30,7 @@ export class RunViews {
     this.runChange = TextareaState.new({ value: "", placeholder: "What should change?" });
     this.runChange.on("change", (_e, cx) => cx.notify());
     onSubmitChord(this.runChange, (cx) => this.sendRunChanges(cx));
+    this.runPicked = [];
   }
 
   // URLs known to have merged: the remembered ones and what the landing list shows now.
@@ -75,10 +76,14 @@ export class RunViews {
   }
 
   // The open run and task follow the data: one that is gone, or unreadable, closes its view. Returns the runs to draw.
-  syncRun() {
-    const scope = this.goalProjection.scope;
-    const task = scope ? this.runBucket(scope).all.find((item) => item.id === this.runTask) : null;
+  syncRun(cx) {
+    const scope = this.goalProjection.scope, all = scope ? this.runBucket(scope).all : [];
+    const task = all.find((item) => item.id === this.runTask);
     if (!task) this.runTask = null;
+    const compared = all.find((item) => item.id === this.runCompare);
+    if (this.runCompare && !(compared && canCompare(compared))) this.closeCompare();
+    if (this.runPicked.length) this.runPicked = this.runPicked.filter((id) => all.some((item) => item.id === id && item.state === "needs_you"));
+    if (scope) this.loadRunUsage(cx);
     if (this.runChangeFor && this.runChangeFor !== this.runTask) this.runChangeFor = null;
     if (this.acceptIntent && (task?.state !== "needs_you" || !acceptArmed(this.acceptIntent, task))) this.acceptIntent = null;
     // A notice or an error belongs to the run and task it was said on, however the view moved on.
@@ -91,6 +96,7 @@ export class RunViews {
   // What every level change clears; `task` is the one to show, if any.
   resetRun(task = null) {
     this.runTask = task; this.runChangeFor = null; this.acceptIntent = null;
+    this.runPicked = []; this.closeCompare();
   }
 
   // The words sent as a follow-up stay typed until the run window has taken them.
@@ -105,7 +111,7 @@ export class RunViews {
 
   runNav(runs) {
     const scope = this.goalProjection.scope;
-    if (this.runTask) return [];
+    if (this.runTask || this.runCompare) return [];
     if (scope) return this.orderedTasks(scope).map((task) => ({ id: `task-${task.id}`, section: "goals", go: () => this.resetRun(task.id) }));
     const closed = this.expanded["runs-closed"] ? runs.filter((entry) => entry.closed) : [];
     return [...this.openRuns(runs), ...closed].map((entry) => ({ id: `goal-${entry.goal.id}`, section: "goals", go: () => this.enterRun(entry.goal) }));
@@ -148,6 +154,13 @@ export class RunViews {
     this.resetRun();
   }
 
+  // A command's answer carries the new state; keep it so the panel doesn't wait for the next read.
+  takeDoc(response) {
+    if (!Array.isArray(response.doc?.tasks)) return;
+    this.workflowTasks = response.doc.tasks;
+    this.workflowEngine = response.doc.engine ?? this.workflowEngine;
+  }
+
   // The run window's guard and command: only the revision on screen, only while it still waits.
   decideRun(task, outcome, cx, text = "") {
     if (this.runBusy || this.workflowError || !decideGuard(task, this.workflowTasks)) return;
@@ -156,7 +169,7 @@ export class RunViews {
     cx.spawn(async (cx) => {
       try {
         const response = await workflowCommand(decidePayload(task, outcome, text));
-        if (Array.isArray(response.doc?.tasks)) { this.workflowTasks = response.doc.tasks; this.workflowEngine = response.doc.engine ?? this.workflowEngine; }
+        this.takeDoc(response);
         this.runChange.set_value(""); this.runChangeFor = null;
         const kept = outcome === "accept" && Boolean(task.worktree);
         this.runNotice = outcome !== "accept" ? "Feedback saved. The next result will return for your review."
@@ -209,6 +222,11 @@ export class RunViews {
   // Keys of the open run or task; true when the key was theirs.
   runKey(e, cx) {
     const scope = this.goalProjection?.scope, task = this.shownTask();
+    if (this.runCompare) {
+      if (e.key === "?") return false;
+      if (e.key === "escape") this.leaveCompare();
+      return e.key !== "tab";
+    }
     if (task) {
       if (e.key === "?") return false;
       const waiting = task.state === "needs_you" && !this.runBusy;
@@ -222,6 +240,7 @@ export class RunViews {
         this.acceptIntent = null;
         if (waiting && e.key === "r") this.askRunChanges(task, cx);
         else if (e.key === "d") this.seeDiff(task);
+        else if (e.key === "c" && canCompare(task)) this.openCompare(task);
         else {
           // Other keys, Tab among them, keep their default once Accept is disarmed.
           if (armed) cx.notify();
@@ -232,7 +251,13 @@ export class RunViews {
     }
     if (e.key === "n") { openGoal(); return true; }
     if (!scope) return false;
-    if (e.key === "escape" || e.key === "f") this.leaveRun();
+    const at = this.runBucket(scope).all.find((item) => `task-${item.id}` === this.sel), waits = at?.state === "needs_you";
+    if (this.runPicked.length && e.key === "enter") this.acceptPicked(scope, cx);
+    else if (this.runPicked.length && e.key === "escape") this.runPicked = [];
+    else if (e.key === "X" || (e.key === "x" && e.modifiers?.shift)) this.pickRepository(scope, waits ? at : this.runBucket(scope).me[0]);
+    else if (e.key === "x") { if (waits) this.togglePick(at); }
+    else if (e.key === "c" && at && canCompare(at)) this.openCompare(at);
+    else if (e.key === "escape" || e.key === "f") this.leaveRun();
     else if (e.key === "w") openWorkflow(scope.id);
     else if (e.key === "e") openGoal(scope.id);
     else return false;
@@ -265,6 +290,9 @@ export class RunViews {
     const scope = this.goalProjection.scope, task = this.shownTask();
     const title = (id, words) => div().id(id).flex_1().min_w(0).truncate().text_size(13).font_semibold().tooltip(words).child(words);
     const back = (id, label, leave) => button(t, id, `‹ ${label}`, (cx) => { leave(); this.h.focus(); cx.notify(); }, { kind: "ghost", size: "sm", tip: "Esc" });
+    const compared = scope && this.runCompare ? this.runBucket(scope).all.find((item) => item.id === this.runCompare) : null;
+    if (compared) return [[back("compare-back", task ? "Task" : "Tasks", () => this.leaveCompare()), title("compare-title", compared.title),
+      div().id("compare-attempts").flex_none().text_size(11).text_color(t.muted).child(tookWords(compared))], []];
     if (task) return [[back("task-back", "Tasks", () => this.leaveTask()), title("task-title", task.title)], []];
     if (scope) return [[back("runs-back", "Runs", () => this.leaveRun()), title("run-title", scope.title)], this.runTools(t, scope)];
     return [[div().id("runs-title").pl(8).flex_none().text_size(13).font_semibold().child("Runs"),
@@ -278,9 +306,13 @@ export class RunViews {
   }
 
   runsKeys(t) {
-    const help = [["?"], "all keys"], task = this.shownTask();
-    if (task) return keyBar(t, "list-keys", [...(task.state === "needs_you" ? [[["a", "enter"], "accept"], [["r"], "ask for changes"]] : []), [["d"], "diff"], [["esc"], "tasks"]], help);
-    if (this.goalProjection.scope) return keyBar(t, "list-keys", [[["j", "k"], "move"], [["enter"], "open the task"], [["esc"], "runs"]], help);
+    const help = [["?"], "all keys"], task = this.shownTask(), scope = this.goalProjection.scope;
+    const compare = (item) => (item && canCompare(item) ? [[["c"], "compare"]] : []);
+    if (this.runCompare) return keyBar(t, "list-keys", [[["esc"], "back"]], help);
+    if (task) return keyBar(t, "list-keys", [...(task.state === "needs_you" ? [[["a", "enter"], "accept"], [["r"], "ask for changes"]] : []), [["d"], "diff"], ...compare(task), [["esc"], "tasks"]], help);
+    if (scope && this.runPicked.length) return this.batchBar(t, scope);
+    if (scope) return keyBar(t, "list-keys", [[["j", "k"], "move"], [["enter"], "open the task"],
+      ...compare(this.runBucket(scope).all.find((item) => `task-${item.id}` === this.sel)), [["esc"], "runs"]], help);
     return this.listKeys(t, "runs");
   }
 
@@ -289,13 +321,15 @@ export class RunViews {
     const errors = [this.goalsError ? line(this.goalsError, t, true) : null, this.runCloseError ? line(this.runCloseError, t, true) : null,
       this.runError ? line(this.runError, t, true).id("run-error").role("alert") : null,
       this.runNotice ? line(this.runNotice, t).id("run-notice").role("status") : null].filter(Boolean);
+    const compared = entry && this.runCompare ? this.runBucket(entry.goal).all.find((item) => item.id === this.runCompare) : null;
+    if (compared) return [...errors, ...this.compareView(t, compared)];
     if (entry && task) return [...errors, ...this.taskDetail(t, entry.goal, task)];
     if (entry) return [...errors, ...this.runView(t, entry)];
     return [...errors, ...this.runsGlance(t, runs)];
   }
 
   runsGlance(t, runs) {
-    const open = this.openRuns(runs), closed = runs.filter((entry) => entry.closed), setups = savedSetups().length;
+    const open = this.openRuns(runs), closed = runs.filter((entry) => entry.closed);
     const seen = (entry) => !this.hiddenIds.has(`goal-${entry.goal.id}`), draw = (entry) => this.runCard(t, entry);
     const target = runs.find((entry) => `goal-${entry.goal.id}` === this.sel) ?? open[0];
     return [
@@ -306,10 +340,7 @@ export class RunViews {
       ...(!runs.length ? [line("No runs yet", t)] : []),
       ...(closed.length ? [foldRow(this, t, "runs-closed-fold", "runs-closed", `${closed.length} older finished ${closed.length === 1 ? "run" : "runs"}`, { gap: true })] : []),
       ...(this.expanded["runs-closed"] ? joined(t, closed.filter(seen).map(draw)) : []),
-      ...(setups ? [h_flex().id("runs-setups").min_h(28).pl(LANE).pr(8).gap(5).items_center().text_size(11).text_color(t.dim)
-        .child(chevron(false)).child(div().flex_1().child(`Saved setups · ${setups}`))
-        .child(button(t, "runs-setups-show", "Show", () => (target ? openWorkflow(target.goal.id, null, { setups: true }) : openGoal()),
-          { size: "sm", tip: "Opens the saved setups in the run window; nothing starts" }))] : []),
+      ...this.setupsFold(t, target),
     ];
   }
 
@@ -333,7 +364,7 @@ export class RunViews {
     const rows = (list) => joined(t, list.map((task) => this.taskRow(t, goal, task)));
     const group = (turn, label) => {
       const shown = rows(bucket[turn]);
-      return shown.length ? [legHeader(t, `run-leg-${turn}`, label, bucket[turn].length, { me: turn !== "flight" }), ...shown] : [];
+      return shown.length ? [legHeader(t, `run-leg-${turn}`, label, bucket[turn].length, { me: turn !== "flight", after: turn === "me" ? this.pickHint(t, goal) : [] }), ...shown] : [];
     };
     return [
       ...(this.confirmClose === goal.id ? [div().px(8).child(this.closeConfirm(t, goal))] : []),
@@ -344,6 +375,7 @@ export class RunViews {
         : h_flex().id("run-summary").px(8).pb(4).gap(8).items_center()
           .child(div().flex_1().min_w(0).text_size(13).text_color(entry.hot ? t.blocked : t.muted).child(entry.now))
           .when(entry.action.kind !== "open", (el) => el.child(this.runAction(t, entry, `run-action-${goal.id}`))),
+      ...(tasks.length ? [this.runCost(t, entry)] : []),
       ...(this.workflowError ? [line(this.workflowError, t, true)] : []),
       ...(progress && tasks.length ? [line(progress, t).id(`goal-progress-${goal.id}`)] : []),
       ...group("me", "Needs me"), ...group("stuck", "Stuck"), ...group("flight", "In flight"),
@@ -355,14 +387,20 @@ export class RunViews {
   taskRow(t, goal, task) {
     const turn = taskTurn(task), id = `task-${task.id}`, at = taskAt(task);
     const open = (cx) => { this.resetRun(task.id); this.h.focus(); cx.notify(); };
-    const main = turn === "me" ? { id: `task-review-${task.id}`, label: "Review", run: open, kind: "go" }
+    const picking = turn === "me" && this.runPicked.length > 0;
+    const main = picking ? { el: this.pickBox(t, task) } : turn === "me" ? { id: `task-review-${task.id}`, label: "Review", run: open, kind: "go" }
       : turn === "stuck" ? { id: `task-why-${task.id}`, label: "See why", run: (cx) => { this.sel = id; this.clicked = true; this.h.focus(); cx.notify(); } } : null;
     return this.item(t, id, {
-      turn: turn === "done" ? (task.state === "accepted" ? "ready" : "old") : turn, kind: "relay", title: task.title, reason: taskReason(task),
+      turn: turn === "done" ? (task.state === "accepted" ? "ready" : "old") : turn, kind: "relay", title: task.title, reason: picking ? this.thenReason(task, goal) : taskReason(task),
       age: at ? ago(at, true) : null, tip: task.title, main,
-      lines: turn === "stuck" ? () => this.stuckLines(t, goal, task) : [],
-      actions: turn === "me" ? [] : [{ id: `task-open-${task.id}`, label: "Open", run: open, tip: "Who did what on this task" }],
+      lines: () => [...this.attemptLines(t, task), ...(turn === "stuck" ? this.stuckLines(t, goal, task) : [])],
+      actions: [turn === "me" ? null : { id: `task-open-${task.id}`, label: "Open", run: open, tip: "Who did what on this task" },
+        canCompare(task) ? { el: this.compareButton(t, task, `task-compare-${task.id}`) } : null].filter(Boolean),
     });
+  }
+
+  compareButton(t, task, id) {
+    return button(t, id, [keycap(t, "c"), "Compare attempts"], (cx) => { this.openCompare(task); this.h.focus(); cx.notify(); }, { kind: "ghost" });
   }
 
   // Why a task is stuck, in the reviewer's words, and the one way on.
@@ -396,6 +434,7 @@ export class RunViews {
         .children(notes.slice(0, NOTE_LINES).map((note) => div().min_w(0).text_size(11).text_color(t.muted).child(note)))
         .when(notes.length > NOTE_LINES, (el) => el.child(div().text_size(11).text_color(t.dim).child(`+${notes.length - NOTE_LINES} more in More`)))] : []),
       ...(linked ? [line(`Also resolves: ${goal.decision}`, t)] : []),
+      ...(canCompare(task) ? [v_flex().id("task-attempts").px(8).pt(6).gap(2).children(this.attemptLines(t, task))] : []),
       this.taskDecision(t, goal, task, tasks),
     ];
   }
@@ -422,6 +461,9 @@ export class RunViews {
             { kind: "accent", disabled: Boolean(this.runBusy), tip: "A, then Enter" }))
           .child(button(t, "task-changes", keyed("r", "Ask for changes"), (cx) => this.askRunChanges(task, cx), { disabled: Boolean(this.runBusy) })))
         .when(followUpAvailable(task), (bar) => bar.child(this.followUpButton(t, goal, task, "task-follow-up")))
+        .when(["accepted", "cancelled"].includes(task.state), (bar) => bar.child(button(t, "task-rerun", "Re-run with changes…",
+          () => openWorkflow(goal.id, task.id, { followUp: "rerun" }), { tip: "Opens a new task with this one's prompt in the run window; nothing is sent until you start it" })))
+        .when(canCompare(task), (bar) => bar.child(this.compareButton(t, task, "task-compare")))
         .child(diff).child(div().flex_1()).child(more))
       .when(waiting, (el) => el.child(div().id("task-effect").min_w(0).text_size(11).text_color(t.muted).child(effect)));
   }

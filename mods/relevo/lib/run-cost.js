@@ -62,7 +62,7 @@ export function goalCost(goal, tasks, sessions, now = Date.now()) {
   for (const task of tasks ?? []) {
     if (task.goalId !== goal.id) continue;
     const here = sessionsOf(task, sessions);
-    task.attempts.forEach((attempt, index) => add(sum, seen, attempt, index, task, here, now));
+    (task.attempts ?? []).forEach((attempt, index) => add(sum, seen, attempt, index, task, here, now));
   }
   return result(sum);
 }
