@@ -22,6 +22,7 @@ import { openSettings } from "./settings.js";
 import { UsageScanner, ContextWatch } from "./usage-scan.js";
 import { DesktopWatch } from "./desktop.js";
 import { ElsewhereWatch } from "./elsewhere.js";
+import { AliveWatch } from "./alive.js";
 import { TurnWatch } from "./turns.js";
 
 // Chip and label; wide enough for an 8-letter account name.
@@ -71,6 +72,10 @@ export class Sidebar {
     });
     readDesktop(cx);
     cx.timer.every(30000, readDesktop);
+    this.alive = new AliveWatch();
+    const readAlive = (cx) => cx.spawn(async () => { await this.alive.tick(); });
+    readAlive(cx);
+    cx.timer.every(10000, readAlive);
     this.readTokens(cx);
     cx.timer.every(300000, (cx) => this.readTokens(cx));
     cx.timer.every(20000, (cx) => cx.spawn(async () => {

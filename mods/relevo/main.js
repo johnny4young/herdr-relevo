@@ -8,7 +8,7 @@ import { Sidebar } from "./sidebar.js";
 import { AccountStatus } from "./account-status.js";
 import { Inbox } from "./inbox.js";
 import { InboxButton, PanelToggle, landOnReviews, showPanel } from "./toolbar.js";
-import { Terminals, focusTerminals } from "./terminals.js";
+import { Terminals, focusTerminals, terminalAction } from "./terminals.js";
 import { AccountMenu } from "./account-menu.js";
 import { PanelBar, FileFinder, CheckoutMenu, openFinder, openCheckoutsHere } from "./panelbar.js";
 import { nextWaiting, openPR, respondPR, worktrees } from "./commands.js";
@@ -92,6 +92,7 @@ export default class Relevo extends View {
     else if (name === "panel-reviews") { landOnReviews(); focusInbox(); }
     else if (name === "panel-runs") { setShared(GOAL_MODE, true); focusInbox(); }
     else if (name === "panel-terminals") focusTerminals();
+    else if (name.startsWith("term-")) { const [action, ...rest] = name.slice(5).split("-"); terminalAction(action, rest.join("-")); }
     else if (name.startsWith("panel-")) showPanel(name.slice(6));
     else if (name.startsWith("launch-")) this.part.launch(name.slice(7));
   }

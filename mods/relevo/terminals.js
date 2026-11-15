@@ -237,3 +237,16 @@ export class Terminals {
       .child(keys);
   }
 }
+
+// "relevo.term-<action>-<address>" from the Spaces list: the same actions as here, on the terminal as it is now.
+export function terminalAction(action, address) {
+  const k = terminals().find((x) => x.address === address);
+  const r = k && terminalRow(k, { agents: new Set(agents().map((a) => a.address)), panes: panes() });
+  if (!r) return null;
+  if (action === "open") return openTerminal(r);
+  if (action === "peek") return run("terminal.peek", { terminal: r.address });
+  if (action === "restart" && r.canRestart) return restartTerminal(r);
+  if (action === "stop" && r.canStop) return exec("hc", ["interrupt", r.address]);
+  if (action === "close") return endTerminal(r);
+  return null;
+}
