@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Agents at a glance.** Each agent in the sidebar is one line: a mark for whose turn it is (a red disc needs me, a spinner is working, a check has finished), its name and what it is doing or needs, such as "writing #43" or the question it waits on. The agent you are on opens a second line with its PR, model, context and cache. The groups are Needs me, In flight and Idle, each with a count, and a long Idle group shows three and folds the rest. The "Needs me" pill is gone from the rows.
 - **Plain words in Runs.** A round is now an attempt ("attempt 2 of 3"), checks are tests ("tests 3 of 3 passed"), Blocked is Stuck with **See why**, Request changes is Ask for changes, Ready for your review and the Needs you list are Needs me, and the roles read "Writes it" and "Reviews it". Stored fields and states are unchanged.
 - **One set of glyphs.** Folds, refresh, more, check boxes and menu arrows are drawn from 28 icons in `mods/relevo/icons/` instead of text characters, so they line up and take the theme colour.
 
