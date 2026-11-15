@@ -20,9 +20,9 @@ function review() {
   v.root = "/synthetic";
   v.files = [
     { path: "src/limiter/clock.ts", add: 31, del: 0, added: true },
-    { path: "src/limiter/bucket.ts", add: 9, del: 6 },
-    { path: "README.md", add: 2, del: 0 },
-    { path: "notes/draft.txt", add: 0, del: 0, untracked: true },
+    { path: "src/limiter/bucket.ts", add: 9, del: 6, added: false },
+    { path: "README.md", add: 2, del: 0, added: false },
+    { path: "notes/draft.txt", add: 0, del: 0, untracked: true, added: true },
   ];
   v.open = v.files[0];
   v.hashes = new Map(v.files.map((f) => [f.path, `hash-${f.path}`]));
@@ -76,7 +76,7 @@ test("reading the diff marks the files git says it creates", async () => {
     ? { stdout: "3\t0\tsrc/new file.ts\n1\t1\told.ts\n create mode 100644 src/new file.ts\n delete mode 100644 gone.ts\n" }
     : null);
   await v.read(cx);
-  assert.deepEqual(v.files, [{ path: "src/new file.ts", add: 3, del: 0, added: true }, { path: "old.ts", add: 1, del: 1 }]);
+  assert.deepEqual(v.files, [{ path: "src/new file.ts", add: 3, del: 0, added: true }, { path: "old.ts", add: 1, del: 1, added: false }]);
   assert.equal(calls(/ diff .*--numstat --summary/).length, 1);
   v.close();
 });
@@ -218,28 +218,68 @@ test("⌘↵ does nothing where the button is disabled, and other chords never s
   v.close();
 });
 
-test("⌘↵ in an open editor saves that comment and sends nothing", async () => {
+test("⌘↵ in the comment field saves that comment and keeps the key from the pane", async () => {
   const { v, cx } = review();
+  let stopped = 0;
+  cx.stop_propagation = () => { stopped += 1; };
   fake.agents = [{ address: "t1", pane: "p1" }];
   fake.panes = [{ pane: "p1", cwd: "/synthetic" }];
   v.setComments([fileComment("README.md", "Shorter")]);
   v.edit({ start: 1, end: 1 }, cx);
   v.input.set_value("Rename");
-  // The pane sees the key before the field does, or after it: neither sends.
-  v.render().handlers.on_key_down(cmdEnter, cx);
+  const field = () => find(v.render(), "rv-comment-field");
+  field().handlers.on_key_down({ key: "enter", modifiers: {} }, cx);
+  assert.equal(stopped, 0);
   assert.deepEqual(v.editing, { start: 1, end: 1 });
-  v.input.submit({ secondary: true }, cx);
+  // The field's own submit may have saved already; the key is still stopped and nothing is saved twice.
+  const again = field();
+  again.handlers.on_key_down(cmdEnter, cx);
+  again.handlers.on_key_down(cmdEnter, cx);
+  assert.equal(stopped, 2);
   assert.equal(v.editing, null);
   assert.deepEqual(v.comments.map((c) => c.text), ["Shorter", "Rename"]);
-  v.render().handlers.on_key_down(cmdEnter, cx);
   await flush();
   assert.deepEqual(fake.execs, []);
-  assert.equal(v.comments.length, 2);
-  // Once the key is up, the next ⌘↵ is a send.
+  // With the editor closed the pane takes the key: held it does nothing, pressed it sends.
+  v.render().handlers.on_key_down({ ...cmdEnter, is_held: true }, cx);
   v.render().handlers.on_key_up(cmdEnter, cx);
+  await flush();
+  assert.deepEqual(fake.execs.filter((line) => line.startsWith("hc ")), []);
   v.render().handlers.on_key_down(cmdEnter, cx);
   await flush();
   assert.equal(calls(/^hc send t1 /).length, 1);
+  v.close();
+});
+
+test("⌘↵ on the pane with an editor open does not send", async () => {
+  const { v, cx } = review();
+  fake.agents = [{ address: "t1", pane: "p1" }];
+  fake.panes = [{ pane: "p1", cwd: "/synthetic" }];
+  v.setComments([fileComment("README.md", "Shorter")]);
+  v.edit("file", cx);
+  v.render().handlers.on_key_down(cmdEnter, cx);
+  await flush();
+  assert.equal(v.editing, "file");
+  assert.deepEqual(fake.execs, []);
+  v.close();
+});
+
+test("the editor names its lines the way the saved comment does, and the diff list is rebuilt only on a change", () => {
+  const { v, cx } = review();
+  v.edit({ start: 2, end: 3 }, cx);
+  assert.match(text(find(v.render(), "rv-comment-editor")), /^Add comment · src\/limiter\/clock\.ts · L2-3 /);
+  v.cancelEdit(cx);
+  v.edit("file", cx);
+  assert.match(text(find(v.render(), "rv-comment-editor")), /· File /);
+  const model = v.diffModel();
+  v.input.set_value("typing");
+  v.render();
+  assert.equal(v.diffModel(), model);
+  v.save(cx);
+  assert.notEqual(v.diffModel(), model);
+  const saved = v.diffModel();
+  v.rows = [...v.rows];
+  assert.notEqual(v.diffModel(), saved);
   v.close();
 });
 

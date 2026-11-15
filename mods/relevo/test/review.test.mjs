@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  diffRows, selectRange, lineComment, fileComment, commentId, rangeRows, formatComment, reviewMessage, lineKey,
+  diffRows, selectRange, lineComment, fileComment, commentId, commentLabel, rangeRows, formatComment, reviewMessage, lineKey,
 } from "../lib/diff.js";
 
 const rows = diffRows([
@@ -80,4 +80,11 @@ test("rangeRows: matches the simple reference for many synthetic ranges", () => 
   for (const c of comments) for (let i = at.get(c.start); i <= at.get(c.key); i++) expected.add(i);
   assert.ok(expected.size > 0);
   assert.deepEqual(rangeRows(lines, comments), expected);
+});
+
+test("commentLabel: a line, a range and the file", () => {
+  assert.equal(commentLabel(lineComment("a.ts", rows, 3, 3, "x")), "L11");
+  assert.equal(commentLabel(lineComment("a.ts", rows, 1, 5, "x")), "L10-13");
+  assert.equal(commentLabel(fileComment("a.ts", "x")), "File");
+  assert.equal(commentLabel({ file: "a.ts", key: "-40", line: 40, side: "-", code: "gone", text: "old shape" }), "L40");
 });

@@ -9,7 +9,7 @@ import { accountFor } from "./context.js";
 import { baseBranch } from "./worktrees.js";
 import { openWorkflow } from "./workflow-window.js";
 import { GIT_READ as READ } from "./lib/git.js";
-import { diffRows, lineKey, selectRange, lineComment, fileComment, commentId, rangeRows, reviewMessage } from "./lib/diff.js";
+import { diffRows, lineKey, selectRange, lineComment, fileComment, commentId, commentLabel, rangeRows, reviewMessage } from "./lib/diff.js";
 
 const MAX_ROWS = 4000;
 // Open review panes by checkout, so a second Review focuses the first.
@@ -80,7 +80,12 @@ const live = () => Object.fromEntries(
   Object.entries(shared(OPEN) ?? {}).filter(([, pane]) => panes().some((p) => p.pane === pane)),
 );
 
-const where = (c) => (c.scope === "file" ? "File" : `L${c.line}${c.start ? `-${c.end}` : ""}`);
+const sendChord = (e) => e.key === "enter" && Boolean(e.modifiers?.platform) && !e.modifiers.alt && !e.modifiers.control && !e.modifiers.shift;
+
+// A comment's label and text; `oneLine` cuts the text instead of wrapping it.
+const noteLine = (t, c, oneLine = false) => h_flex().min_w(0).gap(8).items_center()
+  .child(div().flex_none().text_size(11).text_color(t.accent).child(commentLabel(c)))
+  .child(div().flex_1().min_w(0).when(oneLine, (el) => el.truncate()).text_size(13).text_color(t.foreground).child(c.text));
 
 export class ReviewDiff {
   init(_props, cx) {
@@ -102,11 +107,7 @@ export class ReviewDiff {
     this.editing = null;
     this.anchor = null;
     this.input = InputState.new({ value: "", placeholder: "Comment for the agent · Enter saves, Esc cancels" });
-    this.input.on("submit", (e, cx) => {
-      // The same ⌘↵ may still reach the pane after the editor closed; it must not send too.
-      if (e?.secondary) this.chordSaved = true;
-      this.save(cx);
-    });
+    this.input.on("submit", (_e, cx) => this.save(cx));
     if (this.root) this.load(cx);
     // The agent keeps working while you read; pick up its changes unless you are typing.
     // Behind another app nobody reads it, so it waits until the window is back.
@@ -176,11 +177,11 @@ export class ReviewDiff {
     const created = new Set(stat.flatMap((l) => /^ create mode \d+ (.+)$/.exec(l)?.[1] ?? []));
     const tracked = stat.filter((l) => !l.startsWith(" ")).map((l) => {
       const [add, del, path] = l.split("\t");
-      return { path, add: +add || 0, del: +del || 0, ...(created.has(path) ? { added: true } : {}) };
+      return { path, add: +add || 0, del: +del || 0, added: created.has(path) };
     });
     // A branch that isn't checked out has no untracked files.
     const others = this.to ? "" : (await git(["ls-files", "--others", "--exclude-standard"])).stdout;
-    const untracked = others.split("\n").filter(Boolean).map((path) => ({ path, add: 0, del: 0, untracked: true }));
+    const untracked = others.split("\n").filter(Boolean).map((path) => ({ path, add: 0, del: 0, untracked: true, added: true }));
     // Switched while reading: the newer read draws.
     if (scope !== this.scope) return;
     const files = [...tracked, ...untracked];
@@ -394,18 +395,16 @@ export class ReviewDiff {
     });
   }
 
-  handleKey(e, cx, down = false) {
-    if (e.key === "escape" && this.editing !== null) {
-      cx.stop_propagation();
-      return this.cancelEdit(cx);
-    }
-    if (!down) {
-      this.chordSaved = false;
-      return;
-    }
-    const m = e.modifiers, chord = e.key === "enter" && m?.platform && !m.alt && !m.control && !m.shift;
-    // ⌘↵ is the Send button: it waits for the same things, and for the key to come up after saving a comment.
-    if (!chord || e.is_held || this.chordSaved || !this.ready()) return;
+  escapeKey(e, cx) {
+    if (e.key !== "escape" || this.editing === null) return false;
+    cx.stop_propagation();
+    this.cancelEdit(cx);
+    return true;
+  }
+
+  // ⌘↵ is the Send button and waits for the same things; a held key repeats, and one press sends once.
+  handleKey(e, cx) {
+    if (this.escapeKey(e, cx) || !sendChord(e) || e.is_held || !this.ready()) return;
     cx.stop_propagation();
     this.send(cx);
   }
@@ -426,34 +425,36 @@ export class ReviewDiff {
 
   // Also a row of the virtual list, so it only opens the comment; deleting is in the strip above the footer.
   noteBox(t, note, font) {
-    return h_flex().mx(10).my(3).px(8).py(4).gap(8).items_center().rounded(6).bg(t.raised).font_family(font).cursor_pointer()
-      .child(div().flex_none().text_size(11).text_color(t.accent).child(where(note)))
-      .child(div().flex_1().min_w(0).text_size(13).text_color(t.foreground).child(note.text));
+    return noteLine(t, note).mx(10).my(3).px(8).py(4).rounded(6).bg(t.raised).font_family(font).cursor_pointer();
   }
 
   // The open file's saved comments as real elements: the diff list's rows can't hold a button.
-  savedStrip(t, font) {
-    const mine = this.comments.filter((c) => c.file === this.open?.path);
+  savedStrip(t, font, mine) {
     return v_flex().id("rv-saved").flex_none().max_h(96).overflow_y_scrollbar().px(10).py(4).border_t(1).border_color(t.border).font_family(font)
       .children(mine.map((c) => h_flex().h(24).flex_none().gap(8).items_center()
-        .child(div().flex_none().text_size(11).text_color(t.accent).child(where(c)))
-        .child(div().flex_1().min_w(0).truncate().text_size(13).child(c.text))
+        .child(noteLine(t, c, true).flex_1())
         .child(button(t, `rv-del-${commentId(c)}`, [icon("x")], (cx) => this.removeComment(c, cx), { kind: "ghost", size: "sm", tip: "Delete this comment" }))));
   }
 
   field(t, font) {
-    return div().mx(10).my(4).h(30).px(8).flex().items_center()
+    return div().id("rv-comment-field").mx(10).my(4).h(30).px(8).flex().items_center()
       .rounded(6).border_1().border_color(t.accent).bg(t.background)
       .font_family(font).text_size(13)
+      // ⌘↵ in the field belongs to the comment: the pane must not take it as Send.
+      .on_key_down((e, cx) => {
+        if (!sendChord(e)) return;
+        cx.stop_propagation();
+        if (this.editing !== null) this.save(cx);
+      })
       .child(Input.new(this.input).id("rv-comment-input").accessibility_label("Review comment").h_full());
   }
 
   commentEditor(t, font) {
     const e = this.editing, saved = this.editingComment();
-    const where = e === "file" ? "whole file" : `line ${this.rows[e?.start]?.number ?? ""}${e?.start !== e?.end ? `–${this.rows[e?.end]?.number ?? ""}` : ""}`;
+    const at = e === "file" ? fileComment("", "") : this.rows[e?.start] && this.rows[e?.end] ? lineComment("", this.rows, e.start, e.end, "") : null;
     // Retained inputs and action handlers live outside the virtual diff rows.
     return v_flex().id("rv-comment-editor").flex_none().py(6).gap(4).border_t(1).border_color(t.accent)
-      .child(div().px(10).text_size(11).child(`${saved ? "Edit" : "Add"} comment · ${this.open?.path} · ${where}`))
+      .child(div().px(10).text_size(11).child(`${saved ? "Edit" : "Add"} comment · ${this.open?.path}${at ? ` · ${commentLabel(at)}` : ""}`))
       .child(this.field(t, font))
       .child(h_flex().px(10).gap(6).flex_wrap()
         .child(button(t, "rv-comment-save", "Save comment", (cx) => this.save(cx), { kind: "solid", tip: "Enter saves locally. Send to agent delivers saved comments." }))
@@ -499,8 +500,8 @@ export class ReviewDiff {
   }
 
   // Outside the virtual list, so ordinary handlers work here.
-  fileBar(t, font) {
-    const note = this.comments.find((c) => c.file === this.open?.path && commentId(c) === "file");
+  fileBar(t, font, mine) {
+    const note = mine.find((c) => c.scope === "file");
     return v_flex().flex_none().border_b(1).border_color(t.border)
       .child(h_flex().min_h(30).px(12).gap(8).flex_wrap().items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.open.path))
@@ -513,10 +514,12 @@ export class ReviewDiff {
   }
 
   fileList(t) {
+    const counts = new Map();
+    for (const c of this.comments) counts.set(c.file, (counts.get(c.file) ?? 0) + 1);
     return v_flex().id("rv-files").flex_none().h(Math.min(150, Math.max(40, this.files.length * 24 + 9))).overflow_y_scrollbar().p(4).border_b(1).border_color(t.border)
       .when(!this.files.length, (el) => el.child(div().p(8).text_color(t.dim).child(this.pr ? "No changes" : this.empty())))
       .children(this.files.map((f) => {
-        const count = this.comments.filter((c) => c.file === f.path).length;
+        const count = counts.get(f.path) ?? 0;
         const seen = this.viewed(f.path), cut = f.path.lastIndexOf("/") + 1;
         return h_flex().id(`rv-file-${f.path}`).h(24).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer()
           .when(this.open?.path === f.path, (el) => el.bg(t.selected))
@@ -530,7 +533,7 @@ export class ReviewDiff {
             .when(cut > 0, (el) => el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(f.path.slice(0, cut))))
             .child(div().flex_none().text_size(13).text_color(seen ? t.dim : t.foreground).child(f.path.slice(cut))))
           .when(count > 0, (el) => el.child(tag(t, icon("comment", t.accent, 10)).id(`rv-count-${f.path}`).gap(3).child(String(count))))
-          .when(Boolean(f.untracked || f.added), (el) => el.child(tag(t, "new", t.ansi2).id(`rv-tag-new-${f.path}`)))
+          .when(Boolean(f.added), (el) => el.child(tag(t, "new", t.ansi2).id(`rv-tag-new-${f.path}`)))
           .when(!f.untracked, (el) => el
             .when(f.add > 0 || !f.del, (n) => n.child(div().text_size(11).text_color(t.ansi2).child(`+${f.add}`)))
             .when(f.del > 0, (n) => n.child(div().text_size(11).text_color(t.ansi1).child(`−${f.del}`)))
@@ -538,18 +541,26 @@ export class ReviewDiff {
       }));
   }
 
-  diff(t, font) {
+  // What the diff list draws, rebuilt only when the rows, the comments or the open file change: typing redraws too.
+  diffModel() {
+    const m = this.model;
+    if (m && m.rows === this.rows && m.comments === this.comments && m.open === this.open) return m;
     const mine = this.comments.filter((c) => c.file === this.open?.path && c.scope !== "file");
     const notes = new Map();
     for (const c of mine) notes.set(c.key, [...(notes.get(c.key) ?? []), c]);
-    const tinted = rangeRows(this.rows, mine);
-    // The icon sits where a comment starts; its box follows the last line it covers.
-    const starts = new Set(mine.map((c) => c.start ?? c.key));
     const items = [];
     this.rows.forEach((r, i) => {
       items.push(i);
       if (r.number !== undefined) items.push(...(notes.get(lineKey(r)) ?? []));
     });
+    // The icon sits where a comment starts; its box follows the last line it covers.
+    this.model = { rows: this.rows, comments: this.comments, open: this.open, items,
+      starts: new Set(mine.map((c) => c.start ?? c.key)), tinted: rangeRows(this.rows, mine) };
+    return this.model;
+  }
+
+  diff(t, font) {
+    const { items, starts, tinted } = this.diffModel();
     const isRow = (n) => typeof items[n] === "number";
     const key = (n) => (isRow(n) ? String(items[n]) : `c:${commentId(items[n])}`);
     const item = (n) => {
@@ -586,16 +597,16 @@ export class ReviewDiff {
 
   render() {
     const t = theme(), agent = this.target(), n = this.comments.length, ready = this.ready();
-    const font = settings().ui_font_family ?? "Inter";
+    const font = settings().ui_font_family ?? "Inter", mine = this.comments.filter((c) => c.file === this.open?.path);
     return v_flex().id("relevo-review").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .track_focus(this.focus)
-      .on_key_down((e, cx) => this.handleKey(e, cx, true))
-      .on_key_up((e, cx) => this.handleKey(e, cx))
+      .on_key_down((e, cx) => this.handleKey(e, cx))
+      .on_key_up((e, cx) => this.escapeKey(e, cx))
       .child(this.header(t))
       .child(this.fileList(t))
-      .when(Boolean(this.open), (el) => el.child(this.fileBar(t, font)))
+      .when(Boolean(this.open), (el) => el.child(this.fileBar(t, font, mine)))
       .child(this.diff(t, font))
-      .when(this.comments.some((c) => c.file === this.open?.path), (el) => el.child(this.savedStrip(t, font)))
+      .when(mine.length > 0, (el) => el.child(this.savedStrip(t, font, mine)))
       .when(this.editing !== null, (el) => el.child(this.commentEditor(t, font)))
       .child(this.footer(t, agent, n, ready));
   }
