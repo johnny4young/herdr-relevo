@@ -1,7 +1,7 @@
 // From this folder: node --test 'test/*.test.mjs'. Covers the pure helpers in lib/.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ago, duration, windowOf, FIVE_HOURS, runsOut, nextSince } from "../lib/time.js";
+import { ago, duration, windowOf, FIVE_HOURS, runsOut, fullIn, nextSince } from "../lib/time.js";
 import { diffRows, lineKey } from "../lib/diff.js";
 import { ownerOf, contextFor } from "../lib/context.js";
 import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
@@ -484,6 +484,24 @@ test("runsOut: when a window hits 100% at the pace so far", () => {
   assert.equal(runsOut({ pct: 5, resets: now + hour, pace: 0.01 }, FIVE_HOURS, now), null);
   assert.equal(runsOut({ pct: 100, resets: now + hour, pace: 0.5 }, FIVE_HOURS, now), null);
   assert.equal(runsOut(null, FIVE_HOURS, now), null);
+});
+
+test("fullIn: minutes until 100% at the pace so far, from the window alone", () => {
+  const now = 1_000_000, hour = 3600;
+  // The same windows as runsOut: 2h into 5h at 60% is full in 80 minutes.
+  assert.equal(fullIn({ pct: 60, resets: now + 3 * hour, pace: 0.4 }, now), 80);
+  assert.equal(fullIn({ pct: 99, resets: now + hour, pace: 0.8 }, now), 2);
+  // A weekly window is measured by its own pace too: 6 days in at 90%, 16h to go.
+  assert.equal(fullIn({ pct: 90, resets: now + 24 * hour, pace: 6 / 7 }, now), 16 * 60);
+  assert.equal(fullIn({ pct: 99.99, resets: now + hour, pace: 0.8 }, now), 1, "never zero while there is room");
+  assert.equal(fullIn({ pct: 20, resets: now + 3 * hour, pace: 0.4 }, now), null, "resets before it is full");
+  assert.equal(fullIn({ pct: 100, resets: now + hour, pace: 0.5 }, now), null, "already full");
+  assert.equal(fullIn({ pct: 60, resets: now + hour, pace: null }, now), null, "no pace");
+  assert.equal(fullIn({ pct: 60, resets: null, pace: 0.4 }, now), null, "no reset");
+  assert.equal(fullIn({ pct: 0, resets: now + hour, pace: 0.4 }, now), null, "nothing used");
+  assert.equal(fullIn({ pct: 5, resets: now + hour, pace: 0.01 }, now), null, "too early to tell");
+  assert.equal(fullIn({ pct: 60, resets: now - 1, pace: 1 }, now), null, "the window ended");
+  assert.equal(fullIn(null, now), null);
 });
 
 test("lastMessage: the agent's last words, not tool calls or hook noise", () => {

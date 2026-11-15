@@ -1,9 +1,11 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, exec, run, home, agents, panes, terminals, notify, props, openOverlay, closeOverlay } from "herdr";
-import { windowLabel } from "./lib/time.js";
-import { ACCOUNTS, CODEX, accountOf, launchArgv, loadClaudeQuotas, chip } from "./accounts.js";
-import { spinner } from "./ui.js";
+import { resetClock } from "./lib/time.js";
+import { ACCOUNTS, CODEX, accountOf, launchArgv, loadClaudeQuotas, chip, full } from "./accounts.js";
+import { band, keycap, spinner } from "./ui.js";
+import { marginOf } from "./lib/margin.js";
+import { tightestWindow } from "./lib/account-status.js";
 import { GIT_READ } from "./lib/git.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "./lib/handoff.js";
 
@@ -15,9 +17,9 @@ export function openHandoff(address = null, reason = null) {
   if (!a) return notify({ title: "Focus the agent to hand off first", level: "info" });
   const cwd = panes().find((p) => p.pane === a.pane)?.cwd;
   const k = terminals().find((x) => x.address === a.address), from = terminalAccount(k);
-  const rows = [...ACCOUNTS, CODEX].filter((acct) => acct.key !== from).length;
+  const rows = [...ACCOUNTS, CODEX].filter((acct) => acct.key !== from).length + (from ? 1 : 0);
   openOverlay({
-    mod: "relevo", kind: "popup", width: 300, height: 52 + rows * 40,
+    mod: "relevo", kind: "popup", width: 340, height: 44 + rows * 48,
     props: {
       role: "handoff", terminal: a.address, space: a.space, tab: a.tab_name, cwd,
       from, transcript: k?.labels?.["agent.transcript"] || null, reason,
@@ -26,10 +28,14 @@ export function openHandoff(address = null, reason = null) {
 }
 
 // From a full account: its focused agent, else one waiting on you, else one still working.
-export function handoffFrom(account) {
+export function handoffAgent(account) {
   const mine = new Set(terminals().filter((k) => terminalAccount(k) === account).map((k) => k.address));
   const list = agents().filter((a) => mine.has(a.address));
-  const a = list.find((x) => x.focused) ?? list.find((x) => x.status === "blocked") ?? list.find((x) => x.status === "working");
+  return list.find((x) => x.focused) ?? list.find((x) => x.status === "blocked") ?? list.find((x) => x.status === "working") ?? null;
+}
+
+export function handoffFrom(account) {
+  const a = handoffAgent(account);
   if (!a) return notify({ title: `No ${accountOf(account).label} agent to hand off`, level: "info" });
   run("agent.focus", { terminal: a.address });
   openHandoff(a.address, "quota");
@@ -110,6 +116,10 @@ async function writeNote({ terminal, cwd, from }, to) {
 export class Handoff {
   init(_props, cx) {
     this.quotas = null;
+    this.h = cx.focus_handle();
+    this.h.focus();
+    // The popup takes the keyboard a moment after it opens.
+    cx.timer.after(300, () => this.h.focus());
     cx.spawn(async (cx) => {
       this.quotas = await loadClaudeQuotas();
       cx.notify();
@@ -155,22 +165,50 @@ export class Handoff {
     });
   }
 
+  // Accounts with room first, numbered; full ones after them, and the one being left last.
+  rows() {
+    const p = props(), plan = (to) => handoffPlan({ from: p.from, to, transcript: p.transcript, accounts: ACCOUNTS, home: home() });
+    const list = [...ACCOUNTS, CODEX].map((acct) => {
+      const q = this.quotas?.[acct.key], leaving = acct.key === p.from;
+      return { acct, q, leaving, full: Boolean(full(q)), how: plan(acct.key).mode === "resume" ? "same conversation" : "from a note" };
+    });
+    const open = list.filter((r) => !r.leaving && !r.full).map((r, i) => ({ ...r, n: i + 1 }));
+    return [...open, ...list.filter((r) => !r.leaving && r.full), ...list.filter((r) => r.leaving)];
+  }
+
+  key(e, cx) {
+    if (e.modifiers?.platform || e.modifiers?.control || e.modifiers?.alt || !/^[1-9]$/.test(e.key)) return;
+    const row = this.rows().find((r) => r.n === Number(e.key));
+    if (!row) return;
+    cx.stop_propagation();
+    this.go(row.acct.key, cx);
+  }
+
+  row(t, { acct, q, leaving, full: isFull, how, n }) {
+    const w = tightestWindow(q), room = marginOf(q), reset = resetClock(w), off = leaving || isFull;
+    const right = isFull ? `full${reset ? ` · resets ${reset}` : ""}` : room == null ? "no data" : `${room}% room`;
+    return h_flex().id(`handoff-row-${acct.key}`).h(46).px(8).gap(8).items_center().rounded(6)
+      .accessibility_label(`${acct.label}. ${this.quotas ? right : "reading usage"}. ${leaving ? "This is the one you leave" : `Continues ${how}`}`)
+      .when(off, (el) => el.opacity(0.55))
+      .when(!off, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.go(acct.key, cx)))
+      .child(h_flex().w(17).flex_none().when(n <= 9, (el) => el.child(keycap(t, String(n)))))
+      .child(chip(div, acct))
+      .child(v_flex().flex_1().min_w(0).gap(5)
+        .child(div().truncate().text_size(13).child(this.busy === acct.key ? "Starting…" : acct.label))
+        .child(band(t, 120, w?.pct ?? 0, w?.pace ?? null, { thin: true })))
+      .child(v_flex().flex_none().items_end().gap(2)
+        .child(div().text_size(13).text_color(isFull ? t.blocked : t.foreground).child(this.quotas ? right : spinner(t.dim, 10)))
+        .child(div().text_size(11).text_color(t.muted).child(leaving ? "this is the one you leave" : how)));
+  }
+
   render() {
     const t = theme(), p = props();
     if (!p?.terminal) return div();
-    const usage = (q) => [q?.h5 ? `5h ${q.h5.pct}%` : null, q?.d7 ? `${windowLabel(q.d7, "7d")} ${q.d7.pct}%` : null]
-      .filter(Boolean).join(" · ") || "no data";
     return v_flex().id("handoff").size_full().p(4).gap(1).bg(t.popover ?? t.surface).text_color(t.foreground)
-      .child(div().px(8).pt(4).pb(6).text_size(11).text_color(this.error ? t.blocked : t.dim).truncate()
+      .when(Boolean(this.h), (el) => el.track_focus(this.h))
+      .on_key_down((e, cx) => this.key(e, cx))
+      .child(div().id("handoff-title").px(8).pt(4).pb(6).text_size(11).text_color(this.error ? t.blocked : t.dim).truncate()
         .child(this.error ?? `Continue ${p.tab || p.terminal} with…`))
-      .children([...ACCOUNTS, CODEX].filter((acct) => acct.key !== p.from).map((acct) => {
-        const q = this.quotas?.[acct.key], full = q?.h5?.pct >= 100 || q?.d7?.pct >= 100;
-        return h_flex().id(`handoff-${acct.key}`).h(36).px(8).gap(8).items_center().rounded(6)
-          .when(!full, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.go(acct.key, cx)))
-          .child(chip(div, acct))
-          .child(v_flex().flex_1().min_w(0)
-            .child(div().text_size(13).child(this.busy === acct.key ? "Starting…" : acct.label))
-            .child(div().text_size(11).text_color(full ? t.blocked : t.muted).child(this.quotas ? usage(q) : spinner(t.dim, 10))));
-      }));
+      .children(this.rows().map((r) => this.row(t, r)));
   }
 }

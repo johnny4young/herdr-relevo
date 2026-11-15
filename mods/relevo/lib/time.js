@@ -58,6 +58,14 @@ export function runsOut(w, length, now = Date.now() / 1000) {
   return at < w.resets ? at : null;
 }
 
+// Minutes until a window is full at the pace used so far, or null when it resets first.
+// Its length comes from its own pace, so the 5h, weekly and longer windows need no table.
+export function fullIn(w, now = Date.now() / 1000) {
+  if (!w?.resets || w.pace == null || w.pace >= 1 || w.resets <= now) return null;
+  const at = runsOut(w, (w.resets - now) / (1 - w.pace), now);
+  return at == null ? null : Math.max(1, Math.round((at - now) / 60));
+}
+
 export function resetText(w) {
   if (!w?.resets) return w ? "No active window" : "No data yet";
   const d = new Date(w.resets * 1000), now = new Date();

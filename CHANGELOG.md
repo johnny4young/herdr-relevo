@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Accounts say what happens next.** The usage popup shows each account's 5h and weekly window as a bar with its reset time, says when one will be full within the hour ("full in 9 min at this pace"), and offers **Continue with…** in place of **Start here** for an account at 95% with an agent on it. The handoff popup shows how much room each account has and whether it continues the same conversation or starts from a note. In both, the number keys pick a row, and `R` refreshes the usage popup. In the status bar an account over 80% is tinted and shows when it resets, an old reading shows its age, and a narrow bar keeps only chips and rings.
 - **One set of glyphs.** Folds, refresh, more, check boxes and menu arrows are drawn from 28 icons in `mods/relevo/icons/` instead of text characters, so they line up and take the theme colour.
 
 ## 0.7.3 · 2026-11-14
