@@ -3,15 +3,11 @@ import { ACCOUNTS, CODEX, accountOf } from "./accounts.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { CONTEXTS } from "./config.js";
 import { runsOut, clock, FIVE_HOURS, WEEK, windowLabel } from "./lib/time.js";
-<<<<<<< HEAD
 import { newResults } from "./lib/run-alerts.js";
 import { batchScope } from "./lib/workflow-preferences.js";
 import { VERDICT } from "./lib/run-words.js";
 import { lastReview } from "./lib/workflow-navigation.js";
-||||||| 3e0f9e2
-=======
 import { HANDOFF_AT } from "./lib/account-status.js";
->>>>>>> origin/main
 
 const ALERTED = "relevo.alerted";
 const KNOWN = "relevo.reviews.known";
