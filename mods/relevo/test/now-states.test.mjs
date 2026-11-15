@@ -89,6 +89,23 @@ test("the calm block's buttons and keys switch to Maintenance and open a new run
   assert.equal(fake.stored[VIEW], "maintenance");
 });
 
+test("Tab switches between Now and Maintenance, n always starts a run, and opening Reviews lands on Now", async () => {
+  const { key } = await open();
+  key("tab");
+  assert.equal(fake.stored[VIEW], "maintenance");
+  key("n");
+  assert.equal(fake.overlays.at(-1).props.role, "goal-editor");
+  assert.equal(fake.stored[VIEW], "maintenance", "n in Maintenance opens a run too");
+  key("tab");
+  assert.equal(fake.stored[VIEW], "now");
+  fake.stored[VIEW] = "maintenance";
+  fake.stored["relevo.goals.mode"] = true;
+  const { landOnReviews } = await import("../toolbar.js");
+  landOnReviews();
+  assert.equal(fake.stored[VIEW], "now");
+  assert.equal(fake.stored["relevo.goals.mode"], false);
+});
+
 // Holds the PR query until the test answers it.
 function holdPRs() {
   let answer;

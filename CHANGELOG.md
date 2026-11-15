@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Reviews opens on Now.** The Reviews tab, its shortcut and the command always land on Now; Maintenance is one `Tab` away, and `Tab` again comes back. `m` still goes to Maintenance, and `n` starts a new run from either view.
+
 - **The way back stays in a narrow key bar.** When a list's keys do not fit, whole keys from the end hide instead of being cut mid-word, and Esc stays at the right next to `?`. In an open task, Ask for changes reads "r changes" in the bar.
 
 - **Now says when nothing needs you, and what it could not read.** With nothing waiting, Now shows a check, "Nothing needs you", what is still in flight, and **m** Maintenance and **n** New run (in Now, **n** always starts a run). The first read shows what has been read and grey rows where pull requests will be. A source that failed (GitHub, agents, runs) is a row under Could not read that says how old its data is, with **Retry** on **r** or Enter. While you were away is a group of normal rows with Dismiss. At the 280 px minimum the legend reads "Me · Flight · Ready", rows drop the age and a row's action becomes a chevron.

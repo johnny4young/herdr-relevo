@@ -2,6 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { exec, run, shared, setShared, theme } from "herdr";
 import { openReview } from "./review.js";
+import { REVIEW_VIEW } from "./toolbar.js";
 import { openDesktop } from "./desktop.js";
 import { openGoal } from "./goals-editor.js";
 import { recent } from "./lib/github.js";
@@ -9,7 +10,7 @@ import { prTurn } from "./lib/lanes.js";
 import { button, foldRow, icon, joined, keycap, keysOf, LANE, laneGlyph, legend, legHeader, saveFolds, TURN_LABEL } from "./ui.js";
 
 // Reviews has two views: Now, by whose turn it is, and Maintenance, for what can wait.
-export const REVIEW_VIEW = "relevo.inbox.view";
+export { REVIEW_VIEW };
 export const NOW_SECTIONS = ["errors", "away", "me", "flight", "ready", "open"];
 export const MAINTENANCE_SECTIONS = ["safe", "look", "old", "quiet", "done", "today"];
 const GROUPS = ["me", "flight", "ready"];
