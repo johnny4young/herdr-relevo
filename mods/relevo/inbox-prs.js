@@ -301,22 +301,27 @@ export class PrViews {
     if (this.clones[pr.repo] && !(seen && agent) && !busy) {
       pr.skills.forEach((s) => actions.push(this.skillButton(t, pr, s, !seen && !requested && (s === "conflicts" || (pr.hot && s === "fix")))));
     }
+    const keys = new Map([[openPR, "o"]]);
     if (!requested && this.clones[pr.repo]) {
-      actions.push(button(t, `review-pr-${pr.url}`, "Review", () => this.reviewPR(pr), {
+      const review = button(t, `review-pr-${pr.url}`, "Review", () => this.reviewPR(pr), {
         tip: withKey("The whole PR against its base, line by line", "relevo.review"),
-      }));
+      });
+      keys.set(review, "r");
+      actions.push(review);
     }
     const moves = requested ? {} : prMoves(pr), landing = Boolean(this.landing()[pr.url]);
     if ((moves.land || moves.auto) && !landing) {
       const key = `land-${pr.url}`, armed = this.armed(key), how = mergeFlag(pr.repository).slice(2);
       const label = moves.land ? "Land" : "Land when ready";
-      actions.unshift(button(t, `land-btn-${pr.url}`, armed ? `Confirm ${label.toLowerCase()}` : label,
+      const landButton = button(t, `land-btn-${pr.url}`, armed ? `Confirm ${label.toLowerCase()}` : label,
         (cx) => this.arm(key, cx, () => this.land(pr, !moves.land, cx)), {
           kind: armed ? "danger" : "outline",
           tip: moves.land
             ? `Merges (${how}), follows the workflows it starts, then removes its worktree if nothing would be lost`
             : `Turns on auto-merge (${how}) and follows it like Land`,
-        }));
+        });
+      keys.set(landButton, "l");
+      actions.unshift(landButton);
     }
     if (moves.update) {
       actions.push(button(t, `update-${pr.url}`, "Update branch", (cx) => this.prCommand(pr, ["update-branch"], "Branch updated", cx), {
@@ -338,7 +343,7 @@ export class PrViews {
       age: ago(seconds(pr.updatedAt), true),
       lines: this.prLines(t, pr, l && (seen || busy)
         ? div().text_size(11).text_color(working ? t.working : t.dim).child(this.agentLine(pr, agent)) : null),
-      main: actions[0], actions,
+      main: actions[0], actions, keys,
       mark: markButton(t, pr.url, addressed, (on, cx) => this.setAddressed(pr, on, cx), "Addressed: hide until there's new activity"),
     });
   }

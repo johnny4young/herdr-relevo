@@ -11,7 +11,7 @@ import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { openHandoff } from "./handoff.js";
 import { openReplies } from "./replies.js";
-import { button, spinner, withKey, foldRow, FOLDS, shortcutBindings, icon, checkbox, keycap, row, diffRatio, tabButton, markButton } from "./ui.js";
+import { button, spinner, withKey, foldRow, FOLDS, shortcutBindings, icon, checkbox, keycap, row, diffRatio, tabButton, markButton, keyBar } from "./ui.js";
 import { ShortcutHelp } from "./shortcut-help.js";
 import { INBOX_SHORTCUT_ACTIONS } from "./lib/shortcut-help.js";
 import { agentPRs, seconds } from "./lib/github.js";
@@ -102,6 +102,16 @@ export class Inbox {
     this.nextAt = new Map();
     this.reply = InputState.new({ value: "", placeholder: "Reply · Enter sends, Esc cancels" });
     this.reply.on("submit", (_e, cx) => this.sendReply(cx));
+    this.filterField = InputState.new({ value: "", placeholder: "Filter · Esc clears" });
+    this.filterField.on("change", (_e, cx) => {
+      this.filterText = this.filterField.value();
+      cx.notify();
+    });
+    this.filterField.on("submit", (_e, cx) => {
+      this.filtering = false;
+      this.h.focus();
+      cx.notify();
+    });
     this.today = [];
     this.digest = null;
     const panels = (shared("workspace.panels") ?? ["files", "changes"]).filter((p) => p !== "review");
@@ -319,10 +329,11 @@ export class Inbox {
   // other action; in flight rows offer nothing until then.
   // `open` keeps its lines in sight unselected; its other actions still wait for the selection.
   // `done` (marked addressed) waits on nobody, whatever its turn would be.
-  item(t, id, { turn, kind, title, reason = null, age = null, tip = null, lines = [], main = null, actions = [], mark = null, open = false, done = false }) {
+  item(t, id, { turn, kind, title, reason = null, age = null, tip = null, lines = [], main = null, actions = [], mark = null, open = false, done = false, keys = null }) {
     if (this.hiddenIds?.has(id)) return null;
     const sel = this.selected(id);
-    const rest = sel ? [...actions.filter((a) => a && a !== main), mark].filter(Boolean) : [];
+    const capped = (b) => (keys?.get(b) || (b === mark && !done) ? h_flex().gap(4).items_center().flex_none().child(keycap(t, keys?.get(b) ?? "a")).child(b) : b);
+    const rest = sel ? [...actions.filter((a) => a && a !== main), mark].filter(Boolean).map(capped) : [];
     const below = sel || open ? [...lines.filter(Boolean), ...(rest.length ? [h_flex().flex_wrap().gap(5).pt(2).children(rest)] : [])] : [];
     return row(t, id, {
       turn: done ? "open" : turn, kind, title, reason, age, tip, selected: sel,
@@ -697,6 +708,9 @@ export class Inbox {
         .child(button(t, "inbox-refresh", !this.prsAt && this.scanningPRs ? [spinner(t.dim, 10)] : [icon("refresh")], (cx) => {
           this.scanLocal(cx); this.scanPRs(cx); this.scanTrees(cx, true); this.loadGoals(cx);
         }, { size: "sm", accessibleLabel: "Refresh work", tip: `Refresh · ${this.prsAt ? `PRs ${ago(this.prsAt)}` : this.scanningPRs ? "PRs loading" : "PRs unavailable"}${this.error ? ` · ${this.error}` : ""}` })))
+      .when(reviewView === "now" && (this.filtering || Boolean(this.filterText)), (el) => el.child(h_flex().id("inbox-filter").h(30).flex_none().mx(8).mt(4).px(8).gap(6)
+        .items_center().rounded(6).border_1().border_color(this.filtering ? t.accent : t.border).bg(t.background)
+        .child(icon("search", t.dim)).child(div().flex_1().min_w(0).child(Input.new(this.filterField).h_full()))))
       .when(this.goalHelp, (el) => {
         this.shortcutHelp.setData(INBOX_SHORTCUT_ACTIONS, shortcutBindings());
         return el.child(this.shortcutHelp.render(t, cx));
@@ -712,7 +726,16 @@ export class Inbox {
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
         .children(goalMode ? this.goalsGroup(t) : [])
         .children(reviewView === "now" ? [...part("away", this.awayGroup(t)), ...this.nowGroups(t, entries, part)] : [])
-        .children(reviewView === "maintenance" ? this.maintenanceGroups(t, v, part) : []));
+        .children(reviewView === "maintenance" ? this.maintenanceGroups(t, v, part) : []))
+      .child(this.listKeys(t, reviewView));
+  }
+
+  // The keys that work in the list on screen, at its foot.
+  listKeys(t, view) {
+    const keys = view === "now" ? [[["j", "k"], "move"], [["enter"], "do the action"], [["m"], "maintenance"]]
+      : view === "maintenance" ? [[["j", "k"], "move"], [["enter"], "open"], [["n"], "now"]]
+        : [[["j", "k"], "move"], [["enter"], "open the run"], [["n"], "new run"]];
+    return keyBar(t, "list-keys", keys, [["?"], "all keys"]);
   }
 
   // A view of Reviews as an underlined tab with its count.

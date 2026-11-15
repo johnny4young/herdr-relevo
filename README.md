@@ -30,7 +30,7 @@ The panel has two views. **Reviews** is the Inbox described below. **Runs** is f
 
 **More than one result.** **Review a batch** previews and accepts several results of one repository at once. **History** keeps finished tasks; **Archive older than 7 days** moves the ones the run no longer needs to `relevo-workflow/archive/`.
 
-**Keys.** Click the panel heading to focus the queue: **↑/↓** selects, **G** goes to the next run, **F** shows one run or all, **W** opens the run, **E** opens its details, **R** opens review where there is one, **?** lists every shortcut. In the run: **1–5** switch views, **N** starts a task, **P** opens the plan, and Command-Enter submits the prompt or a change request.
+**Keys.** Click the panel heading to focus the queue: **↑/↓** or **j/k** select, **Enter** runs the row's action, **n** starts a new run, **G** goes to the next run, **F** shows one run or all, **W** opens the run, **E** opens its details, **R** opens review where there is one, **?** lists every shortcut. In the run: **1–5** switch views, **N** starts a task, **P** opens the plan, and Command-Enter submits the prompt or a change request.
 
 A run can also carry a plan of steps, an owner and a priority, and group the PRs and local changes that belong to it. See [how the coordinator works and its limits](docs/proposals/workflow-runtime.md), the [keyboard guide](docs/proposals/goal-ux.md) and [installation and rollback](docs/proposals/decision-inbox.md).
 

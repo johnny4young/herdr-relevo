@@ -425,9 +425,23 @@ export class ReviewDiff {
 
   // ⌘↵ is the Send button and waits for the same things; a held key repeats, and one press sends once.
   handleKey(e, cx) {
-    if (this.escapeKey(e, cx) || !sendChord(e) || e.is_held || !this.ready()) return;
+    if (this.escapeKey(e, cx) || this.paneKey(e, cx)) return;
+    if (!sendChord(e) || e.is_held || !this.ready()) return;
     cx.stop_propagation();
     this.send(cx);
+  }
+
+  // While no comment is open: c comments on the file, v marks it viewed, [ and ] go to the previous or next file.
+  paneKey(e, cx) {
+    const m = e.modifiers ?? {};
+    if (this.editing !== null || m.platform || m.control || m.alt || !this.open) return false;
+    const at = (this.files ?? []).indexOf(this.open), step = e.key === "[" ? -1 : e.key === "]" ? 1 : 0;
+    if (e.key === "c") this.edit("file", cx);
+    else if (e.key === "v" && this.hashes?.get(this.open.path)) this.toggleViewed(this.open.path, cx);
+    else if (step && this.files[at + step]) cx.spawn(async (cx) => { await this.pick(this.files[at + step], cx); });
+    else return false;
+    cx.stop_propagation();
+    return true;
   }
 
   // Runs inside the virtual list: no handlers here, clicks go through on_item_click.

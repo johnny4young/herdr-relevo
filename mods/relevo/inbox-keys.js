@@ -1,6 +1,7 @@
 import { run, exec, focused, shared, setShared, theme } from "herdr";
 import { NOW_SECTIONS } from "./inbox-now.js";
 import { GOAL_MODE } from "./inbox-goals.js";
+import { openGoal } from "./goals-editor.js";
 import { pickAccount } from "./accounts.js";
 import { launchSkill } from "./skills.js";
 import { showPanel } from "./toolbar.js";
@@ -67,12 +68,33 @@ export class KeyNav {
     });
   }
 
+  // The filter field opens under the header; what it holds narrows Now to the rows whose words contain it.
+  openFilter(cx) {
+    this.filtering = true;
+    this.filterField.focus();
+    cx.notify();
+  }
+
+  closeFilter() {
+    this.filtering = false;
+    this.filterText = "";
+    this.filterField.set_value("");
+    this.h.focus();
+  }
+
   navKey(e, cx) {
     // Help search owns keyboard input while open, including Escape when focus
     // has moved to another Inbox control.
     if (this.goalHelp) {
       if (e.key === "escape") this.shortcutHelp?.key(e, cx);
       return;
+    }
+    // While the filter is typed, the field owns the keys; Esc clears and closes it.
+    if (this.filtering) {
+      if (e.key !== "escape") return;
+      this.closeFilter();
+      cx.stop_propagation();
+      return cx.notify();
     }
     // While a reply is typed, the field owns the keys; Esc drops the reply.
     if (this.replying) {
@@ -89,20 +111,38 @@ export class KeyNav {
     const held = e.modifiers?.platform || e.modifiers?.control || e.modifiers?.alt;
     if (held) return;
     this.clicked = false;
-    if (this.goalAction?.(e.key, cx)) {
+    const reviews = shared(GOAL_MODE) !== true, key = e.key === "j" ? "down" : e.key === "k" ? "up" : e.key;
+    // g then g goes to the top, as in vim; G to the bottom.
+    const gg = key === "g" && reviews && Date.now() - (this.lastG ?? 0) < 600;
+    this.lastG = key === "g" && reviews && !gg ? Date.now() : 0;
+    const rowKey = reviews && at >= 0 ? items[at].keys?.[key] : null;
+    if (rowKey) {
+      rowKey(cx);
+    } else if (gg || (key === "G" && reviews)) {
+      this.sel = items[gg ? 0 : items.length - 1]?.id ?? null;
+    } else if (key === "g" && reviews) {
+      // The first g waits for the second.
+    } else if (key === "u" && reviews && this.lastMark) {
+      this.lastMark(cx);
+      this.lastMark = null;
+    } else if (key === "/" && reviews) {
+      this.openFilter(cx);
+    } else if (key === "n" && !reviews) {
+      openGoal();
+    } else if (this.goalAction?.(key, cx)) {
       // These commands only apply while the queue itself has keyboard focus.
-    } else if (e.key === "home" || e.key === "end") {
-      this.sel = items[e.key === "home" ? 0 : items.length - 1]?.id ?? null;
-    } else if ((e.key === "m" || e.key === "n") && shared(GOAL_MODE) !== true) {
-      this.setReviewView(e.key === "m" ? "maintenance" : "now", cx);
-    } else if (/^[1-9]$/.test(e.key) && items[at]?.choose) {
-      items[at].choose(Number(e.key), cx);
-    } else if (e.key === "down" || e.key === "up") {
-      const next = at < 0 ? 0 : Math.min(items.length - 1, Math.max(0, at + (e.key === "down" ? 1 : -1)));
+    } else if (key === "home" || key === "end") {
+      this.sel = items[key === "home" ? 0 : items.length - 1]?.id ?? null;
+    } else if ((key === "m" || key === "n") && reviews) {
+      this.setReviewView(key === "m" ? "maintenance" : "now", cx);
+    } else if (/^[1-9]$/.test(key) && items[at]?.choose) {
+      items[at].choose(Number(key), cx);
+    } else if (key === "down" || key === "up") {
+      const next = at < 0 ? 0 : Math.min(items.length - 1, Math.max(0, at + (key === "down" ? 1 : -1)));
       this.sel = items[next]?.id ?? null;
-    } else if (e.key === "enter" && at >= 0) {
+    } else if (key === "enter" && at >= 0) {
       items[at].go();
-    } else if (e.key === "escape") {
+    } else if (key === "escape") {
       this.sel = null;
       if (this.returnPane) run("pane.focus", { pane: this.returnPane });
     } else {

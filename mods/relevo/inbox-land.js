@@ -153,7 +153,7 @@ export class LandViews {
       turn: failed ? "me" : landed ? "ready" : "flight", kind: "land", title: `${e.repo.split("/")[1]} #${e.number}`, reason: landLine(e),
       tip: e.title, age: ago(e.done ?? e.at, true),
       lines: [div().min_w(0).truncate().text_size(13).text_color(t.foreground).child(e.title)],
-      main: run ?? pr,
+      main: run ?? pr, keys: new Map([[pr, "o"]]),
       actions: [
         pr,
         ...(e.phase === "queued"
