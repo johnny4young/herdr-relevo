@@ -772,7 +772,7 @@ export class Inbox {
 
   // The keys that work in the list on screen, at its foot, as the ? sheet tags them; a bulk bar takes its place while rows are marked.
   listKeys(t, view) {
-    return keyBar(t, "list-keys", barKeys(INBOX_SHORTCUT_ACTIONS, view), [["?"], "all keys"]);
+    return keyBar(t, "list-keys", barKeys(INBOX_SHORTCUT_ACTIONS, view), [["?"], "keys"]);
   }
 
   // A view of Reviews as an underlined tab with its count.
