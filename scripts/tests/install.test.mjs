@@ -138,7 +138,20 @@ test("doctor passes a whole install and names what is missing, changed or waitin
   assert.equal(doctor({ source, root, filesOnly: true, log }).failed, 1);
   assert.deepEqual(lines, ["FAIL  missing: mods/relevo/lib/a.js. Run install.", "warn  changed since install (kept as yours): mods/relevo/main.js",
     "warn  mods/relevo/main.js.new waits: merge it into your file, then delete it", "ok    config.js is there", `ok    Runs use ${process.execPath}`,
-    "warn  installed 1.2.3, this checkout is 1.3.0: run install to update"]);
+    "warn  installed 1.2.3, this checkout is 1.3.0: run install to update", "warn  the install is behind this checkout: 1 file differs. Run install to update"]);
+});
+
+test("doctor says when the install lags this checkout at the same version", () => {
+  install({ source, root });
+  put(source, "mods/relevo/main.js", "// merged after the install\n");
+  put(source, "mods/relevo/lib/b.js", "// new\n");
+  lines = [];
+  doctor({ source, root, filesOnly: true, log });
+  assert.ok(lines.includes("warn  the install is behind this checkout: 2 files differ. Run install to update"), lines.join("\n"));
+  install({ source, root });
+  lines = [];
+  doctor({ source, root, filesOnly: true, log });
+  assert.ok(!lines.some((l) => l.includes("behind")));
 });
 
 test("doctor checks the programs, the two community mods and the keys", () => {
