@@ -5,7 +5,7 @@
 #
 # As a hook (SessionStart, Stop, SessionEnd) it reads Claude's JSON on stdin and sets agent.account, agent.jira,
 # agent.transcript, agent.wait and agent.bg. On PermissionRequest it only notes what is asked, for the Inbox card.
-# Outside a Herdr terminal it does nothing.
+# Outside Herdr it only notes the session in a terminal for Relevo's Elsewhere list (see note_elsewhere).
 # --check, --install and --uninstall manage it in the settings of each account in config.js. Needs jq.
 
 jq=jq
@@ -44,8 +44,37 @@ note_ask() {
   mv "$tmp" "$dir/ask-${tmp##*-}.json"
 }
 
+# A Claude Code session in a terminal outside Herdr: one small file per session, gone at its end, so Relevo can
+# list it. Claude Desktop and scripts set another entrypoint and are left out.
+note_elsewhere() {
+  [ "${CLAUDE_CODE_ENTRYPOINT:-cli}" = cli ] || return 0
+  local input=$1 dir=$HOME/.local/state/relevo/elsewhere id cfg tmp
+  id=$("$jq" -r '.session_id // ""' <<<"$input" 2>/dev/null)
+  [[ $id =~ ^[A-Za-z0-9-]+$ ]] || return 0
+  if [[ $input =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"SessionEnd\" ]]; then
+    rm -f "$dir/$id.json"
+    return 0
+  fi
+  cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+  cfg=${cfg%/}
+  mkdir -p "$dir" && tmp=$(mktemp "$dir/.note-XXXXXX") || return 0
+  if "$jq" -c --arg app "${TERM_PROGRAM:-}" --arg bundle "${__CFBundleIdentifier:-}" --arg rel "${cfg#"$HOME"/}" \
+    --argjson at "$(date +%s)" '{session: .session_id, event: .hook_event_name, cwd: (.cwd // ""),
+      transcript: (.transcript_path // ""), app: $app, bundle: $bundle, dir: $rel, at: $at,
+      tool: (if .hook_event_name == "PermissionRequest" then .tool_name // "" else "" end)}' <<<"$input" >"$tmp" 2>/dev/null; then
+    mv "$tmp" "$dir/$id.json"
+  else
+    rm -f "$tmp"
+  fi
+}
+
 on_hook() {
-  [ -n "${HC_TERMINAL_ID:-}" ] || return 0
+  if [ -z "${HC_TERMINAL_ID:-}" ]; then
+    local outside
+    IFS= read -r -d "" outside
+    note_elsewhere "$outside"
+    return 0
+  fi
   case $HC_TERMINAL_ID in */* | *..*) return 0 ;; esac
   local input hc end ask
   IFS= read -r -d "" input

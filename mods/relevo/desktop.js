@@ -10,6 +10,17 @@ const TAIL_BYTES = 131072;
 
 export const openDesktop = (id) => exec("open", [desktopLink(id)]);
 
+// Reads the tail of each listed transcript whose time changed; `cache` keeps path -> { mtime, activity }. Read only.
+export async function readTails(cache, listed) {
+  for (const path of cache.keys()) if (!listed.has(path)) cache.delete(path);
+  for (const [path, mtime] of listed) {
+    if (cache.get(path)?.mtime === mtime) continue;
+    const tail = await exec("tail", ["-c", String(TAIL_BYTES), path]).catch(() => null);
+    cache.set(path, { mtime, activity: desktopActivity(tail?.stdout) });
+  }
+  return cache;
+}
+
 // Keeps what's worth showing in shared state and tells of what changed. A toast only: Desktop has its own
 // notifications, and someone outside Herdr is probably in Desktop already.
 export class DesktopWatch {
@@ -45,20 +56,13 @@ export class DesktopWatch {
     return shown.map((s) => ({ ...s, ...(said.get(s.cli) ?? { doing: null, said: null }) }));
   }
 
-  // What each session is doing and last said, from the tail of its transcript; read only, and only when it changed.
+  // What each session is doing and last said, from the tail of its transcript.
   async activity(ids) {
     const out = new Map();
     if (!ids.length) return out;
     const r = await exec("sh", ["-c", TRANSCRIPTS, "sh", home(), ...ids]).catch(() => null);
-    const listed = parseStat(r?.stdout ?? "");
-    for (const path of this.tails.keys()) if (!listed.has(path)) this.tails.delete(path);
-    for (const [path, mtime] of listed) {
-      if (this.tails.get(path)?.mtime !== mtime) {
-        const tail = await exec("tail", ["-c", String(TAIL_BYTES), path]).catch(() => null);
-        this.tails.set(path, { mtime, activity: desktopActivity(tail?.stdout) });
-      }
-      out.set(path.split("/").pop().replace(/\.jsonl$/, ""), this.tails.get(path).activity);
-    }
+    await readTails(this.tails, parseStat(r?.stdout ?? ""));
+    for (const [path, x] of this.tails) out.set(path.split("/").pop().replace(/\.jsonl$/, ""), x.activity);
     return out;
   }
 
