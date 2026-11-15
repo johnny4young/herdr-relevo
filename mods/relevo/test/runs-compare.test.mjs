@@ -149,7 +149,7 @@ test('a selected task lists its attempts; the task shows them above the decision
   v.navKey({ key: 'enter' }, cx); tree = v.render(cx);
   assert.equal(text(find(tree, 'task-attempts')), 'attempt 1: Codex Luna → Team Haiku · 18 min · asked for changes attempt 2: Codex Luna → Team Haiku · 9 min · approved');
   assert.equal(text(find(tree, 'task-compare')), 'c Compare attempts');
-  assert.equal(text(find(tree, 'list-keys')), 'a accept r changes d diff c compare esc tasks ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'a accept r changes d diff c compare esc tasks ? keys');
   v.navKey({ key: 'escape' }, cx); v.render(cx); v.navKey({ key: 'j' }, cx); v.navKey({ key: 'enter' }, cx); tree = v.render(cx);
   assert.equal(v.runTask, 'a');
   assert.equal(find(tree, 'task-attempts'), null); assert.equal(find(tree, 'task-compare'), null);
@@ -179,7 +179,7 @@ test('the compare table: what the reviewer said, tests, change, time, cost and y
 test('c opens the comparison of a task written more than once; See what changed asks for the diff of its last two attempts', async () => {
   fake.files[REPORT] = JSON.stringify({ updated: 1, rows: [], sessions: [], runs: sessions });
   const { v, cx } = await opened([twice(), ready('a')]);
-  assert.equal(text(find(v.render(cx), 'list-keys')), 'j k move open the task c compare esc runs ? all keys');
+  assert.equal(text(find(v.render(cx), 'list-keys')), 'j k move open the task c compare esc runs ? keys');
   v.navKey({ key: 'c' }, cx);
   let tree = v.render(cx);
   assert.equal(text(find(tree, 'compare-back')), '‹ Tasks'); assert.equal(text(find(tree, 'compare-title')), 'Task t'); assert.equal(text(find(tree, 'compare-attempts')), 'took 2 attempts');
@@ -189,7 +189,7 @@ test('c opens the comparison of a task written more than once; See what changed 
     'Took 18 min 9 min', 'Cost 6.2M tokens 2.9M tokens', 'Your note Keep it on one line none']);
   assert.equal(find(tree, 'compare-said-1').items[1].ink, t.blocked); assert.equal(find(tree, 'compare-said-2').items[1].ink, t.done);
   assert.deepEqual(v.nav, [], 'the list keys rest while it is open');
-  assert.equal(text(find(tree, 'list-keys')), 'esc back ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'esc back ? keys');
   assert.equal(calls(/cli\.mjs/).length, 0, 'opening it sends nothing');
 
   const list = Array.from({ length: 55 }, (_, i) => ({ path: `src/file-${i}.js`, added: i, removed: 1 }));
@@ -212,7 +212,7 @@ test('c opens the comparison of a task written more than once; See what changed 
   assert.equal(v.runCompare, null); assert.equal(v.sel, 'task-t'); assert.ok(find(tree, 'task-t'), 'Esc goes back to the tasks');
   v.navKey({ key: 'j' }, cx); v.navKey({ key: 'c' }, cx);
   assert.equal(v.runCompare, null, 'a task written once has nothing to compare');
-  assert.equal(text(find(v.render(cx), 'list-keys')), 'j k move open the task esc runs ? all keys');
+  assert.equal(text(find(v.render(cx), 'list-keys')), 'j k move open the task esc runs ? keys');
 
   v.navKey({ key: 'k' }, cx); v.navKey({ key: 'enter' }, cx); v.render(cx);
   v.navKey({ key: 'a' }, cx); v.navKey({ key: 'c' }, cx); tree = v.render(cx);
@@ -278,7 +278,7 @@ test('x selects results, X every one of the same repository; Enter previews, the
   assert.equal(text(find(tree, 'run-notice')), '2 results accepted: Task a, Task b.');
   assert.deepEqual(v.runPicked, []); assert.equal(v.sel, 'task-c'); assert.equal(v.runTask, null);
   assert.equal(text(find(tree, 'run-summary')), '4 tasks: 1 needs you · 1 in flight · 2 done');
-  assert.equal(text(find(tree, 'list-keys')), 'j k move open the task esc runs ? all keys');
+  assert.equal(text(find(tree, 'list-keys')), 'j k move open the task esc runs ? keys');
 });
 
 test('Esc cancels a selection without leaving the run, and a refused preview accepts nothing', async () => {

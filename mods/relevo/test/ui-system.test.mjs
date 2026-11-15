@@ -44,7 +44,8 @@ test("a row reads lane, kind, what, why, age and its one action", () => {
   const el = ui.row(t, "row-142", { turn: "me", kind: "pr", title: "billing #142", reason: "CI failing: unit", age: "1h", action, onSelect: () => { picked += 1; } });
   assert.equal(text(el), "billing #142 CI failing: unit 1h Fix CI");
   assert.deepEqual(svgs(el), ["mods/relevo/icons/pr.svg"]);
-  assert.equal(el.fill, ui.meTint(t), "a row waiting on you is tinted");
+  assert.equal(el.fill, null, "a row waiting on you says so with its glyph and words; only the open row is shaded");
+  assert.equal(ui.row(t, "row-143", { turn: "me", title: "x", selected: true }).fill, t.selected);
   click(el, fakeCx());
   assert.equal(picked, 1);
   assert.ok(find(el, "fix"));
@@ -67,14 +68,14 @@ test("the counters are the legend, and a section header carries its count", () =
 });
 
 test("a key bar lists its keys and keeps help at the far edge", () => {
-  const bar = ui.keyBar(t, "keys", [[["j", "k"], "move"], [["enter"], "do the action"]], [["?"], "all keys"]);
-  assert.equal(text(bar), "j k move do the action ? all keys");
+  const bar = ui.keyBar(t, "keys", [[["j", "k"], "move"], [["enter"], "do the action"]], [["?"], "keys"]);
+  assert.equal(text(bar), "j k move do the action ? keys");
   assert.deepEqual(svgs(bar), ["mods/relevo/icons/enter.svg"]);
 });
 
-test("a narrow key bar hides actions before the way back", () => {
-  const bar = ui.keyBar(t, "keys", [[["a"], "accept"], [["esc"], "tasks"], [["c"], "compare"]], [["?"], "all keys"]);
-  assert.deepEqual(bar.items.map(text), ["a accept c compare", "esc tasks", "? all keys"]);
+test("a narrow key bar hides actions before the ways out", () => {
+  const bar = ui.keyBar(t, "keys", [[["a"], "accept"], [["tab"], "now"], [["esc"], "tasks"], [["c"], "compare"]], [["?"], "keys"]);
+  assert.deepEqual(bar.items.map(text), ["a accept c compare", "tab now", "esc tasks", "? keys"]);
 });
 
 test("micro charts: check boxes, diff squares, age ticks, relay legs and a usage band", () => {

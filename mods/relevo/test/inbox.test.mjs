@@ -880,10 +880,9 @@ test("a PR with failing CI is a needs-me row tinted like a waiting agent; a draf
   const t = theme(), view = inbox.render(fakeCx());
   assert.ok(find(find(view, "inbox-list"), "leg-me"));
   const failing = find(view, "pr-https://github.com/me/app/pull/1"), draft = find(view, "pr-https://github.com/me/app/pull/2");
-  assert.equal(failing.fill, meTint(t));
+  assert.equal(failing.fill, null, "its disc and red words say it; only the open row is shaded");
   assert.ok(draft);
-  assert.notEqual(draft.fill, meTint(t));
-  assert.notEqual(failing.stroke, t.blocked, "a tint, not a red border");
+  assert.notEqual(failing.stroke, t.blocked, "no red border either");
   inbox.sel = "pr-https://github.com/me/app/pull/1";
   assert.equal(find(inbox.render(fakeCx()), inbox.sel).fill, t.selected);
 });
