@@ -4,7 +4,7 @@ import { shared, setShared } from "herdr";
 import { button, foldRow, legHeader, legend, joined, keyBar, keycap, row, LANE, chevron, onSubmitChord } from "./ui.js";
 import { GOAL_MODE, GOAL_SCOPE, workflowCommand } from "./inbox-goals.js";
 import { openGoal } from "./goals-editor.js";
-import { openWorkflow } from "./workflow-window.js";
+import { openWorkflow, RUN_FOLLOW_UP } from "./workflow-window.js";
 import { savedSetups } from "./workflow-setups.js";
 import { goalState } from "./lib/goals.js";
 import { ago } from "./lib/time.js";
@@ -48,7 +48,7 @@ export class RunViews {
 
   // A run's tasks by turn, grouped once per task list; an unreadable state shows none.
   runBucket(goal, stale = false) {
-    if (this.bucketsOf !== this.workflowTasks) {
+    if (!this.buckets || this.bucketsOf !== this.workflowTasks) {
       this.bucketsOf = this.workflowTasks;
       this.buckets = bucketTasks(this.workflowTasks ?? []);
     }
@@ -81,12 +81,26 @@ export class RunViews {
     if (!task) this.runTask = null;
     if (this.runChangeFor && this.runChangeFor !== this.runTask) this.runChangeFor = null;
     if (this.acceptIntent && (task?.state !== "needs_you" || !acceptArmed(this.acceptIntent, task))) this.acceptIntent = null;
+    // A notice or an error belongs to the run and task it was said on, however the view moved on.
+    if (this.runPlace() !== this.runAt) { this.runNotice = null; this.runError = null; this.runAt = this.runPlace(); }
     return this.runEntries();
   }
 
+  runPlace() { return `${shared(GOAL_SCOPE) ?? ""}\0${this.runTask ?? ""}`; }
+
   // What every level change clears; `task` is the one to show, if any.
   resetRun(task = null) {
-    this.runTask = task; this.runChangeFor = null; this.acceptIntent = null; this.runNotice = null; this.runError = null;
+    this.runTask = task; this.runChangeFor = null; this.acceptIntent = null;
+  }
+
+  // The words sent as a follow-up stay typed until the run window has taken them.
+  followUpTaken(cx) {
+    if (!this.runFollowUp || shared(RUN_FOLLOW_UP) === this.runFollowUp) return;
+    this.runFollowUp = null;
+    cx.spawn(async (cx) => {
+      this.runChange.set_value(""); this.runChangeFor = null; this.runNotice = "The follow-up is ready in the run window.";
+      cx.notify();
+    });
   }
 
   runNav(runs) {
@@ -148,7 +162,7 @@ export class RunViews {
         this.runNotice = outcome !== "accept" ? "Feedback saved. The next result will return for your review."
           : kept ? "Accepted and committed to its run branch. More offers the draft pull request." : "Acceptance saved.";
         if (!kept && this.runTask === task.id) {
-          this.runTask = null;
+          this.runTask = null; this.runAt = this.runPlace();
           const next = this.orderedTasks({ id: task.goalId }, false).find((item) => item.id !== task.id);
           this.sel = next ? `task-${next.id}` : null;
         }
@@ -183,8 +197,9 @@ export class RunViews {
     const task = this.shownTask(), text = this.runChange.value().trim();
     if (!task || task.id !== this.runChangeFor || task.state !== "needs_you" || this.runBusy || !text) return;
     if (changesPlan(task).spent) {
-      openWorkflow(task.goalId, task.id, { followUp: "changes", text });
-      this.runChange.set_value(""); this.runChangeFor = null;
+      this.runFollowUp = openWorkflow(task.goalId, task.id, { followUp: "changes", text });
+      setShared(RUN_FOLLOW_UP, this.runFollowUp);
+      this.runNotice = "Sent to the run window."; this.runError = null;
       cx.notify();
     } else this.decideRun(task, "changes", cx, text);
   }
@@ -203,9 +218,15 @@ export class RunViews {
       } else if (waiting && e.key === "a") this.acceptStep(task, cx, false);
       else if (waiting && e.key === "enter" && this.acceptIntent) this.acceptStep(task, cx);
       else {
+        const armed = this.acceptIntent;
         this.acceptIntent = null;
         if (waiting && e.key === "r") this.askRunChanges(task, cx);
         else if (e.key === "d") this.seeDiff(task);
+        else {
+          // Other keys, Tab among them, keep their default once Accept is disarmed.
+          if (armed) cx.notify();
+          return false;
+        }
       }
       return true;
     }

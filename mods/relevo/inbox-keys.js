@@ -82,7 +82,7 @@ export class KeyNav {
       return cx.notify();
     }
     // The change request owns the keys while it is typed; Esc drops it.
-    if (this.runChangeFor) {
+    if (this.runChangeFor && shared(GOAL_MODE) === true) {
       if (e.key !== "escape") return;
       this.cancelRunChanges();
       cx.stop_propagation();

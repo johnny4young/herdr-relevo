@@ -10,7 +10,7 @@ import { readGoals } from "./goals-store.js";
 import { batchScope } from "./lib/workflow-preferences.js";
 import { batchAlert } from "./alerts.js";
 import { ShortcutHelp } from "./shortcut-help.js";
-import { RUN_PANES, RUN_REQUEST, liveRunPanes } from "./workflow-window.js";
+import { RUN_PANES, RUN_REQUEST, RUN_FOLLOW_UP, liveRunPanes, takeAsk } from "./workflow-window.js";
 import { accountOf } from "./accounts.js";
 import { WorkflowDetail } from "./workflow-detail.js";
 import { row, taskState, caption, agentLabel, role, count } from "./workflow-labels.js";
@@ -109,12 +109,16 @@ export class Workflow extends WorkflowDetail {
   }
 
   // What the panel asked for: a task on one of its tabs, a follow-up form, or the saved setups.
-  applyRequest({ taskId, tab, followUp, text, setups }, cx = null) {
+  // The tab, the follow-up and the setups are one-time asks: a pane that reloads with the same stamp only selects the task.
+  applyRequest({ taskId, tab, followUp, text, setups, at }, cx = null) {
     const task = this.tasks?.find((item) => item.id === taskId);
-    if (task) { this.selected = task.id; this.filter = workflowBucket(task); this.explicitNew = false; this.tab = TABS.includes(tab) ? tab : "Overview"; }
+    const once = Boolean(tab || followUp || setups) && takeAsk(at);
+    if (task) { this.selected = task.id; this.filter = workflowBucket(task); this.explicitNew = false; this.tab = once && TABS.includes(tab) ? tab : "Overview"; }
+    if (!once) return;
     if (task && followUp === "blocked" && followUpAvailable(task)) this.prepareBlockedFollowUp(task, cx);
     else if (task && followUp === "changes" && task.state === "needs_you" && changesPlan(task).spent && text?.trim()) {
       this.form.decision.set_value(text); this.prepareFollowUp(task, cx);
+      if (shared(RUN_FOLLOW_UP) === at) setShared(RUN_FOLLOW_UP, null);
     }
     if (setups) { this.selected = null; this.explicitNew = true; this.tab = "Overview"; this.taskSetupOpen = true; this.setupsOpen = true; }
   }

@@ -45,11 +45,12 @@ export class GoalViews {
         this.goalPolls = (this.goalPolls ?? 0) + 1;
         const key = `${rev}\0${goals.raw}`;
         const quiet = key === this.goalsKey && !this.goalsError && !this.workflowError && this.goalChange === shared(GOALS_CHANGED);
-        if (quiet && rev != null && this.goalPolls % 10 !== 0) { this.goalsLoading = false; return; }
+        // A merge can land while nothing else moves, so it is remembered on quiet polls too.
+        if (quiet && rev != null && this.goalPolls % 10 !== 0) { this.rememberMerged(); this.goalsLoading = false; return; }
         this.goalDoc = goals.doc;
         try {
           const raw = await readTextFile(`${appHome()}/relevo-workflow/state.json`);
-          if (quiet && raw === this.workflowRaw) { this.goalsLoading = false; return; }
+          if (quiet && raw === this.workflowRaw) { this.rememberMerged(); this.goalsLoading = false; return; }
           this.workflowRaw = raw;
           const workflow = raw ? JSON.parse(raw) : { tasks: [], engine: { enabled: false } };
           if (!Array.isArray(workflow.tasks)) throw Error('Invalid task state');
@@ -119,7 +120,7 @@ export class GoalViews {
     if (runMode && this.goalProjection?.scope) return false;
     if (key === "g" && runMode) { this.nextGoal(cx); return true; }
     const group = runMode && this.goalProjection?.groups.find((g) => `goal-${g.goal.id}` === this.sel);
-    if (key === "f" && group) { this.focusGoal(group.goal.id, cx); return true; }
+    if (key === "f" && group) { this.openRun(group.goal, cx); return true; }
     if (key === "r" && group) { this.showRunReviews(group.goal); return true; }
     if (key === "w" && group) { openWorkflow(group.goal.id); return true; }
     const source = this.goalProjection?.sources.find((s) => (s.kind === "pr" ? `pr-${s.pr.url}` : `in-${s.item.agent.address}`) === this.sel);
@@ -134,14 +135,6 @@ export class GoalViews {
       return true;
     }
     return false;
-  }
-
-  // F opens the selected run in the panel, or goes back to the list.
-  focusGoal(id, cx) {
-    const goal = id && this.goalDoc.goals.find((item) => item.id === id);
-    if (goal) this.enterRun(goal);
-    else this.leaveRun();
-    this.h.focus(); cx.notify();
   }
 
   reviewGoal(items) {

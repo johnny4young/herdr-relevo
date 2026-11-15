@@ -669,6 +669,7 @@ export class Inbox {
     const goalMode = shared(GOAL_MODE) === true;
     this.goalProjection = this.projectGoals(v);
     const runs = goalMode ? this.syncRun() : [];
+    if (goalMode) this.followUpTaken(cx);
     const reviewView = goalMode ? null : this.reviewView(), runOpen = goalMode && Boolean(this.goalProjection.scope);
     const [runLeft, runRight] = goalMode ? this.runsHeader(t) : [[], []];
     const counts = this.nowCounts(entries), upkeep = goalMode ? null : this.maintenanceModel(v);

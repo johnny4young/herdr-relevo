@@ -81,7 +81,7 @@ export function taskReason(task) {
 
 // When a task last moved, in seconds, or null.
 export function taskAt(task) {
-  const at = Date.parse(lastReview(task)?.at ?? task.attempts?.at(-1)?.at ?? "");
+  const at = Date.parse(task.attempts?.at(-1)?.at ?? lastReview(task)?.at ?? "");
   return Number.isFinite(at) ? at / 1000 : null;
 }
 
