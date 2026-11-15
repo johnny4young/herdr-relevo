@@ -5,7 +5,8 @@ import { CONTEXTS } from "./config.js";
 import { runsOut, clock, FIVE_HOURS, WEEK, windowLabel } from "./lib/time.js";
 import { newResults } from "./lib/run-alerts.js";
 import { batchScope } from "./lib/workflow-preferences.js";
-import { verdictLine } from "./lib/run-words.js";
+import { VERDICT } from "./lib/run-words.js";
+import { lastReview } from "./lib/workflow-navigation.js";
 
 const ALERTED = "relevo.alerted";
 const KNOWN = "relevo.reviews.known";
@@ -171,11 +172,10 @@ export function runResultAlerts(tasks, select) {
   const stored = shared(NOTIFIED), { fresh, marks } = newResults(stored ?? null, tasks);
   for (const task of fresh.filter((t) => inFocus(contextOfPath(batchScope(t))))) {
     select(`result-${task.id}`);
-    const review = [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === "reviewer" && attempt.report);
-    const who = task.reviewer?.label ?? task.reviewer?.address;
+    const review = lastReview(task), who = task.reviewer?.label ?? task.reviewer?.address, verdict = VERDICT[review?.report.status];
     notify({
       title: `Result ready · ${task.title}`,
-      body: [who && review ? `${who} ${verdictLine(review.report.status).replace(/^Reviewer /, "")}` : null, "click to review"].filter(Boolean).join(" · "),
+      body: [who && verdict ? `${who} ${verdict.toLowerCase()}` : null, "click to review"].filter(Boolean).join(" · "),
       level: "success", action: { name: "relevo.panel-reviews" },
     });
   }
