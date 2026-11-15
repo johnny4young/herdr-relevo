@@ -22,7 +22,7 @@ test('only explicit acceptance of the current revision resolves a linked questio
 
 test('run progress distinguishes active reviewer, paused scheduling and blocked prerequisites', () => {
   const reviewing = { ...task, state: 'needs_review', reviewer: { label: 'Reviewer' }, attempts: [{ role: 'reviewer', state: 'running' }] };
-  assert.match(runProgress('g', [reviewing], { enabled: false }), /Awaiting review report from Reviewer/);
+  assert.match(runProgress('g', [reviewing], { enabled: false }), /Awaiting the reviewer's report from Reviewer/);
   assert.match(runProgress('g', [reviewing], { enabled: false }), /Next: your review/);
   assert.match(runProgress('g', [{ ...task, state: 'ready', dependsOn: ['parent'] }], { enabled: true }), /Waiting for.*prerequisite/);
   assert.match(runProgress('g', [{ ...task, state: 'running', paused: true, attempts: [] }], { enabled: false }), /Paused/);
@@ -30,7 +30,7 @@ test('run progress distinguishes active reviewer, paused scheduling and blocked 
 
 test('sending and uncertain transport never claim that an agent is already working', () => {
   const sending = { ...task, state: 'running', executor: { label: 'Builder' }, attempts: [{ role: 'executor', state: 'running', delivery: 'sending' }] };
-  assert.equal(runProgress('g', [sending], { enabled: true }), 'Sending implementation assignment to Builder.');
+  assert.equal(runProgress('g', [sending], { enabled: true }), "Sending the writer's assignment to Builder.");
   const uncertain = { ...sending, attempts: [{ role: 'executor', state: 'running', delivery: 'uncertain' }] };
   assert.match(runProgress('g', [uncertain], { enabled: true }), /unconfirmed/);
 });
@@ -39,5 +39,5 @@ test('ready and historical tasks do not add redundant progress text', () => {
   assert.equal(runProgress('g', [task], { enabled: true }), '');
   assert.equal(runProgress('g', [], { enabled: false }), '');
   assert.equal(runProgress('g', [{ ...task, state: 'accepted' }], { enabled: false }), '');
-  assert.match(runProgress('g', [task, { ...task, id: 'blocked', state: 'blocked' }], { enabled: true }), /1 other task is blocked/);
+  assert.match(runProgress('g', [task, { ...task, id: 'blocked', state: 'blocked' }], { enabled: true }), /1 other task is stuck/);
 });

@@ -157,7 +157,7 @@ export class GoalViews {
     const items = this.goalProjection?.groups.find((group) => group.goal.id === goal.id)?.items ?? [];
     const action = runNextAction(goal, this.workflowTasks ?? [], this.workflowEngine, this.workflowError, reviewableWork(items, this.clones).length);
     if (action.action === 'review' || action.action === 'decision' || (!this.workflowError && (this.workflowTasks ?? []).some((task) => task.goalId === goal.id && task.state === 'needs_you'))) this.showRunReviews(goal);
-    else openWorkflow(goal.id);
+    else openWorkflow(goal.id, (this.workflowTasks ?? []).find((task) => task.goalId === goal.id && (task.state === "blocked" || task.state === "failed"))?.id);
   }
 
   runReviews() {
@@ -338,7 +338,7 @@ export class GoalViews {
       .when(this.confirmClose === goal.id, (el) => el.child(this.closeConfirm(t, goal)))
       .child(h_flex().id(`goal-next-row-${goal.id}`).min_w(0).gap(8).p(6).items_center().rounded(6).bg(t.raised)
         .child(v_flex().id(`goal-next-copy-${goal.id}`).flex_1().min_w(0).gap(2)
-          .child(div().id(`goal-next-status-${goal.id}`).min_w(0).text_size(11).font_semibold().text_color(["Needs attention", "Status unavailable"].includes(next.status) ? t.blocked : t.accent).truncate().tooltip(status).child(status))
+          .child(div().id(`goal-next-status-${goal.id}`).min_w(0).text_size(11).font_semibold().text_color(next.stuck ? t.blocked : t.accent).truncate().tooltip(status).child(status))
           .child(div().id(`goal-next-detail-${goal.id}`).min_w(0).text_size(13).truncate().tooltip(next.detail).child(next.detail)))
         .child(button(t, next.action === 'review' ? `goal-review-next-${goal.id}` : next.action === 'decision' ? `goal-decision-next-${goal.id}` : `goal-workflow-${goal.id}`, actionLabel, () => this.openRunAction(goal),
           { kind: this.selected(`goal-${goal.id}`) ? "solid" : "outline" })))

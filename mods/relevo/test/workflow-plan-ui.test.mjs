@@ -105,7 +105,7 @@ test('runs without outcomes show brief work and existing standalone tasks separa
   const planned = { id: 'planned', goalId: 'g', planId: 'p', title: 'Planned step', state: 'planned' };
   v.applyState({ tasks: [standalone, cancelled, planned], plans: [], events: [] });
   tree = v.render();
-  assert.match(text(tree), /Fix the queue · Needs your review/);
+  assert.match(text(tree), /Fix the queue · Needs me/);
   assert.match(text(tree), /Old experiment · Cancelled/);
   assert.doesNotMatch(text(tree), /Planned step/);
   assert.equal(text(find(tree, 'workflow-plan-create-first-task')), 'Add task');
@@ -193,13 +193,13 @@ test('saved-plan next actions open results and progress without dispatching work
   assert.match(text(tree), /Review: Review the first result/);
   assert.match(text(tree), /Review result/);
   click(find(tree, 'workflow-plan-next-p'), cx);
-  assert.equal(v.selected, 'review'); assert.equal(v.filter, 'Needs you'); assert.equal(v.tab, 'Overview');
+  assert.equal(v.selected, 'review'); assert.equal(v.filter, 'Needs me'); assert.equal(v.tab, 'Overview');
   assert.equal(fake.execs.length, 0);
 
   const reviewing = [tasks[0] = { ...tasks[0], state: 'accepted' }, { ...tasks[1], state: 'needs_review' }];
   v.applyState({ tasks: reviewing, plans: [plan], events: [] }); v.openPlan(cx);
   tree = v.render();
-  assert.match(text(tree), /Independent review: Continue the plan/);
+  assert.match(text(tree), /In review: Continue the plan/);
   assert.match(text(tree), /View progress/);
   click(find(tree, 'workflow-plan-next-p'), cx);
   assert.equal(v.selected, 'next'); assert.equal(v.filter, 'In progress'); assert.equal(v.tab, 'Overview');

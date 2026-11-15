@@ -57,12 +57,12 @@ test('agent addresses restore only for live sessions in the saved repository', (
   assert.deepEqual(restoreWorkflowDraftAgents(draft(), { agents, panes }), { executor: 'agent:builder', reviewer: '', warnings: ['Reviewer agent:reviewer was not restored; choose a live session in the saved repository.'] });
   assert.deepEqual(restoreWorkflowDraftAgents(draft(), { agents: [], panes: [] }), {
     executor: '', reviewer: '', warnings: [
-      'Implementer agent:builder was not restored; choose a live session in the saved repository.',
+      'Writer agent:builder was not restored; choose a live session in the saved repository.',
       'Reviewer agent:reviewer was not restored; choose a live session in the saved repository.',
     ],
   });
   assert.deepEqual(restoreWorkflowDraftAgents(draft({ reviewer: '' }), { agents: [{ address: 'agent:builder' }], panes: [] }), {
-    executor: '', reviewer: '', warnings: ['Implementer agent:builder was not restored; choose a live session in the saved repository.'],
+    executor: '', reviewer: '', warnings: ['Writer agent:builder was not restored; choose a live session in the saved repository.'],
   });
 });
 

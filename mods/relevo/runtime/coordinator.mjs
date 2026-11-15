@@ -647,7 +647,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         if ((attempt.role === 'reviewer' && status === 'changes_requested') || (attempt.role === 'executor' && (failed || status !== 'completed'))) {
           t.feedback = failed ? failedChecks(checks) : feedbackOf({ summary: report.summary, findings: extra.findings }, MUST_FIX).slice(0, MAX_FEEDBACK);
           t.checksResult = checks; t.revision = afterChecks;
-          if (t.round >= t.maxRounds) { t.state = 'blocked'; t.error = 'Correction budget exhausted; human direction required'; }
+          if (t.round >= t.maxRounds) { t.state = 'blocked'; t.error = 'No attempts left; it needs your direction'; }
           else { t.state = 'ready'; t.nextRole = 'executor'; }
           return;
         }
