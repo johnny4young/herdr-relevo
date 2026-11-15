@@ -918,7 +918,7 @@ test("a cancelled CI says so and Retry CI runs only its cancelled jobs, once", a
   const url = "https://github.com/me/app/pull/1";
   inbox.sel = `pr-${url}`;
   const cx = fakeCx(), ui = inbox.render(cx);
-  assert.match(text(find(ui, `ci-${url}`)), /CI cancelled/);
+  assert.match(text(find(ui, `ci-cancelled-${url}`)), /cancelled$/);
   assert.doesNotMatch(text(ui), /CI failing/);
   inbox.retryCI(inbox.mine[0], cx);
   inbox.retryCI(inbox.mine[0], cx);

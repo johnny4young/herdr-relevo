@@ -2,7 +2,7 @@ import { setImmediate } from "node:timers";
 
 // Elements that record what a mod builds: any style call is accepted and ignored.
 export function element(kind = "div") {
-  const node = { kind, key: null, items: [], handlers: {}, tip: null, fill: null, stroke: null };
+  const node = { kind, key: null, items: [], handlers: {}, tip: null, fill: null, stroke: null, ink: null, box: {} };
   const el = new Proxy(node, {
     get(target, name) {
       if (name in target) return target[name];
@@ -20,7 +20,10 @@ export function element(kind = "div") {
         else if (name === "focus") target.hasFocusStyle = true;
         else if (name === "spin") target.spinning = true;
         else if (name === "bg") target.fill = args[0];
+        else if (name === "w" || name === "h") target.box[name] = args[0];
+        else if (name === "size") target.box = { w: args[0], h: args[0] };
         else if (name === "border_color") target.stroke = args[0];
+        else if (name === "text_color") target.ink = args[0];
         else if (name === "when") { if (args[0]) args[1](el); }
         else if (name === "map") return args[0](el);
         else if (name === "hover" || name === "active") args[0](element());
