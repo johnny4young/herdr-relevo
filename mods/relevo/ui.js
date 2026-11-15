@@ -111,7 +111,7 @@ export function laneGlyph(t, turn) {
 const lane = (t, turn) => h_flex().w(LANE).flex_none().justify_center().child(laneGlyph(t, turn));
 
 export const TURN_LABEL = { me: "Needs me", flight: "In flight", ready: "Ready", open: "Open", old: "Old", stuck: "Stuck" };
-// A row the person must act on is tinted; selection is a full outline, never a leading strip.
+// A tint for what must be acted on now, such as an account near its limit. Rows carry it in their glyph and words.
 export const meTint = (t) => `${t.blocked}12`;
 
 // lane · body (kind, what, why) · edge (age, the one action). `lines` always show under the title;
@@ -120,7 +120,7 @@ export function row(t, id, { turn = "open", kind = null, title, reason = null, s
   selected = false, onSelect = null, below = null, tip = null, narrow = false } = {}) {
   const hot = turn === "me" || turn === "stuck";
   return v_flex().id(id).flex_none().rounded(6).border_1().border_color(selected ? t.accent : `${t.accent}00`)
-    .when(selected, (el) => el.bg(t.selected)).when(!selected && hot, (el) => el.bg(meTint(t)))
+    .when(selected, (el) => el.bg(t.selected))
     .when(Boolean(onSelect), (el) => el.cursor_pointer().on_click((_e, cx) => onSelect(cx)))
     .when(Boolean(tip), (el) => el.tooltip(tip))
     .child(h_flex().min_h(38).py(4).pr(8).gap(8).items_center()
@@ -186,11 +186,11 @@ export function keyBar(t, id, keys, right = null) {
   const font = monoFont();
   const group = ([caps, label]) => h_flex().gap(4).items_center().flex_none()
     .children(caps.map((c) => keycap(t, c, { font }))).child(div().child(label));
-  const back = keys.filter(([caps]) => caps[0] === "esc"), acts = keys.filter(([caps]) => caps[0] !== "esc");
-  // A narrow panel wraps whole keys onto a hidden second line; the way back and the far edge always stay.
-  return h_flex().id(id).h(32).flex_none().pl(16).pr(8).gap(14).items_center()
+  const away = ([caps]) => caps[0] === "esc" || caps[0] === "tab", back = keys.filter(away), acts = keys.filter((k) => !away(k));
+  // A narrow panel wraps whole keys onto a hidden second line; the ways out (esc, tab) and the far edge always stay.
+  return h_flex().id(id).h(32).flex_none().pl(16).pr(8).gap(10).items_center()
     .border_t(1).border_color(t.border).bg(t.background).text_size(11).text_color(t.muted)
-    .child(h_flex().flex_1().min_w(0).h(20).flex_wrap().gap(14).items_center().overflow_hidden().children(acts.map(group)))
+    .child(h_flex().flex_1().min_w(0).h(20).flex_wrap().gap(10).items_center().overflow_hidden().children(acts.map(group)))
     .children(back.map(group))
     .when(Boolean(right), (el) => el.child(group(right)));
 }
