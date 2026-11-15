@@ -1,7 +1,9 @@
 // Which transcript tokens an attempt and a goal are charged, from what the scanner keeps per run folder.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addClaude, addCodex, cutDay, emptyState, prune, reportOf, runFolder } from "../lib/usage-scan.js";
+import { RUN_BUCKET_MS, addClaude, addCodex, cutDay, emptyState, prune, reportOf, runFolders } from "../lib/usage-scan.js";
+import { runFolder } from "../lib/run-folder.js";
+import { runSlug, worktreePath } from "../runtime/worktree.mjs";
 import { attemptTokens, attemptWindow, goalCost } from "../lib/run-cost.js";
 import { emptyGoals, newGoal, parseGoals, saveGoal } from "../lib/goals.js";
 
@@ -19,33 +21,52 @@ const codex = (state, path, cwd, events) =>
 const task = (attempts, extra = {}) => ({ id: "t1", goalId: "g1", maxMinutes: 20, worktree: { path: WT }, attempts, decisions: [], ...extra });
 const attempt = (id, start, end, extra = {}) => ({ id, role: "executor", state: "reported", at: at(start), ...(end ? { endedAt: at(end) } : {}), ...extra });
 
-test("the scanner keeps tokens by session and minute only for run worktrees, Codex too, and old ones age out", () => {
+test("the scanner keeps tokens by session and five minutes only for run worktrees, Codex too, and old ones age out", () => {
   assert.equal(runFolder(`${WT}/src/lib`), WT);
   assert.equal(runFolder("/Users/me/.herdr/worktrees/app/main"), null, "a worktree that is not a run's");
   assert.equal(runFolder("/Users/me/code/app"), null); assert.equal(runFolder(null), null);
+  const made = worktreePath("/Users/me/code/app", runSlug("Fix: the Search!"), "/Users/me");
+  assert.equal(runFolder(`${made}/src`), made, "the path the coordinator makes is one the scanner knows");
 
   const state = emptyState();
-  claude(state, [msg(at("10:00:05")), msg(at("10:00:50"), { cwd: `${WT}/src` }), msg(at("10:03:00")), msg(at("10:04:00"), { cwd: "/Users/me/code/app" })]);
+  claude(state, [msg(at("10:00:05")), msg(at("10:00:50"), { cwd: `${WT}/src` }), msg(at("10:07:00")), msg(at("10:04:00"), { cwd: "/Users/me/code/app" })]);
   codex(state, "/h/.codex/sessions/2026/rollout-abc.jsonl", WT, [
     [at("10:10:00"), { input_tokens: 300, cached_input_tokens: 100, output_tokens: 20 }],
-    [at("10:12:00"), { input_tokens: 700, cached_input_tokens: 300, output_tokens: 50 }]]);
+    [at("10:16:00"), { input_tokens: 700, cached_input_tokens: 300, output_tokens: 50 }]]);
   codex(state, "/h/.codex/sessions/2026/rollout-else.jsonl", "/Users/me/code/app", [[at("10:10:00"), { input_tokens: 9, cached_input_tokens: 0, output_tokens: 9 }]]);
-  const report = reportOf(state, 0), minute = (hhmm) => Math.floor(Date.parse(at(`${hhmm}:00`)) / 60000);
-  assert.deepEqual(report.runs.map((s) => [s.id, s.folder, s.account, s.first, s.last]).sort(), [
-    ["rollout-abc", WT, "codex", at("10:10:00"), at("10:12:00")], ["s-exec", WT, "personal", at("10:00:05"), at("10:03:00")]]);
-  assert.deepEqual(report.runs.find((s) => s.id === "s-exec").spans, [[minute("10:00"), 2202, 20], [minute("10:03"), 1101, 10]]);
-  assert.deepEqual(report.runs.find((s) => s.id === "rollout-abc").spans, [[minute("10:10"), 300, 20], [minute("10:12"), 400, 30]]);
+  const report = reportOf(state, 0), bucket = (hhmm) => Math.floor(Date.parse(at(`${hhmm}:00`)) / RUN_BUCKET_MS);
+  assert.deepEqual(report.runs.map((s) => ({ ...s, spans: s.spans.length })), [
+    { id: "rollout-abc", folder: WT, last: at("10:16:00"), spans: 2 }, { id: "s-exec", folder: WT, last: at("10:07:00"), spans: 2 }], "newest first");
+  assert.deepEqual(report.runs.find((s) => s.id === "s-exec").spans, [[bucket("10:00"), 2202, 20], [bucket("10:05"), 1101, 10]]);
+  assert.deepEqual(report.runs.find((s) => s.id === "rollout-abc").spans, [[bucket("10:10"), 300, 20], [bucket("10:15"), 400, 30]]);
   assert.deepEqual(Object.keys(report), ["updated", "rows", "sessions", "runs"], "the report only gained a field");
   assert.equal(report.rows.length > 0 && report.sessions.length > 0, true);
 
   const old = { v: 1, files: {}, projects: {}, rows: {}, sessions: {}, seen: {} };
   claude(old, [msg(at("10:00:05"))]);
   assert.equal(reportOf(old, 0).runs.length, 1, "a state saved before this still works");
+  assert.deepEqual(reportOf(state, 0, new Set([OTHER])).runs, [], "a folder that is gone and out of the queue is left out");
+  assert.equal(reportOf(state, 0, new Set([WT])).runs.length, 2); assert.deepEqual(runFolders(state), [WT]);
   prune(state, "9999-01-01", new Set());
   assert.deepEqual(reportOf(state, 0).runs, []);
 });
 
-test("an attempt is charged the minutes of its window, in its worktree, from its own session when known", () => {
+test("the report's runs stay small however long and many the sessions", () => {
+  const state = emptyState(), start = Date.now() - 20 * 86400000, stamp = (ms) => new Date(ms).toISOString();
+  // One session writing every five minutes for twenty days, then two hundred sessions of five hours each.
+  claude(state, Array.from({ length: 20 * 288 }, (_, i) => msg(stamp(start + i * RUN_BUCKET_MS), { sid: "s-long", read: 123456789, output: 123456 })));
+  for (let run = 0; run < 200; run++) {
+    const cwd = `/Users/me/.herdr/worktrees/app/run-${run}-abcdef`;
+    claude(state, Array.from({ length: 60 }, (_, i) => msg(stamp(start + run * 3600000 + i * RUN_BUCKET_MS), { sid: `s-${run}`, cwd, read: 123456789, output: 123456 })));
+  }
+  const { runs } = reportOf(state, 0), spans = runs.reduce((count, s) => count + s.spans.length, 0);
+  assert.ok(spans <= 8000, `${spans} spans`);
+  assert.ok(JSON.stringify(runs).length < 250000, `${JSON.stringify(runs).length} bytes`);
+  assert.ok(runs.some((s) => s.id === "s-long"), "the session still working is kept");
+  assert.equal(runs.some((s) => s.id === "s-0"), false, "the oldest give way");
+});
+
+test("an attempt is charged the spans of its window, in its worktree, from its own session when known", () => {
   const state = emptyState();
   claude(state, [
     msg(at("09:59:00")), msg(at("10:00:30")), msg(at("10:05:00")), msg(at("10:09:59")), msg(at("10:11:00")),
@@ -54,47 +75,47 @@ test("an attempt is charged the minutes of its window, in its worktree, from its
   ]);
   codex(state, "/h/.codex/sessions/rollout-run.jsonl", `${WT}/pkg`, [[at("10:06:00"), { input_tokens: 400, cached_input_tokens: 100, output_tokens: 40 }]]);
   const sessions = reportOf(state, 0).runs;
-  const first = attempt("a1", "10:00:00", "10:10:00"), review = attempt("a2", "10:20:00", "10:25:30", { role: "reviewer" });
+  const first = attempt("a1", "10:00:00", "10:09:00"), review = attempt("a2", "10:20:00", "10:25:30", { role: "reviewer" });
   const run = task([first, review]);
 
-  // Three of the implementer's messages, the reviewer session's 10:05 one and Codex's: all in the folder and the window.
-  assert.deepEqual(attemptTokens(first, run, sessions), { output: 30 + 7 + 40, context: 3 * 1101 + 1101 + 400, total: 77 + 4804, minutes: 10 });
+  // Three of the implementer's messages, the reviewer session's 10:05 one and Codex's: in the folder and in 10:00–10:10.
+  assert.deepEqual(attemptTokens(first, run, sessions), { output: 30 + 7 + 40, context: 3 * 1101 + 1101 + 400, total: 77 + 4804, minutes: 9 });
   assert.deepEqual(attemptTokens(review, run, sessions), { output: 7, context: 1101, total: 1108, minutes: 5.5 });
   const own = { ...first, transcript: "/h/.claude/projects/p/s-exec.jsonl" };
-  assert.deepEqual(attemptTokens(own, task([own, review]), sessions), { output: 30, context: 3303, total: 3333, minutes: 10 }, "its recorded session only");
+  assert.deepEqual(attemptTokens(own, task([own, review]), sessions), { output: 30, context: 3303, total: 3333, minutes: 9 }, "its recorded session only");
   const restarted = { ...first, transcript: "/h/.claude/projects/p/s-gone.jsonl" };
   assert.equal(attemptTokens(restarted, task([restarted]), sessions).output, 77, "a transcript the folder never saw falls back to the folder");
   const codexOwn = { ...first, transcript: "/h/.codex/sessions/rollout-run.jsonl" };
-  assert.deepEqual(attemptTokens(codexOwn, task([codexOwn]), sessions), { output: 40, context: 400, total: 440, minutes: 10 });
+  assert.deepEqual(attemptTokens(codexOwn, task([codexOwn]), sessions), { output: 40, context: 400, total: 440, minutes: 9 });
 
   const inPlace = task([first], { worktree: undefined });
-  assert.deepEqual(attemptTokens(first, inPlace, sessions), { output: 0, context: 0, total: 0, minutes: 10 }, "existing sessions: time, no tokens");
+  assert.deepEqual(attemptTokens(first, inPlace, sessions), { output: 0, context: 0, total: 0, minutes: 9 }, "existing sessions: time, no tokens");
   assert.deepEqual(attemptTokens(first, task([first], { worktree: { path: "/Users/me/.herdr/worktrees/app/fix-search-0a1b2" } }), sessions).total, 0, "a folder that only shares a prefix");
-  assert.deepEqual(attemptTokens(first, run, null), { output: 0, context: 0, total: 0, minutes: 10 }, "no report yet");
+  assert.deepEqual(attemptTokens(first, run, null), { output: 0, context: 0, total: 0, minutes: 9 }, "no report yet");
 });
 
-test("a window ends at the report, else the snapshot, the next attempt, or now within the time limit", () => {
+test("a window ends at the report, else the next attempt, or now within the time limit", () => {
   const now = Date.parse(at("12:00:00"));
-  const ended = attempt("a1", "10:00:00", "10:04:00"), kept = attempt("a2", "10:10:00", null, { snapshot: { at: at("10:13:00") } });
+  const ended = attempt("a1", "10:00:00", "10:04:00");
   const old = attempt("a3", "10:20:00"), live = attempt("a4", "10:30:00", null, { state: "running" }), lost = attempt("a5", "11:00:00");
-  const run = task([ended, kept, old, live]), stale = task([ended, lost]);
+  const run = task([ended, old, live]), stale = task([ended, lost]);
   const minutes = (a, t = run, when = now) => { const w = attemptWindow(a, t, when); return w && (w.end - w.start) / 60000; };
-  assert.deepEqual([ended, kept, old].map((a) => minutes(a)), [4, 3, 10]);
+  assert.deepEqual([ended, old].map((a) => minutes(a)), [4, 10]);
   assert.equal(minutes(live), 20, "a running attempt stops counting at its time limit");
   assert.equal(minutes(live, run, Date.parse(at("10:35:00"))), 5);
   assert.equal(minutes(lost, stale), null, "an old record with no end and nothing after it counts nothing");
   assert.equal(attemptWindow({ id: "x" }, run, now), null);
 });
 
-test("a goal adds up its own tasks and counts a shared minute once", () => {
+test("a goal adds up its own tasks and counts a shared span once", () => {
   const state = emptyState();
   claude(state, [msg(at("10:00:30")), msg(at("10:04:30")), msg(at("10:30:00")), msg(at("10:05:00"), { sid: "s-b", cwd: OTHER, output: 3 })]);
   const sessions = reportOf(state, 0).runs;
-  // The implementer's report and the reviewer's assignment fall in the same minute.
+  // The implementer's report and the reviewer's assignment fall in the same five minutes.
   const one = task([attempt("a1", "10:00:00", "10:04:10"), attempt("a2", "10:04:20", "10:06:20", { role: "reviewer" })]);
   const two = task([attempt("b1", "10:05:00", "10:08:00")], { id: "t2", worktree: { path: OTHER } });
   const foreign = task([attempt("c1", "10:29:00", "10:31:00")], { id: "t3", goalId: "g2" });
-  assert.deepEqual(one.attempts.map((a) => attemptTokens(a, one, sessions).output), [20, 10]);
+  assert.deepEqual(one.attempts.map((a) => attemptTokens(a, one, sessions).output), [20, 20]);
   assert.deepEqual(goalCost({ id: "g1" }, [one, two, foreign], sessions), { output: 23, context: 3303, total: 3326, minutes: 9.2 });
   assert.deepEqual(goalCost({ id: "g2" }, [one, two, foreign], sessions), { output: 10, context: 1101, total: 1111, minutes: 2 });
   assert.deepEqual(goalCost({ id: "none" }, [one], sessions), { output: 0, context: 0, total: 0, minutes: 0 });

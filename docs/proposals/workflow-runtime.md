@@ -43,9 +43,9 @@ By default a run gets its own worktree. **Start** creates the branch `run/<slug>
 
 ### Attempt snapshots
 
-Each time the implementer of a worktree run reports, the coordinator keeps the worktree's tree as a commit on `refs/relevo/attempts/<task id>/<n>` in the base repository, where `n` counts that task's implementer attempts. The attempt records it as `snapshot: { ref, commit, tree, at }`, with `change: { files, added, removed }` against the commit the run started from. A run on existing sessions keeps none.
+Each time the implementer of a worktree run reports, the coordinator keeps the worktree's tree as a commit on `refs/relevo/attempts/<task id>/<n>` in the base repository, where `n` counts that task's implementer attempts. The attempt records it as `snapshot: { ref, commit, at }`, with `change: { files, added, removed }` against the commit the run started from. A run on existing sessions keeps none.
 
-- **How.** The tree is built in a temporary index under `relevo-workflow/tmp/`, with the same exclusions as acceptance: ignored files stay out and nested repositories stay as HEAD has them. The run branch, HEAD and the index the agents use are not touched, the commit has a fixed author, and no hook runs.
+- **How.** The tree is read once per report, the same read a review uses, through a temporary index under `relevo-workflow/tmp/`, with the same exclusions as acceptance: ignored files stay out and nested repositories stay as HEAD has them. The run branch, HEAD and the index the agents use are not touched, the commit has a fixed author, and no hook runs.
 - **Failure.** A snapshot that cannot be written is recorded on the attempt as `snapshotError` and in Activity; the run continues to checks and review.
 - **Comparing.** The `attempt-diff` command takes `taskId`, `to` and an optional `from` (attempt ids) and returns the files changed with lines added and removed, between two attempts or from the run's start. It reads commits only, and answers only while each ref still points at the recorded commit.
 - **Cleanup.** Removing or discarding the run's worktree deletes the task's snapshot refs and keeps each attempt's `change`. Archiving a task deletes any that are left. The commits go with git's next garbage collection.
@@ -70,10 +70,10 @@ The fingerprint covers HEAD, tracked changes and untracked files that are not ig
 
 ### Cost of a run
 
-The token scanner keeps, for sessions whose folder is a run worktree (`~/.herdr/worktrees/<repo>/<words>-<6 hex>`), the tokens of each minute. Its report lists them under `runs`: `{ id, folder, account, first, last, spans }`, a span being `[minute, context tokens, output tokens]`. `lib/run-cost.js` turns that into `{ output, context, total, minutes }` for an attempt or a run.
+The token scanner keeps, for sessions whose folder is a run worktree (`~/.herdr/worktrees/<repo>/<words>-<6 hex>`), the tokens of each five minutes. Its report lists them under `runs`: `{ id, folder, last, spans }`, a span being `[five-minute bucket, context tokens, output tokens]`. Only folders still on disk or still in the run queue are listed, newest first, up to 8,000 spans, which keeps that part of the report under 250 KB. `lib/run-cost.js` turns that into `{ output, context, total, minutes }` for an attempt or a run.
 
 - An attempt's window runs from its assignment to its report, timeout or reconciliation (`endedAt`). `minutes` is the length of those windows.
-- A session counts only when its folder is the run's worktree or inside it, and only for the minutes inside the window. When the transcript the attempt recorded for its agent is one of those sessions, only that session counts. A minute is whole, so a message in the minute an attempt ends can count for the next attempt too; a run's total counts each minute once.
+- A session counts only when its folder is the run's worktree or inside it, and only for the five-minute spans the window touches. When the transcript the attempt recorded for its agent is one of those sessions, only that session counts. A span is whole, so a message in the five minutes around an attempt's end can count for the next attempt too; a run's total counts each span once.
 - A run on existing sessions has no folder of its own: it counts time and no tokens. Tokens spent before this was recorded, and tasks already archived, are not counted.
 
 A run can carry `maxAgentMinutes` and `maxTokens`. They are numbers to compare the cost against; nothing stops when one is passed.

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { run } from './process.mjs';
 import { fingerprint, runChecks, attachArtifact, verifyArtifact, removeArtifact } from './evidence.mjs';
 import { readState, transaction, taskById, event, uid, stateDir, privateDir } from './store.mjs';
-import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, snapshotAttempt, dropAttemptRefs, diffStat, attemptDiff, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
+import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, snapshotAttempt, dropAttemptRefs, diffCounts, attemptDiff, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
 import { createHash } from 'node:crypto';
 import { archivable, stageArchive, publishArchive, MAX_TASKS } from './archive.mjs';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
@@ -510,12 +510,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     });
   }
   // Kept for comparing attempts and sizing the change. Failing to keep it is recorded and never holds the run.
-  async function keepAttempt(task, attempt) {
+  async function keepAttempt(task, tree) {
     try {
-      const number = task.attempts.filter((a) => a.role === 'executor').length;
-      const snapshot = await snapshotImpl(task.worktree, { taskId: task.id, number, indexDir: privateDir(path.join(dir, 'tmp')), at: clock() });
-      const base = task.worktree.baseCommit;
-      const change = base ? await diffStat(task.worktree.base, base, snapshot.commit).then(({ files, added, removed }) => ({ files, added, removed }), () => null) : null;
+      const wt = task.worktree, number = task.attempts.filter((a) => a.role === 'executor').length;
+      const snapshot = await snapshotImpl(wt, { taskId: task.id, number, tree: await tree, at: clock() });
+      const change = wt.baseCommit ? await diffCounts(wt.base, wt.baseCommit, snapshot.commit).catch(() => null) : null;
       return { snapshot, ...(change ? { change } : {}) };
     } catch (e) { return { snapshotError: String(e.stderr || e.message || e).trim().slice(0, 500) }; }
   }
@@ -561,11 +560,9 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (role === 'reviewer' && task.revision !== revision) { block(task.id, 'Checkout changed after checks. Start a fresh attempt.'); return; }
     const token = uid();
     const attempt = { id: uid(), role, address: actor.address, tokenHash: tokenHash(token), delivery: 'sending', state: 'running', at: new Date(clock()).toISOString(), revision, startedTurn: observed.turn };
-    // Which session and account did the work, for attributing its tokens later.
-    for (const [key, name] of [['transcript', 'agent.transcript'], ['account', 'agent.account']]) {
-      const value = observed.labels?.[name];
-      if (typeof value === 'string' && value && value.length <= 1000) attempt[key] = value;
-    }
+    // The session that does the work, for attributing its tokens later.
+    const transcript = observed.labels?.['agent.transcript'];
+    if (typeof transcript === 'string' && transcript && transcript.length <= 1000) attempt.transcript = transcript;
     const change = role === 'reviewer' ? await diffImpl(task.root, task.worktree?.baseCommit ?? 'HEAD', await gitEnv(task)).catch((e) => `Could not read the diff: ${e.message}`) : '';
     const fullPrompt = prompt(task, { ...attempt, token }, preferencesFor(doc.preferences, { goalId: task.goalId, root: task.root }), change);
     const stored = fullPrompt.split(token).join('<token>');
@@ -647,8 +644,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         ({ revision, checks } = pending);
       } else revision = await fp(task);
       // The reviewed tree is read between the two fingerprints, so it is stored only for an unchanged checkout.
-      const reviewedTree = task.worktree && attempt.role === 'reviewer' && status === 'completed' ? await snapshotTree(task.root, await gitEnv(task)).catch(() => null) : null;
-      const kept = task.worktree && !task.worktree.removed && attempt.role === 'executor' ? await keepAttempt(task, attempt) : null;
+      // An implementer's tree is also kept as its attempt's snapshot.
+      const reviewed = attempt.role === 'reviewer' && status === 'completed', implemented = attempt.role === 'executor';
+      const tree = task.worktree && !task.worktree.removed && (reviewed || implemented) ? snapshotTree(task.root, await gitEnv(task), privateDir(path.join(dir, 'tmp'))) : null;
+      const reviewedTree = reviewed && tree ? await tree.catch(() => null) : null;
+      const kept = implemented && tree ? await keepAttempt(task, tree) : null;
       const afterChecks = await fp(task);
       update((doc) => {
         const t = taskById(doc, task.id), a = t.attempts.at(-1);

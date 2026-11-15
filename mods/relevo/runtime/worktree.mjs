@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFile as nodeExecFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
+import { WORKTREES } from '../lib/run-folder.js';
 
 const execFile = promisify(nodeExecFile);
 const git = (cwd, args, env) => execFile('git', ['-C', cwd, ...args], { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024, ...(env ? { env: { ...process.env, ...env } } : {}) });
@@ -30,6 +31,7 @@ const wtGit = async (wt, args, extra) => git(wt.path, [...QUIET, ...args], { ...
 
 export const RUN_BRANCH = /^run\/[a-z0-9][a-z0-9-]{0,80}$/;
 export const BASE_BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/;
+const SHA = /^[0-9a-f]{40}$/, TASK_ID = /^[A-Za-z0-9-]{1,100}$/;
 
 export const runSlug = (title) => {
   const words = String(title ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32).replace(/-+$/, '');
@@ -38,7 +40,7 @@ export const runSlug = (title) => {
 
 // Same place Herdr's worktree mod uses, so the sidebar nests it under the repo.
 export function worktreePath(root, slug, home = os.homedir()) {
-  return path.join(home, '.herdr', 'worktrees', path.basename(root), slug);
+  return path.join(home, ...WORKTREES, path.basename(root), slug);
 }
 
 // Ignored files the repo lists in .worktreeinclude (an .env, say) follow the run, like cwt does.
@@ -124,34 +126,40 @@ export async function snapshotTree(dir, env, indexDir = os.tmpdir()) {
 export const ATTEMPT_REF = /^refs\/relevo\/attempts\/[A-Za-z0-9-]{1,100}\/[1-9][0-9]{0,3}$/;
 const SNAPSHOT_AUTHOR = { GIT_AUTHOR_NAME: 'Relevo', GIT_AUTHOR_EMAIL: 'relevo@localhost', GIT_COMMITTER_NAME: 'Relevo', GIT_COMMITTER_EMAIL: 'relevo@localhost' };
 const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
-const SHA = /^[0-9a-f]{40}$/;
 
-export async function snapshotAttempt(wt, { taskId, number, indexDir, at = Date.now() }) {
+export async function snapshotAttempt(wt, { taskId, number, tree, at = Date.now() }) {
   const ref = `refs/relevo/attempts/${taskId}/${number}`;
-  if (!ATTEMPT_REF.test(ref)) throw Error('This attempt cannot be named as a snapshot');
-  const env = await trustedEnv(wt), when = new Date(at).toISOString(), run = (args, extra) => git(wt.path, [...QUIET, ...NO_HOOKS, ...args], { ...env, ...extra });
-  const tree = await snapshotTree(wt.path, env, indexDir);
-  const head = (await run(['rev-parse', 'HEAD'])).stdout.trim();
-  const commit = (await run(['commit-tree', '--no-gpg-sign', tree, '-p', head, '-m', `Relevo attempt ${number}`],
-    { ...SNAPSHOT_AUTHOR, GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when })).stdout.trim();
-  await run(['update-ref', '--no-deref', ref, commit]);
-  return { ref, commit, tree, at: when };
+  if (!ATTEMPT_REF.test(ref) || !SHA.test(tree ?? '')) throw Error('This attempt cannot be named as a snapshot');
+  const when = new Date(at).toISOString(), head = (await wtGit(wt, ['rev-parse', 'HEAD'])).stdout.trim();
+  const commit = await commitTree(wt, tree, head, [`Relevo attempt ${number}`], { ...SNAPSHOT_AUTHOR, GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when });
+  await wtGit(wt, [...NO_HOOKS, 'update-ref', '--no-deref', ref, commit]);
+  return { ref, commit, at: when };
 }
 
 // Every snapshot ref of a task goes; the commits go with git's next gc.
 export async function dropAttemptRefs(base, taskId) {
-  if (!/^[A-Za-z0-9-]{1,100}$/.test(taskId ?? '') || !fs.existsSync(base ?? '')) return 0;
+  if (!TASK_ID.test(taskId ?? '') || !fs.existsSync(base ?? '')) return 0;
   const refs = (await git(base, ['for-each-ref', '--format=%(refname)', `refs/relevo/attempts/${taskId}/`])).stdout.split('\n').filter((ref) => ATTEMPT_REF.test(ref));
   for (const ref of refs) await git(base, [...NO_HOOKS, 'update-ref', '--no-deref', '-d', ref]);
   return refs.length;
 }
 
 const MAX_DIFF_FILES = 500;
-// Files changed and lines added and removed between two commits. Reads objects only: no checkout, no diff program.
-export async function diffStat(base, from, to) {
+// Reads objects only: no checkout, no diff program.
+const commitDiff = async (base, from, to, format) => {
   if (!SHA.test(from ?? '') || !SHA.test(to ?? '')) throw Error('Two commits are needed to compare');
-  const { stdout } = await git(base, ['--no-optional-locks', ...QUIET, 'diff', '--numstat', '-z', '--no-renames', '--no-ext-diff', '--no-textconv', from, to, '--']);
-  const list = stdout.split('\0').filter(Boolean).map((line) => {
+  return (await git(base, ['--no-optional-locks', ...QUIET, 'diff', ...format, '--no-renames', '--no-ext-diff', '--no-textconv', from, to, '--'])).stdout;
+};
+
+// How many files changed and lines were added and removed between two commits.
+export async function diffCounts(base, from, to) {
+  const text = await commitDiff(base, from, to, ['--shortstat']), count = (word) => Number(new RegExp(`(\\d+) ${word}`).exec(text)?.[1] ?? 0);
+  return { files: count('file'), added: count('insertion'), removed: count('deletion') };
+}
+
+// The same, with each file.
+export async function diffStat(base, from, to) {
+  const list = (await commitDiff(base, from, to, ['--numstat', '-z'])).split('\0').filter(Boolean).map((line) => {
     const [added, removed, ...name] = line.split('\t'), binary = added === '-';
     return { path: name.join('\t'), added: binary ? 0 : Number(added), removed: binary ? 0 : Number(removed), ...(binary ? { binary: true } : {}) };
   });
@@ -172,12 +180,16 @@ export async function attemptDiff(wt, from, to) {
   return { fromCommit: start, toCommit: target, ...(await diffStat(wt.base, start, target)) };
 }
 
+// A commit of a tree made without `git commit`, so no commit hook runs and the worktree's index is not read.
+const commitTree = async (wt, tree, parent, messages, env) =>
+  (await wtGit(wt, ['commit-tree', tree, '-p', parent, ...messages.flatMap((message) => ['-m', message])], env)).stdout.trim();
+
 // Commits the reviewed tree itself: later edits stay uncommitted and no hook runs.
 export async function commitReviewedTree(wt, tree, title, body) {
-  if (!RUN_BRANCH.test(wt.branch ?? '') || !/^[0-9a-f]{40}$/.test(tree ?? '')) throw Error('This run has no reviewed tree to commit');
+  if (!RUN_BRANCH.test(wt.branch ?? '') || !SHA.test(tree ?? '')) throw Error('This run has no reviewed tree to commit');
   const head = (await wtGit(wt, ['rev-parse', 'HEAD'])).stdout.trim();
   if ((await wtGit(wt, ['rev-parse', 'HEAD^{tree}'])).stdout.trim() === tree) return null;
-  const sha = (await wtGit(wt, ['commit-tree', tree, '-p', head, '-m', title, ...(body ? ['-m', body] : [])])).stdout.trim();
+  const sha = await commitTree(wt, tree, head, body ? [title, body] : [title]);
   await wtGit(wt, ['update-ref', `refs/heads/${wt.branch}`, sha, head]);
   await wtGit(wt, ['reset', '-q']);
   return sha;

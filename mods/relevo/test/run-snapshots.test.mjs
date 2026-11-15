@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { createRuntime } from '../runtime/coordinator.mjs';
 import { main } from '../runtime/cli.mjs';
 import { transaction } from '../runtime/store.mjs';
-import { attemptDiff, diffStat, dropAttemptRefs, prepareWorktree, snapshotAttempt } from '../runtime/worktree.mjs';
+import { attemptDiff, diffCounts, diffStat, dropAttemptRefs, prepareWorktree, snapshotAttempt, snapshotTree, trustedEnv } from '../runtime/worktree.mjs';
 
 const out = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
 const refs = (root) => out(root, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/relevo/').split('\n').filter(Boolean);
@@ -24,6 +24,8 @@ async function repo(t) {
   const indexDir = path.join(base, 'state-tmp'); fs.mkdirSync(indexDir);
   return { base, root, home, wt, indexDir };
 }
+// The worktree's tree through a private index, then its commit and ref, as the coordinator does on a report.
+const snap = async (wt, indexDir, taskId, number, at) => snapshotAttempt(wt, { taskId, number, tree: await snapshotTree(wt.path, await trustedEnv(wt), indexDir), at });
 
 test('a snapshot is a commit on its own ref; the branch, HEAD, the index and the hooks are left alone', async (t) => {
   const { base, root, wt, indexDir } = await repo(t);
@@ -42,30 +44,32 @@ test('a snapshot is a commit on its own ref; the branch, HEAD, the index and the
     out(wt.path, 'status', '--porcelain'), out(wt.path, 'diff', '--cached', '--name-only'), out(wt.path, 'ls-files', '--stage')];
   const before = seen();
 
-  const snapshot = await snapshotAttempt(wt, { taskId: 'task-1', number: 1, indexDir, at: Date.parse('2026-03-04T05:06:07Z') });
-  assert.deepEqual(Object.keys(snapshot), ['ref', 'commit', 'tree', 'at']);
+  const snapshot = await snap(wt, indexDir, 'task-1', 1, Date.parse('2026-03-04T05:06:07Z'));
+  assert.deepEqual(Object.keys(snapshot), ['ref', 'commit', 'at']);
   assert.equal(snapshot.ref, 'refs/relevo/attempts/task-1/1'); assert.equal(snapshot.at, '2026-03-04T05:06:07.000Z');
   assert.deepEqual(refs(root), [`${snapshot.ref} ${snapshot.commit}`], 'the ref lives in the base repository');
-  assert.equal(out(root, 'rev-parse', `${snapshot.commit}^{tree}`), snapshot.tree);
   assert.equal(out(root, 'log', '-1', '--format=%an <%ae> %cn %p', snapshot.commit), `Relevo <relevo@localhost> Relevo ${wt.baseCommit.slice(0, 7)}`);
-  assert.deepEqual(out(root, 'ls-tree', '-r', '--name-only', snapshot.tree).split('\n'), ['.gitignore', 'NOTE.md', 'README.md'], 'no ignored file and no nested repository');
+  assert.deepEqual(out(root, 'ls-tree', '-r', '--name-only', snapshot.commit).split('\n'), ['.gitignore', 'NOTE.md', 'README.md'], 'no ignored file and no nested repository');
   assert.deepEqual(seen(), before, 'branch, HEAD, staged files and status are unchanged');
   assert.equal(fs.existsSync(marker), false, 'no hook ran');
   assert.deepEqual(fs.readdirSync(indexDir), [], 'the temporary index is gone');
-  await assert.rejects(snapshotAttempt(wt, { taskId: '../heads/main', number: 1, indexDir }), /cannot be named/);
+  await assert.rejects(snap(wt, indexDir, '../heads/main', 1), /cannot be named/);
+  await assert.rejects(snapshotAttempt(wt, { taskId: 'task-1', number: 2, tree: 'HEAD' }), /cannot be named/);
 });
 
 test('two snapshots compare by files and lines, each compares to where the run started, and dropped refs end it', async (t) => {
   const { root, wt, indexDir } = await repo(t);
   fs.writeFileSync(path.join(wt.path, 'README.md'), 'one\n2\nthree\nfour\n'); fs.writeFileSync(path.join(wt.path, 'NOTE.md'), 'note\n');
-  const first = await snapshotAttempt(wt, { taskId: 'task-1', number: 1, indexDir });
+  const first = await snap(wt, indexDir, 'task-1', 1);
   fs.rmSync(path.join(wt.path, 'NOTE.md')); fs.writeFileSync(path.join(wt.path, 'logo.bin'), Buffer.from([0, 1, 2, 0, 255]));
   fs.writeFileSync(path.join(wt.path, 'README.md'), 'one\n2\nthree\nfour\nfive\n');
-  const second = await snapshotAttempt(wt, { taskId: 'task-1', number: 2, indexDir });
-  const other = await snapshotAttempt(wt, { taskId: 'task-2', number: 1, indexDir });
+  const second = await snap(wt, indexDir, 'task-1', 2);
+  const other = await snap(wt, indexDir, 'task-2', 1);
 
   assert.deepEqual(await attemptDiff(wt, null, first), { fromCommit: wt.baseCommit, toCommit: first.commit, files: 2, added: 3, removed: 1,
     list: [{ path: 'NOTE.md', added: 1, removed: 0 }, { path: 'README.md', added: 2, removed: 1 }], truncated: false });
+  assert.deepEqual(await diffCounts(root, wt.baseCommit, first.commit), { files: 2, added: 3, removed: 1 });
+  assert.deepEqual(await diffCounts(root, first.commit, first.commit), { files: 0, added: 0, removed: 0 });
   const between = await attemptDiff(wt, first, second);
   assert.deepEqual([between.files, between.added, between.removed], [3, 1, 1]);
   assert.deepEqual(between.list, [{ path: 'NOTE.md', added: 0, removed: 1 }, { path: 'README.md', added: 1, removed: 0 }, { path: 'logo.bin', added: 0, removed: 0, binary: true }]);
@@ -84,7 +88,7 @@ async function run(t, { snapshotImpl } = {}) {
   fs.writeFileSync(path.join(f.home, 'relevo-goals.json'), JSON.stringify({ goals: [{ id: 'g1', state: 'open' }] }));
   const runCommand = async ([, ...args]) => {
     if (args[0] === 'get') return { code: 0, stdout: JSON.stringify({ state: 'live', status: { state: 'idle' }, cwd: cwds.get(args[2]) ?? f.wt.path, turn: 1,
-      labels: { 'agent.transcript': `/h/.claude/projects/p/${args[2]}-session.jsonl`, 'agent.account': 'personal' } }) };
+      labels: { 'agent.transcript': `/h/.claude/projects/p/${args[2]}-session.jsonl` } }) };
     if (args[0] === 'send') { sends.push(args); return { code: 0, stdout: '', stderr: '' }; }
     throw Error(`unexpected hc ${args[0]}`);
   };
@@ -113,15 +117,16 @@ test('each implementer report keeps a snapshot and the size of its change; the d
   fs.writeFileSync(path.join(f.wt.path, 'NOTE.md'), 'note\n');
   const first = await f.report(id, 'executor', 'completed');
   assert.equal(first.snapshot.ref, `refs/relevo/attempts/${id}/1`);
-  assert.deepEqual(Object.keys(first.snapshot), ['ref', 'commit', 'tree', 'at']);
+  assert.deepEqual(Object.keys(first.snapshot), ['ref', 'commit', 'at']);
   assert.deepEqual(first.change, { files: 1, added: 1, removed: 0 });
-  assert.match(first.endedAt, /^2026-01-02T/); assert.equal(first.account, 'personal'); assert.match(first.transcript, /exec-1-session\.jsonl$/);
+  assert.match(first.endedAt, /^2026-01-02T/); assert.match(first.transcript, /exec-1-session\.jsonl$/);
   assert.equal(first.snapshotError, undefined);
   assert.equal(out(f.root, 'rev-parse', first.snapshot.ref), first.snapshot.commit);
   assert.equal(out(f.wt.path, 'rev-parse', 'HEAD'), f.wt.baseCommit, 'the run branch did not move');
 
   const review = await f.report(id, 'reviewer', 'changes_requested', 'Needs a title');
   assert.equal(review.snapshot, undefined, 'a review changes nothing to keep'); assert.ok(review.endedAt);
+  assert.deepEqual(fs.readdirSync(path.join(f.home, 'relevo-workflow', 'tmp')), [], 'the tree was read through the state folder and left nothing');
   await f.runtime.tick();
   fs.writeFileSync(path.join(f.wt.path, 'NOTE.md'), '# Note\nnote\n'); fs.writeFileSync(path.join(f.wt.path, 'MORE.md'), 'more\n');
   const second = await f.report(id, 'executor', 'completed');
@@ -176,7 +181,7 @@ test('discarding a run\'s worktree and archiving a run both drop its snapshot re
   const wt = await prepareWorktree({ root: f.root, title: 'Second', home: f.home });
   f.cwds.set('exec-3', wt.path); f.cwds.set('review-3', wt.path);
   const archived = await f.create({ root: wt.path, executor: { address: 'exec-3' }, reviewer: { address: 'review-3' }, worktree: { branch: wt.branch, base: wt.base, baseCommit: wt.baseCommit } });
-  await snapshotAttempt(wt, { taskId: archived, number: 1, indexDir: f.indexDir });
+  await snap(wt, f.indexDir, archived, 1);
   assert.equal(refs(f.root).length, 1);
   out(f.root, 'worktree', 'remove', '--force', wt.path);
   transaction(f.home, (doc) => { for (const task of doc.tasks) task.state = task.id === archived ? 'accepted' : task.state; });
