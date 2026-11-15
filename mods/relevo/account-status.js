@@ -90,12 +90,13 @@ export class AccountStatus extends Sidebar {
         stale && !narrow && Number.isFinite(quota.updated)
           ? div().id(`${id}-age`).flex_none().text_size(11).text_color(t.dim).child(duration(Date.now() / 1000 - quota.updated)) : null].filter(Boolean),
       () => openAccountStatus(), { kind: 'ghost', tip: detail, accessibleLabel: `${[detail, ...says].join('. ')}. Open account usage` })
-      .h(28).px(4).gap(5).rounded(6).when(warn, (el) => el.bg(meTint(t))).hover((st) => st.bg(t.hover));
+      .h(22).px(4).gap(5).rounded(6).when(warn, (el) => el.bg(meTint(t))).hover((st) => st.bg(t.hover));
   }
 
   statusLeaf(t) {
     const width = this.width ?? RESET_FITS, state = { current: this.focusedAccount(), narrow: width <= NARROW, roomy: width >= RESET_FITS };
-    return h_flex().id('account-status').w_full().h_full().px(3).gap(3).items_center()
+    // The status row's line runs on under the accounts, as over the workspace status beside them.
+    return h_flex().id('account-status').w_full().h_full().px(3).gap(3).items_center().bg(t.chrome).border_t(1).border_color(t.border)
       .on_size_change((size, cx) => {
         if (size.width === this.width) return;
         this.width = size.width;
