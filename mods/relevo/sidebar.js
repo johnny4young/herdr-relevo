@@ -17,7 +17,7 @@ import { syncFolders, foldFor } from "./folders.js";
 import { CONTEXTS, FALLBACK } from "./config.js";
 import { mostMargin } from "./lib/margin.js";
 import { ledgerTick } from "./ledger.js";
-import { spinner, withKey } from "./ui.js";
+import { spinner, withKey, quotaTone } from "./ui.js";
 import { openSettings } from "./settings.js";
 import { UsageScanner, ContextWatch } from "./usage-scan.js";
 import { DesktopWatch } from "./desktop.js";
@@ -127,7 +127,7 @@ export class Sidebar {
   }
 
   meter(t, id, label, w, barWidth, stale, hovered) {
-    const level = !w || stale ? t.dim : w.pct >= 80 ? t.blocked : w.pct >= 50 ? t.ansi3 : t.accent;
+    const level = !w || stale ? t.dim : quotaTone(t, w.pct);
     const ahead = !stale && w?.pace != null && w.pct > w.pace * 100 + 5;
     return v_flex().id(id).w(barWidth).flex_none().gap(3).tooltip(meterTip(w, label))
       .child(h_flex().justify_between().text_size(11).text_color(ahead ? t.ansi3 : t.muted)
@@ -190,7 +190,7 @@ export class Sidebar {
     const cell = (p) => {
       const q = this.quota[p.key], w = [q?.h5, q?.d7].filter(Boolean).sort((a, b) => b.pct - a.pct)[0];
       const stale = !q || Date.now() / 1000 - q.updated > STALE;
-      const level = !w || stale ? t.dim : w.pct >= 80 ? t.blocked : w.pct >= 50 ? t.ansi3 : t.accent;
+      const level = !w || stale ? t.dim : quotaTone(t, w.pct);
       const usage = [q?.h5 ? `5h ${q.h5.pct}%` : null, q?.d7 ? `${windowLabel(q.d7, "7d")} ${q.d7.pct}%` : null]
         .filter(Boolean).join(" · ") || "no data";
       return v_flex().id(`account-${p.key}`).w_full().py(3).gap(3).items_center().rounded(6)

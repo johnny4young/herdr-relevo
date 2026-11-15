@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **One set of glyphs.** Folds, refresh, more, check boxes and menu arrows are drawn from 28 icons in `mods/relevo/icons/` instead of text characters, so they line up and take the theme colour. Space folder marks in the agents list follow the theme too.
+
 ## 0.7.3 · 2026-11-14
 
 - **A permission longer than the screen shows whole.** With the optional hook installed, a command or a plan that doesn't fit the agent's screen shows complete in its Inbox card and can be answered there, when everything the screen still shows of it matches what the hook noted. Before, the card said "Can't read all of what this asks. Open the agent." Run `bash ~/.config/herdr-app/mods/relevo/hooks/relevo-labels.sh --install` once to add the new event to each account; without it everything works as before.

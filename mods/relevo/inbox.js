@@ -11,7 +11,7 @@ import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { openHandoff } from "./handoff.js";
 import { openReplies } from "./replies.js";
-import { button, sectionHeader, spinner, withKey, foldRow, FOLDS, shortcutBindings } from "./ui.js";
+import { button, sectionHeader, spinner, withKey, foldRow, FOLDS, shortcutBindings, icon, checkbox } from "./ui.js";
 import { ShortcutHelp } from "./shortcut-help.js";
 import { INBOX_SHORTCUT_ACTIONS } from "./lib/shortcut-help.js";
 import { agentPRs, seconds, recent } from "./lib/github.js";
@@ -329,7 +329,7 @@ export class Inbox {
     const last = mark ? [mark] : [], extra = actions.slice(2);
     if (extra.length < 2) return [...actions, ...last];
     const key = `more-${id}`, open = this.expanded[key];
-    return [...actions.slice(0, 2), ...last, button(t, key, "⋯", (cx) => {
+    return [...actions.slice(0, 2), ...last, button(t, key, [icon("more", t.muted)], (cx) => {
       this.expanded[key] = !open;
       cx.notify();
     }, { tip: open ? "Fewer actions" : "More actions" }), ...(open ? extra : [])];
@@ -386,8 +386,7 @@ export class Inbox {
         this.answer(a, o, cx, p);
       })
       .child(div().w(12).flex_none().text_size(11).text_color(t.dim).child(String(o.n)))
-      .when("checked" in o, (el) => el.child(div().flex_none().text_size(13)
-        .text_color(o.checked ? t.accent : t.dim).child(o.checked ? "☑" : "☐")))
+      .when("checked" in o, (el) => el.child(checkbox(t, o.checked)))
       .child(div().flex_none().max_w(200).truncate().text_size(13).text_color(t.foreground)
         .child(o.n === free && /^type something/i.test(o.label) ? "Type something…" : o.label))
       .when(Boolean(o.detail), (el) => el.child(
@@ -693,14 +692,14 @@ export class Inbox {
       .child(h_flex().h(38).flex_none().px(8).gap(6).items_center()
         .when(goalMode, (el) => el.child(this.goalNewButton(t)))
         .child(div().flex_1())
-        .child(button(t, "inbox-focus-list", "↕", () => this.h.focus(), { size: "sm", accessibleLabel: "Focus work queue", tip: "Focus the queue: arrow keys select, Enter opens" }))
+        .child(button(t, "inbox-focus-list", [icon("down", t.muted)], () => this.h.focus(), { size: "sm", accessibleLabel: "Focus work queue", tip: "Focus the queue: arrow keys select, Enter opens" }))
         .child(button(t, "goal-key-help", "?", (cx) => {
           this.goalHelp = !this.goalHelp;
           if (this.goalHelp) this.shortcutHelp.focus();
           else this.h.focus();
           cx.notify();
         }, { size: "sm", tip: "Search keyboard shortcuts", accessibleLabel: "Keyboard help" }))
-        .child(button(t, "inbox-refresh", !this.prsAt && this.scanningPRs ? [spinner(t.dim, 10)] : "↻", (cx) => {
+        .child(button(t, "inbox-refresh", !this.prsAt && this.scanningPRs ? [spinner(t.dim, 10)] : [icon("refresh", t.muted)], (cx) => {
           this.scanLocal(cx); this.scanPRs(cx); this.scanTrees(cx, true); this.loadGoals(cx);
         }, { size: "sm", accessibleLabel: "Refresh work", tip: `Refresh · ${this.prsAt ? `PRs ${ago(this.prsAt)}` : this.scanningPRs ? "PRs loading" : "PRs unavailable"}${this.error ? ` · ${this.error}` : ""}` })))
       .when(this.goalHelp, (el) => {

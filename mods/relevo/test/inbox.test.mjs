@@ -716,7 +716,7 @@ test("your green PRs fold under ready to merge, outside the count, and open from
     search: { nodes: [] },
   } }) } : null);
   const { ui, cx } = await open();
-  assert.match(text(ui()), /▸ 2 ready to merge/);
+  assert.match(text(ui()), /2 ready to merge/);
   assert.equal(find(ui(), "pr-https://github.com/me/app/pull/1"), null);
   assert.equal(count(), 0);
   click(find(ui(), "ready-mine"), cx);
@@ -991,7 +991,7 @@ test("a waiting card follows the agent to its next question without a status cha
 
 test("open folds are kept for the next Inbox; a card's extra lines are not", async () => {
   const { inbox, cx, ui } = await open();
-  assert.match(text(find(ui(), "today-time")), /▸ Agent time today/);
+  assert.match(text(find(ui(), "today-time")), /Agent time today/);
   inbox.expanded["more-x"] = true;
   click(find(ui(), "today-time"), cx);
   assert.deepEqual(fake.stored["relevo.inbox.folds"], { today: true });
