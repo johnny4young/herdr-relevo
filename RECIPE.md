@@ -152,15 +152,16 @@ task to another account.
   automatic sessions, each subagent type, the rest together, and "After a pause · N times"); **Biggest sessions**
   with title, project and surface. While a read runs it shows "Reading N%".
 - **Agents list additions**: one line per agent: a glyph for whose turn it is (a filled 8 px disc in `blocked` needs
-  me, the spinner in `working` is in flight, a check in `done` has finished), the name, then what it is doing or needs
-  in muted text (the waiting reason in `blocked`, "result ready", "writing #43", "finished #40"), the age when it rests
+  me, the spinner in `working` works, a check in `done` came back), the name (semibold while a result is not seen yet),
+  then what it is doing or needs in muted text (the waiting reason in `blocked`, its tab, "writing #43", "finished #40"), the age when it rests
   and the account chip. The focused agent has a full 1 px `accent` outline over `selected` and a second line: PR tag
   with CI and size, `Opus 5.5`, a context band and `273k`, `· cache 48m` (`ansi3` under 10 minutes, "cache gone"
-  after), machine and folder. Priority groups are **NEEDS ME** (asking, or a result not yet seen, both with the disc and `blocked` text), **IN FLIGHT** and
-  **IDLE**, each with its count; IDLE shows three and folds the rest ("4 more idle"). A ✓ on hover settles an idle or
-  done agent under a folded **SETTLED** group; a **CLAUDE DESKTOP** group lists Claude Desktop sessions working, asking or
-  ready for review, and **ELSEWHERE** the Claude Code sessions in terminals outside Herdr (Terminal, iTerm, VS Code,
-  Ghostty…) that the hook noted, with the app's name. Each reads like an agent: what it is doing now ("editing ui.js"),
+  after), machine and folder. Priority is a queue: **NEEDS ME** (asking), **CAME BACK** (a result not seen yet), each
+  row there with one 11px line under it (its branch when not main, its PR tag, `ctx 86%` in `ansi3` from 80%), then one
+  line "2 working · billing · api" that opens to list them, and "3 resting in their spaces" that opens the idle ones.
+  Claude Desktop sessions (marked "Desktop") and Claude Code in terminals outside Herdr (Terminal, iTerm, VS Code,
+  Ghostty…, noted by the hook, with the app's name) join the queue by their turn. With agents but nothing waiting it says
+  "Nothing needs you". A ✓ on hover settles an idle or done agent under a folded **SETTLED** group. Each reads like an agent: what it is doing now ("editing ui.js"),
   what it asks, or its last words, from the end of its local transcript. A click opens its last message in place, with
   **Open in Claude Desktop** or **Show <app>**.
 - **Settings dialog** (800×700, the gear beside ACCOUNTS): accounts (chip preview, label, letter, launcher, Claude
