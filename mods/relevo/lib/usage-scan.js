@@ -165,7 +165,25 @@ export function projectFromPath(cwd) {
   return null;
 }
 
-export const emptyState = () => ({ v: 1, files: {}, projects: {}, rows: {}, sessions: {}, seen: {} });
+export const emptyState = () => ({ v: 1, files: {}, projects: {}, rows: {}, sessions: {}, runs: {}, seen: {} });
+
+// The worktree of a run, as the coordinator names it (<repo>/<words>-<6 hex> under Herdr's worktrees), or null.
+export function runFolder(cwd) {
+  const m = /^(.*\/\.herdr\/worktrees\/[^/]+\/[a-z0-9][a-z0-9-]*-[0-9a-f]{6})(?:\/|$)/.exec(cwd ?? "");
+  return m ? m[1] : null;
+}
+
+// Tokens spent inside a run's worktree, by session and minute, so a run's attempts can be costed by their time.
+function addRun(state, id, cwd, account, ts, add) {
+  const folder = runFolder(cwd), at = Date.parse(ts);
+  if (!folder || !id || !Number.isFinite(at)) return;
+  const runs = state.runs ?? (state.runs = {}), key = `${folder}\t${id}`;
+  const s = runs[key] ?? (runs[key] = { account, first: ts, last: ts, spans: {} });
+  if (at < Date.parse(s.first)) s.first = ts;
+  if (at > Date.parse(s.last)) s.last = ts;
+  const minute = Math.floor(at / 60000), span = s.spans[minute] ?? (s.spans[minute] = [0, 0, 0, 0]);
+  add.forEach((n, i) => { span[i] += n; });
+}
 
 export const cutDay = (now = new Date()) => dayKey(new Date(now.getTime() - KEEP_DAYS * 86400000));
 
@@ -201,6 +219,7 @@ export function addClaude(state, seen, file, { account, kind, project, cut }) {
     const paused = own === "main" && gap > PAUSE_SECONDS && m.write > PAUSE_MIN_WRITE;
     addRow(state, [day, account, surface, where, own, m.model || "unknown"].join("\t"),
       [m.input, m.write, m.read, m.output, 1, paused ? m.write : 0, paused ? 1 : 0]);
+    addRun(state, m.sid, m.cwd, account, m.ts, [m.input, m.write, m.read, m.output]);
     if (surface === "automatic") continue;
     const s = state.sessions[m.sid] ?? (state.sessions[m.sid] = { title: null, write: 0, output: 0 });
     Object.assign(s, { account, surface, project: where, last: m.ts });
@@ -235,6 +254,7 @@ export function addCodex(state, file, { project, cut }) {
     if (day < cut) continue;
     addRow(state, [day, "codex", "codex", project(f.cwd), "main", "codex"].join("\t"),
       [Math.max(0, input - cached), 0, Math.max(0, cached), Math.max(0, output), 1, 0, 0]);
+    addRun(state, file.path.split("/").pop().replace(/\.jsonl$/, ""), f.cwd, "codex", ts, [Math.max(0, input - cached), 0, Math.max(0, cached), Math.max(0, output)]);
   }
   f.size = file.size;
 }
@@ -251,9 +271,11 @@ export function prune(state, cut, listed) {
   for (const day of Object.keys(state.seen)) if (day < cut) drop(state.seen, day);
   for (const path of Object.keys(state.files)) if (!listed.has(path)) drop(state.files, path);
   for (const [id, s] of Object.entries(state.sessions)) if (!s.last || s.last.slice(0, 10) < cut) drop(state.sessions, id);
+  for (const [key, s] of Object.entries(state.runs ?? {})) if (dayKey(new Date(s.last)) < cut) drop(state.runs, key);
   return gone;
 }
 
+const MAX_RUN_SESSIONS = 400;
 const COLUMNS = ["input", "write", "read", "output", "msgs", "pause_write", "pauses"];
 
 export function reportOf(state, updated) {
@@ -263,7 +285,13 @@ export function reportOf(state, updated) {
   });
   const sessions = Object.entries(state.sessions).map(([id, s]) => ({ id, ...s }))
     .sort((a, b) => b.write - a.write).slice(0, 200);
-  return { updated, rows, sessions };
+  // One entry per session that worked in a run's worktree; a span is [minute since 1970, context tokens, output tokens].
+  const runs = Object.entries(state.runs ?? {}).map(([key, s]) => {
+    const [folder, id] = key.split("\t");
+    return { id, folder, account: s.account, first: s.first, last: s.last,
+      spans: Object.entries(s.spans).map(([minute, [input, write, read, output]]) => [Number(minute), input + write + read, output]) };
+  }).sort((a, b) => (a.last < b.last ? 1 : -1)).slice(0, MAX_RUN_SESSIONS);
+  return { updated, rows, sessions, runs };
 }
 
 // The newest message of a transcript: model, context size, and how long its prompt cache lasts.

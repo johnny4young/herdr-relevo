@@ -109,14 +109,67 @@ async function nestedRepos(dir, env) {
   return [...new Set([...linked, ...made])];
 }
 
-export async function snapshotTree(dir, env) {
-  const index = path.join(os.tmpdir(), `relevo-index-${randomUUID()}`);
+export async function snapshotTree(dir, env, indexDir = os.tmpdir()) {
+  const index = path.join(indexDir, `relevo-index-${randomUUID()}`);
   try {
     const skip = (await nestedRepos(dir, env)).map((name) => `:(top,literal,exclude)${name}`);
     await git(dir, [...QUIET, 'read-tree', 'HEAD'], { ...env, GIT_INDEX_FILE: index });
     await git(dir, [...QUIET, 'add', '-A', '--', '.', ...skip], { ...env, GIT_INDEX_FILE: index });
     return (await git(dir, [...QUIET, 'write-tree'], { ...env, GIT_INDEX_FILE: index })).stdout.trim();
-  } finally { fs.rmSync(index, { force: true }); }
+  } finally { fs.rmSync(index, { force: true }); fs.rmSync(`${index}.lock`, { force: true }); }
+}
+
+// An implementer attempt's tree, kept as a commit on a ref of its own in the base repository. The run branch, HEAD
+// and the agents' index stay as they are, no hook runs, and nothing pushes it.
+export const ATTEMPT_REF = /^refs\/relevo\/attempts\/[A-Za-z0-9-]{1,100}\/[1-9][0-9]{0,3}$/;
+const SNAPSHOT_AUTHOR = { GIT_AUTHOR_NAME: 'Relevo', GIT_AUTHOR_EMAIL: 'relevo@localhost', GIT_COMMITTER_NAME: 'Relevo', GIT_COMMITTER_EMAIL: 'relevo@localhost' };
+const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
+const SHA = /^[0-9a-f]{40}$/;
+
+export async function snapshotAttempt(wt, { taskId, number, indexDir, at = Date.now() }) {
+  const ref = `refs/relevo/attempts/${taskId}/${number}`;
+  if (!ATTEMPT_REF.test(ref)) throw Error('This attempt cannot be named as a snapshot');
+  const env = await trustedEnv(wt), when = new Date(at).toISOString(), run = (args, extra) => git(wt.path, [...QUIET, ...NO_HOOKS, ...args], { ...env, ...extra });
+  const tree = await snapshotTree(wt.path, env, indexDir);
+  const head = (await run(['rev-parse', 'HEAD'])).stdout.trim();
+  const commit = (await run(['commit-tree', '--no-gpg-sign', tree, '-p', head, '-m', `Relevo attempt ${number}`],
+    { ...SNAPSHOT_AUTHOR, GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when })).stdout.trim();
+  await run(['update-ref', '--no-deref', ref, commit]);
+  return { ref, commit, tree, at: when };
+}
+
+// Every snapshot ref of a task goes; the commits go with git's next gc.
+export async function dropAttemptRefs(base, taskId) {
+  if (!/^[A-Za-z0-9-]{1,100}$/.test(taskId ?? '') || !fs.existsSync(base ?? '')) return 0;
+  const refs = (await git(base, ['for-each-ref', '--format=%(refname)', `refs/relevo/attempts/${taskId}/`])).stdout.split('\n').filter((ref) => ATTEMPT_REF.test(ref));
+  for (const ref of refs) await git(base, [...NO_HOOKS, 'update-ref', '--no-deref', '-d', ref]);
+  return refs.length;
+}
+
+const MAX_DIFF_FILES = 500;
+// Files changed and lines added and removed between two commits. Reads objects only: no checkout, no diff program.
+export async function diffStat(base, from, to) {
+  if (!SHA.test(from ?? '') || !SHA.test(to ?? '')) throw Error('Two commits are needed to compare');
+  const { stdout } = await git(base, ['--no-optional-locks', ...QUIET, 'diff', '--numstat', '-z', '--no-renames', '--no-ext-diff', '--no-textconv', from, to, '--']);
+  const list = stdout.split('\0').filter(Boolean).map((line) => {
+    const [added, removed, ...name] = line.split('\t'), binary = added === '-';
+    return { path: name.join('\t'), added: binary ? 0 : Number(added), removed: binary ? 0 : Number(removed), ...(binary ? { binary: true } : {}) };
+  });
+  return { files: list.length, added: list.reduce((n, f) => n + f.added, 0), removed: list.reduce((n, f) => n + f.removed, 0),
+    list: list.slice(0, MAX_DIFF_FILES), truncated: list.length > MAX_DIFF_FILES };
+}
+
+// One attempt against an earlier one, or against where the run started when `from` is missing.
+// A snapshot counts only while its ref still points at the recorded commit.
+export async function attemptDiff(wt, from, to) {
+  const kept = async (snapshot) => {
+    const at = ATTEMPT_REF.test(snapshot?.ref ?? '') ? await git(wt.base, ['rev-parse', '--verify', '--quiet', `${snapshot.ref}^{commit}`]).then((r) => r.stdout.trim(), () => '') : '';
+    if (!at || at !== snapshot.commit) throw Error('The snapshot of this attempt is no longer kept');
+    return at;
+  };
+  const target = await kept(to);
+  const start = from ? await kept(from) : SHA.test(wt.baseCommit ?? '') ? wt.baseCommit : (await git(wt.base, ['rev-parse', '--verify', '--quiet', `${target}^`])).stdout.trim();
+  return { fromCommit: start, toCommit: target, ...(await diffStat(wt.base, start, target)) };
 }
 
 // Commits the reviewed tree itself: later edits stay uncommitted and no hook runs.

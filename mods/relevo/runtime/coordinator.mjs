@@ -3,7 +3,7 @@ import path from 'node:path';
 import { run } from './process.mjs';
 import { fingerprint, runChecks, attachArtifact, verifyArtifact, removeArtifact } from './evidence.mjs';
 import { readState, transaction, taskById, event, uid, stateDir, privateDir } from './store.mjs';
-import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
+import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, snapshotAttempt, dropAttemptRefs, diffStat, attemptDiff, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
 import { createHash } from 'node:crypto';
 import { archivable, stageArchive, publishArchive, MAX_TASKS } from './archive.mjs';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
@@ -46,7 +46,7 @@ async function changeOf(root, base, env) {
   return text.length > MAX_DIFF ? `${text.slice(0, MAX_DIFF)}\n… the diff goes on; read the files it names.` : text;
 }
 
-export function createRuntime({ home, runCommand = run, clock = Date.now, fingerprintImpl = fingerprint, checksImpl = runChecks, diffImpl = changeOf, wake = () => {} } = {}) {
+export function createRuntime({ home, runCommand = run, clock = Date.now, fingerprintImpl = fingerprint, checksImpl = runChecks, diffImpl = changeOf, snapshotImpl = snapshotAttempt, wake = () => {} } = {}) {
   const dir = privateDir(stateDir(home));
   const checkRuns = new Map();
   privateDir(path.join(dir, 'reports'));
@@ -140,6 +140,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
           if (staged) log(doc, null, 'Tasks archived', `${staged.count} finished tasks moved to the archive`, 'Human');
           return { archived: staged?.count ?? 0 }; });
         if (staged) publishArchive(dir, staged);
+        for (const { taskId, base } of staged?.snapshots ?? []) await dropAttemptRefs(base, taskId).catch(() => {});
         return saved;
       } catch (error) { if (staged) fs.rmSync(staged.pending, { force: true }); throw error; }
     }
@@ -352,6 +353,12 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       const result = await commitAccepted(before, payload.revision);
       return update((doc) => logCommit(doc, taskById(doc, before.id), result));
     }
+    if (action === 'attempt-diff') {
+      const wt = before.worktree, snapshotOf = (id) => before.attempts.find((a) => a.id === id)?.snapshot;
+      const to = snapshotOf(payload.to), from = payload.from == null ? null : snapshotOf(payload.from);
+      if (!wt || wt.removed || !to || from === undefined) throw Error('No snapshot is kept for this attempt');
+      return { result: { taskId: before.id, from: payload.from ?? null, to: payload.to, ...(await attemptDiff(wt, from, to)) } };
+    }
     if (action === 'worktree-status') return { result: await worktreeStatus(before.worktree) };
     // An acceptance whose commit never landed (the process died, or git failed) commits the same accepted revision.
     if (action === 'worktree-commit') {
@@ -372,7 +379,10 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         return update((doc) => { const task = taskById(doc, before.id); task.worktree.pr = url.slice(0, 500); log(doc, task, 'Draft PR opened', url, 'Human'); });
       }
       const removed = await removeRunWorktree(before.worktree, { discard });
+      await dropAttemptRefs(before.worktree.base, before.id).catch(() => {});
+      // The size of each attempt's change stays as history; its snapshot went with the worktree.
       return update((doc) => { const task = taskById(doc, before.id); task.worktree.removed = true;
+        for (const attempt of task.attempts) delete attempt.snapshot;
         log(doc, task, 'Worktree removed', removed.branchDeleted ? `${task.worktree.branch} deleted with it` : `${task.worktree.branch} kept`, 'Human'); });
     }
     if (action === 'retry-review') {
@@ -413,7 +423,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (!['idle', 'done'].includes(observed.status)) throw Error('The agent is still working');
       return update((doc) => { const task = taskById(doc, before.id), attempt = task.attempts.at(-1);
         if (attempt?.id !== active.id) throw Error('Attempt changed');
-        attempt.state = 'abandoned'; attempt.delivery = 'reconciled'; task.paused = true;
+        attempt.state = 'abandoned'; attempt.delivery = 'reconciled'; task.paused = true; attempt.endedAt ??= new Date(clock()).toISOString();
         task.error = 'Attempt reconciled as stopped. Resume starts a fresh bounded attempt.';
         log(doc, task, 'Attempt reconciled by human', `Stopped attempt ${attempt.id}; no resend`, 'Human'); });
     }
@@ -499,6 +509,16 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         : { ...proof, status: 'completed', summary: 'What the person now sees or can do', details: ['What changed', 'How it was checked'], notProven: [] }),
     });
   }
+  // Kept for comparing attempts and sizing the change. Failing to keep it is recorded and never holds the run.
+  async function keepAttempt(task, attempt) {
+    try {
+      const number = task.attempts.filter((a) => a.role === 'executor').length;
+      const snapshot = await snapshotImpl(task.worktree, { taskId: task.id, number, indexDir: privateDir(path.join(dir, 'tmp')), at: clock() });
+      const base = task.worktree.baseCommit;
+      const change = base ? await diffStat(task.worktree.base, base, snapshot.commit).then(({ files, added, removed }) => ({ files, added, removed }), () => null) : null;
+      return { snapshot, ...(change ? { change } : {}) };
+    } catch (e) { return { snapshotError: String(e.stderr || e.message || e).trim().slice(0, 500) }; }
+  }
   const statusFile = (attemptId) => path.join(dir, 'reports', `${attemptId}.status.json`);
   const proves = (attempt, written) => written?.attemptId === attempt.id && (attempt.tokenHash ? tokenHash(written.token) === attempt.tokenHash : written.token === attempt.token);
   // How the agent says its work is going. A file it is still writing, or one that isn't its own, is left for the next tick.
@@ -541,6 +561,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (role === 'reviewer' && task.revision !== revision) { block(task.id, 'Checkout changed after checks. Start a fresh attempt.'); return; }
     const token = uid();
     const attempt = { id: uid(), role, address: actor.address, tokenHash: tokenHash(token), delivery: 'sending', state: 'running', at: new Date(clock()).toISOString(), revision, startedTurn: observed.turn };
+    // Which session and account did the work, for attributing its tokens later.
+    for (const [key, name] of [['transcript', 'agent.transcript'], ['account', 'agent.account']]) {
+      const value = observed.labels?.[name];
+      if (typeof value === 'string' && value && value.length <= 1000) attempt[key] = value;
+    }
     const change = role === 'reviewer' ? await diffImpl(task.root, task.worktree?.baseCommit ?? 'HEAD', await gitEnv(task)).catch((e) => `Could not read the diff: ${e.message}`) : '';
     const fullPrompt = prompt(task, { ...attempt, token }, preferencesFor(doc.preferences, { goalId: task.goalId, root: task.root }), change);
     const stored = fullPrompt.split(token).join('<token>');
@@ -623,11 +648,14 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       } else revision = await fp(task);
       // The reviewed tree is read between the two fingerprints, so it is stored only for an unchanged checkout.
       const reviewedTree = task.worktree && attempt.role === 'reviewer' && status === 'completed' ? await snapshotTree(task.root, await gitEnv(task)).catch(() => null) : null;
+      const kept = task.worktree && !task.worktree.removed && attempt.role === 'executor' ? await keepAttempt(task, attempt) : null;
       const afterChecks = await fp(task);
       update((doc) => {
         const t = taskById(doc, task.id), a = t.attempts.at(-1);
         if (a?.id !== attempt.id || a.state !== 'running' || terminalStates.has(t.state)) return;
         a.state = 'reported'; a.report = { status, summary: report.summary, ...extra }; a.summary = report.summary; delete a.progress;
+        a.endedAt = new Date(clock()).toISOString(); Object.assign(a, kept);
+        if (kept?.snapshotError) log(doc, t, 'Attempt snapshot not kept', kept.snapshotError);
         // The full prompt matters while the attempt runs; afterwards its opening is enough to audit it.
         if (a.prompt?.length > REPORTED_PROMPT) a.prompt = `${a.prompt.slice(0, REPORTED_PROMPT)}…`;
         // A valid attempt-specific report also reconciles an uncertain delivery.
@@ -661,7 +689,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (!attempt.timedOut && clock() - Date.parse(attempt.at) > task.maxMinutes * 60000) {
       if (attempt.delivery === 'acknowledged') await interruptAttempt(task, attempt);
       update((doc) => { const t = taskById(doc, task.id), a = t.attempts.at(-1); if (a?.id !== attempt.id) return;
-        a.timedOut = true; a.delivery = 'uncertain'; t.state = 'blocked'; t.error = 'Attempt time limit reached; inspect and reconcile the agent before continuing'; log(doc, t, 'Attempt timed out', t.error); });
+        a.timedOut = true; a.endedAt = new Date(clock()).toISOString(); a.delivery = 'uncertain'; t.state = 'blocked'; t.error = 'Attempt time limit reached; inspect and reconcile the agent before continuing'; log(doc, t, 'Attempt timed out', t.error); });
     }
   }
   // Stop or cancel reaches this process only through the state file, so the watcher aborts the run.
