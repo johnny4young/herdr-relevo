@@ -1,5 +1,5 @@
-// Agents in grouped or priority views; parents take their most urgent sub-agent's place.
-// A viewed done agent stays in Done until left.
+// Agents in grouped or priority views, one line each; the focused one opens a second line.
+// Parents take their most urgent sub-agent's place. A viewed done agent stays in Needs me until left.
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
@@ -92,15 +92,22 @@ function modelName(id) {
   return m ? `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}${m[3] ? `.${m[3]}` : ""}` : id ?? "";
 }
 const kTokens = (n) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+const WINDOW = 200000, LONG_WINDOW = 1000000, BAND = 28;
 
 // Model and context from the agent's transcript (the Relevo mod reads it); while it rests, how long its
 // prompt cache lasts, since the next message after that writes the whole context again.
 function contextTag(t, a, c, now) {
   const left = a.status === "working" ? null : Math.max(0, c.at + c.ttl - now / 1000);
-  const cache = left === null ? "" : left > 0 ? ` · cache ${Math.ceil(left / 60)}m` : " · cache gone";
-  return div().id(`ctx-${a.address}`).flex_none().text_color(left > 0 && left < 600 ? t.ansi3 : t.dim)
+  const cache = left === null ? null : left > 0 ? `· cache ${Math.ceil(left / 60)}m` : "· cache gone";
+  // The transcript doesn't say the window: past the standard one it can only be the long one.
+  const pct = Math.min(100, (c.context / (c.context > WINDOW ? LONG_WINDOW : WINDOW)) * 100);
+  return h_flex().id(`ctx-${a.address}`).flex_none().gap(5).items_center().text_color(left > 0 && left < 600 ? t.ansi3 : t.dim)
     .tooltip(`${modelName(c.model)} · ${c.context.toLocaleString("en-US")} tokens of context. Its prompt cache lasts ${c.ttl / 60} min after the last message; past that, the next message writes it all again.`)
-    .child(`${modelName(c.model)} · ${kTokens(c.context)}${cache}`);
+    .child(modelName(c.model))
+    .child(div().relative().w(BAND).h(3).flex_none().rounded(2).bg(t.raised)
+      .child(div().absolute().left(0).top(0).h(3).rounded(2).bg(pct >= 80 ? t.ansi3 : t.accent).w(Math.max(3, Math.round((BAND * pct) / 100)))))
+    .child(kTokens(c.context))
+    .when(Boolean(cache), (el) => el.child(cache));
 }
 const desktopLink = (id) => `claude://code/continue?session=${encodeURIComponent(id)}`;
 // A sub-agent without a pane isn't in agents(): its raw word, error counting as
@@ -114,8 +121,25 @@ const SORTS = [
   { id: "grouped", label: "Grouped by space", icon: "layers" },
 ];
 const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
-const SECTION = { 4: "Needs me", 3: "Done", 2: "Working", 1: "Idle" };
-const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working" };
+// A finished result waits on me as a question does, so done shares the first section.
+const ME = { id: "sec-me", label: "Needs me", status: "blocked" };
+const SECTION = { 4: ME, 3: ME, 2: { id: "sec-flight", label: "In flight", status: null }, 1: { id: "sec-idle", label: "Idle", status: null } };
+// A long idle section shows this many and folds the rest.
+const IDLE_SHOWN = 3;
+// Where a row's words start, past its glyph; the row's own padding and outline come before it.
+const GUTTER = 22, ROW_PAD = 7;
+// A status as the lane's turn; an agent's own turn also counts its helpers and a result not yet seen (turnOf).
+const TURN = { blocked: "me", working: "flight", done: "ready", idle: "ready" };
+const plainTurn = (status) => TURN[status] ?? "open";
+const URGENT = { me: 2, flight: 1 };
+// The Relevo mod's laneGlyph, kept here too: a mod can't import from another mod's folder.
+export function laneGlyph(t, turn) {
+  if (turn === "flight") return svg("mods/relevo/spinner.svg").size(12).flex_none().text_color(t.working).spin(900);
+  if (turn === "ready") return svg("mods/relevo/icons/check.svg").size(13).flex_none().text_color(t.done);
+  if (turn === "me") return div().size(8).flex_none().rounded_full().bg(t.blocked);
+  return div().size(8).flex_none().rounded_full().border_1().border_color(t.accent);
+}
+const statusGlyph = (t, status) => laneGlyph(t, plainTurn(status));
 
 function duration(ms) {
   const m = Math.floor(ms / 60000);
@@ -201,6 +225,7 @@ export default class Agents extends View {
     if (props()?.sortMenu) return;
     // Settled agents start folded away.
     this.folded = new Set(["settled"]);
+    this.allIdle = false;
     // Each agent's last state and when it changed (ms), kept across restarts.
     this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}");
     this.pendingPins = JSON.parse(localStorage.getItem("pins") ?? "[]");
@@ -257,6 +282,15 @@ export default class Agents extends View {
     const same = cur && cur.address === this.held?.address;
     // Arriving, or any change but done turning idle, sets what it was.
     if (!same || cur.status !== "idle") this.held = cur ? { address: cur.address, rank: RANK[cur.status] ?? 0 } : null;
+  }
+
+  // Asking, or a result not yet seen: both wait on me and are drawn alike. A held done agent
+  // keeps its place (rank) but has been seen, so it draws as finished.
+  // A helper that asks or works puts its parent there too.
+  turnOf(a) {
+    const own = a.status === "done" ? "me" : plainTurn(a.status), subs = this.subStates?.get(a.address) ?? [];
+    if (own === "me" || subs.includes("blocked")) return "me";
+    return own === "flight" || subs.includes("working") ? "flight" : own;
   }
 
   rank(a) {
@@ -334,7 +368,7 @@ export default class Agents extends View {
       .child(div().flex_1().min_w(0).truncate().text_color(s.state === "working" ? t.foreground : t.muted)
         .child(s.title && s.title !== s.project ? `${s.project} · ${s.title}` : s.project))
       .child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - s.at * 1000)))
-      .child(this.status(t, { status: DESKTOP_STATUS[s.state] }, true));
+      .child(statusGlyph(t, DESKTOP_STATUS[s.state]));
   }
 
   peek(addr) {
@@ -353,7 +387,7 @@ export default class Agents extends View {
     });
   }
 
-  subRow(t, s, shown, compact) {
+  subRow(t, s, shown) {
     const k = s.t;
     const st = kidStatus(k, this.listed);
     const pic = icon(k.program, 14, t.foreground);
@@ -376,18 +410,7 @@ export default class Agents extends View {
         .when(l === "└" || l === "├", el => el.border_b(1.5).rounded_bl(6))))
       .when(Boolean(pic), el => el.child(div().mr(8).child(pic)))
       .child(div().flex_1().truncate().text_color(on ? t.foreground : t.muted).child(k.name || k.template || k.program?.name || k.address))
-      .child(this.status(t, { status: st }, compact));
-  }
-
-  // compact: a ! for blocked where a header already says "Needs me".
-  status(t, a, compact = false) {
-    const color = t[a.status] ?? t.dim;
-    if (a.status === "working") return svg("mods/workspace-chrome/spinner.svg").size(12).mx(1).flex_none().text_color(t.working).spin(900);
-    if (a.status === "blocked" && compact) return div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(11).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
-    if (a.status === "blocked") return div().flex_none().px(6).h(18).rounded(5).bg(t.blocked + "26").text_size(11).font_semibold().text_color(t.blocked).flex().items_center().child("Needs me");
-    // Idle: a ring; done: a dot.
-    if (a.status === "idle") return div().size(7).mx(3).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
-    return div().size(7).mx(3).flex_none().rounded(4).bg(a.status === "done" ? color : t.dim + "00");
+      .child(h_flex().w(14).flex_none().justify_center().child(statusGlyph(t, st)));
   }
 
   render(cx) {
@@ -406,7 +429,8 @@ export default class Agents extends View {
     this.track(list, now);
     this.hold(list);
     const byPriority = sort.id === "priority";
-    const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...this.tree(all, a.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0))]));
+    this.subStates = new Map(list.map((a) => [a.address, this.tree(all, a.address).map((s) => kidStatus(s.t, this.listed))]));
+    const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...this.subStates.get(a.address).map((s) => RANK[s] ?? 0))]));
     const rankOf = (a) => urgency.get(a.address);
     if (byPriority) list = [...list].sort((x, y) => rankOf(y) - rankOf(x) || this.since(y) - this.since(x) || y.seq - x.seq);
     this.migratePins(all);
@@ -426,7 +450,7 @@ export default class Agents extends View {
       const subs = collapsed ? [] : this.tree(all, a.address);
       const r = row(a, i, subs);
       if (this.folded.has(a.address)) return [r];
-      return [r, ...subs.map((s) => this.subRow(t, s, shown, byPriority))];
+      return [r, ...subs.map((s) => this.subRow(t, s, shown))];
     };
 
     // The fold chevron; folded, the count too, colored by the most urgent one.
@@ -476,12 +500,13 @@ export default class Agents extends View {
     const reasons = shared("relevo.reasons") ?? {}, folders = shared("space-folders"), agentPRs = shared("relevo.agentPRs") ?? {};
     const contexts = shared("relevo.agentContext") ?? {};
     const row = (a, i, subs = []) => {
-      const pic = icon(a.program, 16, t.foreground);
       const tag = accountTag(t, a, labels.get(a.address) ?? {}, paneOf.get(a.pane));
       const bg = backgroundTag(t, a, labels.get(a.address) ?? {});
       const more = detail.get(a.address);
       // An agent on another machine (`vps/t7`) says which.
       const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
+      // A settled result has been dealt with, so it no longer waits on me.
+      const turn = isSettled(a) ? plainTurn(a.status) : this.turnOf(a), me = turn === "me";
       if (collapsed) {
         return h_flex()
           .id(`ag-${a.address}`)
@@ -493,7 +518,7 @@ export default class Agents extends View {
           .hover((s) => s.bg(t.hover))
           .on_click(() => run("pane.focus", { pane: a.pane }))
           .child(div().flex_1().min_w(0).whitespace_nowrap().text_right().text_color(t.muted).child(String(i + 1)))
-          .child(h_flex().w(14).flex_none().items_center().justify_center().child(this.status(t, a, true)));
+          .child(h_flex().w(14).flex_none().items_center().justify_center().child(laneGlyph(t, turn)));
       }
       const when = this.since(a);
       const idle = a.status === "idle" && !a.focused;
@@ -534,43 +559,65 @@ export default class Agents extends View {
       // Without a space header above (priority, pinned) the row names its space.
       const full = byPriority || isPinned;
       const name = full ? a.space_name || label(a) : more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
-      const why = a.status === "blocked" ? reasons[a.address] : null;
       const cwd = paneOf.get(a.pane)?.cwd ?? a.cwd;
-      const place = folderOfSpace(spaceList.find((s) => s.id === a.space), folders, ps);
-      const folder = folderNote(cwd, a.space_name);
       const pr = agentPRs[a.address];
-      const ctx = contexts[a.address];
+      // What it is doing or needs; the detail stands in when nothing shorter says it.
+      const told = full && more ? more : null;
+      const helper = me && a.status !== "blocked" && a.status !== "done" ? "a helper needs you"
+        : turn === "flight" && a.status !== "working" ? "a helper is working" : null;
+      const what = a.status === "blocked" ? reasons[a.address] ?? told ?? "needs an answer"
+        : helper ?? (me ? "result ready"
+        : pr ? `${a.status === "working" ? "writing" : "finished"} #${pr.number}` : told);
+      const selected = Boolean(a.focused);
+      const rested = a.status === "idle" || a.status === "done";
       const line = h_flex()
-        .h(30)
+        .h(28)
         .flex_none()
         .items_center()
-        .gap(9)
-        .when(Boolean(pic), el => el.child(div().id(`agent-fold-${a.address}`)
+        .gap(8)
+        .child(h_flex().id(`agent-fold-${a.address}`).w(14).flex_none().justify_center()
           .when(subs.length > 0, el => el.on_click((_e, cx) => {
             cx.stop_propagation();
             this.folded.has(a.address) ? this.folded.delete(a.address) : this.folded.add(a.address);
             cx.notify();
-          })).child(pic)))
-        .child(h_flex().flex_1().min_w(0).gap(5).items_center()
-          .when(Boolean(place), (el) => el.child(div().id(`in-folder-${a.address}`).flex_none().tooltip(place.name)
-            .child(svg("mods/workspace-chrome/folder.svg").size(12).text_color(folderColor(place.color, t.dim)))))
-          .child(div().min_w(0).max_w(full && more ? 120 : 200).truncate().text_color(idle ? t.muted : t.foreground).child(name))
-          .when(full && Boolean(more), el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`\u00b7 ${more}`))))
-        .when(Boolean(machine), el => el.child(div().text_size(11).text_color(t.dim).child(machine)))
+          })).child(laneGlyph(t, turn)))
+        .child(h_flex().flex_1().min_w(0).gap(7).items_center()
+          .child(div().flex_none().max_w(what ? 130 : 220).truncate().font_medium().text_color(idle ? t.muted : t.foreground).child(name))
+          .when(Boolean(what), el => el.child(div().id(`what-${a.address}`).flex_1().min_w(0).truncate()
+            .text_color(me ? t.blocked : t.muted).child(what))))
         .when(Boolean(bg), el => el.child(bg))
-        .when(Boolean(tag), el => el.child(tag))
         .when(subs.length > 0, el => el.child(fold(a, subs)))
         .when(this.hovered === a.address, el => el.child(reply)
-          .when(a.status === "idle" || a.status === "done", (el) => el.child(this.settleButton(t, a, all, isSettled(a))))
+          .when(rested, (el) => el.child(this.settleButton(t, a, all, isSettled(a))))
           .child(pin))
-        .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
-        .child(this.status(t, a, byPriority && !isPinned));
+        .when(this.hovered !== a.address && a.status !== "working" && Boolean(when), el => el.child(div().id(`age-${a.address}`).flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
+        .when(Boolean(tag), el => el.child(tag));
+      // The second line, built for the selected agent only: what every row used to carry.
+      const below = () => {
+        const pic = icon(a.program, 12, t.muted), ctx = contexts[a.address];
+        const place = folderOfSpace(spaceList.find((s) => s.id === a.space), folders, ps);
+        const folder = folderNote(cwd, a.space_name);
+        const extra = told && told !== what ? told : null;
+        if (!(pic || place || pr || ctx || machine || folder || extra)) return null;
+        return h_flex().id(`more-${a.address}`).h(16).mb(5).pl(GUTTER).gap(6).items_center().overflow_hidden().text_size(11).text_color(t.dim)
+          .when(Boolean(pic), (el) => el.child(pic))
+          .when(Boolean(place), (el) => el.child(div().id(`in-folder-${a.address}`).flex_none().tooltip(place.name)
+            .child(svg("mods/workspace-chrome/folder.svg").size(12).text_color(folderColor(place.color, t.dim)))))
+          .when(Boolean(pr), (el) => el.child(prTag(t, a, pr)))
+          .when(Boolean(ctx), (el) => el.child(contextTag(t, a, ctx, now)))
+          .when(Boolean(machine), (el) => el.child(div().flex_none().child(machine)))
+          .when(Boolean(folder), (el) => el.child(div().id(`folder-${a.address}`).flex_none().max_w(110).truncate().child(folder)))
+          .when(Boolean(extra), (el) => el.child(div().id(`detail-${a.address}`).flex_1().min_w(0).truncate().child(extra)));
+      };
+      const second = selected ? below() : null;
       return v_flex()
         .id(`ag-${a.address}`)
-        .px(8)
+        .px(ROW_PAD)
         .flex_none()
         .rounded(8)
-        .when(a.focused, (el) => el.bg(t.selected))
+        .border_1()
+        .border_color(selected ? t.accent : `${t.accent}00`)
+        .when(selected, (el) => el.bg(t.selected))
         .cursor_pointer()
         .hover((s) => s.bg(t.hover))
         .on_hover((on, cx) => {
@@ -581,12 +628,7 @@ export default class Agents extends View {
         .on_click(() => run("pane.focus", { pane: a.pane }))
         .when(Boolean(cwd), (el) => el.tooltip(cwd))
         .child(line)
-        .when(Boolean(folder || pr || ctx), (el) => el.child(h_flex().h(14).mb(2).pl(pic ? 25 : 0).gap(6).items_center().text_size(11)
-          .when(Boolean(pr), (el) => el.child(prTag(t, a, pr)))
-          .when(Boolean(ctx), (el) => el.child(contextTag(t, a, ctx, now)))
-          .when(Boolean(folder), (el) => el.child(div().id(`folder-${a.address}`).flex_1().min_w(0).truncate().text_color(t.dim).child(folder)))))
-        .when(Boolean(why), (el) => el.child(div().id(`why-${a.address}`).h(14).mb(2).pl(pic ? 25 : 0).truncate()
-          .text_size(11).text_color(t.muted).child(why)));
+        .when(Boolean(second), (el) => el.child(second));
     };
 
     // Groups in list order: spaces (grouped) or priority sections. Agents of a
@@ -594,15 +636,16 @@ export default class Agents extends View {
     const groups = pinned.length ? [{ id: "pinned", label: "Pinned", status: null, members: pinned }] : [];
     for (const a of rest) {
       const r = rankOf(a) || RANK.idle;
-      const id = byPriority ? `sec-${r}` : `sp-${a.space}`;
-      if (groups.at(-1)?.id === id) groups.at(-1).members.push(a);
-      else groups.push({ id, label: byPriority ? SECTION[r] : a.space_name || "", status: byPriority ? SECTION_STATUS[r] : null, members: [a] });
+      const g = byPriority ? SECTION[r] : { id: `sp-${a.space}`, label: a.space_name || "", status: null, space: true };
+      if (groups.at(-1)?.id === g.id) groups.at(-1).members.push(a);
+      else groups.push({ ...g, members: [a] });
     }
 
     // A group's header; it folds the group. Folded, it says how many and the most urgent state.
     const header = (g) => {
       const open = !this.folded.has(g.id);
-      const top = g.members.reduce((m, a) => ((RANK[a.status] ?? 0) > (RANK[m] ?? 0) ? a.status : m), null);
+      const turns = g.members.map(g.turn ?? ((a) => this.turnOf(a)));
+      const top = turns.reduce((m, turn) => ((URGENT[turn] ?? 0) > (URGENT[m] ?? 0) ? turn : m), null);
       return h_flex()
         .id(g.id)
         .px(8)
@@ -619,20 +662,35 @@ export default class Agents extends View {
           open ? this.folded.add(g.id) : this.folded.delete(g.id);
           cx.notify();
         })
-        .child(div().truncate().text_color(t[g.status] ?? t.dim).child(g.label))
-        .when(byPriority || !open, (el) => el.child(div().text_color(t.dim).child(String(g.members.length))))
+        .child(div().truncate().text_color(t[g.status] ?? t.dim).child(g.space ? g.label : g.label.toUpperCase()))
+        .when(byPriority || !open, (el) => el.child(div().font_semibold().text_color(t.muted).child(String(g.members.length))))
         .child(div().flex_1())
         .when(!open, (el) => el
-          .when(!byPriority && top && top !== "idle", (el) => el.child(this.status(t, { status: top }, true)))
+          .when(Boolean(top) && !g.id.startsWith("sec-"), (el) => el.child(laneGlyph(t, top)))
           .child(svg("mods/workspace-chrome/chevron-right.svg").size(11).flex_none().text_color(t.dim)));
     };
-    if (settled.length) groups.push({ id: "settled", label: "Settled", status: null, members: settled });
+    if (settled.length) groups.push({ id: "settled", label: "Settled", status: null, members: settled, turn: (a) => plainTurn(a.status) });
+    // The idle section past its first rows; the focused agent is never the one folded away.
+    const members = (g) => {
+      if (g.id !== "sec-idle" || g.members.length <= IDLE_SHOWN + 1) return g.members.flatMap(withKids);
+      const open = this.allIdle === true;
+      const head = open ? g.members : g.members.filter((a, i) => i < IDLE_SHOWN || a.focused);
+      const hidden = g.members.length - head.length;
+      return [...head.flatMap(withKids), h_flex().id("idle-more").h(26).pl(ROW_PAD + 1 + GUTTER).flex_none().gap(6).items_center().text_size(11)
+        .text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground))
+        .on_click((_e, cx) => {
+          this.allIdle = !open;
+          cx.notify();
+        })
+        .child(svg(`mods/workspace-chrome/chevron-${open ? "down" : "right"}.svg`).size(11).flex_none())
+        .child(open ? "fewer idle" : `${hidden} more idle`)];
+    };
     const desktop = collapsed ? [] : this.desktopSessions();
     const rows = collapsed
       ? list.flatMap(withKids)
       : [
-        ...groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : g.members.flatMap(withKids))]),
-        ...(desktop.length ? [header({ id: "desktop", label: "Desktop", status: null, members: desktop }),
+        ...groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : members(g))]),
+        ...(desktop.length ? [header({ id: "desktop", label: "Desktop", status: null, members: desktop, turn: (s) => plainTurn(DESKTOP_STATUS[s.state]) }),
           ...(this.folded.has("desktop") ? [] : desktop.map((s) => this.desktopRow(t, s, now)))] : []),
       ];
 

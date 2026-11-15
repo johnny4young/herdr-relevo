@@ -323,7 +323,7 @@ export class Inbox {
     if (this.hiddenIds?.has(id)) return null;
     const sel = this.selected(id);
     const rest = sel ? [...actions.filter((a) => a && a !== main), mark].filter(Boolean) : [];
-    const below = sel || open ? [...lines.filter(Boolean), ...(rest.length ? [h_flex().flex_wrap().gap(5).pt(2).children(rest)] : [])] : [];
+    const below = sel || open ? [...(typeof lines === "function" ? lines() : lines).filter(Boolean), ...(rest.length ? [h_flex().flex_wrap().gap(5).pt(2).children(rest)] : [])] : [];
     return row(t, id, {
       turn: done ? "open" : turn, kind, title, reason, age, tip, selected: sel,
       action: turn === "flight" && !sel ? null : main,

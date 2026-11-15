@@ -54,7 +54,9 @@ task to another account.
   - `YOUR PRS` and `REVIEW REQUESTS`: a row per PR, `repo #n`, why it is here ("CI failing", "changes requested",
     "<author> asks for your review", "2 comments"), its age and its first action. A PR waiting on you is a needs-me
     row; one whose CI runs or whose agent works is in flight; one with only the merge left is ready. Selected, it
-    shows its title, CI, unresolved threads and size, what its agent did, and every action: a split skill button
+    shows its title, which checks failed, are running or were cancelled by name, which passed (with one box per
+    check), how many files and lines changed, unresolved threads, whether anyone reviewed it yet and when it was
+    opened, what its agent did, and every action: a split skill button
     (`skill` + account chip | ▾), **Review** on your own PRs, **Open PR** and **✓** (addressed). PRs older than 45
     days fold under "▸ N older than 45 days"; addressed ones under "▸ N addressed", each with **Undo**. Your PRs
     with nothing left but the merge (CI green, not a draft, no changes requested, no open threads) fold under
@@ -102,9 +104,15 @@ task to another account.
   one hue, with the peak; **By project** with a bar, new context and output; **What filled it** (main conversations,
   automatic sessions, each subagent type, the rest together, and "After a pause · N times"); **Biggest sessions**
   with title, project and surface. While a read runs it shows "Reading N%".
-- **Agents list additions**: a ✓ on hover settles an idle or done agent under a folded **Settled** group; a
-  **Desktop** group lists Desktop sessions working, asking or ready for review; the second line adds `Opus 5.5 · 273k
-  · cache 48m` (`ansi3` under 10 minutes, "cache gone" after).
+- **Agents list additions**: one line per agent: a glyph for whose turn it is (a filled 8 px disc in `blocked` needs
+  me, the spinner in `working` is in flight, a check in `done` has finished), the name, then what it is doing or needs
+  in muted text (the waiting reason in `blocked`, "result ready", "writing #43", "finished #40"), the age when it rests
+  and the account chip. The focused agent has a full 1 px `accent` outline over `selected` and a second line: PR tag
+  with CI and size, `Opus 5.5`, a context band and `273k`, `· cache 48m` (`ansi3` under 10 minutes, "cache gone"
+  after), machine and folder. Priority groups are **NEEDS ME** (asking, or a result not yet seen, both with the disc and `blocked` text), **IN FLIGHT** and
+  **IDLE**, each with its count; IDLE shows three and folds the rest ("4 more idle"). A ✓ on hover settles an idle or
+  done agent under a folded **SETTLED** group; a **DESKTOP** group lists Desktop sessions working, asking or ready for
+  review.
 - **Settings dialog** (800×700, the gear beside ACCOUNTS): accounts (chip preview, label, letter, launcher, Claude
   dir, colors), Codex's launcher, contexts (label, account, orgs), fallback order, repos root and skills; Save.
 - **Week dialog** (720×460): `Agent time · week of <date>` with ‹ › and **Copy**, a table of tickets × Mon–Sun
