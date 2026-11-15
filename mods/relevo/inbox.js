@@ -34,6 +34,7 @@ import { DesktopViews } from "./inbox-desktop.js";
 import { LandViews, LANDING } from "./inbox-land.js";
 import { NowViews, NOW_SECTIONS, MAINTENANCE_SECTIONS } from "./inbox-now.js";
 import { RunViews } from "./inbox-runs.js";
+import { RunCompareViews } from "./inbox-run-compare.js";
 import { isSettled } from "./lib/desktop.js";
 
 // How long a send waits for its dialog to go, in 250 ms reads.
@@ -688,7 +689,7 @@ export class Inbox {
     this.refreshGoals(cx);
     const goalMode = shared(GOAL_MODE) === true;
     this.goalProjection = this.projectGoals(v);
-    const runs = goalMode ? this.syncRun() : [];
+    const runs = goalMode ? this.syncRun(cx) : [];
     if (goalMode) this.followUpTaken(cx);
     const reviewView = goalMode ? null : this.reviewView(), runOpen = goalMode && Boolean(this.goalProjection.scope);
     const [runLeft, runRight] = goalMode ? this.runsHeader(t) : [[], []];
@@ -780,7 +781,7 @@ export class Inbox {
 }
 
 
-for (const views of [PrViews, TreeViews, BranchViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews, GoalViews, NowViews, RunViews]) {
+for (const views of [PrViews, TreeViews, BranchViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews, GoalViews, NowViews, RunViews, RunCompareViews]) {
   for (const name of Object.getOwnPropertyNames(views.prototype)) {
     if (name !== "constructor") Inbox.prototype[name] = views.prototype[name];
   }

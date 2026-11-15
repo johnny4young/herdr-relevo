@@ -171,8 +171,9 @@ export class UsageScanner {
 }
 
 export async function readReport() {
+  const path = `${home()}/${REPORT}`;
   try {
-    return JSON.parse(await readTextFile(`${home()}/${REPORT}`) ?? "null");
+    return JSON.parse((await new Saved(path).read()) || (await readTextFile(path)) || "null");
   } catch {
     return null;
   }

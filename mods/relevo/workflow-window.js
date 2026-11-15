@@ -26,7 +26,7 @@ export const liveRunPanes = () => Object.fromEntries(
 );
 
 // A run is a pane beside the work; opening it again focuses that pane and selects the task.
-// `ask` is what the panel wants shown: { tab }, { followUp: "blocked" | "changes", text } or { setups: true }.
+// `ask` is what the panel wants shown: { tab }, { followUp: "blocked" | "changes" | "rerun", text }, { setups: true } or { setup: id }.
 // An ask is stamped so it is carried out once; the stamp is returned.
 export function openWorkflow(goalId, taskId = null, ask = {}) {
   const pane = liveRunPanes()[goalId], at = stamp(), once = Object.keys(ask).length > 0;

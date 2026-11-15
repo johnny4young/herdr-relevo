@@ -204,6 +204,7 @@ test("a second reviewer correction exhausts the bounded retry budget", async (t)
   assert.equal(task.state, "blocked");
   assert.match(task.error, /No attempts left/);
   assert.equal(task.round, 2);
+  assert.deepEqual(task.attempts.filter((attempt) => attempt.role === "executor").map((attempt) => attempt.tests), [{ passed: 1, total: 1 }, { passed: 1, total: 1 }], "each attempt keeps its own test count");
 });
 
 test("a failed required check at the attempt cap blocks acceptance and further dispatch", async (t) => {
@@ -215,6 +216,7 @@ test("a failed required check at the attempt cap blocks acceptance and further d
   assert.match(task.error, /No attempts left/);
   assert.equal(task.checksResult[0].code, 1);
   assert.equal(task.attempts.length, 1);
+  assert.deepEqual(task.attempts[0].tests, { passed: 0, total: 1 });
 });
 
 test("human requested changes route the next attempt to the executor", async (t) => {
