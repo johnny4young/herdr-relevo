@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.3 · 2026-11-14
 
 - **A permission longer than the screen shows whole.** With the optional hook installed, a command or a plan that doesn't fit the agent's screen shows complete in its Inbox card and can be answered there, when everything the screen still shows of it matches what the hook noted. Before, the card said "Can't read all of what this asks. Open the agent." Run `bash ~/.config/herdr-app/mods/relevo/hooks/relevo-labels.sh --install` once to add the new event to each account; without it everything works as before.
 - **A long question reads whole.** An agent's own question of three lines or more showed its first line as if it were a command to approve, and each line was cut off. The card now shows the whole paragraph, wrapped.
