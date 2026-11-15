@@ -79,6 +79,13 @@ To inspect your actual saved workspace/tab metadata without connecting the previ
 
 ## What it does
 
+### Every repo under its folder
+
+Spaces groups your spaces by folder (one per account context, plus any you add with the folder button) and gives each
+repo one row: its branch when it is not main, how far it is ahead or behind, how many files changed and whether an
+agent there needs you. A worktree sits under its checkout. Drag a space onto a folder to keep it there. The list
+order is the spaces' order, so Herdr's `⌃1`…`⌃9` go to the row you see.
+
 ### Answer agents without leaving your work
 
 A waiting agent's question shows in the Inbox with its choices, its preview and a note field. Click a choice and
@@ -163,11 +170,10 @@ worktrees that are safe to remove go in one Confirm. When your PR merges, the to
 
 ## Install
 
-1. Install the two community mods it uses: [space-folders](https://github.com/jankeesvw/herdr-space-folders)
-   and [issues](https://github.com/jankeesvw/herdr-issues) (from herdr.dev, or copy their folders into
-   `~/.config/herdr-app/mods/`).
+1. Install the community mod it uses, [issues](https://github.com/jankeesvw/herdr-issues) (from herdr.dev, or copy
+   its folder into `~/.config/herdr-app/mods/`).
 2. From a clone of this repo, run `./install.sh --dry-run` to see what it would do, then `./install.sh`. It copies the
-   four mods and the layout into `~/.config/herdr-app`, creates `mods/relevo/config.js` and adds the keys you don't
+   five mods and the layout into `~/.config/herdr-app`, creates `mods/relevo/config.js` and adds the keys you don't
    have to `keys.json`; a key you already use stays yours. It needs Node (see `.nvmrc`).
 3. Switch to the layout (`ctrl-shift-l`) and open Settings (the gear beside ACCOUNTS): your accounts, the GitHub
    orgs that use each one, and where your clones live. It writes `mods/relevo/config.js`, which you can also edit.
@@ -198,6 +204,8 @@ shows.
 
 ## What it reads and runs
 
+- Spaces runs `git rev-parse`, `git rev-list` and `git status --porcelain` in each space's folder, with optional locks
+  off so it never holds `index.lock` while an agent commits.
 - Runs `git`, `gh`, `hc`, `cat` (the hook's notes of a permission the screen cuts), `find` (to look for repos in a worktree's ignored folders) and the launchers in `config.js`; Files runs `/usr/bin/trash`, `open -R`, `mv -n` and `mkdir`.
 - Reaches the network for quotas: each Claude account's login from the macOS Keychain goes to Anthropic's usage
   endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token.
@@ -220,7 +228,7 @@ shows.
   addressed) and `~/.local/state/relevo/handoff/` (handoff notes); a PR session adds a worktree under
   `~/.herdr/worktrees/`;
   a handoff between Claude accounts copies the session file into the next account's `projects/` folder;
-  the folders it adds to space-folders' file, and files you create, rename or save in Files.
+  the folders in `~/.config/herdr-space-folders.json`, and files you create, rename or save in Files.
 - Sets a `relevo.addressed` terminal label on local work you mark addressed, and watches the git folders of repos
   with a resting agent. Its repeated git reads write nothing there.
 - Optional: sounds at `~/.config/herdr-app/sounds/{quota,review,bg-done}.mp3`; quota snapshots a Claude

@@ -54,7 +54,7 @@ export function folderNote(cwd, space) {
   return parts.at(-1) === space ? null : parts.slice(-2).join("/");
 }
 
-// The sidebar's folders, by the space-folders mod's rules and colours: a dragged space stays
+// The sidebar's folders, by the Spaces list's rules and colours: a dragged space stays
 // where it was put, else the first folder whose rules take where it works.
 
 const rules = new Map();

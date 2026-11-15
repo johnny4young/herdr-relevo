@@ -18,7 +18,14 @@ task to another account.
   17px rounded chip in the account's colors with its letter, the label (92px with its chip), and two meters (5h, 7d) with the
   percentage, a 4px bar (accent under 50%, `ansi3` from 50%, `blocked` from 80%) and a pace tick where the
   window's time is. Below 160px wide it becomes a rail of chips, each with one 3px bar for the fuller window.
-  Then space-folders' spaces and the agents list (equal weight), and Herdr's footer (69px).
+  Then the spaces and the agents list (equal weight), and Herdr's footer (69px).
+- **Spaces** (relevo-spaces): a header `Spaces` with the count, New folder and New space; then one 26px folder header per
+  folder (chevron, folder icon in its color, its name in capitals, how many spaces, `+` for a space in its folder; a click
+  folds it, a right-click offers New space here, Edit folder… and Delete folder) over one 30px row per space: an 18px
+  avatar, its name, then only what is unusual: a branch other than main or master, `↑2` (`ansi2`), `↓1` (`ansi1`),
+  `±3` files changed, and the lane glyph of its most urgent agent. A worktree's space sits under its checkout (26px,
+  tree icon, its branch). Drag a space onto another space to move it, onto a folder to put it there. The spaces' real
+  order follows the list, so Herdr's `⌃1`…`⌃9` and `⌃⌘↑`/`⌃⌘↓` go through what is shown.
 - **Tab bar** (42px): relevo-tabs (Herdr's tabs), an **Inbox** button (92px) with a red count badge, the issues button (78px)
   and a panel toggle (44px, `panel.svg`).
 - **Right panel** (380px): a panel bar (66px) with the branch chips of the focused checkout and an
@@ -357,7 +364,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
 ## Built from
 
 - **Layout** `layouts/relevo.json`, with `layouts/relevo.svg` as the picture Settings shows: `root` row → `sidebar` column (`brand` workspace-chrome, `accounts`
-  relevo `{role: "accounts"}`, `sidebar-lists` column with `spaces` space-folders and `agents` relevo-agents,
+  relevo `{role: "accounts"}`, `sidebar-lists` column with `spaces` relevo-spaces and `agents` relevo-agents,
   `sidebar-footer` workspace-chrome `{footer: true}`) and `work` column (`tab-bar` row with `tabs` relevo-tabs,
   `inbox-button` relevo, `issues-button` issues `{button: true}`, `panel-toggle` relevo; `work-body` row with
   `main` and `panel` column: `panel-bar` relevo and `panel-body` stack of `inbox` relevo, `files` relevo-files, `changes`,
@@ -373,7 +380,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   agent's report: `Run: <first line> · +N lines`, `Edit: <file>`, `Fetch: <url>`, `Plan to approve`, its question or
   last words. The Inbox publishes them in shared `relevo.reasons`. A blocked row in the Agents list gets one as an 11px
   second line (44px tall) and the away card uses it. It can be cut, so no answer button ever sits beside it.
-- **mods/relevo-agents**: Herdr's agents list with a 12px folder icon in its sidebar folder's color (space-folders' rules, name on hover), a second 11px line with its PR (`#24 ✓ +12 −3`, from the Inbox's shared `relevo.agentPRs`; a click opens it) and a dim path when the folder isn't the space's name, account and ticket chips (from the `agent.account` and
+- **mods/relevo-agents**: Herdr's agents list with a 12px folder icon in its sidebar folder's color (the Spaces folders' rules, name on hover), a second 11px line with its PR (`#24 ✓ +12 −3`, from the Inbox's shared `relevo.agentPRs`; a click opens it) and a dim path when the folder isn't the space's name, account and ticket chips (from the `agent.account` and
   `agent.jira` labels and the shared `relevo.setup`) and a background marker from `agent.bg` (`⧗2` in `working`
   color, the full "2 shells" in its tooltip).
 - **mods/relevo-files**: Herdr's files tree with a right-click menu (`role: "menu"`), a name dialog for New file,
@@ -384,7 +391,12 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   `relevo-files.event`.
 - **mods/relevo-tabs**: Herdr's tabs 0.1.13 without its memory of the side panel per space, so the panel stays
   open or shut whichever space you go to.
-- **Community mods**: space-folders (jankeesvw, tested at `cb83ff4`) and issues (jankeesvw).
+- **mods/relevo-spaces**: Herdr's spaces 0.1.10 grouped by folder. `folders.js` reads and writes the folders
+  (`~/.config/herdr-space-folders.json` and shared `space-folders`, the format the space-folders mod used, so its
+  folders carry over); `git.js` reads branch, ahead/behind and `git status --porcelain` with optional locks off;
+  `model.js` builds the groups and the order the spaces move to. Git is read again when a place is new, when a
+  command or an agent's turn ends, when the repo's git folder changes and once a minute while the window is in front.
+- **Community mods**: issues (jankeesvw).
 - **herdr**: `agents`, `panes`, `spaces`, `terminals`, `focused`, `layout`, `shared`/`setShared`, `exec`, `run`,
   `notify`, `openOverlay`, `playSound`, `readTextFile`, `writeTextFile`, `watchFolder`, `nextCommand`, `window`; commands `tab.new`, `space.new`,
   `space.close`, `pane.split`, `pane.focus`, `agent.focus`, `layout.select`, `layout.show`, `layout.toggle`.
@@ -400,8 +412,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   undefined names.
 - Herdr can't delete a shared key, only set it to null; don't use shared state for debugging.
 - The diff starts at the first `@@`; the file headers before it are not rows.
-- space-folders' file format is not a contract; Relevo writes `~/.config/herdr-space-folders.json` as of
-  `cb83ff4`. Without space-folders the folders don't appear and the rest works.
+- The folders file keeps the space-folders mod's format (`list`, `of`, `at`), so switching back to that mod keeps them.
 - Quotas need Claude Code's Keychain item per config dir (`Claude Code-credentials-<sha256(dir)[0:8]>`); an
   expired token is skipped, never refreshed.
 - Plain containers can't be scrolled from code and virtual lists forbid handlers in rows, so while the keyboard

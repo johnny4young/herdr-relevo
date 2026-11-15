@@ -20,7 +20,7 @@ beforeEach(() => {
   base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "relevo-install-")));
   source = path.join(base, "src"); root = path.join(base, "app"); lines = [];
   fs.mkdirSync(root);
-  for (const mod of ["relevo", "relevo-agents", "relevo-files", "relevo-tabs"]) {
+  for (const mod of ["relevo", "relevo-agents", "relevo-files", "relevo-spaces", "relevo-tabs"]) {
     put(source, `mods/${mod}/mod.json`, "{}");
     put(source, `mods/${mod}/main.js`, `// ${mod} v1\n`);
   }
@@ -42,8 +42,8 @@ test("a first install writes the files, config.js and the keys of the accounts t
   const manifest = readManifest(root);
   assert.equal(manifest.version, "1.2.3");
   assert.equal("mods/relevo/config.js" in manifest.files, false);
-  assert.equal(Object.keys(manifest.files).length, 11);
-  assert.match(lines.at(-1), /^Installed Relevo 1\.2\.3 in .*: 12 new, 2 keys\.$/);
+  assert.equal(Object.keys(manifest.files).length, 13);
+  assert.match(lines.at(-1), /^Installed Relevo 1\.2\.3 in .*: 14 new, 2 keys\.$/);
 });
 
 test("running it again changes nothing, and a dry run writes nothing at all", () => {
@@ -128,7 +128,7 @@ test("doctor passes a whole install and names what is missing, changed or waitin
   install({ source, root });
   lines = [];
   assert.equal(doctor({ source, root, filesOnly: true, log }).failed, 0);
-  assert.deepEqual(lines, ["ok    11 files of Relevo 1.2.3", "ok    config.js is there", `ok    Runs use ${process.execPath}`]);
+  assert.deepEqual(lines, ["ok    13 files of Relevo 1.2.3", "ok    config.js is there", `ok    Runs use ${process.execPath}`]);
   assert.equal(get("relevo-install/node"), `${process.execPath}\n`);
   fs.rmSync(path.join(root, "mods/relevo/lib/a.js"));
   put(root, "mods/relevo/main.js", "// mine\n");
@@ -154,15 +154,14 @@ test("doctor says when the install lags this checkout at the same version", () =
   assert.ok(!lines.some((l) => l.includes("behind")));
 });
 
-test("doctor checks the programs, the two community mods and the keys", () => {
+test("doctor checks the programs, the community mod and the keys", () => {
   install({ source, root });
   const bin = path.join(base, "bin"); fs.mkdirSync(bin);
   for (const name of ["git", "hc", "jq", "claude"]) fs.writeFileSync(path.join(bin, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   fs.mkdirSync(path.join(root, "mods/issues"));
   fs.writeFileSync(path.join(root, "keys.json"), "{}");
   const result = doctor({ source, root, env: { PATH: bin, HOME: base }, log });
-  assert.equal(result.failed, 2);
-  assert.ok(lines.includes("FAIL  mod space-folders is missing: install it from herdr.dev"));
+  assert.equal(result.failed, 1);
   assert.ok(lines.includes("FAIL  gh is not on PATH"));
   assert.ok(lines.includes("ok    mod issues") && lines.includes("ok    claude") && lines.includes("ok    hc"));
   assert.ok(lines.some((l) => /^warn  2 of Relevo's keys are not in keys\.json \(relevo\.next-waiting, relevo\.launch-personal\)/.test(l)));
@@ -175,7 +174,7 @@ test("uninstall removes what it installed, keeps what the person changed and the
   uninstall({ root, dry: true });
   assert.equal(has("mods/relevo-agents/main.js"), true);
   const { removed, kept } = uninstall({ root, log });
-  assert.deepEqual({ removed, kept }, { removed: 10, kept: 1 });
+  assert.deepEqual({ removed, kept }, { removed: 12, kept: 1 });
   assert.equal(has("mods/relevo-agents"), false);
   assert.equal(get("mods/relevo/main.js"), "// mine\n");
   assert.equal(has("mods/relevo/config.js") && has("mods/relevo/icons/me.png") && has("keys.json"), true);
