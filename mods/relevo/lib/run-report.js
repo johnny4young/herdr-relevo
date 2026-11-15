@@ -1,6 +1,8 @@
 // What a run's agent reports beyond its status and summary: details, a reviewer's findings by level, what it
 // could not prove or run, and how the work is going while it lasts. Agents write it, so every field is cleaned.
 export const LEVELS = ['blocker', 'major', 'minor'];
+// An attempt's time limit when its task names none.
+export const DEFAULT_MAX_MINUTES = 20;
 const LINE = 400, ITEMS = 30, STATUS_LINE = 60;
 
 const line = (value, max = LINE) => (typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, max) : '');
