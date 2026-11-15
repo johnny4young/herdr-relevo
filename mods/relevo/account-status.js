@@ -21,10 +21,15 @@ export function openAccountStatus() {
 export class AccountStatus extends Sidebar {
   init(_props, cx) {
     this.detail = _props?.detail === true;
-    if (!this.detail) return super.init(_props, cx);
+    if (!this.detail) {
+      super.init(_props, cx);
+      // A stale item shows its reading's age, which keeps changing while the reading doesn't.
+      if (!this.syntheticPreview) cx.timer.every(60000, (cx) => cx.notify());
+      return;
+    }
     this.quota = {};
     this.h = cx.focus_handle();
-    grabFocus(this.h, cx);
+    grabFocus(this.h, cx, () => !this.gone);
     this.load(cx);
     // Redrawn even when nothing changed, so the age of the reading keeps counting.
     cx.timer.every(30000, (cx) => {
@@ -100,6 +105,7 @@ export class AccountStatus extends Sidebar {
   }
 
   dismiss() {
+    this.gone = true;
     const overlay = props()?.overlay;
     if (overlay) closeOverlay(overlay);
   }

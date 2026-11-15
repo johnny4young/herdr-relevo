@@ -93,7 +93,7 @@ task to another account.
   dir, colors), Codex's launcher, contexts (label, account, orgs), fallback order, repos root and skills; Save.
 - **Week dialog** (720×460): `Agent time · week of <date>` with ‹ › and **Copy**, a table of tickets × Mon–Sun
   plus total, today's column in the accent color.
-- **Handoff popup** (340px): "Continue <tab> with…", then one 46px row per other account, Codex included: a number
+- **Handoff popup** (340px): "Continue <tab> with…", then one 46px row per account, Codex included: a number
   keycap, the chip, the label over a thin band of its tightest window, and on the right "88% room" (100 minus that
   window) over how the work continues: "same conversation" between Claude accounts, "from a note" to or from Codex.
   A full account is dimmed, says "full · resets 23:00", has no number and can't be picked; the account being left is

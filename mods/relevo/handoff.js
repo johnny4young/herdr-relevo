@@ -117,7 +117,7 @@ export class Handoff {
   init(_props, cx) {
     this.quotas = null;
     this.h = cx.focus_handle();
-    grabFocus(this.h, cx);
+    grabFocus(this.h, cx, () => !this.gone);
     cx.spawn(async (cx) => {
       this.quotas = await loadClaudeQuotas();
       cx.notify();
@@ -153,6 +153,7 @@ export class Handoff {
         const before = new Set(agents().map((a) => a.address));
         run("tab.new", { space: p.space, folder: p.cwd, name: tab, argv });
         const next = await started(before, p.space, tab, cx);
+        this.gone = true;
         closeOverlay(p.overlay);
         if (!next) notify({ title: `${label} hasn't reported yet`, body: `Check its tab, ${tab}.`, level: "warning" });
         else if (hasHelpers(p.terminal)) notify({ title: `Continued on ${label}`, body: "The previous agent's helpers keep running.", level: "warning" });
@@ -171,7 +172,8 @@ export class Handoff {
       const how = leaving ? null : plan(acct.key).mode === "resume" ? "same conversation" : "from a note";
       return { acct, q, leaving, isFull: Boolean(full(q)), how };
     });
-    const open = list.filter((r) => !r.leaving && !r.isFull).map((r, i) => ({ ...r, n: i + 1 }));
+    // Until the readings arrive no row is known to have room, so none is numbered or pickable.
+    const open = list.filter((r) => !r.leaving && !r.isFull).map((r, i) => ({ ...r, n: this.quotas ? i + 1 : null }));
     return [...open, ...list.filter((r) => !r.leaving && r.isFull), ...list.filter((r) => r.leaving)];
   }
 
@@ -183,12 +185,16 @@ export class Handoff {
   }
 
   row(t, { acct, q, leaving, isFull, how, n }) {
-    const w = tightestWindow(q), room = marginOf(q), reset = resetClock(w), off = leaving || isFull;
+    const w = tightestWindow(q), room = marginOf(q), off = leaving || isFull;
+    // A full account is back only when the last of its full windows resets.
+    const back = [q?.h5, q?.d7].filter((x) => x?.pct >= 100).sort((a, b) => (b.resets ?? 0) - (a.resets ?? 0))[0];
+    const reset = resetClock(back);
     const right = isFull ? `full${reset ? ` · resets ${reset}` : ""}` : room == null ? "no data" : `${room}% room`;
+    const then = leaving ? "This is the one you leave" : isFull ? "Can't be picked until it resets" : `Continues ${how}`;
     return h_flex().id(`handoff-row-${acct.key}`).h(46).px(8).gap(8).items_center().rounded(6)
-      .accessibility_label(`${acct.label}. ${this.quotas ? right : "reading usage"}. ${leaving ? "This is the one you leave" : `Continues ${how}`}`)
+      .accessibility_label(`${acct.label}. ${this.quotas ? right : "reading usage"}. ${then}`)
       .when(off, (el) => el.opacity(0.55))
-      .when(!off, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.go(acct.key, cx)))
+      .when(!off && Boolean(this.quotas), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.go(acct.key, cx)))
       .child(h_flex().w(17).flex_none().when(n <= 9, (el) => el.child(keycap(t, String(n)))))
       .child(chip(div, acct))
       .child(v_flex().flex_1().min_w(0).gap(5)

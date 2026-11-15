@@ -192,6 +192,25 @@ test("number keys pick the numbered rows only, and a full account has no number"
   assert.deepEqual(picked, [CODEX.key]);
 });
 
+test("before the readings arrive no row is numbered or pickable", () => {
+  fake.props = PROPS;
+  const part = new Handoff(), picked = [];
+  part.go = (key) => picked.push(key);
+  find(part.render(), "handoff").handlers.on_key_down({ key: "1", modifiers: {} }, fakeCx());
+  assert.deepEqual(picked, []);
+  assert.equal(row(part, TO).handlers.on_click, undefined);
+  assert.doesNotMatch(text(row(part, TO)), /^1 /);
+});
+
+test("a full account says when its last full window resets", () => {
+  fake.props = PROPS;
+  const now = Date.now() / 1000, h5 = { pct: 100, resets: now + 3600 }, d7 = { pct: 100, resets: now + 3 * 86400 };
+  const part = new Handoff();
+  part.quotas = { [TO.key]: { h5, d7 } };
+  assert.match(text(row(part, TO)), new RegExp(`full · resets ${resetClock(d7)}`));
+  assert.match(row(part, TO).accessibleLabel, /Can't be picked until it resets/);
+});
+
 test("the popup is tall enough for every account, the one being left included", () => {
   fake.agents = [agent("t1")];
   fake.terminals = [{ address: "t1", labels: { "agent.account": FROM.key } }];

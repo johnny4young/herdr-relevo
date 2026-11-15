@@ -273,3 +273,11 @@ test('one summary per account: freshness, the tightest window and whether to war
   assert.deepEqual([old.freshness, old.stale, old.warn], ['stale', true, false]);
   assert.deepEqual(quotaSummary(null, now), { freshness: 'unknown', known: false, stale: false, window: null, pct: undefined, warn: false });
 });
+
+test('the status item is redrawn while its reading stays the same, so a stale age keeps counting', () => {
+  const view = new AccountStatus(), cx = fakeCx();
+  view.init({}, cx);
+  cx.notified = 0;
+  cx.fire(60000);
+  assert.equal(cx.notified, 1);
+});
