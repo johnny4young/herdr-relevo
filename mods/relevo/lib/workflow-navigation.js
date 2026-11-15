@@ -10,6 +10,16 @@ export const workflowItems = (tasks, bucket) => {
   return bucket === "Needs me" ? items.sort((a, b) => Number(b.state === "needs_you") - Number(a.state === "needs_you")) : items;
 };
 
+// A decision is only for the revision on screen, and only while that task still waits.
+export function decideGuard(task, tasks) {
+  const current = (tasks ?? []).find((item) => item.id === task.id);
+  return task.state === "needs_you" && Boolean(current) && current.revision === task.revision && current.state === "needs_you";
+}
+export const decidePayload = (task, outcome, text = "") => ({ action: "decide", taskId: task.id, outcome, text, revision: task.revision ?? "" });
+// A arms the acceptance of one revision; Enter confirms it only while it is still that revision.
+export const armAccept = (task) => ({ id: task.id, revision: task.revision });
+export const acceptArmed = (intent, task) => intent?.id === task.id && intent.revision === task.revision;
+
 export function workflowCheckSummary(task) {
   const results = Array.isArray(task.checksResult) ? task.checksResult : [];
   const latest = Array.isArray(task.attempts) ? task.attempts.at(-1) : null;

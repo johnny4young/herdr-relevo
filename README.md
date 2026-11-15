@@ -13,10 +13,14 @@ alerts when a PR's CI or reviews change, and a ledger of agent time per ticket.
 
 The panel has two views. **Reviews** is the Inbox described below. **Runs** is for work you hand off: one agent writes it, your tests run, a second agent reviews it, and the result waits for your decision.
 
-1. **+ Run** takes a prompt. Its first line names the run.
+1. **New run** (`n`) takes a prompt. Its first line names the run.
 2. Pick the repository, the tests (none, `npm test` or your own commands), who writes it and who reviews it. Accounts at 100% are skipped.
 3. **Start**. By default the run gets its own worktree, `run/<slug>` under `~/.herdr/worktrees/<repo>/`, and both agents open there in two tabs. **Existing sessions** uses agents you already have open in the repository instead.
-4. The result appears under **Needs me** with its agents, attempt, tests, verdict and age, for example "attempt 1 of 2 · tests 1 of 1 passed". Open it to read the summary, the diff and the evidence, then accept (**A**, then Enter), ask for changes (**R**) or defer. A run the agents could not finish shows as **Stuck**; **See why** opens the run to its findings.
+4. The result appears under **Needs me**, in Reviews with its agents, attempt, tests, verdict and age, and in Runs on its run. Open it to read the writer's summary and who did what, then accept (**A**, then Enter), ask for changes (**R**) or see the diff (**D**). A run the agents could not finish shows as **Stuck**; **See why** opens it on the reviewer's finding.
+
+**Runs at a glance.** Each run is one row that answers three questions: what it is, what it is doing or wants **Now** ("3 results wait for your review", "stuck: the reviewer rejected it twice", "an agent is writing …", "needs a plan before agents start") and what it **Shipped** ("2 pull requests merged: #38, #42", "nothing yet"). Runs are grouped Needs me, In flight, Ready and Not started, with the counts as a legend and one action at the edge: **Review 3**, **See why**, **Open** or **Plan**. Closed runs fold under "N older finished runs", and **Saved setups** opens your saved repository and agent choices.
+
+**A run opens in the panel.** Enter or a click shows its tasks under Needs me, Stuck and In flight, with the ones not started or done folded. A stuck task, selected, says **Why** in the reviewer's words and offers **Prepare a follow-up**. Enter on a task shows the summary, each step with its check (who wrote it, the tests, who reviewed it, then you) and the decision, with one line on what accepting does. Esc goes back a level. The separate run window is for planning (prompt, repository, agents, plan) and for the deep views a task links to: **See the diff** opens its result and diff, **More** its full report, evidence and activity, where you can also defer or add a note.
 
 **What accepting does.** In a worktree run, acceptance commits exactly the tree the reviewer saw to the run branch, without running hooks. Anything changed after the review stays uncommitted. From there the run offers **Open draft PR** (pushes the branch and runs `gh pr create --draft`) and **Remove worktree**, which keeps a branch that has commits. A cancelled run offers **Discard worktree**. Accepting never approves, merges or pushes anything by itself.
 
@@ -30,7 +34,7 @@ The panel has two views. **Reviews** is the Inbox described below. **Runs** is f
 
 **More than one result.** **Review a batch** previews and accepts several results of one repository at once. **History** keeps finished tasks; **Archive older than 7 days** moves the ones the run no longer needs to `relevo-workflow/archive/`.
 
-**Keys.** Click the panel heading to focus the queue: **↑/↓** or **j/k** select, **Enter** runs the row's action, **n** starts a new run, **G** goes to the next run, **F** shows one run or all, **W** opens the run, **E** opens its details, **R** opens review where there is one, **?** lists every shortcut. In the run: **1–5** switch views, **N** starts a task, **P** opens the plan, and Command-Enter submits the prompt or a change request.
+**Keys.** In Runs: **j/k** or **↑/↓** select, **Enter** opens the run or the task, **Esc** goes back, **N** starts a run, **G** goes to the next run, **W** opens the run window, **E** opens the run's details, **?** lists every shortcut. On a task: **A** then **Enter** accepts, **R** asks for changes (Command-Enter sends them), **D** opens the diff. In the run window: **1–5** switch views, **N** starts a task, **P** opens the plan, and Command-Enter submits the prompt or a change request.
 
 A run can also carry a plan of steps, an owner and a priority, and group the PRs and local changes that belong to it. See [how the coordinator works and its limits](docs/proposals/workflow-runtime.md), the [keyboard guide](docs/proposals/goal-ux.md) and [installation and rollback](docs/proposals/decision-inbox.md).
 

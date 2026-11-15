@@ -33,6 +33,7 @@ import { AwayViews } from "./inbox-away.js";
 import { DesktopViews } from "./inbox-desktop.js";
 import { LandViews, LANDING } from "./inbox-land.js";
 import { NowViews, NOW_SECTIONS, MAINTENANCE_SECTIONS } from "./inbox-now.js";
+import { RunViews } from "./inbox-runs.js";
 import { isSettled } from "./lib/desktop.js";
 
 // How long a send waits for its dialog to go, in 250 ms reads.
@@ -115,6 +116,7 @@ export class Inbox {
     this.labelling = {};
     this.terms = new Map();
     this.startGoals(cx);
+    this.startRuns();
     this.startLive(cx);
     this.scanLocal(cx);
     this.loadAddressed(cx);
@@ -357,6 +359,7 @@ export class Inbox {
   close() {
     if (this.preview) return this.preview.close();
     this.reply.release();
+    this.runChange?.release();
     this.shortcutHelp?.close();
     this.wanted.clear();
   }
@@ -681,10 +684,13 @@ export class Inbox {
     this.refreshGoals(cx);
     const goalMode = shared(GOAL_MODE) === true;
     this.goalProjection = this.projectGoals(v);
-    const reviewView = goalMode ? null : this.reviewView();
+    const runs = goalMode ? this.syncRun() : [];
+    if (goalMode) this.followUpTaken(cx);
+    const reviewView = goalMode ? null : this.reviewView(), runOpen = goalMode && Boolean(this.goalProjection.scope);
+    const [runLeft, runRight] = goalMode ? this.runsHeader(t) : [[], []];
     const counts = this.nowCounts(entries), upkeep = goalMode ? null : this.maintenanceModel(v);
     const shownNow = this.filterNow(entries);
-    this.nav = goalMode ? this.goalNav(this.goalProjection.ordered) : reviewView === "now" ? this.nowNav(shownNow) : this.maintenanceNav(v, upkeep);
+    this.nav = goalMode ? this.runNav(runs) : reviewView === "now" ? this.nowNav(shownNow) : this.maintenanceNav(v, upkeep);
     this.keyboard = this.h.is_focused();
     if (this.sel && !this.nav.some((i) => i.id === this.sel)) this.sel = null;
     const view = goalMode ? this.goalViewport() : this.viewport(reviewView === "now" ? NOW_SECTIONS : MAINTENANCE_SECTIONS);
@@ -705,21 +711,21 @@ export class Inbox {
       .tab_index(0).role("group").accessibility_label(`${goalMode ? "Runs" : "Reviews"}. Arrow keys select work; Enter opens its primary action. Tab moves through controls.`)
       .on_key_down((e, cx) => this.navKey(e, cx))
       .child(h_flex().h(38).flex_none().px(8).gap(6).items_center()
-        .when(goalMode, (el) => el.child(this.goalNewButton(t)))
+        .when(goalMode, (el) => el.children([...runLeft, ...runRight]))
         .when(!goalMode, (el) => el
           .child(this.viewTab(t, "now", "Now", counts.me + counts.flight + counts.ready, "What needs you, what is in flight and what is ready"))
-          .child(this.viewTab(t, "maintenance", "Maintenance", upkeep.count, "What can wait: old PRs, worktrees, what you marked addressed")))
-        .child(div().flex_1())
-        .child(button(t, "inbox-focus-list", [icon("down")], () => this.h.focus(), { size: "sm", accessibleLabel: "Focus work queue", tip: "Focus the queue: arrow keys select, Enter opens" }))
+          .child(this.viewTab(t, "maintenance", "Maintenance", upkeep.count, "What can wait: old PRs, worktrees, what you marked addressed"))
+          .child(div().flex_1()))
+        .when(!runOpen, (el) => el.child(button(t, "inbox-focus-list", [icon("down")], () => this.h.focus(), { size: "sm", accessibleLabel: "Focus work queue", tip: "Focus the queue: arrow keys select, Enter opens" })))
         .child(button(t, "goal-key-help", "?", (cx) => {
           this.goalHelp = !this.goalHelp;
           if (this.goalHelp) this.shortcutHelp.focus();
           else this.h.focus();
           cx.notify();
         }, { size: "sm", tip: "Search keyboard shortcuts", accessibleLabel: "Keyboard help" }))
-        .child(button(t, "inbox-refresh", !this.prsAt && this.scanningPRs ? [spinner(t.dim, 10)] : [icon("refresh")], (cx) => {
+        .when(!runOpen, (el) => el.child(button(t, "inbox-refresh", !this.prsAt && this.scanningPRs ? [spinner(t.dim, 10)] : [icon("refresh")], (cx) => {
           this.scanLocal(cx); this.scanPRs(cx); this.scanTrees(cx, true); this.loadGoals(cx);
-        }, { size: "sm", accessibleLabel: "Refresh work", tip: `Refresh · ${this.prsAt ? `PRs ${ago(this.prsAt)}` : this.scanningPRs ? "PRs loading" : "PRs unavailable"}${this.error ? ` · ${this.error}` : ""}` })))
+        }, { size: "sm", accessibleLabel: "Refresh work", tip: `Refresh · ${this.prsAt ? `PRs ${ago(this.prsAt)}` : this.scanningPRs ? "PRs loading" : "PRs unavailable"}${this.error ? ` · ${this.error}` : ""}` }))))
       .when(reviewView === "now" && (this.filtering || Boolean(this.filterField.value())), (el) => el.child(h_flex().id("inbox-filter").h(30).flex_none().mx(8).mt(4).px(8).gap(6)
         .items_center().rounded(6).border_1().border_color(this.filtering ? t.accent : t.border).bg(t.background)
         .child(icon("search", t.dim)).child(div().flex_1().min_w(0).child(Input.new(this.filterField).h_full()))))
@@ -730,6 +736,7 @@ export class Inbox {
       .when(reviewView === "now", (el) => el.child(h_flex().flex_none().pr(12).items_center().border_b(1).border_color(t.border)
         .child(div().flex_1().min_w(0).child(this.nowLegend(t, counts)))
         .when(Boolean(this.prsAt), (row) => row.child(div().id("read-age").flex_none().text_size(11).text_color(t.dim).child(`read ${ago(this.prsAt)}`)))))
+      .when(goalMode && !runOpen, (el) => el.child(div().flex_none().border_b(1).border_color(t.border).child(this.runsLegend(t, runs))))
       .when(reviewView === "maintenance", (el) => el.child(h_flex().flex_none().border_b(1).border_color(t.border).child(this.maintenanceLegend(t, upkeep))))
       .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().px(4).py(6).gap(2)
         .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
@@ -737,11 +744,11 @@ export class Inbox {
         .when(!goalMode && Boolean(this.workflowError), (el) => el.child(div().id("workflow-error").p(8).text_size(11).text_color(t.blocked).child(this.workflowError)))
         .when(reviewView === "now" && !entries.length && !this.digest && !this.error && Boolean(this.prsAt), (el) => el.child(this.emptyNow(t)))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
-        .children(goalMode ? this.goalsGroup(t) : [])
+        .children(goalMode ? this.runsBody(t, runs) : [])
         .children(reviewView === "now" ? [...part("away", this.awayGroup(t)), ...this.nowGroups(t, shownNow, part)] : [])
         .children(reviewView === "maintenance" ? this.maintenanceGroups(t, v, part, upkeep) : []))
       .when(Boolean(bulk), (el) => el.child(bulk))
-      .when(!bulk, (el) => el.child(this.listKeys(t, reviewView ?? "runs")));
+      .when(!bulk, (el) => el.child(goalMode ? this.runsKeys(t) : this.listKeys(t, reviewView)));
   }
 
   // The keys that work in the list on screen, at its foot, as the ? sheet tags them; a bulk bar takes its place while rows are marked.
@@ -758,7 +765,7 @@ export class Inbox {
 }
 
 
-for (const views of [PrViews, TreeViews, BranchViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews, GoalViews, NowViews]) {
+for (const views of [PrViews, TreeViews, BranchViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews, GoalViews, NowViews, RunViews]) {
   for (const name of Object.getOwnPropertyNames(views.prototype)) {
     if (name !== "constructor") Inbox.prototype[name] = views.prototype[name];
   }

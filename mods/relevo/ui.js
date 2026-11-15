@@ -114,8 +114,9 @@ export const TURN_LABEL = { me: "Needs me", flight: "In flight", ready: "Ready",
 // A row the person must act on is tinted; selection is a full outline, never a leading strip.
 export const meTint = (t) => `${t.blocked}12`;
 
-// lane · body (kind, what, why) · edge (age, the one action). `below` holds the selected row's extra lines.
-export function row(t, id, { turn = "open", kind = null, title, reason = null, sub = null, age = null, action = null,
+// lane · body (kind, what, why) · edge (age, the one action). `lines` always show under the title;
+// `below` holds the selected row's extra lines.
+export function row(t, id, { turn = "open", kind = null, title, reason = null, sub = null, lines = null, age = null, action = null,
   selected = false, onSelect = null, below = null, tip = null } = {}) {
   const hot = turn === "me" || turn === "stuck";
   return v_flex().id(id).flex_none().rounded(6).border_1().border_color(selected ? t.accent : `${t.accent}00`)
@@ -130,7 +131,8 @@ export function row(t, id, { turn = "open", kind = null, title, reason = null, s
           .child(div().min_w(0).truncate().font_semibold().text_size(13).child(title))
           .when(Boolean(reason), (el) => el.child(div().flex_1().min_w(0).truncate().text_size(13)
             .text_color(hot ? t.blocked : t.muted).child(reason))))
-        .when(Boolean(sub), (el) => el.child(h_flex().pl(19).gap(7).items_center().min_w(0).text_size(11).text_color(t.muted).child(sub))))
+        .when(Boolean(sub), (el) => el.child(h_flex().pl(19).gap(7).items_center().min_w(0).text_size(11).text_color(t.muted).child(sub)))
+        .when(Boolean(lines), (el) => el.children(lines)))
       .when(age != null, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(age)))
       .when(Boolean(action), (el) => el.child(action)))
     .when(Boolean(below), (el) => el.child(v_flex().pl(LANE + 19).pr(8).pb(8).gap(5).children(below)));

@@ -1,7 +1,6 @@
 import { run, exec, focused, shared, setShared, theme } from "herdr";
 import { NOW_SECTIONS } from "./inbox-now.js";
 import { GOAL_MODE } from "./inbox-goals.js";
-import { openGoal } from "./goals-editor.js";
 import { pickAccount } from "./accounts.js";
 import { launchSkill } from "./skills.js";
 import { showPanel } from "./toolbar.js";
@@ -103,6 +102,13 @@ export class KeyNav {
       cx.stop_propagation();
       return cx.notify();
     }
+    // The change request owns the keys while it is typed; Esc drops it.
+    if (this.runChangeFor && shared(GOAL_MODE) === true) {
+      if (e.key !== "escape") return;
+      this.cancelRunChanges();
+      cx.stop_propagation();
+      return cx.notify();
+    }
     // A focused button/input owns its keys. Never run a selected card's action
     // as a side effect of activating a descendant control with Enter.
     if (!this.h.is_focused()) return;
@@ -128,8 +134,8 @@ export class KeyNav {
       this.lastMark = null;
     } else if (key === "/" && reviews && this.reviewView() === "now") {
       this.openFilter(cx);
-    } else if (key === "n" && !reviews) {
-      openGoal();
+    } else if (!reviews && this.runKey?.(e, cx)) {
+      // The open run or task took the key.
     } else if (this.goalAction?.(key, cx)) {
       // These commands only apply while the queue itself has keyboard focus.
     } else if (reviews && this.reviewView() === "maintenance" && this.maintenanceKey(e, cx)) {
