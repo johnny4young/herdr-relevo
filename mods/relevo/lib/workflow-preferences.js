@@ -99,7 +99,7 @@ export function decisionBatch(tasks, ids, outcome, revisions = {}) {
     if (!expected || expected !== task.revision) throw new TypeError("Selected task is stale");
   }
   return selected.map((task) => ({ taskId: task.id, title: task.title ?? "", outcome,
-    nextEffect: outcome === "accept" ? "Accept result and unblock dependent tasks" : outcome === "changes" ? "Send requested corrections to the executor" : "Pause for later" }));
+    nextEffect: outcome === "accept" ? "Accept result and unblock dependent tasks" : outcome === "changes" ? "Send the changes you asked for to the writer" : "Pause for later" }));
 }
 
 const SKILL_ID = /^[a-z0-9](?:[a-z0-9_-]{0,63})$/;

@@ -129,9 +129,9 @@ test('workflow projection retains progress and duplicate diagnostics while the q
   assert.equal(detail.tip, text(detail));
   assert.ok(actionRow.items.some((child) => child.key === 'goal-next-copy-g'));
   assert.ok(actionRow.items.some((child) => child.key === 'goal-workflow-g'));
-  assert.match(card, /Needs attention|Status unavailable/);
-  assert.match(card, /Plan agent work|Resolve blocker/);
-  assert.doesNotMatch(card, /2\/3 complete|need attention|3 open tasks|Accepted in Workflow|Blocked · Handle errors|Validated by you|Multiple active workflow tasks|Outcomes/);
+  assert.match(card, /Stuck|Status unavailable/);
+  assert.match(card, /Plan agent work|See why/);
+  assert.doesNotMatch(card, /2\/3 complete|need attention|3 open tasks|Accepted in Workflow| · Handle errors|Validated by you|Multiple active workflow tasks|Outcomes/);
   assert.equal(JSON.stringify(v.goalDoc), before);
 });
 
@@ -144,10 +144,10 @@ test('Run card uses live blocker state and keeps saved acceptance details in Edi
   ];
   const before = JSON.stringify(v.goalDoc);
   const tree = v.render(cx), card = find(tree, 'goal-g');
-  assert.match(text(card), /Needs attention/);
+  assert.match(text(card), /Stuck/);
   assert.match(text(card), /Repair handoff/);
   assert.doesNotMatch(text(card), /Accept the old result|Old recommendation/);
-  assert.equal(text(find(card, 'goal-workflow-g')), 'Resolve blocker');
+  assert.equal(text(find(card, 'goal-workflow-g')), 'See why');
   v.sel = 'goal-g'; const sent = fake.execs.length;
   v.navKey({ key: 'enter' }, cx);
   assert.equal(fake.runs.findLast(([name]) => name === 'pane.split')[1].props.role, 'workflow');
@@ -164,7 +164,7 @@ test('unavailable workflow state never renders stale results as actionable accep
   v.workflowError = 'Cannot read state';
   const card = find(v.render(cx), 'goal-g');
   assert.match(text(card), /Status unavailable/);
-  assert.doesNotMatch(text(card), /Ready for your review|Old result/);
+  assert.doesNotMatch(text(card), /Needs me|Old result/);
   assert.equal(text(find(card, 'goal-workflow-g')), 'Open run');
 });
 
