@@ -9,6 +9,27 @@ alerts when a PR's CI or reviews change, and a ledger of agent time per ticket.
 
 *The preview and screenshots are mockups with demo data, drawn to match the layout.*
 
+## Whose turn is it?
+
+Relevo answers one question across every agent, run and pull request: **whose turn is it?**
+
+- **Needs me**: an agent asked, a result or decision waits, someone asked for your review, your PR is failing.
+- **In flight**: agents are working, CI is running, a merge is landing. Nothing to do.
+- **Ready**: one key from done: land the PR, open the Desktop session.
+- **Maintenance**: everything that can wait: merged worktrees, old PRs, stale branches, agent time.
+
+Every row reads the same way, left to right:
+
+| lane | body | edge |
+|---|---|---|
+| who holds it (● needs me · spinner in flight · ✓ ready) | what it is and the one reason it is here | its age and the one action |
+
+Select a row for the rest: its checks, its files, its run, and every other action with its key. `j`/`k` move,
+Enter runs the main action, `1`–`9` answer an agent, `x` selects in Maintenance, `?` lists every key. Relevo is
+Spanish for relay: the work passes between you and your agents, and the list always says who is holding it.
+
+![How to read Relevo: a row, a run, the three levels, ten keys and the symbols](screenshots/how-to-read.png)
+
 ## Runs: hand a task to two agents
 
 The panel has two views. **Reviews** is the Inbox described below. **Runs** is for work you hand off: one agent writes it, your tests run, a second agent reviews it, and the result waits for your decision.
