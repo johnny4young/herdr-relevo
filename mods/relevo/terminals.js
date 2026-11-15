@@ -13,6 +13,11 @@ const READ_EVERY_MS = 10000;
 
 // Herdr has no restart: end it, remove it so its name is free, and start the same command in the same folder.
 export async function restartTerminal(r) {
+  // A tab's command runs again in its own shell: stopped first if it still runs.
+  if (r.rerun) {
+    if (r.state === "running") await exec("hc", ["interrupt", r.address]);
+    return exec("hc", ["send", r.address, r.rerun.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replaceAll("'", "'\\''")}'`)).join(" ")]);
+  }
   if (r.live) await exec("hc", ["kill", r.address]);
   await exec("hc", ["rm", r.address]);
   const named = r.name ? ["--name", r.name] : [];
@@ -101,7 +106,7 @@ export class Terminals {
       { id: "open", key: "enter", label: r.background ? "Show" : "Open", run: () => this.open(r), when: r.live || Boolean(r.pane), main: true },
       { id: "peek", key: "p", label: "Peek", run: () => run("terminal.peek", { terminal: r.address }), when: r.live },
       { id: "web", key: "w", label: `Open :${port}`, run: () => exec("open", [`http://localhost:${port}`]), when: Boolean(port) },
-      { id: "restart", key: "r", label: "Restart", run: (cx) => cx.spawn(async () => this.restart(r)), when: r.canRestart },
+      { id: "restart", key: "r", label: r.ended ? "Run again" : "Restart", run: (cx) => cx.spawn(async () => this.restart(r)), when: r.canRestart },
       { id: "stop", key: "s", label: "Stop", run: () => exec("hc", ["interrupt", r.address]), when: r.canStop },
       { id: "park", key: "b", label: "To background", run: () => run("terminal.park", { terminal: r.address }), when: r.live && !r.background },
       { id: "close", key: "x", label: armed ? "Close it" : "Close", run: (cx) => this.close(r, cx), when: true, kind: armed ? "go" : "outline" },
@@ -160,7 +165,7 @@ export class Terminals {
 
   rowOf(t, r) {
     const sel = this.sel === r.id, ports = this.ports.get(r.address) ?? [], acts = this.actions(r);
-    const reason = r.state === "failed" ? `exited ${r.exit}` : r.state === "done" ? "finished"
+    const reason = r.state === "failed" ? `exited ${r.exit}` : r.state === "done" ? "finished" : r.ended ? "ended"
       : [r.background ? "no pane" : null, r.state === "running" ? null : r.branch ?? (r.cwd ? r.cwd.split("/").pop() : null), r.background ? r.space : null].filter(Boolean).join(" · ") || null;
     const draw = (a) => h_flex().gap(4).items_center().flex_none().child(keycap(t, a.key)).child(button(t, `${r.id}-${a.id}`, a.label, (cx) => { a.run(cx); cx.notify(); },
       { size: "sm", kind: a.kind ?? (a.main ? "solid" : "outline") }));

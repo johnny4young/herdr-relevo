@@ -8,6 +8,11 @@ const isShell = (argv) => SHELLS.has(base(argv?.[0]));
 // "npm run dev", not the full paths of node and vite.js.
 const command = (argv) => (argv ?? []).slice(0, 3).map((a, i) => (i === 0 ? base(a) : a.includes("/") ? base(a) : a)).join(" ");
 
+// A tab started with a command runs it inside a login shell that stays after it: zsh -lic '"$@"; exec "$0" -li' zsh <command…>.
+export function wrappedCommand(argv) {
+  return isShell(argv) && /^-[li]*c$/.test(argv?.[1] ?? "") && /exec "\$0"/.test(argv?.[2] ?? "") ? argv.slice(4) : null;
+}
+
 export function isAgent(k, agentAddresses = new Set()) {
   return agentAddresses.has(k.address) || Boolean(k.program?.agent) || (k.status !== null && typeof k.status === "object" && Boolean(k.status.app));
 }
@@ -15,20 +20,23 @@ export function isAgent(k, agentAddresses = new Set()) {
 // One terminal as a row, or null for an agent. state: running | idle | old | failed | done.
 export function terminalRow(k, { agents = new Set(), panes = [], now = Date.now() } = {}) {
   if (!k?.address || isAgent(k, agents)) return null;
-  const pane = panes.find((p) => p.terminal === k.address) ?? null, shell = isShell(k.argv);
+  const pane = panes.find((p) => p.terminal === k.address) ?? null, shell = isShell(k.argv), wrapped = wrappedCommand(k.argv);
   const fg = k.foreground ?? null, busy = Boolean(fg?.pid) && fg.pid !== k.pid;
   const live = k.state === "live";
   const state = !live ? (shell || k.exit_code === 0 || k.exit_code == null ? "done" : "failed")
     : busy || !shell ? "running" : now - (k.created_ms ?? now) > DAY_MS ? "old" : "idle";
   const [space, tab] = String(k.labels?.where ?? "").split(" / ");
-  const title = k.name && !/^relevo-[0-9a-f]+$/.test(k.name) ? k.name : busy ? command(fg.argv) || base(fg.name) : shell ? base(k.argv[0]) : command(k.argv) || "terminal";
+  const title = k.name && !/^relevo-[0-9a-f]+$/.test(k.name) ? k.name : busy ? command(fg.argv) || base(fg.name)
+    : wrapped?.length ? command(wrapped) : shell ? base(k.argv[0]) : command(k.argv) || "terminal";
   return {
     id: `term-${k.address}`, address: k.address, title, state, live, shell, background: live && !pane,
     pane: pane?.pane ?? null, branch: pane?.branch ?? null, cwd: fg?.cwd ?? k.cwd ?? null, space: space || base(k.cwd) || "Elsewhere", tab: tab ?? null,
     spaceId: k.labels?.["herdr.space"] ?? null, argv: k.argv ?? [], name: k.name ?? null, exit: k.exit_code ?? null,
     pids: [k.pid, fg?.pid].filter(Boolean), at: (live ? k.created_ms : k.finished_ms ?? k.created_ms) ?? now,
-    // Restart re-runs the terminal's own command; a program typed into a shell can only be stopped.
-    canRestart: !shell && (k.argv?.length ?? 0) > 0, canStop: live && shell && busy,
+    // A tab's command ended when its shell is back in front; it runs again in that shell.
+    rerun: live && wrapped?.length ? wrapped : null, ended: live && Boolean(wrapped?.length) && !busy,
+    // Restart re-runs the terminal's own command; a program typed into a plain shell can only be stopped.
+    canRestart: (!shell && (k.argv?.length ?? 0) > 0) || (live && Boolean(wrapped?.length)), canStop: live && shell && busy,
   };
 }
 
