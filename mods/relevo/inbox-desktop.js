@@ -33,7 +33,7 @@ export class DesktopViews {
   // What a Desktop row can do, for its buttons, its keys and its keycaps alike.
   desktopActions(s, settled = false) {
     return {
-      main: { id: `dk-open-${s.id}`, key: "o", label: "Open in Desktop", run: () => openDesktop(s.id), kind: s.state === "blocked" ? "go" : "outline" },
+      main: { id: `dk-open-${s.id}`, key: "o", label: "Open in Claude Desktop", run: () => openDesktop(s.id), kind: s.state === "blocked" ? "go" : "outline" },
       mark: this.markAction(s.id, settled, (on, cx) => this.settleDesktop(s, on, cx), "Addressed: hide until the session does something new",
         { on: "dk-settle", off: "dk-undo" }),
     };
@@ -44,7 +44,8 @@ export class DesktopViews {
     return this.item(t, `dk-${s.id}`, {
       turn: asks ? "me" : "ready", done: settled, kind: "desktop", title: s.project, reason: s.needs || s.detail || (asks ? "asks you" : "ready for review"),
       tip: named, age: ago(s.at, true),
-      lines: [named ? div().id(`dk-says-${s.id}`).truncate().text_size(11).text_color(t.muted).child(named) : null],
+      lines: [named ? div().id(`dk-says-${s.id}`).truncate().text_size(11).text_color(t.muted).child(named) : null,
+        s.said ? div().id(`dk-said-${s.id}`).text_size(11).text_color(t.foreground).child(s.said.length > 320 ? `${s.said.slice(0, 319)}…` : s.said) : null],
       ...this.desktopActions(s, settled),
     });
   }

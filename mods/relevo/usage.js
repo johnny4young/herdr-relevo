@@ -91,7 +91,7 @@ export class UsageDialog {
           .child(div().flex_1().min_w(0).truncate().text_size(13).child(r.where))
           .child(div().flex_none().text_size(11).child(compact(r.write + r.output))))
         .child(div().truncate().text_size(11).text_color(t.dim)
-          .child([r.surface === "desktop" ? "Desktop" : "Terminal", r.subs ? `${r.subs} subagents · ${compact(r.subWrite + r.subOutput)}` : null,
+          .child([r.surface === "desktop" ? "Claude Desktop" : "Terminal", r.subs ? `${r.subs} subagents · ${compact(r.subWrite + r.subOutput)}` : null,
             `${Math.max(1, Math.round(r.took / 60))}m`].filter(Boolean).join(" · ")))));
   }
 
@@ -111,7 +111,7 @@ export class UsageDialog {
   }
 
   sessions(t, list) {
-    const named = { desktop: "Desktop", terminal: "Terminal" };
+    const named = { desktop: "Claude Desktop", terminal: "Terminal" };
     return v_flex()
       .child(title(t, "BIGGEST SESSIONS", "Whole sessions that were active in this range"))
       .children(list.map((x) => v_flex().id(`ss-${x.id}`).py(3).flex_none()
