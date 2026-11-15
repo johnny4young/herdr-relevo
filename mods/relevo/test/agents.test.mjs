@@ -242,6 +242,23 @@ test("Claude Desktop sessions that work, ask or wait for review show under Claud
   assert.equal(find(ui(), "dk-said-local_1"), null, "a second click closes it");
 });
 
+test("Claude in a terminal outside Herdr shows under Elsewhere with its app, and a click offers to show that app", async () => {
+  const now = Date.now() / 1000;
+  fake.stored["relevo.elsewhere"] = [
+    { id: "s-1", project: "app", cwd: "/w/app", app: "Terminal", bundle: "com.apple.Terminal", state: "blocked", at: now, needs: "asks to use Bash", said: "Run the migration?" },
+    { id: "s-2", project: "web", app: "iTerm", state: "idle", at: now },
+  ];
+  const { ui, cx } = await open([]);
+  assert.match(text(find(ui(), "elsewhere")), /^ELSEWHERE 1$/);
+  assert.match(text(find(ui(), "ew-s-1")), /^app asks to use Bash Terminal/);
+  assert.equal(find(ui(), "ew-s-2"), null);
+  find(ui(), "ew-s-1").handlers.on_click({}, cx);
+  assert.match(text(find(ui(), "ew-said-s-1")), /Run the migration/);
+  find(ui(), "ew-open-s-1").handlers.on_click({}, { ...cx, stop_propagation() {} });
+  await flush();
+  assert.equal(fake.execs.at(-1), "open -b com.apple.Terminal");
+});
+
 test("an agent's row says its model, context and how long its cache lasts while it rests", async () => {
   const now = Date.now() / 1000;
   fake.stored["relevo.agentContext"] = { t1: { model: "claude-opus-5-5", context: 273265, ttl: 3600, at: now - 600 } };

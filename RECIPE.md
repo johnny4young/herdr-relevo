@@ -74,7 +74,7 @@ task to another account.
     of M workflows running", "<workflow> failed after the merge" (a needs-me row, **Open run**) or "Landed · worktree
     removed", with **Open PR**, **Cancel** (auto-merge off) and ✓. Done cards go after a day.
   - `IN DESKTOP`: a row per Claude Desktop session that asks something; the ones ready for review fold under "▸ N ready for review": `project
-    · title`, its question or summary, **Open in Desktop** and ✓, which folds it under "▸ N addressed" until it does
+    · title`, its question or summary, its last message when selected, **Open in Claude Desktop** and ✓, which folds it under "▸ N addressed" until it does
     something new.
   - A summary row heads the list: five tiles (need you, reviews and your PRs from the last 45 days, ready, tokens today), the first with a red
     border while something waits; it runs `⌘J`, ready unfolds the ready PRs, today opens Tokens.
@@ -140,8 +140,11 @@ task to another account.
   with CI and size, `Opus 5.5`, a context band and `273k`, `· cache 48m` (`ansi3` under 10 minutes, "cache gone"
   after), machine and folder. Priority groups are **NEEDS ME** (asking, or a result not yet seen, both with the disc and `blocked` text), **IN FLIGHT** and
   **IDLE**, each with its count; IDLE shows three and folds the rest ("4 more idle"). A ✓ on hover settles an idle or
-  done agent under a folded **SETTLED** group; a **DESKTOP** group lists Desktop sessions working, asking or ready for
-  review.
+  done agent under a folded **SETTLED** group; a **CLAUDE DESKTOP** group lists Claude Desktop sessions working, asking or
+  ready for review, and **ELSEWHERE** the Claude Code sessions in terminals outside Herdr (Terminal, iTerm, VS Code,
+  Ghostty…) that the hook noted, with the app's name. Each reads like an agent: what it is doing now ("editing ui.js"),
+  what it asks, or its last words, from the end of its local transcript. A click opens its last message in place, with
+  **Open in Claude Desktop** or **Show <app>**.
 - **Settings dialog** (800×700, the gear beside ACCOUNTS): accounts (chip preview, label, letter, launcher, Claude
   dir, colors), Codex's launcher, contexts (label, account, orgs), fallback order, repos root and skills; Save.
 - **Week dialog** (720×460): `Agent time · week of <date>` with ‹ › and **Copy**, a table of tickets × Mon–Sun
