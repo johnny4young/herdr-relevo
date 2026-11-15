@@ -33,6 +33,9 @@ export class NowViews {
   // Selects a row wherever it lives: the view it is in, with its fold opened.
   reveal(id) {
     const v = this.shown(), t = theme(), entry = this.nowEntries(t, v).find((e) => e.id === id);
+    // Selected first: a folded merged worktree is in sight only once selected.
+    this.sel = id;
+    this.clicked = false;
     if (entry) {
       if (this.reviewView() !== "now") setShared(REVIEW_VIEW, "now");
       if (entry.turn === "open") this.expanded["now-open"] = true;
@@ -41,7 +44,6 @@ export class NowViews {
       this.expanded["maintenance-done"] = this.expanded["maintenance-done"] || !this.maintenanceNav(v).some((n) => n.id === id);
     }
     saveFolds(this.expanded);
-    this.sel = id;
   }
 
   // Everything in Now, in the order to work through it: each entry has its turn, how it draws, and what Enter
@@ -63,7 +65,7 @@ export class NowViews {
       add({ id: `land-${url}`, turn: e.phase === "failed" ? "me" : "flight", draw: () => this.landCard(t, url, e), go: () => exec("open", [e.failed?.url ?? url]) });
     }
     for (const entry of this.openReviews()) add({ id: entry.id, turn: "me", draw: () => this.reviewRow(t, entry), go: entry.go });
-    const prs = [...v.requested.filter(recent).map((pr) => [pr, true]), ...[...v.mine.filter(recent), ...(v.ready ?? [])].map((pr) => [pr, false])];
+    const prs = [...v.requested.filter(recent).map((pr) => [pr, true]), ...[...v.mine, ...(v.ready ?? [])].filter(recent).map((pr) => [pr, false])];
     for (const [pr, requested] of prs) {
       add({ id: `pr-${pr.url}`, turn: prTurnOf(pr, requested), draw: () => this.prCard(t, pr, requested, false, ready.has(pr.url)), go: () => this.runPR(pr) });
     }
@@ -111,8 +113,14 @@ export class NowViews {
   }
 
   // What can wait: PRs past 45 days, worktrees, what you marked addressed, landed PRs and agent time.
+  // [pr, requested] for every PR past 45 days, yours ready to merge included.
+  oldPRs(v) {
+    return [...v.requested.filter((p) => !recent(p)).map((p) => [p, true]),
+      ...[...v.mine, ...(v.ready ?? [])].filter((p) => !recent(p)).map((p) => [p, false])];
+  }
+
   maintenanceGroups(t, v, part) {
-    const old = [...v.requested.filter((p) => !recent(p)).map((p) => [p, true]), ...v.mine.filter((p) => !recent(p)).map((p) => [p, false])];
+    const old = this.oldPRs(v);
     const landed = Object.entries(this.landing()).filter(([, e]) => e.phase === "landed");
     const doneCount = v.localDone.length + v.mineDone.length + v.requestedDone.length + v.desktopDone.length + this.doneReviews().length + landed.length;
     return [
@@ -133,14 +141,13 @@ export class NowViews {
     ].filter(Boolean);
   }
 
+  // Old PRs, merged worktrees and worktrees without a space, as their headers count them.
   maintenanceCount(v) {
-    return v.requested.filter((p) => !recent(p)).length + v.mine.filter((p) => !recent(p)).length
-      + v.worktrees.filter((w) => w.merged).length + this.looseRows(v.worktrees).length;
+    return this.oldPRs(v).length + v.worktrees.filter((w) => w.merged || !w.open).length;
   }
 
   maintenanceNav(v) {
-    const old = [...v.requested.filter((p) => !recent(p)), ...v.mine.filter((p) => !recent(p))]
-      .map((pr) => ({ id: `pr-${pr.url}`, section: "old", go: () => this.runPR(pr) }));
+    const old = this.oldPRs(v).map(([pr]) => ({ id: `pr-${pr.url}`, section: "old", go: () => this.runPR(pr) }));
     const trees = [...v.worktrees.filter((w) => w.merged && this.inSight(w)), ...(this.expanded.loose ? this.looseRows(v.worktrees) : [])]
       .map((w) => ({ id: `wt-${w.path}`, section: "trees", go: () => this.openTree(w) }));
     // Unfolded, what you marked addressed is selectable too, so its Undo can be reached.

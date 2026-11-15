@@ -34,7 +34,7 @@ export class DesktopViews {
   desktopCard(t, s, settled = false) {
     const asks = s.state === "blocked", named = s.title && s.title !== s.project ? s.title : null;
     return this.item(t, `dk-${s.id}`, {
-      turn: asks ? "me" : "ready", kind: "desktop", title: s.project, reason: s.needs || s.detail || (asks ? "asks you" : "ready for review"),
+      turn: asks ? "me" : "ready", done: settled, kind: "desktop", title: s.project, reason: s.needs || s.detail || (asks ? "asks you" : "ready for review"),
       tip: named, age: ago(s.at, true),
       lines: [named ? div().id(`dk-says-${s.id}`).truncate().text_size(11).text_color(t.muted).child(named) : null],
       main: button(t, `dk-open-${s.id}`, "Open in Desktop", () => openDesktop(s.id), { kind: asks ? "go" : "outline" }),

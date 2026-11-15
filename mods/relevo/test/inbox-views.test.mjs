@@ -194,3 +194,51 @@ test("the Reviews badge is the Needs me count, so a quiet or running PR never ra
   ui();
   assert.equal(fake.stored["relevo.inbox.count"], ME.length);
 });
+
+test("the Now tab keeps its count while Maintenance is open", async () => {
+  const { inbox, ui } = await open();
+  everyTurn(inbox);
+  fake.stored[VIEW] = "maintenance";
+  assert.equal(text(find(ui(), "view-now")), `Now ${ME.length + FLIGHT.length + READY.length}`);
+});
+
+test("a PR ready to merge but past 45 days is under OLD, not waiting on others", async () => {
+  const { inbox, ui } = await open();
+  inbox.ready = [pr(14, { updatedAt: OLD })];
+  assert.equal(find(ui(), "now-open"), null);
+  fake.stored[VIEW] = "maintenance";
+  const view = ui();
+  assert.equal(text(find(view, "leg-old")), "OLD 1");
+  assert.equal(text(find(view, "view-maintenance")), "Maintenance 1");
+});
+
+test("the Maintenance count does not change when the recent loose worktrees fold", async () => {
+  const { inbox, ui } = await open();
+  inbox.worktrees = [{ main: "/w/app", path: "/w/a", branch: "a", repo: "app", name: "a", merged: false, open: false, at: Date.now() / 1000 }];
+  inbox.treeStates = new Map([["/w/a", { state: { files: 0, unpushed: 0, unique: 0 } }]]);
+  const before = text(find(ui(), "view-maintenance"));
+  inbox.expanded["loose-recent"] = !inbox.expanded["loose-recent"];
+  assert.equal(text(find(ui(), "view-maintenance")), before);
+});
+
+test("a click selects a row without hiding the rows above it", async () => {
+  const { inbox, cx, ui } = await open();
+  everyTurn(inbox);
+  inbox.h.is_focused = () => true;
+  click(find(ui(), `pr-${url(11)}`), cx);
+  const view = ui();
+  assert.equal(inbox.sel, `pr-${url(11)}`);
+  assert.ok(find(view, "in-t1"));
+  inbox.navKey({ key: "down" }, cx);
+  assert.equal(find(ui(), "in-t1"), null, "the keyboard still scrolls by hiding what is above");
+});
+
+test("revealing a merged worktree leaves the addressed fold closed", async () => {
+  const { inbox, ui } = await open();
+  inbox.worktrees = [{ main: "/w/app", path: "/w/m1", branch: "m1", repo: "app", name: "m1", merged: true, open: false, at: 1 }];
+  inbox.reveal("wt-/w/m1");
+  ui();
+  assert.equal(fake.stored[VIEW], "maintenance");
+  assert.equal(inbox.sel, "wt-/w/m1");
+  assert.ok(!inbox.expanded["maintenance-done"]);
+});

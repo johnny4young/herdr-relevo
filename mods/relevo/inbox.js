@@ -168,9 +168,9 @@ export class Inbox {
     };
   }
 
-  publish(v = this.shown()) {
+  publish(v = this.shown(), entries = this.nowEntries(theme(), v)) {
     // The badge is the Needs me count, so it always matches the legend.
-    const n = this.nowEntries(theme(), v).filter((e) => e.turn === "me").length;
+    const n = entries.filter((e) => e.turn === "me").length;
     if (shared(COUNT) !== n) setShared(COUNT, n);
     this.publishReasons();
     this.publishAgentPRs();
@@ -318,13 +318,14 @@ export class Inbox {
   // An item as one row: its one action at the edge. Selected, it opens in place with its lines and every
   // other action; in flight rows offer nothing until then.
   // `open` keeps its lines in sight unselected; its other actions still wait for the selection.
-  item(t, id, { turn, kind, title, reason = null, age = null, tip = null, lines = [], main = null, actions = [], mark = null, open = false }) {
+  // `done` (marked addressed) waits on nobody, whatever its turn would be.
+  item(t, id, { turn, kind, title, reason = null, age = null, tip = null, lines = [], main = null, actions = [], mark = null, open = false, done = false }) {
     if (this.hiddenIds?.has(id)) return null;
     const sel = this.selected(id);
     const rest = sel ? [...actions.filter((a) => a && a !== main), mark].filter(Boolean) : [];
     const below = sel || open ? [...lines.filter(Boolean), ...(rest.length ? [h_flex().flex_wrap().gap(5).pt(2).children(rest)] : [])] : [];
     return row(t, id, {
-      turn, kind, title, reason, age, tip, selected: sel,
+      turn: done ? "open" : turn, kind, title, reason, age, tip, selected: sel,
       action: turn === "flight" && !sel ? null : main,
       onSelect: (cx) => this.pick(id, cx),
       below: below.length ? below : null,
@@ -334,6 +335,7 @@ export class Inbox {
   // A click opens a row, or closes the one already open; the keyboard follows.
   pick(id, cx) {
     this.sel = this.sel === id ? null : id;
+    this.clicked = true;
     this.h.focus();
     cx.notify();
   }
@@ -422,8 +424,9 @@ export class Inbox {
             this.notes.delete(a.address);
             cx.notify();
           }, { size: "sm", tip: "Drop the note" })) : null,
-        replying ? div().mt(2).h(28).px(8).flex().items_center().rounded(6).border_1()
-          .border_color(t.accent).bg(t.background).child(Input.new(this.reply).h_full()) : null,
+        // A click in the field must not reach the row, which would toggle it and take the focus.
+        replying ? div().id(`reply-field-${a.address}`).mt(2).h(28).px(8).flex().items_center().rounded(6).border_1()
+          .border_color(t.accent).bg(t.background).on_click((_e, cx) => cx.stop_propagation()).child(Input.new(this.reply).h_full()) : null,
       ],
     });
   }
@@ -613,7 +616,7 @@ export class Inbox {
     if (item.kind === "blocked") return this.waitingCard(t, item, goAgent);
     const files = `${item.files} ${item.files === 1 ? "file" : "files"}`, state = a.status === "done" ? "agent finished" : "uncommitted";
     return this.item(t, `in-${a.address}`, {
-      turn: "me", kind: "agent", title: item.repo, reason: `${files} · ${state}`, tip: item.branch || null, age: ago(item.at, true),
+      turn: "me", done: addressed, kind: "agent", title: item.repo, reason: `${files} · ${state}`, tip: item.branch || null, age: ago(item.at, true),
       main: button(t, `review-${a.address}`, "Review", () => openReview(item.top, a.address), {
         kind: "go", tip: withKey("Comment on the diff line by line", "relevo.review"),
       }),
@@ -655,14 +658,13 @@ export class Inbox {
   }
 
   draw(cx) {
-    const t = theme(), v = this.shown();
-    this.publish(v);
+    const t = theme(), v = this.shown(), entries = this.nowEntries(t, v);
+    this.publish(v, entries);
     this.takeFocus(cx);
     this.refreshGoals(cx);
     const goalMode = shared(GOAL_MODE) === true;
     this.goalProjection = this.projectGoals(v);
     const reviewView = goalMode ? null : this.reviewView();
-    const entries = reviewView === "now" ? this.nowEntries(t, v) : [];
     const counts = this.nowCounts(entries);
     this.nav = goalMode ? this.goalNav(this.goalProjection.ordered) : reviewView === "now" ? this.nowNav(entries) : this.maintenanceNav(v);
     this.keyboard = this.h.is_focused();

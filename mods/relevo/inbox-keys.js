@@ -32,11 +32,11 @@ export class KeyNav {
   }
 
   // The list can't be scrolled from code, so while the keyboard moves down it hides what is above
-  // the selection, keeping one item for context.
+  // the selection, keeping one item for context. A click never moves the list under the pointer.
   viewport(sections = NOW_SECTIONS) {
     const none = { hidden: new Set(), sections: new Set(), above: 0 };
     const items = this.nav ?? [], at = items.findIndex((i) => i.id === this.sel);
-    if (!this.keyboard || at < 2) return none;
+    if (!this.keyboard || this.clicked || at < 2) return none;
     const hidden = new Set(items.slice(0, at - 1).map((i) => i.id));
     const mine = sections.indexOf(items[at].section);
     const above = new Set(sections.filter((key, i) => i < mine
@@ -86,6 +86,7 @@ export class KeyNav {
     const at = items.findIndex((i) => i.id === this.sel);
     const held = e.modifiers?.platform || e.modifiers?.control || e.modifiers?.alt;
     if (held) return;
+    this.clicked = false;
     if (this.goalAction?.(e.key, cx)) {
       // These commands only apply while the queue itself has keyboard focus.
     } else if (e.key === "home" || e.key === "end") {

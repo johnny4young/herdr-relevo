@@ -215,7 +215,7 @@ export class GoalViews {
   reviewRow(t, entry, addressed = false) {
     const result = entry.id.startsWith("result-");
     return this.item(t, entry.id, {
-      turn: "me", kind: result ? "relay" : "comment", title: entry.title, reason: result ? "result ready" : "your decision", tip: entry.detail,
+      turn: "me", done: addressed, kind: result ? "relay" : "comment", title: entry.title, reason: result ? "result ready" : "your decision", tip: entry.detail,
       lines: [
         div().text_size(11).text_color(t.muted).truncate().child(entry.detail),
         entry.meta ? div().id(`meta-${entry.id}`).text_size(11).text_color(t.muted).truncate().tooltip(entry.meta).child(entry.meta) : null,

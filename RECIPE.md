@@ -29,7 +29,8 @@ task to another account.
 - **Inbox** (Reviews): a rounded (10px) list with two underlined views, **Now** and **Maintenance**, each with its count,
   then ?, ↻ and the focus button. Now opens with a legend, `● Needs me n · In flight n · Ready n`, and how long ago PRs
   were read; its rows are grouped by whose turn it is: NEEDS ME (agents that ask, failed landings, run results and
-  decisions, review requests, your PRs with failing CI, requested changes or threads, uncommitted agent work), IN
+  decisions, review requests, your PRs with failing or cancelled CI, requested changes, threads, a conflict or a
+  base to catch up with, uncommitted agent work), IN
   FLIGHT (CI running, an agent on the PR, a landing in progress) and READY (only the merge left, Desktop sessions
   ready for review), then "N waiting on others" folded (PRs you already ran a skill on, drafts). The Reviews badge is
   the Needs me count. Maintenance holds what can wait: OLD (PRs past 45 days), the worktree groups, one fold with

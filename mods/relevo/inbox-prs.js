@@ -333,7 +333,7 @@ export class PrViews {
     if (context) actions.push(context);
     const working = agent?.status === "working" || this.backgroundOf(agent) !== null;
     return this.item(t, `pr-${pr.url}`, {
-      turn: prTurn(pr, { requested, seen, busy, ready }), kind: requested ? "review" : "pr",
+      turn: prTurn(pr, { requested, seen, busy, ready }), done: addressed, kind: requested ? "review" : "pr",
       title: prName(pr), reason: prReason(pr, { requested, ready }), tip: pr.title,
       age: ago(seconds(pr.updatedAt), true),
       lines: this.prLines(t, pr, l && (seen || busy)
