@@ -4,8 +4,9 @@ import { agents, exec, run } from "herdr";
 import { button, pill } from "./ui.js";
 import { openReview } from "./review.js";
 import * as config from "./config.js";
-import { acceptanceEffect, workflowCheckSummary } from "./lib/workflow-navigation.js";
+import { acceptanceEffect, workflowCheckSummary, decideGuard, decidePayload, acceptArmed } from "./lib/workflow-navigation.js";
 import { linkedDecision } from "./lib/goal-workflow.js";
+import { followUpAvailable, taskCaveats, changesPlan } from "./lib/run-panel.js";
 import { agentMarkdown } from "./lib/agent-markdown.js";
 import { WorkflowRuns } from "./workflow-runs.js";
 import { row, taskState, reportState, verdictLine, role, count, attemptLabel, caption, reportNotes, SUMMARY_PREVIEW } from "./workflow-labels.js";
@@ -63,7 +64,7 @@ export class WorkflowDetail extends WorkflowRuns {
     this.executor = task.executor?.address ?? ""; this.reviewer = task.reviewer?.address ?? "";
     this.dependsOn = (task.dependsOn ?? []).filter((id) => id !== task.id); this.selected = null; this.explicitNew = true; this.tab = "Overview";
     this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null;
-    cx.notify();
+    cx?.notify();
   }
 
   prepareBlockedFollowUp(task, cx) {
@@ -79,18 +80,15 @@ export class WorkflowDetail extends WorkflowRuns {
     this.executor = task.executor?.address ?? ""; this.reviewer = task.reviewer?.address ?? "";
     this.dependsOn = (task.dependsOn ?? []).filter((id) => id !== task.id); this.selected = null; this.explicitNew = true; this.tab = "Overview";
     this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null;
-    cx.notify();
+    cx?.notify();
   }
 
   submitDecision(task, outcome, cx) {
-    if (this.busy || task.state !== "needs_you") return;
-    const current = this.tasks?.find((item) => item.id === task.id);
-    if (!current || current.revision !== task.revision || current.state !== "needs_you") return;
+    if (this.busy || !decideGuard(task, this.tasks)) return;
     const editing = this.decisionNoteFor === task.id;
     if (outcome === "changes" && (!editing || !this.form.decision.value().trim())) return;
     this.acceptIntent = null;
-    this.command({ action: "decide", taskId: task.id,
-      outcome, text: editing ? this.form.decision.value() : "", revision: task.revision ?? "" }, cx, () => {
+    this.command(decidePayload(task, outcome, editing ? this.form.decision.value() : ""), cx, () => {
       if (this.decisionDrafts) delete this.decisionDrafts[task.id];
       this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null;
     });
@@ -102,7 +100,7 @@ export class WorkflowDetail extends WorkflowRuns {
     const editing = this.decisionNoteFor === task.id;
     const changes = this.requestChangesFor === task.id;
     const submit = (outcome, cx) => this.submitDecision(task, outcome, cx);
-    const confirming = this.acceptIntent?.id === task.id && this.acceptIntent?.revision === task.revision;
+    const confirming = acceptArmed(this.acceptIntent, task), plan = changesPlan(task);
     const effect = acceptanceEffect(task, this.tasks ?? [], this.engine);
     return v_flex().id("workflow-decision-card").w_full().min_w(0).flex_none().gap(8).px(14).py(10).border_t(1).border_color(t.border).bg(t.chrome)
       .when(Boolean(this.goal && linkedDecision(this.goal, this.tasks ?? []).task?.id === task.id), (el) => el.child(row(t, `Also resolves: ${this.goal.decision}`)))
@@ -112,9 +110,7 @@ export class WorkflowDetail extends WorkflowRuns {
           cx.stop_propagation();
           this.sendChanges(task, cx);
         }))
-        .when(changes, (panel) => panel.child(row(t, (task.round ?? 0) >= (task.maxRounds ?? 2)
-          ? "No attempts left: this prepares a follow-up task for you to start."
-          : `Starts ${attemptLabel((task.round ?? 0) + 1, task.maxRounds)}: write, then review.`))))
+        .when(changes, (panel) => panel.child(row(t, plan.hint))))
       .child(h_flex().w_full().min_w(0).gap(6).items_center().flex_wrap()
         .when(!editing, (bar) => bar
           .child(button(t, "workflow-decide-accept", confirming ? "Confirm ↵" : "Accept", (cx) => submit("accept", cx),
@@ -125,8 +121,7 @@ export class WorkflowDetail extends WorkflowRuns {
           .child(button(t, "workflow-decide-defer", "Later", (cx) => submit("defer", cx), { kind: "ghost", size: "sm", disabled: this.busy, tip: "Keep it pending and pause further work" }))
           .child(button(t, "workflow-decision-note-toggle", "Note", (cx) => this.editDecisionNote(task, false, cx), { kind: "ghost", size: "sm" })))
         .when(editing, (bar) => bar.children([
-          changes ? button(t, "workflow-send-changes", task.round >= task.maxRounds ? "Prepare follow-up" : "Send feedback",
-            (cx) => task.round >= task.maxRounds ? this.prepareFollowUp(task, cx) : submit("changes", cx),
+          changes ? button(t, "workflow-send-changes", plan.send, (cx) => this.sendChanges(task, cx),
             { kind: "solid", disabled: this.busy || !this.form.decision.value().trim(), tip: "⌘Enter" }) : null,
           button(t, "workflow-decision-note-cancel", changes ? "Cancel" : "Remove note", (cx) => {
             if (this.decisionDrafts) delete this.decisionDrafts[task.id];
@@ -138,7 +133,7 @@ export class WorkflowDetail extends WorkflowRuns {
 
   sendChanges(task, cx) {
     if (this.busy || !this.form.decision.value().trim()) return;
-    if (task.round >= task.maxRounds) this.prepareFollowUp(task, cx);
+    if (changesPlan(task).spent) this.prepareFollowUp(task, cx);
     else this.submitDecision(task, "changes", cx);
   }
 
@@ -191,12 +186,8 @@ export class WorkflowDetail extends WorkflowRuns {
     const primaryReport = blocked && review ? review : implementation;
     const primaryId = (blocked && review ? reviewAttempt : implementationAttempt)?.id;
     const summary = primaryReport?.summary ?? "Report available", longSummary = summary.length > SUMMARY_PREVIEW, summaryOpen = Boolean(this.expandedReports?.[primaryId]);
-    const latestAttempt = task.attempts?.at(-1);
-    const unresolvedAttempt = latestAttempt?.state === "running" || ["uncertain", "sending"].includes(latestAttempt?.delivery);
-    const followUpAvailable = blocked && !unresolvedAttempt && ((task.round ?? 0) >= (task.maxRounds ?? 2) ||
-      (task.attempts ?? []).filter((attempt) => attempt.role === "reviewer").length >= (task.maxRounds ?? 2) + 1);
     const details = this.detailsFor === task.id;
-    const caveats = [...reportNotes(review), ...(implementation?.notProven ?? []).map((item) => `Not proven by the ${role("executor").noun}: ${item}`)];
+    const caveats = taskCaveats(task);
     const statusColor = task.state === "needs_you" ? t.accent : blocked ? t.blocked : task.state === "accepted" ? t.done : t.muted;
     return v_flex().w_full().min_w(0).gap(14)
       .child(v_flex().id("workflow-outcome-header").w_full().min_w(0).gap(6)
@@ -215,7 +206,7 @@ export class WorkflowDetail extends WorkflowRuns {
       .when(task.state === "needs_you" && caveats.length > 0, (el) => el.child(v_flex().id("workflow-review-notes").w_full().min_w(0).gap(4)
         .child(div().text_size(11).text_color(t.muted).child("Before you accept"))
         .children(caveats.map((note) => row(t, note)))))
-      .when(followUpAvailable, (el) => el
+      .when(followUpAvailable(task), (el) => el
         .child(button(t, "workflow-prepare-follow-up", "Prepare follow-up", (context) => this.prepareBlockedFollowUp(task, context),
           { kind: "solid", tip: "Prefills a new task with the findings; nothing is sent until you start it" })))
       .children([this.uncertainAttempt(t, task)].filter(Boolean))

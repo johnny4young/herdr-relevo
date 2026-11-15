@@ -1,16 +1,23 @@
-// The Inbox's merged worktrees: scan, open, remove. Mixed into Inbox, so `this` is the Inbox.
+// The Inbox's worktrees in Maintenance: scan, sort by what removing one would lose, open, save, remove.
+// Mixed into Inbox, so `this` is the Inbox.
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { exec, notify, run } from "herdr";
+import { exec, notify, run, settings } from "herdr";
 import { scanWorktrees, removeWorktree, removalCheck, treeState, treeSize } from "./worktrees.js";
-import { actionsOf, groupOf, justUsed, whyOf, sizeOf } from "./lib/trees.js";
+import { actionsOf, bulkPlan, groupOf, justUsed, laneOf, loseOf, plural, reasonOf, sizeOf, totalKb, whyOf } from "./lib/trees.js";
 import { backupsRoot, backupsSize, deleteCheck, deleteWorktree, headOf, logRemoval, pushBackup, pushPlan, savedState, saveCommits, savePatch } from "./worktree-actions.js";
-import { button, spinner, foldRow, icon } from "./ui.js";
-import { ago } from "./lib/time.js";
-
-const GROUPS = [["safe", "Nothing to lose"], ["pushed", "Pushed, not merged"], ["work", "With work"], ["checking", "Checking"], ["recent", "Recent"]];
+import { button, checkbox, foldRow, joined, keycap, legHeader, row, spinner, LANE } from "./ui.js";
 
 const deletes = (files) => `deletes ${files.slice(0, 2).join(", ")}${files.length > 2 ? ` +${files.length - 2}` : ""}`;
+const TURN = { safe: "ready", look: "open", quiet: "old" };
+const TIPS = {
+  remove: "Removes the worktree and its local branch. Files git ignores go with it",
+  pushed: "Removes the worktree and its local branch. The branch stays on GitHub",
+  forever: "Deletes the worktree and everything in it. Says what would be lost first",
+  patch: "Saves uncommitted changes outside the repo",
+  commits: "Saves commits not on GitHub outside the repo",
+  push: "Pushes its commits to a backup branch",
+};
 
 export class TreeViews {
   scanTrees(cx, force = false) {
@@ -25,15 +32,17 @@ export class TreeViews {
       } finally {
         this.scanningTrees = false;
       }
-      if (this.expanded.loose || this.worktrees.some((w) => w.merged && w.dirty)) this.loadTreeStates(cx, force);
+      if (this.expanded.loose || this.worktrees.some((w) => w.merged)) this.loadTreeStates(cx, force);
+      if (this.expanded.stale) this.scanStale?.(cx, force);
       if (this.backupsKb === undefined || force) this.backupsKb = await backupsSize();
       cx.notify();
     });
   }
 
-  // Slow on many worktrees, so only while the section is open, and again only for one used since.
+  // Slow on many worktrees, so loose ones wait until Maintenance was opened, and each is read again only once used since.
   loadTreeStates(cx, force = false) {
     this.treeStates ??= new Map();
+    this.treeSizes ??= new Map();
     // A load started earlier can't see a section opened since, so this one runs right after it.
     if (this.loadingStates) {
       this.loadAgain = { force: force || this.loadAgain?.force };
@@ -41,6 +50,7 @@ export class TreeViews {
     }
     this.loadingStates = true;
     const list = this.worktrees.filter((w) => (w.merged ? w.dirty : this.expanded.loose && !w.open));
+    const sized = this.expanded.loose ? this.worktrees.filter((w) => w.merged || !w.open) : [];
     cx.spawn(async (cx) => {
       try {
         const stale = list.filter((w) => force || this.treeStates.get(w.path)?.at !== w.at);
@@ -50,9 +60,8 @@ export class TreeViews {
           this.treeStates.set(w.path, { at: w.at, state });
           cx.notify();
         }
-        for (const w of stale) {
-          const known = this.treeStates.get(w.path);
-          if (known) known.kb = await treeSize(w);
+        for (const w of sized.filter((x) => force || this.treeSizes.get(x.path)?.at !== x.at)) {
+          this.treeSizes.set(w.path, { at: w.at, kb: await treeSize(w) });
           cx.notify();
         }
       } finally {
@@ -65,55 +74,30 @@ export class TreeViews {
   }
 
   applyState(w, now) {
-    const known = this.treeStates?.get(w.path);
-    if (w.merged && !known) return;
-    w.group = known ? groupOf(known.state, w.at, now) : undefined;
-    w.why = whyOf(known?.state);
-    w.kb = known?.kb;
-    w.actions = actionsOf(known?.state, w.at, now);
-    w.ignored = known?.state?.ignored ?? w.ignored;
-    w.dirty = (known?.state?.files ?? 0) > 0;
+    const known = this.treeStates?.get(w.path), s = known?.state;
+    w.kb = this.treeSizes?.get(w.path)?.kb;
+    // A merged worktree is read again only while dirty, so a state from before its last use no longer holds.
+    if (w.merged && known?.at !== w.at) return;
+    w.group = known ? groupOf(s, w.at, now) : undefined;
+    w.why = whyOf(s);
+    w.actions = actionsOf(s, w.at, now);
+    w.ignored = s?.ignored ?? w.ignored;
+    w.dirty = (s?.files ?? 0) > 0;
+    w.unreadable = Boolean(s?.unreadable);
+    w.work = Boolean(s) && (s.files > 0 || s.unpushed > 0);
+    w.unsaved = Boolean(s) && ((s.files > 0 && !s.patchSaved) || (s.unpushed > 0 && !s.commitsSaved));
   }
 
-  // The rows without a space by group, in screen order; a row can't offer more than its state allows.
-  looseGroups(worktrees) {
-    const now = Date.now() / 1000, groups = new Map(GROUPS.map(([key]) => [key, []]));
-    for (const w of worktrees.filter((x) => !x.merged && !x.open)) {
+  // The worktrees Maintenance lists, by what removing one would lose, each stamped with its lane. Read once per
+  // draw and handed to the legend, the groups, the keyboard and the rows.
+  treeLanes(worktrees) {
+    const now = Date.now() / 1000, lanes = { safe: [], look: [], quiet: [] };
+    for (const w of worktrees.filter((x) => x.merged || !x.open)) {
       this.applyState(w, now);
-      groups.get(w.group ?? "checking").push(w);
+      w.lane = laneOf(w, now);
+      lanes[w.lane].push(w);
     }
-    return groups;
-  }
-
-  // Keyboard order: what's drawn, so nothing in a folded group.
-  looseRows(worktrees) {
-    const groups = this.looseGroups(worktrees);
-    return GROUPS.flatMap(([key]) => (key === "recent" && !this.expanded["loose-recent"] ? [] : groups.get(key)));
-  }
-
-  looseViews(t, worktrees) {
-    const groups = this.looseGroups(worktrees), rows = [];
-    for (const [key, label] of GROUPS) {
-      const list = groups.get(key);
-      if (!list.length) continue;
-      if (key === "recent") {
-        rows.push(foldRow(this, t, "loose-recent", "loose-recent", `${list.length} recent`, { gap: true }));
-        if (!this.expanded["loose-recent"]) continue;
-      } else {
-        const clean = key === "safe" ? this.removable(list) : [], sure = this.confirm === "all-safe";
-        rows.push(h_flex().pt(6).px(4).gap(6).items_center().text_size(11).text_color(t.dim)
-          .when(key === "checking", (el) => el.child(spinner(t.dim, 10)))
-          .child(div().flex_1().child(label))
-          .child(String(list.length))
-          .when(clean.length > 1, (el) => el.child(button(t, "wt-rm-all-safe", sure ? `Confirm ${clean.length}` : `Remove ${clean.length}`,
-            (cx) => this.removeAll(clean, cx, "all-safe"), {
-              size: "sm", kind: sure ? "danger" : "outline",
-              tip: "Removes the ones with no ignored files to keep",
-            }))));
-      }
-      rows.push(...list.map((w) => this.treeRow(t, w)).filter(Boolean));
-    }
-    return rows;
+    return lanes;
   }
 
   openTree(w) {
@@ -121,15 +105,23 @@ export class TreeViews {
     else run("space.new", { folder: w.path });
   }
 
+  // The look-again before any removal. `same` holds only when the space and the ignored files the question
+  // named are the ones that would go now.
+  async checkStillMatches(w, shownSpace, shownIgnored) {
+    const check = await removalCheck(w);
+    if (check.error) return { error: check.error };
+    return { ...check, same: JSON.stringify([check.ignored, check.space]) === JSON.stringify([shownIgnored ?? [], shownSpace ?? null]) };
+  }
+
   // Only clean, unlocked worktrees get here; one with a space closes it first, as Herdr's dialog does.
   removeTree(w, cx) {
     this.checking ??= new Set();
     if (this.checking.has(w.path)) return;
     this.checking.add(w.path);
-    const asked = this.confirm === w.path, shown = JSON.stringify([w.ignored ?? [], w.space ?? null]);
+    const asked = this.confirm === w.path;
     cx.spawn(async (cx) => {
       try {
-        const check = await removalCheck(w);
+        const check = await this.checkStillMatches(w, w.space, w.ignored);
         if (check.error) {
           this.confirm = null;
           this.wtError[w.path] = check.error;
@@ -138,8 +130,7 @@ export class TreeViews {
         delete this.wtError[w.path];
         w.space = check.space;
         w.ignored = check.ignored;
-        // What the confirmation names must be what goes.
-        if (!asked || JSON.stringify([check.ignored, check.space]) !== shown) {
+        if (!asked || !check.same) {
           this.confirm = w.path;
           return cx.notify();
         }
@@ -168,6 +159,7 @@ export class TreeViews {
       } finally {
         this.treeBusy.delete(w.path);
         this.treeStates?.delete(w.path);
+        this.treeSizes?.delete(w.path);
         this.loadTreeStates(cx);
         this.backupsKb = await backupsSize();
         cx.notify();
@@ -233,43 +225,10 @@ export class TreeViews {
       }
       if (said) {
         this.deleteAsk = null;
-        this.treeMenu = null;
         await this.removeOne(w, cx, deleteWorktree, said);
       }
       cx.notify();
     });
-  }
-
-  // A second line under a row: what it can do, or the question before a push or a delete.
-  actionsLine(t, w) {
-    const id = (name) => `wt-${name}-${w.path}`, busy = this.treeBusy?.has(w.path);
-    const line = (children) => h_flex().pl(8).pb(5).gap(5).flex_wrap().items_center().children(children);
-    const cancel = (key) => button(t, id("cancel"), "Cancel", (cx) => {
-      this[key] = null;
-      cx.notify();
-    }, { size: "sm" });
-    const say = (text) => div().text_size(11).text_color(t.blocked).child(text);
-    if (this.deleteAsk?.path === w.path) {
-      return line([say(this.deleteAsk.text), button(t, id("delete-go"), "Delete forever", (cx) => this.askDelete(w, cx), {
-        size: "sm", kind: "danger", disabled: busy,
-        tip: this.deleteAsk.ignored?.length ? `Ignored: ${this.deleteAsk.ignored.slice(0, 8).join(", ")}` : null,
-      }), cancel("deleteAsk")]);
-    }
-    if (this.pushAsk?.path === w.path) {
-      return line([say(this.pushAsk.text), button(t, id("push-go"), this.pushAsk.label, (cx) => this.askPush(w, cx), {
-        size: "sm", kind: "danger", disabled: busy,
-      }), cancel("pushAsk")]);
-    }
-    const saved = (r) => ({ title: "Saved", body: r.file });
-    const labels = {
-      patch: ["Save patch", (cx) => this.treeAction(w, cx, () => savePatch(w), saved), "Saves uncommitted changes outside the repo"],
-      commits: ["Save commits", (cx) => this.treeAction(w, cx, () => saveCommits(w), saved), "Saves commits not on GitHub outside the repo"],
-      push: ["Push backup", (cx) => this.askPush(w, cx), "Pushes its commits to a backup branch"],
-      delete: ["Delete", (cx) => this.askDelete(w, cx), "Deletes the worktree and everything in it"],
-    };
-    return line((w.actions ?? []).map((name) => button(t, id(name), labels[name][0], labels[name][1], {
-      size: "sm", tip: labels[name][2], disabled: busy,
-    })));
   }
 
   async removeOne(w, cx, remove = removeWorktree, said = w.ignored?.length ? `Remove, ${deletes(w.ignored)}` : "Remove") {
@@ -288,6 +247,7 @@ export class TreeViews {
       await cx.sleep(240);
       this.gone.delete(w.path);
       this.worktrees = this.worktrees.filter((x) => x.path !== w.path);
+      this.marked?.delete(w.path);
     }
     this.removing.delete(w.path);
     if (err) this.wtError[w.path] = err;
@@ -301,117 +261,300 @@ export class TreeViews {
       && !(w.merged && justUsed(w.at, Date.now() / 1000)));
   }
 
-  removeAll(list, cx, key = "all") {
-    if (this.confirm !== key) {
-      this.confirm = key;
+  // One row of a batch: the same look-again as its own Remove. The question named no ignored files and
+  // `space`, so anything else keeps the row, with the reason.
+  async removeChecked(w, space, cx) {
+    const check = await this.checkStillMatches(w, space, []);
+    const err = check.error ?? (check.same ? null : check.ignored.length ? deletes(check.ignored) : check.space ? "has a space" : "changed, look again");
+    if (err) {
+      this.wtError[w.path] = err;
+      w.ignored = check.ignored ?? w.ignored;
       cx.notify();
-      return;
+      return err;
     }
-    this.confirm = null;
+    w.space = check.space;
+    await this.removeOne(w, cx);
+    return this.wtError[w.path] ?? null;
+  }
+
+  inView() {
+    return this.shown ? this.shown().worktrees : this.worktrees;
+  }
+
+  markedRows(worktrees = this.inView()) {
+    return this.marked?.size ? worktrees.filter((w) => this.marked.has(w.path)) : [];
+  }
+
+  toggleMark(w, cx) {
+    this.marked ??= new Set();
+    if (!this.marked.delete(w.path)) this.marked.add(w.path);
+    this.bulkAsk = null;
+    cx.notify();
+  }
+
+  // Every row of Safe to remove (merged ones only) that has no space: closing several at once is easy to regret.
+  markAllSafe(cx) {
+    this.marked = new Set(this.removable(this.treeLanes(this.inView()).safe).map((w) => w.path));
+    this.bulkAsk = null;
+    cx.notify();
+  }
+
+  clearMarks(cx = null) {
+    this.marked?.clear();
+    this.bulkAsk = null;
+    cx?.notify();
+  }
+
+  // Asks once for the marked rows, or for `list`; a row that is not safe stops it, and the bar says which.
+  // The selection is `marked`; bulkAsk only holds the space each row had when the question was drawn.
+  askBulk(cx, list = null) {
+    if (this.bulkBusy) return;
+    if (list) this.marked = new Set(list.map((w) => w.path));
+    const rows = this.markedRows();
+    this.bulkAsk = bulkPlan(rows, Date.now() / 1000).ok ? Object.fromEntries(rows.map((w) => [w.path, w.space ?? null])) : null;
+    cx.notify();
+  }
+
+  // Each row goes through removeChecked on its own; one that fails stays selected with its reason.
+  confirmBulk(cx) {
+    const spaces = this.bulkAsk, rows = this.markedRows();
+    if (!spaces || this.bulkBusy) return;
+    this.bulkAsk = null;
+    if (!bulkPlan(rows, Date.now() / 1000).ok) return cx.notify();
+    this.bulkBusy = true;
+    cx.notify();
     cx.spawn(async (cx) => {
-      for (const w of list) {
-        const check = await removalCheck(w);
-        if (check.error || check.space || check.ignored.length) {
-          this.wtError[w.path] = check.error ?? (check.space ? "has a space" : deletes(check.ignored));
-          w.ignored = check.ignored ?? w.ignored;
-          cx.notify();
-          continue;
+      let kept = 0;
+      try {
+        for (const w of rows) {
+          if (await this.removeChecked(w, spaces[w.path], cx)) kept += 1;
+          else this.marked.delete(w.path);
         }
-        await this.removeOne(w, cx);
+      } finally {
+        this.bulkBusy = false;
       }
+      const gone = rows.length - kept;
+      notify(kept
+        ? { title: `Removed ${gone} of ${rows.length}`, body: `${plural(kept, "worktree")} kept: each row says why`, level: "warning" }
+        : { title: `Removed ${plural(gone, "worktree")}`, body: [...new Set(rows.map((w) => w.repo))].join(", "), level: "success" });
+      cx.notify();
     });
   }
 
-  // One line per merged worktree: Remove asks once more before git runs.
+  // "N selected" at the foot of the list, or the one question once Remove N was asked.
+  bulkBar(t, worktrees) {
+    const rows = this.markedRows(worktrees), n = rows.length;
+    if (!n) return null;
+    const plan = bulkPlan(rows, Date.now() / 1000);
+    if (this.bulkAsk && plan.ok) return this.bulkSheet(t, plan);
+    return v_flex().id("bulk-bar").flex_none().pl(16).pr(8).py(5).gap(3).border_t(1).border_color(t.border).bg(t.raised)
+      .when(!plan.ok, (el) => el.child(div().id("bulk-why").min_w(0).text_size(11).text_color(t.blocked).child(plan.why)))
+      .child(h_flex().gap(8).items_center()
+        .child(div().flex_none().font_semibold().text_size(13).child(`${n} selected`))
+        .when(Boolean(plan.kb) && !this.tightInbox, (el) => el.child(div().flex_none().text_size(11).text_color(t.muted).child(sizeOf(plan.kb))))
+        .child(div().flex_1())
+        .child(button(t, "bulk-cancel", [keycap(t, "esc"), "Cancel"], (cx) => this.clearMarks(cx), { size: "sm", kind: "ghost" }))
+        .child(button(t, "bulk-remove", [keycap(t, "d"), `Remove ${n}`], (cx) => this.askBulk(cx), {
+          size: "sm", disabled: !plan.ok || Boolean(this.bulkBusy), tip: plan.ok ? "Asks once, then checks and removes each" : plan.why,
+        })));
+  }
+
+  bulkSheet(t, plan) {
+    const cancel = (cx) => {
+      this.bulkAsk = null;
+      cx.notify();
+    };
+    return div().flex_none().p(6).border_t(1).border_color(t.border)
+      .child(v_flex().id("bulk-sheet").p(10).gap(6).rounded(8).border_1().border_color(t.border).bg(t.raised)
+        .child(div().font_semibold().text_size(13).child(plan.title))
+        .child(div().min_w(0).text_size(11).text_color(t.muted).child(plan.body))
+        .child(h_flex().pt(2).gap(6).justify_end()
+          .child(button(t, "bulk-sheet-cancel", [keycap(t, "esc"), "Cancel"], cancel, { size: "sm" }))
+          .child(button(t, "bulk-confirm", [keycap(t, "enter", { tone: t.blocked }), `Remove ${plan.n}`], (cx) => this.confirmBulk(cx), { size: "sm", kind: "danger" }))));
+  }
+
+  // x, X, d and Esc for the selection and its question; s, o and d for the selected worktree. True when the key was taken.
+  maintenanceKey(e, cx) {
+    const key = e.key, w = this.inView().find((x) => `wt-${x.path}` === this.sel);
+    const asked = w && (this.confirm === w.path || this.deleteAsk?.path === w.path || this.pushAsk?.path === w.path);
+    if (this.bulkAsk && (key === "enter" || key === "escape")) {
+      if (key === "enter") this.confirmBulk(cx);
+      else this.bulkAsk = null;
+    } else if (key === "X" || (key === "x" && e.modifiers?.shift)) this.markAllSafe(cx);
+    else if (key === "x" && w) this.toggleMark(w, cx);
+    else if (key === "d" && this.marked?.size) this.askBulk(cx);
+    else if (key === "escape" && this.marked?.size) this.clearMarks();
+    else if (key === "escape" && asked) {
+      if (this.confirm === w.path) this.confirm = null;
+      if (this.deleteAsk?.path === w.path) this.deleteAsk = null;
+      if (this.pushAsk?.path === w.path) this.pushAsk = null;
+    } else if (key === "enter" && w && this.confirm === w.path) this.removeTree(w, cx);
+    else if (key === "enter" && w && this.deleteAsk?.path === w.path) this.askDelete(w, cx);
+    else if (w && ["s", "o", "d"].includes(key)) {
+      const moves = this.rowMoves(w, Date.now() / 1000);
+      // d only asks; the answer is Enter or the button, so a held key can't delete.
+      if (key === "d" && !asked) moves.remove?.(cx);
+      else if (key === "s") (moves.patch ?? moves.commits)?.(cx);
+      else if (key === "o") moves.folder();
+    } else return false;
+    return true;
+  }
+
+  offersRemove(w, now) {
+    const inUse = w.merged && !w.landed && justUsed(w.at, now);
+    return !w.dirty && !w.locked && !inUse && (w.merged || w.group === "safe" || w.group === "pushed");
+  }
+
+  // What a row can do, for its buttons and its keys alike. Save, push and Delete only where there is work;
+  // `direct` says Remove loses nothing here, so it can be the row's one action.
+  rowMoves(w, now) {
+    const acts = w.group === "work" ? w.actions ?? [] : [], saved = (r) => ({ title: "Saved", body: r.file });
+    const forever = acts.includes("delete"), offers = !forever && this.offersRemove(w, now);
+    return {
+      patch: acts.includes("patch") ? (cx) => this.treeAction(w, cx, () => savePatch(w), saved) : null,
+      commits: acts.includes("commits") ? (cx) => this.treeAction(w, cx, () => saveCommits(w), saved) : null,
+      push: acts.includes("push") ? (cx) => this.askPush(w, cx) : null,
+      folder: () => exec("open", [w.path]),
+      forever, offers,
+      direct: offers && !w.ignored?.length && !w.unreadable && w.group !== "work" && (w.merged || w.group === "safe"),
+      remove: forever ? (cx) => this.askDelete(w, cx) : offers ? (cx) => this.removeTree(w, cx) : null,
+    };
+  }
+
+  // Remove, or its Confirm once asked. `keyed` is the selected row's: with its key, and named for what it costs.
+  removeButton(t, w, { sure = false, keyed = false } = {}) {
+    const lost = w.ignored?.length > 0, words = keyed ? [keycap(t, "d"), lost ? "Delete forever" : "Remove"] : "Remove";
+    return button(t, `wt-rm-${w.path}`, sure ? "Confirm" : words, (cx) => this.removeTree(w, cx), {
+      size: "sm", tip: w.group === "pushed" ? TIPS.pushed : TIPS.remove, kind: sure || (keyed && lost) ? "danger" : "outline", disabled: this.treeBusy?.has(w.path),
+    });
+  }
+
+  openButton(t, w) {
+    return button(t, `wt-open-${w.path}`, w.space ? "Go" : "Open", () => this.openTree(w), { size: "sm", tip: w.space ? "Go to its space" : "Open a space here" });
+  }
+
+  // Under a selected row: the question before a push or a delete, else every action with its key.
+  actionsLine(t, w, moves, { open = true, remove = true } = {}) {
+    const id = (name) => `wt-${name}-${w.path}`, busy = this.treeBusy?.has(w.path);
+    const line = (children) => h_flex().pt(2).gap(5).flex_wrap().items_center().children(children.filter(Boolean));
+    const cancel = (key) => button(t, id("cancel"), "Cancel", (cx) => {
+      this[key] = null;
+      cx.notify();
+    }, { size: "sm" });
+    const say = (text) => div().min_w(0).text_size(11).text_color(t.blocked).child(text);
+    if (this.deleteAsk?.path === w.path) {
+      return line([say(this.deleteAsk.text), button(t, id("delete-go"), [keycap(t, "enter", { tone: t.blocked }), "Delete forever"], (cx) => this.askDelete(w, cx), {
+        size: "sm", kind: "danger", disabled: busy,
+        tip: this.deleteAsk.ignored?.length ? `Ignored: ${this.deleteAsk.ignored.slice(0, 8).join(", ")}` : null,
+      }), cancel("deleteAsk")]);
+    }
+    if (this.pushAsk?.path === w.path) {
+      return line([say(this.pushAsk.text), button(t, id("push-go"), this.pushAsk.label, (cx) => this.askPush(w, cx), {
+        size: "sm", kind: "danger", disabled: busy,
+      }), cancel("pushAsk")]);
+    }
+    const act = (name, label, onClick, kind = "outline") => onClick && button(t, id(name), label, onClick, { size: "sm", tip: TIPS[name] ?? w.path, kind, disabled: busy });
+    return line([
+      act("patch", [keycap(t, "s"), "Save patch"], moves.patch),
+      act("commits", moves.patch ? "Save commits" : [keycap(t, "s"), "Save commits"], moves.commits),
+      act("push", "Push backup", moves.push),
+      open && this.openButton(t, w),
+      act("folder", [keycap(t, "o"), "Open folder"], moves.folder),
+      remove && moves.forever && button(t, id("delete"), [keycap(t, "d"), "Delete forever"], moves.remove, { size: "sm", tip: TIPS.forever, kind: "danger", disabled: busy }),
+      remove && moves.offers && this.removeButton(t, w, { keyed: true }),
+    ]);
+  }
+
+  // The selected row's facts and, in a block, the files git never saw that would go with the folder.
+  loseLines(t, w) {
+    const lose = loseOf(w);
+    return [
+      ...lose.says.map((l) => div().min_w(0).text_size(11).text_color(t.muted).child(l)),
+      lose.files.length ? v_flex().id(`wt-lose-${w.path}`).min_w(0).px(8).py(5).rounded(6).bg(t.raised)
+        .font_family(settings().font_family ?? "JetBrains Mono").text_size(11).text_color(t.foreground)
+        .children(lose.files.map((f) => div().min_w(0).truncate().child(f)))
+        .when(lose.more > 0, (el) => el.child(div().text_color(t.dim).child(`+${lose.more} more`))) : null,
+    ].filter(Boolean);
+  }
+
+  // One row per worktree: whose turn, repo, branch and reason, its size and one action. Remove asks once more
+  // before git runs; selected, the row says what would be lost and offers the rest.
   treeRow(t, w) {
-    if (this.hiddenIds?.has(`wt-${w.path}`)) return null;
+    const id = `wt-${w.path}`, now = Date.now() / 1000;
+    if (this.hiddenIds?.has(id)) return null;
     if (this.removing.has(w.path)) return this.removingRow(t, w);
-    const err = this.wtError[w.path], sure = this.confirm === w.path;
+    const lane = w.lane ?? laneOf(w, now), sel = this.selected(id), err = this.wtError[w.path], sure = this.confirm === w.path;
     const warn = sure ? [w.space && "closes its space", w.ignored?.length && deletes(w.ignored)].filter(Boolean).join(", ") : "";
-    const inUse = w.merged && justUsed(w.at, Date.now() / 1000);
-    const note = err ?? (warn || w.why || (w.dirty ? "uncommitted changes" : w.locked ? "locked" : inUse ? (w.at ? `used ${ago(w.at)}` : "last use unknown") : null));
-    const offersRemove = !w.dirty && !w.locked && !inUse && (w.merged || w.group === "safe" || w.group === "pushed");
-    const action = (id, label, tip, onClick, danger = false) =>
-      button(t, id, label, onClick, { size: "sm", tip, kind: danger ? "danger" : "outline" });
-    const open = this.treeMenu === w.path || this.deleteAsk?.path === w.path || this.pushAsk?.path === w.path;
-    const row = h_flex().h(note ? 24 : 30).px(8).gap(6).items_center()
-      .child(div().flex_none().text_size(11).text_color(t.muted).child(w.repo))
-      .child(div().flex_1().min_w(0).truncate().text_size(13).child(w.branch ?? `${w.name} (detached)`))
-      .when(Boolean(w.kb), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(sizeOf(w.kb))))
-      .when(Boolean(w.at) && !inUse, (el) => el.child(this.age(t, w)))
-      .child(action(`wt-open-${w.path}`, w.space ? "Go" : "Open", w.space ? "Go to its space" : "Open a space here",
-        () => this.openTree(w)))
-      .when(offersRemove, (el) => el.child(action(`wt-rm-${w.path}`, sure ? "Confirm" : "Remove",
-        w.group === "pushed" ? "Removes the worktree and its local branch. The branch stays on GitHub" : "Removes the worktree and its local branch. Files git ignores go with it",
-        (cx) => this.removeTree(w, cx), sure)))
-      .when(Boolean(w.actions?.length) && w.group === "work", (el) => el.child(action(`wt-more-${w.path}`, [icon("more")], "Save, back up or delete", (cx) => {
-        this.treeMenu = open ? null : w.path;
-        this.deleteAsk = null;
-        this.pushAsk = null;
-        cx.notify();
-      })));
-    return v_flex().id(`wt-${w.path}`).rounded(6)
-      .when(this.selected(`wt-${w.path}`), (el) => el.bg(t.selected))
-      .child(v_flex().rounded(6).hover((s) => s.bg(t.hover)).tooltip(w.path)
-        .child(row)
-        .when(Boolean(note), (el) => el.child(
-          div().px(8).pb(6).text_size(11).text_color(err || sure ? t.blocked : t.dim).child(note))))
-      .when(open, (el) => el.child(this.actionsLine(t, w)));
+    const asking = this.deleteAsk?.path === w.path || this.pushAsk?.path === w.path, moves = this.rowMoves(w, now);
+    const edge = this.marked?.size ? this.markBox(t, w)
+      : sure || moves.direct ? this.removeButton(t, w, { sure })
+        : lane === "quiet" ? this.openButton(t, w)
+          : sel || asking ? null
+            : w.group === "pushed" ? this.openButton(t, w)
+              : button(t, `wt-look-${w.path}`, "Look", (cx) => this.pick(id, cx), { size: "sm", tip: "What removing it would lose" });
+    const below = [
+      err || warn ? div().id(`wt-note-${w.path}`).min_w(0).text_size(11).text_color(t.blocked).child(err ?? warn) : null,
+      ...(sel || asking ? [...this.loseLines(t, w), this.actionsLine(t, w, moves, { open: lane !== "quiet", remove: !sure && !moves.direct })] : []),
+    ].filter(Boolean);
+    return row(t, id, {
+      turn: !w.merged && !w.group ? "flight" : TURN[lane], kind: "tree", title: w.repo,
+      reason: `${w.branch ?? `${w.name} (detached)`} · ${reasonOf(w, now)}`,
+      age: w.kb && !this.tightInbox ? sizeOf(w.kb) : null, action: edge, selected: sel, tip: w.path,
+      onSelect: this.pick ? (cx) => this.pick(id, cx) : null, below: below.length ? below : null,
+    });
+  }
+
+  markBox(t, w) {
+    const on = this.marked.has(w.path);
+    return div().id(`wt-mark-${w.path}`).p(5).flex_none().cursor_pointer()
+      .accessibility_label(`${on ? "Unselect" : "Select"} ${w.repo} ${w.branch ?? w.name}`)
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        this.toggleMark(w, cx);
+      })
+      .child(checkbox(t, on));
   }
 
   // git can take a few seconds on a big checkout; the spinner runs natively, without redraws.
   removingRow(t, w) {
     const gone = this.gone.has(w.path);
-    return h_flex().id(`wt-${w.path}`).h(gone ? 0 : 30).px(8).gap(6).items_center().rounded(6).overflow_hidden()
+    return h_flex().id(`wt-${w.path}`).h(gone ? 0 : 38).pl(LANE).pr(8).gap(7).items_center().rounded(6).overflow_hidden()
       .opacity(gone ? 0 : 0.6)
       .transition("opacity", { duration: 200 }).transition("height", { duration: 220, easing: "ease-out" })
-      .child(div().flex_none().text_size(11).text_color(t.muted).child(w.repo))
-      .child(div().flex_1().min_w(0).truncate().text_size(13).child(w.branch ?? w.name))
+      .child(div().flex_none().font_semibold().text_size(13).child(w.repo))
+      .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.muted).child(w.branch ?? w.name))
       .child(h_flex().flex_none().gap(5).items_center().text_size(11).text_color(t.blocked)
         .child(spinner(t.blocked))
         .child("Removing…"));
   }
 
-  age(t, w) {
-    return div().flex_none().text_size(11).text_color(t.dim).child(ago(w.at).replace(" ago", ""));
-  }
-
   backupsRow(t) {
-    return h_flex().h(30).mt(6).px(8).gap(6).items_center().text_size(11).text_color(t.muted).tooltip(backupsRoot())
+    return h_flex().id("wt-backups").h(30).mt(6).pl(LANE).pr(8).gap(6).items_center().text_size(11).text_color(t.muted).tooltip(backupsRoot())
       .child(div().flex_1().child("Backups"))
       .child(div().flex_none().text_size(11).text_color(t.dim).child(sizeOf(this.backupsKb)))
       .child(button(t, "wt-backups-open", "Open", () => exec("open", [backupsRoot()]), { size: "sm" }));
   }
 
-  // Folded, a merged worktree still shows when it holds uncommitted files (the one case where work can be lost), or
-  // when a merge alert brought the keyboard to it.
-  inSight(w) {
-    return Boolean(this.expanded.merged || w.dirty || this.sel === `wt-${w.path}`);
+  // Maintenance's worktree groups: Safe to remove with its total and Remove N, Needs a look, and one quiet fold
+  // for what was used lately or is still being read.
+  treeSections(t, lanes) {
+    const rows = (list) => joined(t, list.map((w) => this.treeRow(t, w)));
+    const clean = this.removable(lanes.safe), kb = totalKb(lanes.safe);
+    const safe = lanes.safe.length ? [legHeader(t, "leg-safe", "Safe to remove", lanes.safe.length, { after: [
+      kb && !this.tightInbox ? div().id("safe-size").flex_none().text_color(t.muted).child(sizeOf(kb)) : null,
+      clean.length > 1 ? button(t, "wt-rm-all", `Remove ${clean.length}`, (cx) => this.askBulk(cx, clean), {
+        size: "sm", tip: "Selects every one that has no space and asks once",
+      }) : null,
+    ] }), ...rows(lanes.safe)] : [];
+    const look = lanes.look.length ? [legHeader(t, "leg-look", "Needs a look", lanes.look.length), ...rows(lanes.look)] : [];
+    const checking = lanes.quiet.filter((w) => !w.merged && !w.group).length, recent = lanes.quiet.length - checking;
+    const label = [recent ? `${recent} recent` : null, checking ? `${recent ? "checking" : "Checking"} ${checking}` : null].filter(Boolean).join(" · ");
+    const quiet = lanes.quiet.length ? [
+      foldRow(this, t, "loose-recent", "loose-recent", label, { gap: true, after: checking ? spinner(t.dim, 10) : null }),
+      ...(this.expanded["loose-recent"] ? rows(lanes.quiet) : []),
+    ] : [];
+    if (this.backupsKb) quiet.push(this.backupsRow(t));
+    return { safe, look, quiet };
   }
 
-  treeGroups(t, worktrees) {
-    const merged = worktrees.filter((w) => w.merged);
-    for (const w of merged) if (this.treeStates?.has(w.path)) this.applyState(w, Date.now() / 1000);
-    const loose = worktrees.filter((w) => !w.merged && !w.open);
-    const clean = this.removable(merged), sure = this.confirm === "all", open = this.expanded.merged;
-    const removeAll = clean.length > 1 && button(t, "wt-rm-all", sure ? `Confirm ${clean.length}` : `Remove ${clean.length}`,
-      (cx) => this.removeAll(clean, cx), {
-        size: "sm", kind: sure ? "danger" : "outline",
-        tip: "Removes every merged worktree that is clean, unlocked, has no space and no ignored files to keep, with its local branch",
-      });
-    const shown = merged.filter((w) => this.inSight(w));
-    const rows = merged.length
-      ? [foldRow(this, t, "merged-trees", "merged", `${merged.length} merged worktrees`, {
-        gap: true, after: removeAll ? h_flex().flex_1().justify_end().child(removeAll) : null,
-      }), v_flex().children(shown.map((w) => this.treeRow(t, w)).filter(Boolean))]
-      : [];
-    if (loose.length) {
-      rows.push(foldRow(this, t, "older-loose", "loose", `${loose.length} worktrees without a space`, {
-        gap: true, onOpen: (cx) => this.loadTreeStates(cx),
-      }));
-      if (this.expanded.loose) rows.push(...this.looseViews(t, worktrees));
-    }
-    if (this.backupsKb && (open || !merged.length)) rows.push(this.backupsRow(t));
-    return rows;
-  }
 }

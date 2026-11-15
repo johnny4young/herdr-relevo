@@ -5,7 +5,6 @@ import { DESKTOP, openDesktop } from "./desktop.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { desktopKey, isSettled } from "./lib/desktop.js";
 import { ago } from "./lib/time.js";
-import { button, markButton } from "./ui.js";
 
 const SETTLED = "relevo.desktop.settled";
 const RANK = { blocked: 0, review: 1 };
@@ -31,15 +30,22 @@ export class DesktopViews {
     cx.notify();
   }
 
+  // What a Desktop row can do, for its buttons, its keys and its keycaps alike.
+  desktopActions(s, settled = false) {
+    return {
+      main: { id: `dk-open-${s.id}`, key: "o", label: "Open in Desktop", run: () => openDesktop(s.id), kind: s.state === "blocked" ? "go" : "outline" },
+      mark: this.markAction(s.id, settled, (on, cx) => this.settleDesktop(s, on, cx), "Addressed: hide until the session does something new",
+        { on: "dk-settle", off: "dk-undo" }),
+    };
+  }
+
   desktopCard(t, s, settled = false) {
     const asks = s.state === "blocked", named = s.title && s.title !== s.project ? s.title : null;
     return this.item(t, `dk-${s.id}`, {
       turn: asks ? "me" : "ready", done: settled, kind: "desktop", title: s.project, reason: s.needs || s.detail || (asks ? "asks you" : "ready for review"),
       tip: named, age: ago(s.at, true),
       lines: [named ? div().id(`dk-says-${s.id}`).truncate().text_size(11).text_color(t.muted).child(named) : null],
-      main: button(t, `dk-open-${s.id}`, "Open in Desktop", () => openDesktop(s.id), { kind: asks ? "go" : "outline" }),
-      mark: markButton(t, s.id, settled, (on, cx) => this.settleDesktop(s, on, cx), "Addressed: hide until the session does something new",
-        { on: "dk-settle", off: "dk-undo" }),
+      ...this.desktopActions(s, settled),
     });
   }
 }

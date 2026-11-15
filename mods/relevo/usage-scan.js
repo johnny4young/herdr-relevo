@@ -1,10 +1,10 @@
 // Reads token usage from Claude's and Codex's transcripts into a saved state, a range of bytes at a time, so
 // the first read of months of files spreads over many short commands and later reads only take what was added.
-import { agents, exec, home, readTextFile, writeTextFile, setShared, terminals, shared, window } from "herdr";
+import { agents, appHome, exec, home, readTextFile, writeTextFile, setShared, terminals, shared, window } from "herdr";
 import { ACCOUNTS } from "./accounts.js";
 import {
   AWK, CLAUDE_SCAN, CODEX_SCAN, CONTEXT_SCAN, LIST, addClaude, addCodex, contextOf, cutDay, emptyState, parseList,
-  parseScan, plan, projectFromPath, prune, reportOf, seenSet,
+  parseScan, plan, projectFromPath, prune, reportOf, runFolders, seenSet,
 } from "./lib/usage-scan.js";
 
 const DIR = ".local/state/relevo/usage";
@@ -146,18 +146,34 @@ export class UsageScanner {
     }
   }
 
+  // Run folders still on disk or still in the run queue: the others would only weigh on the report.
+  async keptRuns() {
+    const folders = runFolders(this.state), keep = new Set();
+    if (!folders.length) return keep;
+    const there = await exec("sh", ["-c", 'for d; do [ ! -d "$d" ] || printf "%s\\n" "$d"; done', "sh", ...folders]).catch(() => null);
+    for (const folder of (there?.stdout ?? "").split("\n")) if (folder) keep.add(folder);
+    try {
+      const queue = await exec("cat", [`${appHome()}/relevo-workflow/state.json`]);
+      for (const task of JSON.parse(queue.stdout).tasks) if (task.worktree?.path) keep.add(task.worktree.path);
+    } catch {
+      // no queue yet
+    }
+    return keep;
+  }
+
   async save(finished = false) {
     const { seen, ...rest } = this.state, now = Math.round(Date.now() / 1000);
     await this.files.seen.write(JSON.stringify(seen));
     await this.files.state.write(JSON.stringify(rest));
-    await this.files.report.write(JSON.stringify(reportOf(this.state, now)));
+    await this.files.report.write(JSON.stringify(reportOf(this.state, now, await this.keptRuns())));
     setShared(USAGE, finished ? { updated: now } : { ...(shared(USAGE) ?? {}), updated: now });
   }
 }
 
 export async function readReport() {
+  const path = `${home()}/${REPORT}`;
   try {
-    return JSON.parse(await readTextFile(`${home()}/${REPORT}`) ?? "null");
+    return JSON.parse((await new Saved(path).read()) || (await readTextFile(path)) || "null");
   } catch {
     return null;
   }

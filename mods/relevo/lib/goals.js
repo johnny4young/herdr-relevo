@@ -6,6 +6,9 @@ export const sourceKey = (kind, id) => `${kind}:${id}`;
 export const GOAL_STATES = { active: "In progress", paused: "Paused", completed: "Closed by you" };
 export const STEP_STATES = { todo: "Pending", working: "In progress", review: "Needs review", done: "Validated" };
 export const goalState = (goal) => goal.state ?? "active";
+// What a run may spend, to compare its cost against. Display only: nothing stops when one is passed.
+export const GOAL_CAPS = { maxAgentMinutes: 100000, maxTokens: 1e12 };
+const cap = (value, max) => value == null || (Number.isSafeInteger(value) && value >= 1 && value <= max);
 
 export function validateGoals(doc) {
   if (!doc || doc.version !== 1 || !Number.isSafeInteger(doc.revision) || doc.revision < 0 ||
@@ -17,6 +20,7 @@ export function validateGoals(doc) {
         !["owner", "lead", "decision", "recommendation", "criteria"].every((k) => bounded(g[k])) ||
         !Array.isArray(g.sources) || g.sources.length > 100 || !Array.isArray(g.evidence) || g.evidence.length > 20 ||
         !Array.isArray(g.decisions) || g.decisions.length > 100) throw Error("Invalid goal");
+    if (!Object.entries(GOAL_CAPS).every(([key, max]) => cap(g[key], max))) throw Error("Invalid goal limit: use a whole number of minutes or tokens, or none");
     if (g.decisionLink != null && (!bounded(g.decisionLink.taskId, 100) || !g.decisionLink.taskId ||
         !bounded(g.decisionLink.question) || !g.decisionLink.question.trim())) throw Error("Invalid decision link");
     ids.add(g.id);

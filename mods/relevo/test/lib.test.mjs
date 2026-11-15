@@ -6,7 +6,7 @@ import { diffRows, lineKey } from "../lib/diff.js";
 import { ownerOf, contextFor } from "../lib/context.js";
 import { totals, weekStart, week, weekTable } from "../lib/ledger.js";
 import { keyMap, relevoKeys, formatShortcut } from "../lib/keys.js";
-import { agentPRs, cancelledRuns, ciOf, mapMine, mapReady, mapRequested, openPRs, unresolved, prChanges, mergedHeads } from "../lib/github.js";
+import { agentPRs, cancelledRuns, ciOf, mapMine, mapReady, mapRequested, openPRs, unresolved, prChanges, mergedByHead } from "../lib/github.js";
 import { readPrompt, samePrompt, submitKeys, freeOption, moveKeys, lastMessage, reasonOf } from "../lib/prompt.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "../lib/handoff.js";
 import { isAddressed, keepListed, addressedValue, staleAddressed } from "../lib/addressed.js";
@@ -606,11 +606,16 @@ test("a fork's PR gets its own local branch, whatever its head is called", () =>
   assert.deepEqual(checkoutArgs(same), ["pr", "checkout", "7", "-R", "org/api"]);
 });
 
-test("mergedHeads ignores a fork's branch, even one named like yours", () => {
-  assert.deepEqual(mergedHeads([
-    { headRefName: "feat/a", isCrossRepository: false },
-    { headRefName: "main", isCrossRepository: true },
-  ]), ["feat/a"]);
+test("mergedByHead ignores a fork's branch, even one named like yours, and keeps a reused name's last merge", () => {
+  const merged = mergedByHead([
+    { headRefName: "feat/a", isCrossRepository: false, number: 9, mergedAt: "2026-01-02T00:00:00Z" },
+    { headRefName: "feat/a", isCrossRepository: false, number: 4, mergedAt: "2025-01-02T00:00:00Z" },
+    { headRefName: "main", isCrossRepository: true, number: 5 },
+    { headRefName: "feat/b", isCrossRepository: false },
+  ]);
+  assert.deepEqual([...merged.keys()], ["feat/a", "feat/b"]);
+  assert.deepEqual(merged.get("feat/a"), { number: 9, mergedAt: Date.parse("2026-01-02T00:00:00Z") / 1000 });
+  assert.deepEqual(merged.get("feat/b"), { number: null, mergedAt: null });
 });
 
 test("addressedValue: when and which turn, a missing turn counts as zero", () => {

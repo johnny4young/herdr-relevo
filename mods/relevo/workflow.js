@@ -4,12 +4,14 @@ import { agents, panes, props, theme, appHome, readTextFile, run, focused, share
 import { runtimeCommand } from "./runtime-cli.js";
 import { button, onSubmitChord, tabButton, checkbox } from "./ui.js";
 import { focusedCwd } from "./panelbar.js";
-import { workflowBucket, workflowItems, queueSummary } from "./lib/workflow-navigation.js";
+import { workflowBucket, workflowItems, queueSummary, armAccept, acceptArmed } from "./lib/workflow-navigation.js";
+import { followUpAvailable, changesPlan } from "./lib/run-panel.js";
 import { readGoals } from "./goals-store.js";
 import { batchScope } from "./lib/workflow-preferences.js";
 import { batchAlert } from "./alerts.js";
 import { ShortcutHelp } from "./shortcut-help.js";
-import { RUN_PANES, RUN_REQUEST, liveRunPanes } from "./workflow-window.js";
+import { savedSetups } from "./workflow-setups.js";
+import { RUN_PANES, RUN_REQUEST, RUN_FOLLOW_UP, liveRunPanes, takeAsk } from "./workflow-window.js";
 import { accountOf } from "./accounts.js";
 import { WorkflowDetail } from "./workflow-detail.js";
 import { row, taskState, caption, agentLabel, role, count } from "./workflow-labels.js";
@@ -37,7 +39,6 @@ export class Workflow extends WorkflowDetail {
     this.explicitNew = false;
     this.h = cx.focus_handle();
     this.goalId = props()?.goalId;
-    this.requestedTaskId = props()?.taskId;
     this.lastRequest = shared(RUN_REQUEST)?.at ?? 0;
     // A reloaded view keeps its registered pane; a new split is focused, which is how it learns its id.
     cx.timer.after(300, () => {
@@ -104,9 +105,30 @@ export class Workflow extends WorkflowDetail {
     const request = shared(RUN_REQUEST);
     if (request?.goalId !== this.goalId || !(request.at > this.lastRequest)) return;
     this.lastRequest = request.at;
-    const task = this.tasks?.find((item) => item.id === request.taskId);
-    if (task) { this.selected = task.id; this.filter = workflowBucket(task); this.explicitNew = false; this.tab = "Overview"; }
+    this.applyRequest(request);
     this.h.focus();
+  }
+
+  // What the panel asked for: a task on one of its tabs, a follow-up form, the saved setups, or a new task from one.
+  // All but the task are one-time asks: a pane that reloads with the same stamp only selects the task.
+  applyRequest({ taskId, tab, followUp, text, setups, setup, at }, cx = null) {
+    const task = this.tasks?.find((item) => item.id === taskId);
+    const once = Boolean(tab || followUp || setups || setup) && takeAsk(at);
+    if (task) { this.selected = task.id; this.filter = workflowBucket(task); this.explicitNew = false; this.tab = once && TABS.includes(tab) ? tab : "Overview"; }
+    if (!once) return;
+    if (task && followUp === "blocked" && followUpAvailable(task)) this.prepareBlockedFollowUp(task, cx);
+    else if (task && followUp === "changes" && task.state === "needs_you" && changesPlan(task).spent && text?.trim()) {
+      this.form.decision.set_value(text); this.prepareFollowUp(task, cx);
+      if (shared(RUN_FOLLOW_UP) === at) setShared(RUN_FOLLOW_UP, null);
+    } else if (task && followUp === "rerun" && ["accepted", "cancelled"].includes(task.state)) {
+      this.form.decision.set_value(""); this.prepareFollowUp(task, cx);
+    }
+    if (setups) { this.selected = null; this.explicitNew = true; this.tab = "Overview"; this.taskSetupOpen = true; this.setupsOpen = true; }
+    const saved = setup ? savedSetups().find((item) => item.id === setup) : null;
+    if (saved) {
+      this.selected = null; this.explicitNew = true; this.tab = "Overview";
+      this.form.root.set_value(saved.root); this.applySavedSetup(saved.id, cx);
+    }
   }
 
   load(cx) {
@@ -133,10 +155,6 @@ export class Workflow extends WorkflowDetail {
         const initial = !this.loadedOnce;
         this.loadedOnce = true; this.lastLoadedRaw = raw;
         this.applyState(state);
-        if (initial && this.requestedTaskId) {
-          const requested = this.tasks.find((task) => task.id === this.requestedTaskId);
-          if (requested) { this.selected = requested.id; this.filter = workflowBucket(requested); }
-        }
         if (initial && this.goal && !this.tasks.length) {
           if (this.goal.steps?.length) this.openPlan(cx);
           else if (!this.pendingDraft) {
@@ -149,6 +167,7 @@ export class Workflow extends WorkflowDetail {
             if (setup) this.applySetup(setup, cx, { quiet: true });
           }
         }
+        if (initial) this.applyRequest(props() ?? {}, cx);
         if (this.error?.startsWith("Could not load workflow:")) this.error = null;
       } catch (error) {
         if (!this.closed && request === this.loadVersion) this.error = `Could not load workflow: ${error.message ?? error}`;
@@ -350,7 +369,7 @@ export class Workflow extends WorkflowDetail {
     else { this.checkPreset = "custom"; this.form.checks.set_value(JSON.stringify(checks)); }
     this.taskSetupOpen = !quiet || !this.executor || !this.reviewer; this.taskAdvancedOpen = !quiet && this.checkPreset === "custom";
     this.setupReuseNotice = quiet ? null : "Previous setup applied. Review repository and agents before creating.";
-    cx.notify();
+    cx?.notify();
   }
 
   taskList(t) {
@@ -574,9 +593,9 @@ export class Workflow extends WorkflowDetail {
         if (!this.h.is_focused() || event.modifiers?.platform || event.modifiers?.alt || event.modifiers?.control) return;
         if (task?.state === "needs_you" && !this.busy && this.tab === "Overview" && !this.showHelp) {
           if (event.key === "a" && this.requestChangesFor !== task.id) {
-            this.acceptIntent = { id: task.id, revision: task.revision }; cx.stop_propagation(); cx.notify(); return;
+            this.acceptIntent = armAccept(task); cx.stop_propagation(); cx.notify(); return;
           }
-          if (event.key === "enter" && this.acceptIntent?.id === task.id && this.acceptIntent.revision === task.revision) {
+          if (event.key === "enter" && acceptArmed(this.acceptIntent, task)) {
             this.submitDecision(task, "accept", cx); cx.stop_propagation(); return;
           }
           if (event.key === "r") { this.editDecisionNote(task, true, cx); cx.stop_propagation(); return; }

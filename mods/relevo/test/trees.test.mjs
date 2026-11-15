@@ -145,26 +145,32 @@ test("a space opened after the question asks again before closing it", async () 
   assert.match(text(v.treeRow({}, w)), /closes its space/);
 });
 
-test("Remove all leaves out worktrees with ignored work, even found after the scan", async () => {
+// Several rows through the one question, as Remove N then its confirmation do.
+async function removeMarked(v, rows, cx) {
+  v.askBulk(cx, rows);
+  assert.deepEqual([[...v.marked], Object.keys(v.bulkAsk)], [rows.map((w) => w.path), rows.map((w) => w.path)]);
+  v.confirmBulk(cx);
+  for (let i = 0; i < 12; i++) await flush();
+}
+
+test("Remove N leaves out worktrees with ignored work, even found after the scan", async () => {
   const a = tree(), b = tree({ path: "/work/wt2", ignored: [".env"] });
   const v = view(a, b), cx = fakeCx();
   assert.deepEqual(v.removable([a, b]), [a]);
   files({ ignored: "notes.md\0" });
-  v.confirm = "all";
-  v.removeAll([a], cx);
-  await flush();
+  await removeMarked(v, [a], cx);
   assert.equal(calls(REMOVE).length, 0);
   assert.equal(v.wtError[PATH], "deletes notes.md");
+  assert.deepEqual([...v.marked], [PATH], "the row that stayed is still selected");
+  assert.equal(fake.notices.at(-1).title, "Removed 0 of 1");
 });
 
-test("Remove all leaves out a worktree that gained a space or a terminal after the scan", async () => {
+test("Remove N leaves out a worktree that gained a space or a terminal after the scan", async () => {
   const a = tree(), b = tree({ path: "/work/wt2" });
   fake.spaces = [{ id: "sp1", folder: PATH, tabs: [] }];
   fake.panes = [{ pane: "p1", cwd: "/work/wt2", tab: "tb9" }];
   const v = view(a, b), cx = fakeCx();
-  v.confirm = "all";
-  v.removeAll([a, b], cx);
-  await flush();
+  await removeMarked(v, [a, b], cx);
   assert.equal(calls(REMOVE).length, 0);
   assert.deepEqual(fake.runs, []);
   assert.equal(v.wtError[PATH], "has a space");
@@ -195,13 +201,14 @@ test("Remove logs what went, with its commit, and the ignored files it took", as
   assert.deepEqual(fake.notices, []);
 });
 
-test("Remove all logs each one", async () => {
+test("Remove N logs each one", async () => {
   removable();
-  const v = view(), a = tree(), b = tree({ path: "/work/wt2" }), cx = fakeCx();
-  v.confirm = "all";
-  v.removeAll([a, b], cx);
-  for (let i = 0; i < 12; i++) await flush();
+  const a = tree(), b = tree({ path: "/work/wt2" }), v = view(a, b), cx = fakeCx();
+  await removeMarked(v, [a, b], cx);
   assert.deepEqual(logged().map((e) => e.path), [PATH, "/work/wt2"]);
+  assert.deepEqual(logged().map((e) => e.said), ["Remove", "Remove"]);
+  assert.equal(v.marked.size, 0);
+  assert.equal(fake.notices.at(-1).title, "Removed 2 worktrees");
 });
 
 test("a removal git refuses isn't logged", async () => {

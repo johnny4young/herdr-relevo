@@ -114,8 +114,9 @@ export const TURN_LABEL = { me: "Needs me", flight: "In flight", ready: "Ready",
 // A row the person must act on is tinted; selection is a full outline, never a leading strip.
 export const meTint = (t) => `${t.blocked}12`;
 
-// lane · body (kind, what, why) · edge (age, the one action). `below` holds the selected row's extra lines.
-export function row(t, id, { turn = "open", kind = null, title, reason = null, sub = null, age = null, action = null,
+// lane · body (kind, what, why) · edge (age, the one action). `lines` always show under the title;
+// `below` holds the selected row's extra lines.
+export function row(t, id, { turn = "open", kind = null, title, reason = null, sub = null, lines = null, age = null, action = null,
   selected = false, onSelect = null, below = null, tip = null } = {}) {
   const hot = turn === "me" || turn === "stuck";
   return v_flex().id(id).flex_none().rounded(6).border_1().border_color(selected ? t.accent : `${t.accent}00`)
@@ -130,7 +131,8 @@ export function row(t, id, { turn = "open", kind = null, title, reason = null, s
           .child(div().min_w(0).truncate().font_semibold().text_size(13).child(title))
           .when(Boolean(reason), (el) => el.child(div().flex_1().min_w(0).truncate().text_size(13)
             .text_color(hot ? t.blocked : t.muted).child(reason))))
-        .when(Boolean(sub), (el) => el.child(h_flex().pl(19).gap(7).items_center().min_w(0).text_size(11).text_color(t.muted).child(sub))))
+        .when(Boolean(sub), (el) => el.child(h_flex().pl(19).gap(7).items_center().min_w(0).text_size(11).text_color(t.muted).child(sub)))
+        .when(Boolean(lines), (el) => el.children(lines)))
       .when(age != null, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(age)))
       .when(Boolean(action), (el) => el.child(action)))
     .when(Boolean(below), (el) => el.child(v_flex().pl(LANE + 19).pr(8).pb(8).gap(5).children(below)));
@@ -140,25 +142,32 @@ export function row(t, id, { turn = "open", kind = null, title, reason = null, s
 export const hairline = (t, inset = LANE) => div().h(1).ml(inset).mr(inset ? 8 : 0).flex_none().bg(t.border).opacity(0.55);
 export const joined = (t, rows) => rows.filter(Boolean).flatMap((el, i) => (i ? [hairline(t), el] : [el]));
 
-// ✓ hides an item until something new happens; Undo brings it back. `key` names both buttons.
-export const markButton = (t, key, addressed, set, tip, { on = "addressed", off = "undo" } = {}) => (addressed
-  ? button(t, `${off}-${key}`, "Undo", (cx) => set(false, cx), { tip: "Back to the list" })
-  : button(t, `${on}-${key}`, [icon("check")], (cx) => set(true, cx), { tip }));
+// A row action as data, so its button, its key and its keycap come from one table; `el` is a control drawn elsewhere.
+export function actionButton(t, a) {
+  if (a.el) return a.el;
+  const { kind, size, tip, disabled, accessibleLabel } = a;
+  return button(t, a.id, a.label, a.run, { kind, size, tip, disabled, accessibleLabel });
+}
 
-// A section label in caps with its count and a hairline to the edge.
-export const legHeader = (t, id, label, count, { me = false } = {}) => h_flex().id(id).h(28).pt(6).pl(LANE).pr(8).gap(8).items_center()
+// The keys a row answers, from the same table its buttons come from.
+export const keysOf = ({ main = null, actions = [], mark = null }) =>
+  Object.fromEntries([main, ...actions, mark].filter((a) => a?.key).map((a) => [a.key, a.run]));
+
+// A section label in caps with its count and a hairline to the edge; `after` sits past the hairline.
+export const legHeader = (t, id, label, count, { me = false, after = [] } = {}) => h_flex().id(id).h(28).pt(6).pl(LANE).pr(8).gap(8).items_center()
   .text_size(11).text_color(me ? t.blocked : t.dim)
   .child(div().flex_none().child(label.toUpperCase()))
   .child(div().flex_none().font_semibold().text_color(t.foreground).child(String(count)))
-  .child(div().flex_1().h(1).bg(t.border).opacity(0.55));
+  .child(div().flex_1().h(1).bg(t.border).opacity(0.55))
+  .children(after.filter(Boolean));
 
-// The counters are the legend: glyph, plain label, count.
-export const legend = (t, id, counts) => h_flex().id(id).h(36).flex_none().pl(16).pr(8).gap(14).items_center()
+// The counters are the legend: glyph, plain label, count. Narrow, the label moves to the tooltip.
+export const legend = (t, id, counts, { narrow = false } = {}) => h_flex().id(id).h(36).flex_none().pl(16).pr(8).gap(14).items_center()
   .children(counts.map(({ turn, label = TURN_LABEL[turn], n }) => {
     const hot = (turn === "me" || turn === "stuck") && n > 0;
-    return h_flex().gap(6).items_center()
+    return h_flex().id(`${id}-${turn}`).gap(6).items_center().when(narrow, (el) => el.tooltip(label))
       .child(turn === "flight" && !n ? div().size(12).flex_none().rounded_full().border_1().border_color(t.dim) : laneGlyph(t, turn))
-      .child(div().text_size(13).text_color(hot ? t.blocked : t.muted).child(label))
+      .when(!narrow, (el) => el.child(div().text_size(13).text_color(hot ? t.blocked : t.muted).child(label)))
       .child(div().text_size(13).font_semibold().text_color(hot ? t.blocked : t.foreground).child(String(n)));
   }));
 
@@ -175,10 +184,11 @@ export function keyBar(t, id, keys, right = null) {
   const font = monoFont();
   const group = ([caps, label]) => h_flex().gap(4).items_center().flex_none()
     .children(caps.map((c) => keycap(t, c, { font }))).child(div().child(label));
+  // A narrow panel clips the left keys first; the far edge always stays.
   return h_flex().id(id).h(32).flex_none().pl(16).pr(8).gap(14).items_center()
-    .border_t(1).border_color(t.border).bg(t.background).text_size(11).text_color(t.muted).overflow_hidden()
-    .children(keys.map(group))
-    .when(Boolean(right), (el) => el.child(div().flex_1()).child(group(right)));
+    .border_t(1).border_color(t.border).bg(t.background).text_size(11).text_color(t.muted)
+    .child(h_flex().flex_1().min_w(0).gap(14).items_center().overflow_hidden().children(keys.map(group)))
+    .when(Boolean(right), (el) => el.child(group(right)));
 }
 
 // A small label: tone colours the text over a 15% wash of itself.
@@ -244,6 +254,15 @@ export function saveFolds(expanded) {
   if (JSON.stringify(kept) !== JSON.stringify(shared(FOLDS) ?? {})) setShared(FOLDS, kept);
 }
 
+// Opens or shuts a fold and remembers it; `onOpen` runs when it opens. Every control of a fold goes through here.
+export function toggleFold(view, key, cx, onOpen = null) {
+  const open = Boolean(view.expanded[key]);
+  view.expanded[key] = !open;
+  saveFolds(view.expanded);
+  if (!open) onOpen?.(cx);
+  cx.notify();
+}
+
 // A "N things" line that folds a list open or shut; `key` names its state in view.expanded.
 export function foldRow(view, t, id, key, label, { gap = false, onOpen = null, after = null } = {}) {
   const open = Boolean(view.expanded[key]);
@@ -254,10 +273,7 @@ export function foldRow(view, t, id, key, label, { gap = false, onOpen = null, a
     .hover((s) => s.text_color(t.muted))
     .on_click((_e, cx) => {
       cx.stop_propagation();
-      view.expanded[key] = !open;
-      saveFolds(view.expanded);
-      if (!open) onOpen?.(cx);
-      cx.notify();
+      toggleFold(view, key, cx, onOpen);
     })
     .child(chevron(open))
     .child(label)

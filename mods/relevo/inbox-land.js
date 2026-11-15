@@ -7,7 +7,7 @@ import { localBranch } from "./lib/prmenu.js";
 import { ago } from "./lib/time.js";
 import { scanWorktrees, removalCheck, removeWorktree } from "./worktrees.js";
 import { headOf, logRemoval } from "./worktree-actions.js";
-import { button, icon } from "./ui.js";
+import { icon } from "./ui.js";
 
 export const LANDING = "relevo.landing";
 const TICK_MS = 20000;
@@ -145,22 +145,25 @@ export class LandViews {
     return "worktree removed";
   }
 
+  // What a landing row can do, for its buttons, its keys and its keycaps alike. ✓ only clears the row, so it has no key.
+  landActions(url, e) {
+    const failed = e.phase === "failed", landed = e.phase === "landed";
+    const run = failed && /^https:\/\//.test(e.failed?.url ?? "") ? { id: `land-run-${url}`, label: "Open run", run: () => exec("open", [e.failed.url]), kind: "go" } : null;
+    const pr = { id: `land-pr-${url}`, key: "o", label: "Open PR", run: () => exec("open", [url]) };
+    return {
+      main: run ?? pr,
+      actions: [pr, e.phase === "queued" ? { id: `land-cancel-${url}`, label: "Cancel", run: (cx) => this.cancelAuto(url, e, cx), tip: "Turns auto-merge off" } : null],
+      mark: failed || landed ? { id: `land-done-${url}`, label: [icon("check")], run: () => this.setLanding(url, null), tip: "Remove from the list" } : null,
+    };
+  }
+
   landCard(t, url, e) {
     const failed = e.phase === "failed", landed = e.phase === "landed";
-    const run = failed && /^https:\/\//.test(e.failed?.url ?? "") ? button(t, `land-run-${url}`, "Open run", () => exec("open", [e.failed.url]), { kind: "go" }) : null;
-    const pr = button(t, `land-pr-${url}`, "Open PR", () => exec("open", [url]));
     return this.item(t, `land-${url}`, {
       turn: failed ? "me" : landed ? "ready" : "flight", kind: "land", title: `${e.repo.split("/")[1]} #${e.number}`, reason: landLine(e),
       tip: e.title, age: ago(e.done ?? e.at, true),
       lines: [div().min_w(0).truncate().text_size(13).text_color(t.foreground).child(e.title)],
-      main: run ?? pr,
-      actions: [
-        pr,
-        ...(e.phase === "queued"
-          ? [button(t, `land-cancel-${url}`, "Cancel", (cx) => this.cancelAuto(url, e, cx), { tip: "Turns auto-merge off" })]
-          : []),
-      ],
-      mark: failed || landed ? button(t, `land-done-${url}`, [icon("check")], () => this.setLanding(url, null), { tip: "Remove from the list" }) : null,
+      ...this.landActions(url, e),
     });
   }
 
