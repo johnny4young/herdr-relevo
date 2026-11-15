@@ -4,10 +4,10 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { agents, exec, home, spaces, panes, run, openOverlay, closeOverlay, props, theme, shared, setShared, watchFolder, window, layout, pickFolder } from "herdr";
+import { agents, exec, home, spaces, terminals, panes, run, openOverlay, closeOverlay, props, theme, shared, setShared, watchFolder, window, layout, pickFolder } from "herdr";
 import { COLORS, folderData, folderFor, loadFolders, paint, updateFolders } from "./folders.js";
 import { readGit } from "./git.js";
-import { aliveBySpace, branchNote, buildModel, movesTo, mostUrgent, portsIn, spaceTurn, where } from "./model.js";
+import { aliveBySpace, branchNote, buildModel, movesTo, mostUrgent, portsIn, quietSpaces, spaceTurn, where } from "./model.js";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -31,6 +31,7 @@ export function laneGlyph(t, turn) {
   return div().size(8).flex_none().rounded_full().bg(t.blocked);
 }
 // Folders the Relevo mod keeps in step with its contexts: their rules are its repo lists.
+const REPO_PRS = "relevo.repoPRs";
 const managed = () => new Set((shared("relevo.setup")?.contexts ?? []).map((c) => c.key));
 // Claude Desktop and other terminals' sessions, as the Relevo mod publishes them.
 const SESSION_TURN = { working: "flight", blocked: "me", review: "ready" };
@@ -71,6 +72,7 @@ export default class Spaces extends View {
     this.closed = new Set(JSON.parse(localStorage.getItem("closed") ?? "[]"));
     this.hovered = null;
     this.armed = null;
+    this.touched = JSON.parse(localStorage.getItem("touched") ?? "{}");
     cx.spawn(async (cx) => { await loadFolders(); cx.notify(); });
     cx.timer.every(500, (cx) => this.tick(cx));
   }
@@ -167,7 +169,16 @@ export default class Spaces extends View {
     const sp = spaces(), ps = panes();
     const ready = (w) => this.shown.has(w.id) || where(w, ps) in this.git || Date.now() - (this.born[w.id] ??= Date.now()) > 1500;
     for (const w of sp) if (!this.shown.has(w.id) && ready(w)) this.shown.add(w.id);
-    const m = buildModel({ spaces: sp, panes: ps, git: this.git, folders: folderData() });
+    const base = buildModel({ spaces: sp, panes: ps, git: this.git, folders: folderData() });
+    const life = aliveBySpace(base.groups.flatMap((g) => g.rows), {
+      agents: agents(), desktop: sessions("relevo.desktop"), elsewhere: sessions("relevo.elsewhere"), alive: shared("relevo.alive"), home: home(),
+    });
+    const { quiet, changed } = quietSpaces(base.groups.flatMap((g) => g.rows), life.by, {
+      touched: this.touched, prs: shared(REPO_PRS) ?? {}, firstSeen: (id) => this.firstSeen(id),
+    });
+    if (changed.length) localStorage.setItem("touched", JSON.stringify(this.touched));
+    const m = buildModel({ spaces: sp, panes: ps, git: this.git, folders: folderData(), quiet });
+    m.life = life;
     const current = sp.map((w) => w.id), key = JSON.stringify([current, m.order]);
     if (current.every((id, i) => id === m.order[i])) this.ordering = null;
     else if (this.ordering?.key !== key || this.orderingDue(Date.now())) {
@@ -253,6 +264,18 @@ export default class Spaces extends View {
       .on_mouse_up("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => { cx.stop_propagation(); this.toggle(id, active); cx.notify(); })
       .child(svg(ICON(`chevron-${open ? "down" : "right"}`)).size(10));
+  }
+
+  // The repo's open PRs in Reviews, red when one needs you; a click opens Reviews showing only them.
+  prChip(t, id, repo, prs) {
+    const tone = prs.me > 0 ? t.blocked : t.dim;
+    return h_flex().id(`prs-${id}`).flex_none().gap(3).items_center().px(2).rounded(4).cursor_pointer().text_color(tone)
+      .hover((s) => s.bg(t.hover)).tooltip(`${prs.open} open PR${prs.open === 1 ? "" : "s"}${prs.me ? `, ${prs.me} need${prs.me === 1 ? "s" : ""} you` : ""} · Show in Reviews`)
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_mouse_up("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); run(`relevo.reviews-for-${repo}`); })
+      .child(svg(ICON("pr")).size(11).flex_none())
+      .child(div().child(String(prs.open)));
   }
 
   // One line under a space: a mark, a name, what it does, and its ports or where it runs.
@@ -357,6 +380,7 @@ export default class Spaces extends View {
     const branch = branchNote(g, w.name), turn = spaceTurn(w.status);
     const lively = Boolean(life) && life.agents.length + life.sessions.length + life.terminals.length + life.servers.length > 0;
     const open = lively && this.isOpen(w.id, w.active), ports = life ? portsIn(life) : [];
+    const repo = (g?.name ?? w.name ?? "").toLowerCase(), prs = (shared(REPO_PRS) ?? {})[repo] ?? null;
     const target = { space: w.id };
     const hot = this.pressed !== null && this.pressed !== w.id && this.over === JSON.stringify(target);
     const tip = [r.path, g?.branch && `on ${g.branch}`].filter(Boolean).join(" · ");
@@ -377,7 +401,8 @@ export default class Spaces extends View {
         .when(g?.ahead > 0, (el) => el.child(div().flex_none().text_color(t.ansi2).child(`↑${g.ahead}`)))
         .when(g?.behind > 0, (el) => el.child(div().flex_none().text_color(t.ansi1).child(`↓${g.behind}`)))
         .when(g?.changed > 0, (el) => el.child(div().id(`changed-${w.id}`).flex_none().tooltip(`${g.changed} file${g.changed === 1 ? "" : "s"} changed`).child(`±${g.changed}`)))
-        .when(ports.length > 0 && !open, (el) => el.child(portTag(t, ports[0], `ports-${w.id}`)).when(ports.length > 1, (p) => p.child(div().flex_none().child(`+${ports.length - 1}`)))))
+        .when(ports.length > 0 && !open, (el) => el.child(portTag(t, ports[0], `ports-${w.id}`)).when(ports.length > 1, (p) => p.child(div().flex_none().child(`+${ports.length - 1}`))))
+        .when(Boolean(prs) && !tree, (el) => el.child(this.prChip(t, w.id, repo, prs))))
       .when(Boolean(turn), (el) => el.child(h_flex().w(14).flex_none().justify_center().child(laneGlyph(t, turn))))
       .when(lively, (el) => el.child(this.chevron(t, w.id, w.active, open))), target, m);
   }
@@ -419,12 +444,40 @@ export default class Spaces extends View {
         .children(body));
   }
 
+  // A space seen for the first time was last busy when its newest terminal started.
+  firstSeen(id) {
+    const started = terminals().filter((k) => k.labels?.["herdr.space"] === id).map((k) => k.created_ms ?? 0);
+    return started.length ? Math.max(...started) : Date.now();
+  }
+
+  // Spaces quiet for over a day fold into one line per folder; Close N closes them all on a second click. Never on its own.
+  quietFold(t, g, m, draw) {
+    const rows = g.rows.filter((r) => r.quiet);
+    if (!rows.length) return [];
+    const id = `quiet-${g.id}`, open = this.opened.has(id), ids = rows.filter((r) => !r.tree).map((r) => r.w.id);
+    const armed = this.armed === id;
+    return [h_flex().id(id).h(26).px(6).gap(7).flex_none().items_center().rounded(6).cursor_pointer().text_size(11).text_color(t.dim)
+      .hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => { this.toggle(id, false); cx.notify(); })
+      .child(h_flex().w(18).flex_none().justify_center().child(svg(ICON(`chevron-${open ? "down" : "right"}`)).size(10)))
+      .child(div().flex_1().min_w(0).truncate().child(`${ids.length} quiet for over a day`))
+      .child(div().id(`${id}-close`).flex_none().px(5).h(18).flex().items_center().rounded(4)
+        .text_color(armed ? t.blocked : t.dim).hover((s) => s.bg(t.hover).text_color(armed ? t.blocked : t.foreground))
+        .tooltip(armed ? `Click again to close ${ids.length} space${ids.length === 1 ? "" : "s"} and their terminals` : "Close these spaces")
+        .on_click((_e, cx) => {
+          cx.stop_propagation();
+          if (!armed) { this.armed = id; cx.notify(); return; }
+          this.armed = null;
+          for (const sid of rows.map((r) => r.w.id)) run("space.close", { id: sid, confirmed: true });
+          cx.notify();
+        })
+        .child(armed ? `Close ${ids.length}?` : `close ${ids.length}`)),
+    ...(open ? rows.flatMap(draw) : [])];
+  }
+
   // Folder by folder: each space, what runs in the open ones, then repos with something alive but no space.
   wide(t, m) {
-    const rows = m.groups.flatMap((g) => g.rows);
-    const { by, loose } = aliveBySpace(rows, {
-      agents: agents(), desktop: sessions("relevo.desktop"), elsewhere: sessions("relevo.elsewhere"), alive: shared("relevo.alive"), home: home(),
-    });
+    const { by, loose } = m.life;
     const ghosts = new Map();
     for (const entry of loose) {
       const gid = folderFor(null, entry.cwd, folderData())?.id ?? "elsewhere";
@@ -432,17 +485,19 @@ export default class Spaces extends View {
     }
     const groups = [...m.groups];
     if (ghosts.has("elsewhere")) groups.push({ id: "elsewhere", folder: null, label: "Elsewhere", rows: [] });
+    const draw = (r) => {
+      const life = by.get(r.w.id), lively = life.agents.length + life.sessions.length + life.terminals.length + life.servers.length > 0;
+      const shown = lively && this.isOpen(r.w.id, r.w.active);
+      return [this.row(t, r, m, life), ...(shown ? this.lifeRows(t, r.w.id, life, Boolean(r.tree)) : [])];
+    };
     return groups.flatMap((g) => {
       const open = !g.folder?.folded, mine = ghosts.get(g.id) ?? [];
       const head = g.folder || groups.length > 1 ? [this.folderHeader(t, g, m, mine.length)] : [];
       if (!open) return head;
       return [
         ...head,
-        ...g.rows.flatMap((r) => {
-          const life = by.get(r.w.id), lively = life.agents.length + life.sessions.length + life.terminals.length + life.servers.length > 0;
-          const shown = lively && this.isOpen(r.w.id, r.w.active);
-          return [this.row(t, r, m, life), ...(shown ? this.lifeRows(t, r.w.id, life, Boolean(r.tree)) : [])];
-        }),
+        ...g.rows.filter((r) => !r.quiet).flatMap(draw),
+        ...this.quietFold(t, g, m, draw),
         ...mine.flatMap((entry) => this.ghost(t, entry)),
       ];
     });

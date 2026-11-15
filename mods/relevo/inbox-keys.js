@@ -10,9 +10,9 @@ import { openGoal } from "./goals-editor.js";
 export const INBOX_FOCUS = "relevo.inbox.focus";
 
 // `row` asks for that row to be selected once the Inbox has the keyboard.
-export function focusInbox(row = null) {
+export function focusInbox(row = null, filter = null) {
   showPanel("inbox");
-  setShared(INBOX_FOCUS, { at: Date.now(), pane: focused()?.pane ?? null, row });
+  setShared(INBOX_FOCUS, { at: Date.now(), pane: focused()?.pane ?? null, row, filter });
 }
 
 // ↑/↓ pick a card or row and Enter runs its main action. Mixed into Inbox, so `this` is the Inbox.
@@ -57,6 +57,7 @@ export class KeyNav {
     if (!req || req.at === this.focusAt) return;
     this.focusAt = req.at;
     this.returnPane = req.pane;
+    if (typeof req.filter === "string") this.filterField?.set_value(req.filter);
     // Only while the merge alert is fresh; later the shortcut opens the Inbox as usual.
     if (req.row) this.reveal(req.row);
     else if (this.pendingSel && Date.now() - this.pendingSel.at < 10 * 60000) this.reveal(this.pendingSel.id);

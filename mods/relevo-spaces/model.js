@@ -11,7 +11,7 @@ const localId = (s) => (s.machine ? s.id.slice(s.machine.length + 1) : s.id);
 
 // Groups in screen order (the folders, then spaces in none, then other machines), each space's worktrees under it.
 // `order` is every space id in that order, so ⌃1…⌃9 pick what the list shows.
-export function buildModel({ spaces: sp, panes: ps, git = {}, folders = null }) {
+export function buildModel({ spaces: sp, panes: ps, git = {}, folders = null, quiet = new Set() }) {
   const rows = sp.map((w) => ({ w, g: git[where(w, ps)] ?? null, path: place(w, ps) }));
   const mains = new Map();
   for (const r of rows) if (r.g && !r.g.linked && !mains.has(r.g.repo)) mains.set(r.g.repo, r);
@@ -28,10 +28,13 @@ export function buildModel({ spaces: sp, panes: ps, git = {}, folders = null }) 
   const groups = ids.map((id) => {
     const folder = folders?.list.find((f) => f.id === id) ?? null;
     const top = rows.filter((r) => groupOf.get(r.w.id) === id && !parentOf(r));
-    const list = top.flatMap((r) => {
+    // A repo and its worktrees are quiet together, and quiet ones go last so ⌃1…⌃9 count what is shown.
+    const units = top.map((r) => {
       const kids = r.g && !r.g.linked && mains.get(r.g.repo) === r ? rows.filter((k) => parentOf(k) === r) : [];
-      return [{ ...r, tree: null, kids: kids.length }, ...kids.map((k, n) => ({ ...k, tree: n === kids.length - 1 ? "last" : "mid", kids: 0 }))];
+      const still = [r, ...kids].every((x) => quiet.has(x.w.id));
+      return [{ ...r, tree: null, kids: kids.length, quiet: still }, ...kids.map((k, n) => ({ ...k, tree: n === kids.length - 1 ? "last" : "mid", kids: 0, quiet: still }))];
     });
+    const list = [...units.filter((u) => !u[0].quiet), ...units.filter((u) => u[0].quiet)].flat();
     return { id, folder, label: folder?.name ?? (id.startsWith("machine:") ? id.slice(8) : null), rows: list };
   }).filter((g) => g.folder || g.rows.length);
   const order = groups.flatMap((g) => g.rows.map((r) => r.w.id));
@@ -97,3 +100,24 @@ export function aliveBySpace(rows, { agents = [], desktop = [], elsewhere = [], 
 
 // Every port a space's terminals and servers listen on, lowest first.
 export const portsIn = (life) => [...new Set([...life.terminals, ...life.servers].flatMap((x) => x.ports ?? []))].sort((a, b) => a - b);
+
+export const DAY_MS = 24 * 3600e3;
+// A space is quiet when nothing in it runs, asks, changed or listens, and that has been so for over a day.
+// `touched` (id → ms) is when each was last busy; it is updated in place and the ids that changed come back.
+export function quietSpaces(rows, by, { touched, now = Date.now(), firstSeen = () => now, prs = {} }) {
+  const quiet = new Set(), changed = [];
+  for (const r of rows) {
+    const life = by.get(r.w.id) ?? { agents: [], sessions: [], terminals: [], servers: [] };
+    const busy = r.w.active || Boolean(spaceTurn(r.w.status)) || (r.g?.changed ?? 0) > 0
+      || life.sessions.length > 0 || life.servers.length > 0 || life.agents.some((a) => a.status !== "idle")
+      || life.terminals.some((x) => x.state === "running" || x.state === "failed" || (x.ports ?? []).length > 0)
+      || (prs[(r.g?.name ?? r.w.name ?? "").toLowerCase()]?.me ?? 0) > 0;
+    if (busy) {
+      if (now - (touched[r.w.id] ?? 0) > 60000) { touched[r.w.id] = now; changed.push(r.w.id); }
+      continue;
+    }
+    if (touched[r.w.id] === undefined) { touched[r.w.id] = firstSeen(r.w.id); changed.push(r.w.id); }
+    if (now - touched[r.w.id] > DAY_MS) quiet.add(r.w.id);
+  }
+  return { quiet, changed };
+}

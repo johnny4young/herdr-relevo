@@ -401,6 +401,11 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   by space, from shared `relevo.alive`, which the Relevo mod's `AliveWatch` (`alive.js`) writes every 10 s while the
   window is in front (terminal rows with ports, and `outsideServers`: listening processes no Herdr terminal owns, run from
   home, with the `.app` they came from). Terminal actions go back as `relevo.term-<open|peek|restart|stop|close>-<address>`.
+  A row's PR chip reads shared `relevo.repoPRs` (the Inbox's Now PR rows by repo name: open, and how many need me); a
+  click sends `relevo.reviews-for-<repo>`, which lands on Now with the filter set to it. `quietSpaces` keeps when each
+  space was last busy (active, an agent not idle, changed files, a session, a port, a running terminal or a PR that needs
+  me) in localStorage, starting from its newest terminal; past a day it folds into the folder's quiet line, last in the
+  order, and **close N** sends `space.close {confirmed: true}` only on a second click.
 - **Community mods**: issues (jankeesvw).
 - **herdr**: `agents`, `panes`, `spaces`, `terminals`, `focused`, `layout`, `shared`/`setShared`, `exec`, `run`,
   `notify`, `openOverlay`, `playSound`, `readTextFile`, `writeTextFile`, `watchFolder`, `nextCommand`, `window`; commands `tab.new`, `space.new`,
