@@ -301,7 +301,10 @@ export class Inbox {
           this.publish();
           cx.notify();
         }
-        this.localError = null;
+        if (this.localError) {
+          this.localError = null;
+          cx.notify();
+        }
         this.localOkAt = Date.now() / 1000;
       } catch (e) {
         // Said in the Inbox: a scan that throws would otherwise leave the cards as they were, silently.
@@ -697,7 +700,7 @@ export class Inbox {
     const shownNow = this.filterNow(entries), errors = reviewView === "now" ? this.readErrors() : [];
     const firstRead = !goalMode && !this.prsAt && Boolean(this.scanningPRs);
     // Nothing needs you only once PRs were read and every source answered.
-    this.calm = reviewView === "now" && Boolean(this.prsAt) && !errors.length && !counts.me && !counts.ready ? { flight: counts.flight, upkeep: upkeep.count } : null;
+    this.calm = reviewView === "now" && Boolean(this.prsAt) && Boolean(this.localOkAt) && !errors.length && !counts.me && !counts.ready ? { flight: counts.flight, upkeep: upkeep.count } : null;
     this.nav = goalMode ? this.runNav(runs) : reviewView === "now" ? this.nowNav(shownNow) : this.maintenanceNav(v, upkeep);
     this.keyboard = this.h.is_focused();
     if (this.sel && !this.nav.some((i) => i.id === this.sel)) this.sel = null;
@@ -744,7 +747,7 @@ export class Inbox {
       })
       .when(reviewView === "now", (el) => el.child(h_flex().flex_none().pr(12).items_center().border_b(1).border_color(t.border)
         .child(div().flex_1().min_w(0).child(this.nowLegend(t, counts)))
-        .when(Boolean(this.prsAt), (row) => row.child(div().id("read-age").flex_none().text_size(11).text_color(t.dim).child(`read ${ago(this.prsAt)}`)))))
+        .when(Boolean(this.prsAt) && !this.tightInbox, (row) => row.child(div().id("read-age").flex_none().text_size(11).text_color(t.dim).child(`read ${ago(this.prsAt)}`)))))
       .when(goalMode && !runOpen, (el) => el.child(div().flex_none().border_b(1).border_color(t.border).child(this.runsLegend(t, runs))))
       .when(reviewView === "maintenance", (el) => el.child(h_flex().flex_none().border_b(1).border_color(t.border).child(this.maintenanceLegend(t, upkeep))))
       .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().px(4).py(6).gap(2)
@@ -763,7 +766,7 @@ export class Inbox {
   // The first PR read, under the header: what is read already and what is still asked.
   firstReadLine(t) {
     return h_flex().id("first-read").h(28).flex_none().pl(16).pr(8).gap(14).items_center().border_b(1).border_color(t.border).text_size(11).text_color(t.muted)
-      .when(Boolean(this.localOkAt), (el) => el.child(h_flex().gap(6).items_center().child(icon("check", t.done, 11)).child(div().child("agents and runs read"))))
+      .when(Boolean(this.localOkAt && this.workflowAt), (el) => el.child(h_flex().gap(6).items_center().child(icon("check", t.done, 11)).child(div().child("agents and runs read"))))
       .child(h_flex().gap(6).items_center().min_w(0).child(spinner(t.working, 11)).child(div().truncate().child("asking GitHub…")));
   }
 

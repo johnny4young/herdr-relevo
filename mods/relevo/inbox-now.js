@@ -26,7 +26,7 @@ export function staleFor(at, now = Date.now() / 1000) {
 
 export function inFlightLine(n) {
   if (!n) return null;
-  return `${capital(said(n))} ${n === 1 ? "thing is" : "things are"} still in flight. The next result comes back here.`;
+  return `${capital(said(n))} ${n === 1 ? "thing is" : "things are"} still in flight.`;
 }
 
 // Mixed into Inbox, so `this` is the Inbox.

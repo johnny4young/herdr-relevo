@@ -143,7 +143,7 @@ export class KeyNav {
       // x, X, d and Esc on the selection; s, o and d on the selected worktree.
     } else if (key === "home" || key === "end") {
       this.sel = items[key === "home" ? 0 : items.length - 1]?.id ?? null;
-    } else if (key === "n" && reviews && this.calm && this.reviewView() === "now") {
+    } else if (key === "n" && reviews && this.reviewView() === "now") {
       openGoal();
     } else if ((key === "m" || key === "n") && reviews) {
       this.setReviewView(key === "m" ? "maintenance" : "now", cx);
@@ -153,7 +153,7 @@ export class KeyNav {
       const next = at < 0 ? 0 : Math.min(items.length - 1, Math.max(0, at + (key === "down" ? 1 : -1)));
       this.sel = items[next]?.id ?? null;
     } else if (key === "enter" && at >= 0) {
-      items[at].go();
+      items[at].go(cx);
     } else if (key === "escape") {
       this.sel = null;
       if (this.returnPane) run("pane.focus", { pane: this.returnPane });

@@ -128,9 +128,9 @@ export function row(t, id, { turn = "open", kind = null, title, reason = null, s
       .child(v_flex().flex_1().min_w(0).gap(2)
         .child(h_flex().gap(7).items_center().min_w(0)
           .when(Boolean(kind), (el) => el.child(icon(kind, hot ? t.blocked : t.muted)))
-          .child(div().min_w(0).truncate().font_semibold().text_size(13).when(narrow && Boolean(reason), (el) => el.flex_1()).child(title))
+          .child(div().min_w(narrow ? 48 : 0).truncate().font_semibold().text_size(13).child(title))
           .when(Boolean(reason), (el) => el.child(div().min_w(0).truncate().text_size(13)
-            .when(narrow, (r) => r.flex_none().max_w(100)).when(!narrow, (r) => r.flex_1())
+            .when(narrow, (r) => r.max_w(100)).when(!narrow, (r) => r.flex_1())
             .text_color(hot ? t.blocked : t.muted).child(reason))))
         .when(Boolean(sub), (el) => el.child(h_flex().pl(19).gap(7).items_center().min_w(0).text_size(11).text_color(t.muted).child(sub)))
         .when(Boolean(lines), (el) => el.children(lines)))
@@ -166,7 +166,7 @@ export const legHeader = (t, id, label, count, { me = false, after = [] } = {}) 
 export const legend = (t, id, counts, { narrow = false, dots = false } = {}) => h_flex().id(id).h(36).flex_none().pl(16).pr(8).gap(dots ? 6 : 14).items_center()
   .children(counts.flatMap(({ turn, label = TURN_LABEL[turn], n }, i) => {
     const hot = (turn === "me" || turn === "stuck") && n > 0;
-    const el = h_flex().id(`${id}-${turn}`).gap(6).items_center().when(narrow, (e) => e.tooltip(label))
+    const el = h_flex().id(`${id}-${turn}`).flex_none().gap(6).items_center().when(narrow, (e) => e.tooltip(label))
       .child(turn === "flight" && !n ? div().size(12).flex_none().rounded_full().border_1().border_color(t.dim) : laneGlyph(t, turn))
       .when(!narrow, (e) => e.child(div().text_size(13).text_color(hot ? t.blocked : t.muted).child(label)))
       .child(div().text_size(13).font_semibold().text_color(hot ? t.blocked : t.foreground).child(String(n)));

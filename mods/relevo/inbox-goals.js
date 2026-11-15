@@ -46,18 +46,18 @@ export class GoalViews {
         const key = `${rev}\0${goals.raw}`;
         const quiet = key === this.goalsKey && !this.goalsError && !this.workflowError && this.goalChange === shared(GOALS_CHANGED);
         // A merge can land while nothing else moves, so it is remembered on quiet polls too.
-        if (quiet && rev != null && this.goalPolls % 10 !== 0) { this.rememberMerged(); this.goalsLoading = false; return; }
+        if (quiet && rev != null && this.goalPolls % 10 !== 0) { this.workflowAt = Date.now() / 1000; this.rememberMerged(); this.goalsLoading = false; return; }
         this.goalDoc = goals.doc;
         try {
           const raw = await readTextFile(`${appHome()}/relevo-workflow/state.json`);
-          if (quiet && raw === this.workflowRaw) { this.rememberMerged(); this.goalsLoading = false; return; }
+          if (quiet && raw === this.workflowRaw) { this.workflowAt = Date.now() / 1000; this.rememberMerged(); this.goalsLoading = false; return; }
           this.workflowRaw = raw;
           const workflow = raw ? JSON.parse(raw) : { tasks: [], engine: { enabled: false } };
           if (!Array.isArray(workflow.tasks)) throw Error('Invalid task state');
           this.workflowTasks = workflow.tasks;
           this.workflowEngine = workflow.engine;
           this.workflowError = null; this.goalsKey = key; this.workflowAt = Date.now() / 1000;
-        } catch { this.workflowError = "Workflow status unavailable; open Workflow to retry."; }
+        } catch { this.workflowError = "Workflow status unavailable."; }
         this.goalsError = null;
         if (!this.workflowError) {
           this.pruneReviewMarks();

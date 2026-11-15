@@ -48,14 +48,14 @@ test("nothing needs you: a calm block with no sentence when nothing is in flight
 test("nothing needs you: says what is in flight in words, and the in-flight rows still list below", async () => {
   const { inbox, ui } = await open();
   inbox.mine = [pr(12, running)];
-  assert.match(words(find(ui(), "now-empty")), /One thing is still in flight\. The next result comes back here\./);
+  assert.match(words(find(ui(), "now-empty")), /One thing is still in flight\./);
   inbox.mine = [pr(12, running), pr(13, running)];
   const view = ui();
-  assert.match(words(find(view, "now-empty")), /Two things are still in flight\. The next result comes back here\./);
+  assert.match(words(find(view, "now-empty")), /Two things are still in flight\./);
   assert.equal(words(find(view, "leg-flight")), "IN FLIGHT 2");
   assert.ok(find(view, `pr-${url(13)}`));
-  assert.equal(inFlightLine(9), "Nine things are still in flight. The next result comes back here.");
-  assert.equal(inFlightLine(12), "12 things are still in flight. The next result comes back here.");
+  assert.equal(inFlightLine(9), "Nine things are still in flight.");
+  assert.equal(inFlightLine(12), "12 things are still in flight.");
   assert.equal(inFlightLine(0), null);
 });
 
@@ -69,6 +69,9 @@ test("nothing needs you gives way to Needs me or Ready, and never shows before P
   inbox.ready = [];
   inbox.prsAt = 0;
   assert.equal(find(ui(), "now-empty"), null);
+  inbox.prsAt = Date.now() / 1000;
+  inbox.localOkAt = 0;
+  assert.equal(find(ui(), "now-empty"), null, "nor before the first agents scan");
 });
 
 test("the calm block's buttons and keys switch to Maintenance and open a new run", async () => {
@@ -125,7 +128,7 @@ test("could not read: one row per source, with how old its last read is, above e
   inbox.prsAt = Date.now() / 1000 - 12 * 60;
   inbox.localError = "Agents: hc not found";
   inbox.localOkAt = Date.now() / 1000 - 3 * 60;
-  inbox.workflowError = "Workflow status unavailable; open Workflow to retry.";
+  inbox.workflowError = "Workflow status unavailable.";
   inbox.workflowAt = undefined;
   inbox.local = [{ kind: "blocked", top: "/work/app", repo: "app", agent: { address: "t1", status: "blocked", pane: "p-t1" }, at: 1 }];
   const view = ui();
@@ -166,6 +169,19 @@ test("Retry, by click or r on the selected error, reads that source again; selec
   await flush();
   assert.equal(inbox.localError, null);
   assert.ok(inbox.localOkAt > 0);
+});
+
+test("Enter on a selected error reads that source again", async () => {
+  const { inbox, ui, key } = await open();
+  inbox.error = "HTTP 502";
+  ui();
+  const before = calls(/^gh api graphql/).length;
+  key("down");
+  assert.equal(inbox.sel, "error-prs");
+  key("enter");
+  await flush();
+  assert.ok(calls(/^gh api graphql/).length > before);
+  assert.equal(inbox.error, null);
 });
 
 function away(inbox) {
