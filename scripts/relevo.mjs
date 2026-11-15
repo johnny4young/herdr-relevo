@@ -207,6 +207,9 @@ export function doctor({ source, root, filesOnly = false, env = process.env, log
   else { try { fs.accessSync(node, fs.constants.X_OK); ok(`Runs use ${node}`); } catch { fail(`Runs use ${node}, which is gone. Run install again.`); } }
   const current = source && fs.existsSync(path.join(source, 'CHANGELOG.md')) ? versionOf(source) : null;
   if (current && current !== manifest.version) warn(`installed ${manifest.version}, this checkout is ${current}: run install to update`);
+  // The same version can still lag: merged work lands before a release.
+  const behind = current ? plan(source, root).filter((step) => ["new", "update", "adopt", "remove"].includes(step.how) && !step.unrecorded).length : 0;
+  if (behind) warn(`the install is behind this checkout: ${behind} ${behind === 1 ? "file differs" : "files differ"}. Run install to update`);
   if (filesOnly) return { failed };
 
   for (const mod of COMMUNITY) if (fs.existsSync(path.join(root, 'mods', mod))) ok(`mod ${mod}`); else fail(`mod ${mod} is missing: install it from herdr.dev`);
