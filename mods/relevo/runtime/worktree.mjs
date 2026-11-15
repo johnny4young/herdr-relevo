@@ -136,6 +136,12 @@ export async function snapshotAttempt(wt, { taskId, number, tree, at = Date.now(
   return { ref, commit, at: when };
 }
 
+// One snapshot ref, only while it still points at that commit.
+export async function dropAttemptRef(base, { ref, commit }) {
+  if (!ATTEMPT_REF.test(ref ?? '') || !SHA.test(commit ?? '')) return;
+  await git(base, [...NO_HOOKS, 'update-ref', '--no-deref', '-d', ref, commit]);
+}
+
 // Every snapshot ref of a task goes; the commits go with git's next gc.
 export async function dropAttemptRefs(base, taskId) {
   if (!TASK_ID.test(taskId ?? '') || !fs.existsSync(base ?? '')) return 0;

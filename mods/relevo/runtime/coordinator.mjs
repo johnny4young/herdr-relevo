@@ -3,13 +3,13 @@ import path from 'node:path';
 import { run } from './process.mjs';
 import { fingerprint, runChecks, attachArtifact, verifyArtifact, removeArtifact } from './evidence.mjs';
 import { readState, transaction, taskById, event, uid, stateDir, privateDir } from './store.mjs';
-import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, snapshotAttempt, dropAttemptRefs, diffCounts, attemptDiff, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
+import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, snapshotAttempt, dropAttemptRef, dropAttemptRefs, diffCounts, attemptDiff, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
 import { createHash } from 'node:crypto';
 import { archivable, stageArchive, publishArchive, MAX_TASKS } from './archive.mjs';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
 import * as config from '../config.js';
 import { renderRole } from './roles.mjs';
-import { LEVELS, cleanReport, reviewStatus, feedbackOf, cleanProgress } from '../lib/run-report.js';
+import { LEVELS, DEFAULT_MAX_MINUTES, cleanReport, reviewStatus, feedbackOf, cleanProgress } from '../lib/run-report.js';
 
 // Older config.js files lack the newer names; a missing named import would stop the coordinator.
 const SKILLS = config.SKILLS ?? {};
@@ -84,7 +84,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     const dependencies = input.dependsOn ?? [];
     if (!Array.isArray(dependencies) || new Set(dependencies).size !== dependencies.length || dependencies.some((id) =>
       !doc.tasks.some((t) => t.id === id && t.goalId === input.goalId) && !allowedNewDependencies.includes(id))) throw Error('Dependencies must be existing tasks in this goal');
-    const maxRounds = input.maxRounds ?? 2, maxMinutes = input.maxMinutes ?? 20;
+    const maxRounds = input.maxRounds ?? 2, maxMinutes = input.maxMinutes ?? DEFAULT_MAX_MINUTES;
     if (input.worktree && (!RUN_BRANCH.test(input.worktree.branch ?? '') || !path.isAbsolute(input.worktree.base ?? ''))) throw Error('A worktree run needs its run/ branch and repository');
     if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5 || !Number.isInteger(maxMinutes) || maxMinutes < 1 || maxMinutes > 120) throw Error('Use 1–5 attempts and a 1–120 minute limit');
     return { id: uid(), goalId: input.goalId, title: input.title.trim(), criteria: input.criteria.trim(), root: fs.realpathSync(input.root),
@@ -172,7 +172,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
             task.root === root && task.executor?.address === payload.executor?.address && task.executor?.label === (payload.executor?.label || payload.executor?.address) &&
             task.reviewer?.address === payload.reviewer?.address && task.reviewer?.label === (payload.reviewer?.label || payload.reviewer?.address) &&
             JSON.stringify(task.checks) === JSON.stringify(payload.checks ?? []) && task.maxRounds === (payload.maxRounds ?? 2) &&
-            task.maxMinutes === (payload.maxMinutes ?? 20));
+            task.maxMinutes === (payload.maxMinutes ?? DEFAULT_MAX_MINUTES));
       };
       const before = readState(home), prior = existing(before);
       if (prior) {
@@ -411,7 +411,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (active?.delivery === 'acknowledged' && active.state === 'running') interruption = await interruptAttempt(before, active);
       return update((doc) => { const task = taskById(doc, before.id); task.state = 'cancelled'; task.paused = true;
         const attempt = task.attempts.at(-1);
-        if (attempt?.state === 'running') attempt.delivery = 'uncertain';
+        // A cancelled task is no longer collected, so its attempt's window ends here rather than at a later reconcile.
+        if (attempt?.state === 'running') { attempt.delivery = 'uncertain'; attempt.endedAt ??= new Date(clock()).toISOString(); }
         task.error = interruption?.code ? 'Task cancelled, but interrupt was not confirmed. Inspect the agent session.' : attempt?.state === 'running' ? 'Inspect and reconcile the stopped attempt to release its checkout.' : null;
         log(doc, task, 'Task cancelled', task.error || 'No further dispatches; an interrupt request is not proof the agent stopped', 'Human'); });
     }
@@ -650,7 +651,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       const reviewedTree = reviewed && tree ? await tree.catch(() => null) : null;
       const kept = implemented && tree ? await keepAttempt(task, tree) : null;
       const afterChecks = await fp(task);
-      update((doc) => {
+      const saved = update((doc) => {
         const t = taskById(doc, task.id), a = t.attempts.at(-1);
         if (a?.id !== attempt.id || a.state !== 'running' || terminalStates.has(t.state)) return;
         a.state = 'reported'; a.report = { status, summary: report.summary, ...extra }; a.summary = report.summary; delete a.progress;
@@ -683,6 +684,10 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         if (attempt.role === 'executor') { t.checksResult = checks; t.state = 'needs_review'; t.nextRole = 'reviewer'; log(doc, t, 'Checks observed', checks.length ? `${checks.length} checks passed` : 'No checks configured'); }
         else { t.state = 'needs_you'; if (t.worktree) { t.worktree.reviewedTree = reviewedTree; t.worktree.reviewedRevision = afterChecks; } log(doc, t, 'Human review requested', 'Inspect changes and evidence, then accept, request changes or defer'); }
       });
+      // A report the state no longer takes (cancelled meanwhile) leaves no snapshot behind.
+      if (kept?.snapshot && !saved.doc.tasks.some((t) => t.attempts.some((a) => a.snapshot?.commit === kept.snapshot.commit))) {
+        await dropAttemptRef(task.worktree.base, kept.snapshot).catch(() => {});
+      }
       fs.rmSync(statusFile(attempt.id), { force: true });
       return;
     }

@@ -145,6 +145,19 @@ test('each implementer report keeps a snapshot and the size of its change; the d
   assert.equal(none.code, 1); assert.match(none.output.error, /No snapshot is kept/);
 });
 
+test('a cancelled attempt ends when it is cancelled, not when it is reconciled later', async (t) => {
+  const f = await run(t), id = await f.create();
+  await f.runtime.tick();
+  const running = f.task(id).attempts.at(-1);
+  assert.equal(running.state, 'running');
+  await f.runtime.command({ action: 'cancel', taskId: id });
+  const cancelled = f.task(id).attempts.at(-1).endedAt;
+  assert.ok(cancelled);
+  f.setNow(Date.parse('2026-01-05T00:00:00Z'));
+  await f.runtime.command({ action: 'reconcile', taskId: id, attemptId: running.id, confirmStopped: true });
+  assert.equal(f.task(id).attempts.at(-1).endedAt, cancelled);
+});
+
 test('a run on existing sessions keeps no snapshot', async (t) => {
   const f = await run(t);
   f.cwds.set('exec-2', f.root); f.cwds.set('review-2', f.root);
@@ -187,5 +200,21 @@ test('discarding a run\'s worktree and archiving a run both drop its snapshot re
   transaction(f.home, (doc) => { for (const task of doc.tasks) task.state = task.id === archived ? 'accepted' : task.state; });
   f.setNow(Date.parse('2026-03-01T00:00:00Z'));
   assert.equal((await f.runtime.command({ action: 'archive', olderThanDays: 0 })).result.archived, 2);
+  assert.deepEqual(refs(f.root), []);
+});
+
+test('a snapshot written for a report the state no longer takes is dropped at once', async (t) => {
+  let f;
+  f = await run(t, { snapshotImpl: async (wt, options) => {
+    const snapshot = await snapshotAttempt(wt, options);
+    transaction(f.home, (doc) => { doc.tasks[0].state = 'cancelled'; });
+    return snapshot;
+  } });
+  const id = await f.create();
+  await f.runtime.tick();
+  fs.writeFileSync(path.join(f.wt.path, 'NOTE.md'), 'note\n');
+  const attempt = f.task(id).attempts.at(-1);
+  await f.report(id, 'executor', 'completed');
+  assert.equal(f.task(id).attempts.find((a) => a.id === attempt.id).snapshot, undefined);
   assert.deepEqual(refs(f.root), []);
 });

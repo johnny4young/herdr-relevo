@@ -45,7 +45,9 @@ export function stageArchive(doc, dir, selection, now) {
   if (!ids.size) return null;
   const tasks = doc.tasks.filter((task) => ids.has(task.id));
   const lines = [
-    ...tasks.map((task) => ({ task, events: doc.events.filter((e) => e.taskId === task.id) })),
+    // The snapshot refs go with the archive, so the records keep each attempt's change and not a ref that is gone.
+    ...tasks.map((task) => ({ task: { ...task, attempts: task.attempts.map(({ snapshot, ...attempt }) => attempt) },
+      events: doc.events.filter((e) => e.taskId === task.id) })),
     ...(doc.plans ?? []).filter((plan) => planIds.has(plan.id)).map((plan) => ({ plan })),
   ].map((entry) => `${JSON.stringify({ archivedAt: new Date(now).toISOString(), ...entry })}\n`).join('');
   const folder = privateDir(path.join(dir, 'archive')), pending = path.join(folder, `.pending-${uid()}.jsonl`);

@@ -115,8 +115,14 @@ test("a goal adds up its own tasks and counts a shared span once", () => {
   const one = task([attempt("a1", "10:00:00", "10:04:10"), attempt("a2", "10:04:20", "10:06:20", { role: "reviewer" })]);
   const two = task([attempt("b1", "10:05:00", "10:08:00")], { id: "t2", worktree: { path: OTHER } });
   const foreign = task([attempt("c1", "10:29:00", "10:31:00")], { id: "t3", goalId: "g2" });
-  assert.deepEqual(one.attempts.map((a) => attemptTokens(a, one, sessions).output), [20, 20]);
-  assert.deepEqual(goalCost({ id: "g1" }, [one, two, foreign], sessions), { output: 23, context: 3303, total: 3326, minutes: 9.2 });
+  const each = [one, two].flatMap((t) => t.attempts.map((a) => attemptTokens(a, t, sessions)));
+  assert.deepEqual(each.map((cost) => cost.output), [20, 0, 3], "the shared span goes to the earlier attempt");
+  const whole = goalCost({ id: "g1" }, [one, two, foreign], sessions);
+  assert.deepEqual(whole, { output: 23, context: 3303, total: 3326, minutes: 9.2 });
+  assert.deepEqual(["output", "context", "total"].map((k) => each.reduce((n, cost) => n + cost[k], 0)), [whole.output, whole.context, whole.total], "the attempts add up to the goal");
+  const edge = task([attempt("e1", "10:00:00", "10:30:00")]);
+  assert.equal(attemptTokens(edge.attempts[0], edge, sessions).output, 20, "a span that starts as the window ends is the next attempt's");
+  assert.equal(attemptWindow({ id: "r", at: at("10:00:00"), state: "running" }, { attempts: [] }, Date.parse(at("12:00:00"))).end, Date.parse(at("10:20:00")), "the coordinator's default limit");
   assert.deepEqual(goalCost({ id: "g2" }, [one, two, foreign], sessions), { output: 10, context: 1101, total: 1111, minutes: 2 });
   assert.deepEqual(goalCost({ id: "none" }, [one], sessions), { output: 0, context: 0, total: 0, minutes: 0 });
 });

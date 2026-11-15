@@ -1,7 +1,9 @@
 // Token usage from Claude's and Codex's transcripts: the shell pulls out the few fields per message, and these
 // pure functions add them up, so the tests can feed them fixtures.
 import { dayKey } from "./usage.js";
-import { runFolder } from "./run-folder.js";
+import { WORKTREES, runFolder } from "./run-folder.js";
+
+const HERDR_WORKTREES = `/${WORKTREES.join("/")}/`;
 
 export const KEEP_DAYS = 31;
 const PAUSE_SECONDS = 3600;
@@ -160,7 +162,7 @@ export function parseScan(text) {
 // The repo a folder belongs to when its path alone says it, else null.
 export function projectFromPath(cwd) {
   if (!cwd) return "unknown";
-  if (cwd.includes("/.herdr/worktrees/")) return cwd.split("/.herdr/worktrees/")[1].split("/")[0] || "unknown";
+  if (cwd.includes(HERDR_WORKTREES)) return cwd.split(HERDR_WORKTREES)[1].split("/")[0] || "unknown";
   if (cwd.includes("/.claude/worktrees/")) return cwd.split("/.claude/worktrees/")[0].split("/").pop() || "unknown";
   if (cwd.includes("/scratch-workspaces/")) return "scratch";
   return null;
