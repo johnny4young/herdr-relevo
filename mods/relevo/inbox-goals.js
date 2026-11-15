@@ -8,6 +8,7 @@ import { openGoal } from "./goals-editor.js";
 import { readGoals, writeGoal, GOALS_CHANGED } from "./goals-store.js";
 import { emptyGoals, groupSources, sourceKey, closeGoal, goalState } from "./lib/goals.js";
 import { isAddressed } from "./lib/addressed.js";
+import { runResultAlerts } from "./alerts.js";
 import { openReview } from "./review.js";
 import { reviewableWork, scopeGoals, runNextAction, linkedDecision, runProgress } from "./lib/goal-workflow.js";
 import { openWorkflow } from "./workflow.js";
@@ -53,6 +54,7 @@ export class GoalViews {
           const workflow = raw ? JSON.parse(raw) : { tasks: [], engine: { enabled: false } };
           if (!Array.isArray(workflow.tasks)) throw Error('Invalid task state');
           this.workflowTasks = workflow.tasks;
+          runResultAlerts(workflow.tasks, (id) => { this.pendingSel = { id, at: Date.now() }; });
           this.workflowEngine = workflow.engine;
           this.workflowError = null; this.goalsKey = key;
         } catch { this.workflowError = "Workflow status unavailable; open Workflow to retry."; }

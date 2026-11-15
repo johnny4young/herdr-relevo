@@ -3,6 +3,9 @@ import { ACCOUNTS, CODEX, accountOf } from "./accounts.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { CONTEXTS } from "./config.js";
 import { runsOut, clock, FIVE_HOURS, WEEK, windowLabel } from "./lib/time.js";
+import { newResults } from "./lib/run-alerts.js";
+import { batchScope } from "./lib/workflow-preferences.js";
+import { verdictLine } from "./lib/run-words.js";
 
 const ALERTED = "relevo.alerted";
 const KNOWN = "relevo.reviews.known";
@@ -160,4 +163,31 @@ export function prAlerts(events, contextOf) {
   const shown = events.filter((e) => inFocus(contextOf(e.repo)));
   if (shown.some((e) => LOUD.has(e.kind))) playSound("sounds/review.mp3");
   for (const e of shown) notify({ title: e.title, level: LEVEL[e.kind], action: { name: "relevo.panel-reviews" } });
+}
+
+// A run result that now waits on you; the click opens Reviews with that result selected.
+const NOTIFIED = "relevo.runs.notified";
+export function runResultAlerts(tasks, select) {
+  const stored = shared(NOTIFIED), { fresh, marks } = newResults(stored ?? null, tasks);
+  for (const task of fresh.filter((t) => inFocus(contextOfPath(batchScope(t))))) {
+    select(`result-${task.id}`);
+    const review = [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === "reviewer" && attempt.report);
+    const who = task.reviewer?.label ?? task.reviewer?.address;
+    notify({
+      title: `Result ready · ${task.title}`,
+      body: [who && review ? `${who} ${verdictLine(review.report.status).replace(/^Reviewer /, "")}` : null, "click to review"].filter(Boolean).join(" · "),
+      level: "success", action: { name: "relevo.panel-reviews" },
+    });
+  }
+  if (stored == null || JSON.stringify(stored) !== JSON.stringify(marks)) setShared(NOTIFIED, marks);
+}
+
+// Several results accepted at once; the click opens their run.
+export function batchAlert(tasks, goalId) {
+  const repos = [...new Set(tasks.map((task) => batchScope(task)?.split("/").pop()).filter(Boolean))];
+  notify({
+    title: `Batch accepted · ${tasks.length} ${tasks.length === 1 ? "result" : "results"}`,
+    body: [repos.join(", "), tasks.map((task) => task.title).slice(0, 3).join(" · ")].filter(Boolean).join(" · "),
+    level: "success", timeout: 6000, action: { name: `relevo.workflow-${goalId}` },
+  });
 }

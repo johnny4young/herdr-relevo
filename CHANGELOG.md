@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Runs tell you when a result is ready.** A result that comes to wait on you posts "Result ready" with the task and the reviewer's verdict; a click opens Reviews with that result selected. Accepting several at once posts "Batch accepted" with how many and their repository, and its click opens the run.
 - **Plain words in Runs.** A round is now an attempt ("attempt 2 of 3"), checks are tests ("tests 3 of 3 passed"), Blocked is Stuck with **See why**, Request changes is Ask for changes, Ready for your review and the Needs you list are Needs me, and the roles read "Writes it" and "Reviews it". Stored fields and states are unchanged.
 - **One set of glyphs.** Folds, refresh, more, check boxes and menu arrows are drawn from 28 icons in `mods/relevo/icons/` instead of text characters, so they line up and take the theme colour.
 

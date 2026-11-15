@@ -7,6 +7,7 @@ import { focusedCwd } from "./panelbar.js";
 import { workflowBucket, workflowItems, queueSummary } from "./lib/workflow-navigation.js";
 import { readGoals } from "./goals-store.js";
 import { batchScope } from "./lib/workflow-preferences.js";
+import { batchAlert } from "./alerts.js";
 import { ShortcutHelp } from "./shortcut-help.js";
 import { RUN_PANES, RUN_REQUEST, liveRunPanes } from "./workflow-window.js";
 import { accountOf } from "./accounts.js";
@@ -407,7 +408,10 @@ export class Workflow extends WorkflowDetail {
       .when(Boolean(this.batchSnapshot?.preview.length), (el) => el.child(v_flex().gap(3)
         .children(this.batchSnapshot.preview.map((item) => row(t, `${item.title}: ${item.nextEffect}`)))
         .child(button(t, "workflow-batch-confirm", "Apply bulk acceptance", (cx) => this.command({ action: "batch", ids: this.batchSnapshot.ids, outcome: "accept", revisions: this.batchSnapshot.revisions, preview: false }, cx,
-          () => { this.batchSnapshot = null; this.batchIds = []; this.batchMode = false; }),
+          () => {
+            batchAlert((this.tasks ?? []).filter((task) => this.batchSnapshot.ids.includes(task.id)), this.goalId);
+            this.batchSnapshot = null; this.batchIds = []; this.batchMode = false;
+          }),
           { kind: "solid", disabled: this.busy, tip: "Record acceptance for only the previewed tasks" }))));
   }
 
