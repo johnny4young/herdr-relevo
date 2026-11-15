@@ -8,12 +8,12 @@ import { loadClaudeQuotas } from "./accounts.js";
 import { accountFor, contextOfPath, inFocus } from "./context.js";
 import { ago, nextSince } from "./lib/time.js";
 import { today, duration } from "./ledger.js";
-import { openReview } from "./review.js";
+import { openReview, REVIEW_SHORTCUT_ACTIONS } from "./review.js";
 import { openHandoff } from "./handoff.js";
 import { openReplies } from "./replies.js";
-import { button, spinner, withKey, foldRow, FOLDS, shortcutBindings, icon, checkbox, keycap, row, diffRatio, tabButton, markButton, keyBar } from "./ui.js";
+import { button, spinner, withKey, foldRow, FOLDS, shortcutBindings, icon, checkbox, keycap, row, diffRatio, tabButton, keyBar, actionButton } from "./ui.js";
 import { ShortcutHelp } from "./shortcut-help.js";
-import { INBOX_SHORTCUT_ACTIONS } from "./lib/shortcut-help.js";
+import { INBOX_SHORTCUT_ACTIONS, barKeys } from "./lib/shortcut-help.js";
 import { agentPRs, seconds } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
 import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
@@ -50,6 +50,8 @@ const ASK_LINES = 8;
 // Why each waiting agent waits: address -> a short line, for the agents list.
 const REASONS = "relevo.reasons";
 const AGENT_PRS = "relevo.agentPRs";
+// The ? sheet: the Inbox's keys, then the review pane's.
+const SHEET = [...INBOX_SHORTCUT_ACTIONS, ...REVIEW_SHORTCUT_ACTIONS];
 
 // Local work, pull requests and merged worktrees in one list; the PR and worktree parts live in their own files.
 function savedSince() {
@@ -71,7 +73,7 @@ export class Inbox {
     this.h = cx.focus_handle();
     this.shortcutHelp = new ShortcutHelp();
     this.shortcutHelp.init({
-      actions: INBOX_SHORTCUT_ACTIONS,
+      actions: SHEET,
       onClose: (cx) => { this.goalHelp = false; this.h.focus(); cx.notify(); },
     }, cx);
     this.sel = null;
@@ -104,15 +106,8 @@ export class Inbox {
     this.reply = InputState.new({ value: "", placeholder: "Reply · Enter sends, Esc cancels" });
     this.reply.on("submit", (_e, cx) => this.sendReply(cx));
     this.filterField = InputState.new({ value: "", placeholder: "Filter · Esc clears" });
-    this.filterField.on("change", (_e, cx) => {
-      this.filterText = this.filterField.value();
-      cx.notify();
-    });
-    this.filterField.on("submit", (_e, cx) => {
-      this.filtering = false;
-      this.h.focus();
-      cx.notify();
-    });
+    this.filterField.on("change", (_e, cx) => cx.notify());
+    this.filterField.on("submit", (_e, cx) => this.leaveFilter(cx));
     this.today = [];
     this.digest = null;
     const panels = (shared("workspace.panels") ?? ["files", "changes"]).filter((p) => p !== "review");
@@ -330,15 +325,19 @@ export class Inbox {
   // other action; in flight rows offer nothing until then.
   // `open` keeps its lines in sight unselected; its other actions still wait for the selection.
   // `done` (marked addressed) waits on nobody, whatever its turn would be.
-  item(t, id, { turn, kind, title, reason = null, age = null, tip = null, lines = [], main = null, actions = [], mark = null, open = false, done = false, keys = null }) {
+  // `main`, `actions` and `mark` are the row's action table (see actionButton); selected, keyed ones show their key.
+  item(t, id, { turn, kind, title, reason = null, age = null, tip = null, lines = [], main = null, actions = [], mark = null, open = false, done = false }) {
     if (this.hiddenIds?.has(id)) return null;
     const sel = this.selected(id);
-    const capped = (b) => (keys?.get(b) || (b === mark && !done) ? h_flex().gap(4).items_center().flex_none().child(keycap(t, keys?.get(b) ?? "a")).child(b) : b);
-    const rest = sel ? [...actions.filter((a) => a && a !== main), mark].filter(Boolean).map(capped) : [];
+    const draw = (a) => {
+      const b = actionButton(t, a);
+      return sel && a.key ? h_flex().gap(4).items_center().flex_none().child(keycap(t, a.key)).child(b) : b;
+    };
+    const rest = sel ? [...actions.filter((a) => a && a !== main), mark].filter(Boolean).map(draw) : [];
     const below = sel || open ? [...(typeof lines === "function" ? lines() : lines).filter(Boolean), ...(rest.length ? [h_flex().flex_wrap().gap(5).pt(2).children(rest)] : [])] : [];
     return row(t, id, {
       turn: done ? "open" : turn, kind, title, reason, age, tip, selected: sel,
-      action: turn === "flight" && !sel ? null : main,
+      action: (turn === "flight" && !sel) || !main ? null : draw(main),
       onSelect: (cx) => this.pick(id, cx),
       below: below.length ? below : null,
     });
@@ -382,7 +381,7 @@ export class Inbox {
 
   // A waiting agent: its question, the command or plan it asks about, and its numbered answers stay in
   // sight, since answering without them is unsafe. A click answers (or checks, in a multiple choice).
-  waitingCard(t, item, goAgent) {
+  waitingCard(t, item) {
     const a = item.agent, p = item.prompt ?? { question: "", options: [] }, replying = this.replying === a.address;
     const free = this.prompts.get(a.address)?.free;
     const choice = (o) => h_flex().id(`answer-${a.address}-${o.n}`).h(24).px(6).gap(7).items_center().rounded(5)
@@ -400,25 +399,13 @@ export class Inbox {
         .child(o.n === free && /^type something/i.test(o.label) ? "Type something…" : o.label))
       .when(Boolean(o.detail), (el) => el.child(
         div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(o.detail)));
-    const submit = p.submit ? button(t, `submit-${a.address}`, "Submit", (cx) => this.submit(a, p, cx), { kind: "go" }) : null;
-    const reply = p.options.length || p.unparsed ? null : button(t, `reply-${a.address}`, "Reply", (cx) => this.startReply(a, null, cx), { kind: "go" });
-    const actions = [
-      button(t, `go-${a.address}`, p.options.length ? "Agent" : "Go to agent", goAgent),
-      ...(p.options.length
-        ? [button(t, `note-${a.address}`, "Note", (cx) => this.startReply(a, null, cx, "note"), {
-          tip: "Sent to the agent right after your answer",
-        })]
-        : []),
-      button(t, `handoff-${a.address}`, "Continue with…", () => openHandoff(a.address)),
-    ];
     // The question shows whole below, so the row names only what kind of ask it is.
     const short = shared(REASONS)?.[a.address] ?? reasonOf(p, terminals().find((k) => k.address === a.address)?.report);
     const kindOfAsk = p.question && short && p.question.startsWith(short.replace(/…$/, "")) ? (p.options.length ? "asks you to choose" : "waits for your reply") : short;
     return this.item(t, `in-${a.address}`, {
       turn: "me", kind: "agent", title: item.repo, reason: kindOfAsk, tip: a.tab_name || item.branch || null, open: true,
       age: this.sending(a.address) ? "Answering…" : Date.now() - (this.nextAt.get(a.address) ?? 0) < NEXT_FOR ? "Next question" : ago(item.at, true),
-      main: replying ? null : submit ?? reply,
-      actions: replying ? [] : actions,
+      ...this.localActions(item),
       lines: [
         p.ask ? this.askBlock(t, p.ask, a.address) : null,
         v_flex().children((p.question || "Waiting for you").split("\n").map((l) => div().min_w(0).text_size(13).text_color(t.foreground).child(l))),
@@ -622,16 +609,48 @@ export class Inbox {
     });
   }
 
+  // What a local row can do, for its buttons, its keys and its keycaps alike.
+  localActions(item, addressed = false) {
+    const a = item.agent, goAgent = { id: `agent-${a.address}`, key: "o", label: "Agent", run: () => run("agent.focus", { terminal: a.address }) };
+    if (item.kind === "blocked") {
+      const p = item.prompt ?? { question: "", options: [] };
+      if (this.replying === a.address) return { main: null, actions: [] };
+      const submit = p.submit ? { id: `submit-${a.address}`, label: "Submit", run: (cx) => this.submit(a, p, cx), kind: "go" } : null;
+      const reply = p.options.length || p.unparsed ? null : { id: `reply-${a.address}`, label: "Reply", run: (cx) => this.startReply(a, null, cx), kind: "go" };
+      return {
+        main: submit ?? reply,
+        actions: [
+          { ...goAgent, id: `go-${a.address}`, label: p.options.length ? "Agent" : "Go to agent" },
+          p.options.length ? { id: `note-${a.address}`, label: "Note", run: (cx) => this.startReply(a, null, cx, "note"), tip: "Sent to the agent right after your answer" } : null,
+          { id: `handoff-${a.address}`, label: "Continue with…", run: () => openHandoff(a.address) },
+        ],
+      };
+    }
+    return {
+      main: { id: `review-${a.address}`, key: "r", label: "Review", run: () => openReview(item.top, a.address), kind: "go", tip: withKey("Comment on the diff line by line", "relevo.review") },
+      actions: [
+        goAgent,
+        this.sourceContextAction(`local:${item.top || a.address}`),
+        { id: `diff-${a.address}`, label: "View diff", run: () => {
+          run("pane.focus", { pane: a.pane });
+          showPanel("changes");
+        } },
+        { id: `files-${a.address}`, label: "Files", run: () => {
+          run("pane.focus", { pane: a.pane });
+          showPanel("files");
+        } },
+        { id: `reply-${a.address}`, label: "Reply", run: () => openReplies(a.address), tip: withKey("Send it a message or a quick reply", "relevo.quick-reply") },
+      ],
+      mark: this.markAction(a.address, addressed, (on, cx) => this.setLocalAddressed(a, on, cx), "Addressed: hide until its agent works again"),
+    };
+  }
+
   localCard(t, item, addressed = false) {
     const a = item.agent;
-    const goAgent = () => run("agent.focus", { terminal: a.address });
-    if (item.kind === "blocked") return this.waitingCard(t, item, goAgent);
+    if (item.kind === "blocked") return this.waitingCard(t, item);
     const files = `${item.files} ${item.files === 1 ? "file" : "files"}`, state = a.status === "done" ? "agent finished" : "uncommitted";
     return this.item(t, `in-${a.address}`, {
       turn: "me", done: addressed, kind: "agent", title: item.repo, reason: `${files} · ${state}`, tip: item.branch || null, age: ago(item.at, true),
-      main: button(t, `review-${a.address}`, "Review", () => openReview(item.top, a.address), {
-        kind: "go", tip: withKey("Comment on the diff line by line", "relevo.review"),
-      }),
       lines: [
         h_flex().gap(8).items_center().text_size(11).text_color(t.muted)
           .when(Boolean(item.branch), (el) => el.child(div().min_w(0).truncate().child(item.branch)))
@@ -640,22 +659,7 @@ export class Inbox {
           .child(diffRatio(t, item.add, item.del)),
         item.said ? div().id(`said-${a.address}`).truncate().text_size(11).text_color(t.dim).italic().tooltip(item.said).child(`“${item.said}”`) : null,
       ],
-      actions: [
-        button(t, `agent-${a.address}`, "Agent", goAgent),
-        this.sourceContextButton(t, `local:${item.top || a.address}`),
-        button(t, `diff-${a.address}`, "View diff", () => {
-          run("pane.focus", { pane: a.pane });
-          showPanel("changes");
-        }),
-        button(t, `files-${a.address}`, "Files", () => {
-          run("pane.focus", { pane: a.pane });
-          showPanel("files");
-        }),
-        button(t, `reply-${a.address}`, "Reply", () => openReplies(a.address), {
-          tip: withKey("Send it a message or a quick reply", "relevo.quick-reply"),
-        }),
-      ],
-      mark: markButton(t, a.address, addressed, (on, cx) => this.setLocalAddressed(a, on, cx), "Addressed: hide until its agent works again"),
+      ...this.localActions(item, addressed),
     });
   }
 
@@ -714,11 +718,11 @@ export class Inbox {
         .child(button(t, "inbox-refresh", !this.prsAt && this.scanningPRs ? [spinner(t.dim, 10)] : [icon("refresh")], (cx) => {
           this.scanLocal(cx); this.scanPRs(cx); this.scanTrees(cx, true); this.loadGoals(cx);
         }, { size: "sm", accessibleLabel: "Refresh work", tip: `Refresh · ${this.prsAt ? `PRs ${ago(this.prsAt)}` : this.scanningPRs ? "PRs loading" : "PRs unavailable"}${this.error ? ` · ${this.error}` : ""}` })))
-      .when(reviewView === "now" && (this.filtering || Boolean(this.filterText)), (el) => el.child(h_flex().id("inbox-filter").h(30).flex_none().mx(8).mt(4).px(8).gap(6)
+      .when(reviewView === "now" && (this.filtering || Boolean(this.filterField.value())), (el) => el.child(h_flex().id("inbox-filter").h(30).flex_none().mx(8).mt(4).px(8).gap(6)
         .items_center().rounded(6).border_1().border_color(this.filtering ? t.accent : t.border).bg(t.background)
         .child(icon("search", t.dim)).child(div().flex_1().min_w(0).child(Input.new(this.filterField).h_full()))))
       .when(this.goalHelp, (el) => {
-        this.shortcutHelp.setData(INBOX_SHORTCUT_ACTIONS, shortcutBindings());
+        this.shortcutHelp.setData(SHEET, shortcutBindings());
         return el.child(this.shortcutHelp.render(t, cx));
       })
       .when(reviewView === "now", (el) => el.child(h_flex().flex_none().pr(12).items_center().border_b(1).border_color(t.border)
@@ -735,15 +739,12 @@ export class Inbox {
         .children(reviewView === "now" ? [...part("away", this.awayGroup(t)), ...this.nowGroups(t, entries, part)] : [])
         .children(reviewView === "maintenance" ? this.maintenanceGroups(t, v, part, upkeep) : []))
       .when(Boolean(bulk), (el) => el.child(bulk))
-      .when(!bulk, (el) => el.child(this.listKeys(t, reviewView)));
+      .when(!bulk, (el) => el.child(this.listKeys(t, reviewView ?? "runs")));
   }
 
-  // The keys that work in the list on screen, at its foot; a bulk bar takes its place while rows are marked.
+  // The keys that work in the list on screen, at its foot, as the ? sheet tags them; a bulk bar takes its place while rows are marked.
   listKeys(t, view) {
-    const keys = view === "now" ? [[["j", "k"], "move"], [["enter"], "do the action"], [["m"], "maintenance"]]
-      : view === "maintenance" ? [[["j", "k"], "move"], [["enter"], "open"], [["x"], "select"], [["n"], "now"]]
-        : [[["j", "k"], "move"], [["enter"], "open the run"], [["n"], "new run"]];
-    return keyBar(t, "list-keys", keys, [["?"], "all keys"]);
+    return keyBar(t, "list-keys", barKeys(INBOX_SHORTCUT_ACTIONS, view), [["?"], "all keys"]);
   }
 
   // A view of Reviews as an underlined tab with its count.

@@ -2,11 +2,12 @@
 import "./fake/register.mjs";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { fake, resetFake, calls } from "./fake/herdr.mjs";
+import { fake, resetFake, calls, theme } from "./fake/herdr.mjs";
 import { fakeCx, find, text, flush } from "./fake/ui.mjs";
 
 const { Inbox } = await import("../inbox.js");
 const { GOAL_MODE } = await import("../inbox-goals.js");
+const { keysOf } = await import("../ui.js");
 
 const NOW = new Date().toISOString();
 const url = (n) => `https://github.com/acme/app/pull/${n}`;
@@ -18,6 +19,15 @@ beforeEach(() => {
     ? { stdout: JSON.stringify({ data: { viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [] } }, search: { nodes: [] } } }) }
     : null);
 });
+
+// [keycap, button id] for each keycap drawn beside a button.
+function capPairs(node, pairs = []) {
+  if (!node || typeof node !== "object") return pairs;
+  const kids = node.items ?? [];
+  if (kids.length === 2 && typeof kids[1]?.key === "string" && text(kids[0]).length === 1) pairs.push([text(kids[0]), kids[1].key]);
+  kids.forEach((k) => capPairs(k, pairs));
+  return pairs;
+}
 
 async function open(prs = [pr(1), pr(2), pr(3)]) {
   const inbox = new Inbox(), cx = fakeCx();
@@ -44,6 +54,11 @@ test("j and k move like the arrows; g g goes to the top and G to the bottom", as
   assert.equal(inbox.sel, `pr-${url(3)}`, "one g waits for the second");
   key("g");
   assert.equal(inbox.sel, `pr-${url(1)}`);
+  key("G");
+  key("g");
+  key("k");
+  key("g");
+  assert.equal(inbox.sel, `pr-${url(2)}`, "a key between the two g starts over");
 });
 
 test("on a selected PR, o opens it, a marks it addressed and u takes that back", async () => {
@@ -61,15 +76,7 @@ test("the selected row shows each action's key beside its button", async () => {
   const { inbox, cx } = await open();
   inbox.clones = { "acme/app": "/w/app" };
   inbox.sel = `pr-${url(1)}`;
-  const row = find(inbox.render(cx), `pr-${url(1)}`);
-  const pairs = [];
-  const walk = (n) => {
-    if (!n || typeof n !== "object") return;
-    const kids = n.items ?? [];
-    if (kids.length === 2 && typeof kids[1]?.key === "string" && text(kids[0]).length === 1) pairs.push([text(kids[0]), kids[1].key]);
-    kids.forEach(walk);
-  };
-  walk(row);
+  const pairs = capPairs(find(inbox.render(cx), `pr-${url(1)}`));
   assert.deepEqual(pairs.find(([, id]) => id === `open-${url(1)}`), ["o", `open-${url(1)}`]);
   assert.deepEqual(pairs.find(([, id]) => id === `addressed-${url(1)}`), ["a", `addressed-${url(1)}`]);
 });
@@ -117,4 +124,31 @@ test("the review pane: c comments on the file, v marks it viewed, ] and [ move b
   picked = null;
   v.handleKey({ key: "[", modifiers: {} }, cx);
   assert.equal(picked, null, "keys wait while a comment is open");
+});
+
+test("each row's keycaps are the keys its table answers", async () => {
+  const { inbox } = await open();
+  const t = theme(), caps = (id, card) => {
+    inbox.sel = id;
+    return capPairs(card()).map(([k]) => k).sort();
+  };
+  const draft = pr(7), desk = { id: "s1", project: "app", state: "review", at: 0 };
+  const local = { kind: "diff", agent: { address: "t1", pane: "p1" }, repo: "app", top: "/w/app", files: 1, add: 1, del: 0, at: 0 };
+  const landing = { repo: "acme/app", number: 8, title: "x", phase: "failed", failed: { url: "https://github.com/acme/app/actions/runs/1" }, at: 0 };
+  for (const [id, card, table] of [
+    [`pr-${draft.url}`, () => inbox.draftCard(t, draft), () => inbox.draftActions(draft)],
+    ["dk-s1", () => inbox.desktopCard(t, desk), () => inbox.desktopActions(desk)],
+    ["in-t1", () => inbox.localCard(t, local), () => inbox.localActions(local)],
+    [`land-${url(8)}`, () => inbox.landCard(t, url(8), landing), () => inbox.landActions(url(8), landing)],
+  ]) assert.deepEqual(caps(id, card), Object.keys(keysOf(table())).sort(), id);
+  assert.deepEqual(Object.keys(keysOf(inbox.localActions(local))).sort(), ["a", "o", "r"]);
+  assert.deepEqual(Object.keys(keysOf(inbox.desktopActions(desk))).sort(), ["a", "o"]);
+  assert.deepEqual(Object.keys(keysOf(inbox.draftActions(draft))), ["o"]);
+  assert.deepEqual(Object.keys(keysOf(inbox.landActions(url(8), landing))), ["o"], "✓ on a landing only clears it");
+});
+
+test("the ? sheet lists the review pane's keys too", async () => {
+  const { inbox, cx } = await open();
+  inbox.goalHelp = true;
+  assert.ok(find(inbox.render(cx), "shortcut-help-review.comment"));
 });

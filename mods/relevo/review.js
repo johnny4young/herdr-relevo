@@ -82,6 +82,15 @@ const live = () => Object.fromEntries(
 
 const sendChord = (e) => e.key === "enter" && Boolean(e.modifiers?.platform) && !e.modifiers.alt && !e.modifiers.control && !e.modifiers.shift;
 
+// What handleKey and paneKey answer, for the Inbox's ? sheet.
+export const REVIEW_SHORTCUT_ACTIONS = [
+  { id: "review.comment", label: "Comment on the file", section: "Review pane", fixedShortcut: "c" },
+  { id: "review.viewed", label: "Mark the file viewed", section: "Review pane", fixedShortcut: "v" },
+  { id: "review.prev", label: "Previous file", section: "Review pane", fixedShortcut: "[" },
+  { id: "review.next", label: "Next file", section: "Review pane", fixedShortcut: "]" },
+  { id: "review.send", label: "Send the comments to the agent", section: "Review pane", fixedShortcut: "cmd-enter" },
+];
+
 // A comment's label and text; `oneLine` cuts the text instead of wrapping it.
 const noteLine = (t, c, oneLine = false) => h_flex().min_w(0).gap(8).items_center()
   .child(div().flex_none().text_size(11).text_color(t.accent).child(commentLabel(c)))

@@ -75,11 +75,12 @@ export class KeyNav {
     cx.notify();
   }
 
-  closeFilter() {
+  // Esc clears the filter, Enter keeps it; either way the list takes the keyboard back.
+  leaveFilter(cx, { clear = false } = {}) {
     this.filtering = false;
-    this.filterText = "";
-    this.filterField.set_value("");
+    if (clear) this.filterField.set_value("");
     this.h.focus();
+    cx.notify();
   }
 
   navKey(e, cx) {
@@ -92,9 +93,8 @@ export class KeyNav {
     // While the filter is typed, the field owns the keys; Esc clears and closes it.
     if (this.filtering) {
       if (e.key !== "escape") return;
-      this.closeFilter();
       cx.stop_propagation();
-      return cx.notify();
+      return this.leaveFilter(cx, { clear: true });
     }
     // While a reply is typed, the field owns the keys; Esc drops the reply.
     if (this.replying) {
@@ -112,16 +112,15 @@ export class KeyNav {
     if (held) return;
     this.clicked = false;
     const reviews = shared(GOAL_MODE) !== true, key = e.key === "j" ? "down" : e.key === "k" ? "up" : e.key;
-    // g then g goes to the top, as in vim; G to the bottom.
-    const gg = key === "g" && reviews && Date.now() - (this.lastG ?? 0) < 600;
-    this.lastG = key === "g" && reviews && !gg ? Date.now() : 0;
-    const rowKey = reviews && at >= 0 ? items[at].keys?.[key] : null;
+    // g then g goes to the top, as in vim, and any other key in between starts over; G goes to the bottom.
+    const gg = key === "g" && reviews && this.pendingG;
+    this.pendingG = key === "g" && reviews && !gg;
+    if (this.pendingG) return cx.stop_propagation();
+    const rowKey = reviews && at >= 0 ? items[at].keys?.()[key] : null;
     if (rowKey) {
       rowKey(cx);
     } else if (gg || (key === "G" && reviews)) {
       this.sel = items[gg ? 0 : items.length - 1]?.id ?? null;
-    } else if (key === "g" && reviews) {
-      // The first g waits for the second.
     } else if (key === "u" && reviews && this.lastMark) {
       this.lastMark(cx);
       this.lastMark = null;

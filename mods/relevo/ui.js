@@ -140,10 +140,16 @@ export function row(t, id, { turn = "open", kind = null, title, reason = null, s
 export const hairline = (t, inset = LANE) => div().h(1).ml(inset).mr(inset ? 8 : 0).flex_none().bg(t.border).opacity(0.55);
 export const joined = (t, rows) => rows.filter(Boolean).flatMap((el, i) => (i ? [hairline(t), el] : [el]));
 
-// ✓ hides an item until something new happens; Undo brings it back. `key` names both buttons.
-export const markButton = (t, key, addressed, set, tip, { on = "addressed", off = "undo" } = {}) => (addressed
-  ? button(t, `${off}-${key}`, "Undo", (cx) => set(false, cx), { tip: "Back to the list" })
-  : button(t, `${on}-${key}`, [icon("check")], (cx) => set(true, cx), { tip }));
+// A row action as data, so its button, its key and its keycap come from one table; `el` is a control drawn elsewhere.
+export function actionButton(t, a) {
+  if (a.el) return a.el;
+  const { kind, size, tip, disabled, accessibleLabel } = a;
+  return button(t, a.id, a.label, a.run, { kind, size, tip, disabled, accessibleLabel });
+}
+
+// The keys a row answers, from the same table its buttons come from.
+export const keysOf = ({ main = null, actions = [], mark = null }) =>
+  Object.fromEntries([main, ...actions, mark].filter((a) => a?.key).map((a) => [a.key, a.run]));
 
 // A section label in caps with its count and a hairline to the edge; `after` sits past the hairline.
 export const legHeader = (t, id, label, count, { me = false, after = [] } = {}) => h_flex().id(id).h(28).pt(6).pl(LANE).pr(8).gap(8).items_center()
