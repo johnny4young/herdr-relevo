@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Terminals.** A third tab in the panel, beside Reviews and Runs (`⌥⌘5`; Issues moves to `⌥⌘6`), lists every terminal that is not an agent, by space, then the ones running in the background, shells idle over a day and the finished ones. Each says what runs in it and the port it listens on; a selected one shows its last lines, with Open, Peek, Open its port, Restart, Stop, To background and Close (press `x` twice).
 - **The README's pictures redraw from the code.** `node scripts/shots/readme.mjs` renders the preview and the README pictures from the mods with demo data (headless Chrome), and a test keeps every scene drawing. `scripts/shots/README.md` says how to add a scene.
 - **New pictures.** The preview and the README's pictures of Now, answering an agent, While you were away, the review pane, account usage, a PR's checks, Maintenance and Runs are drawn from Relevo's own code with demo data, so they show the redesign; the README also covers Claude Desktop detail and the Elsewhere group.
 - **`doctor` says when the install is behind.** Run from a checkout, it now compares the installed files with the checkout's and warns "the install is behind this checkout: N files differ", even when both carry the same version, as after merging work that has no release yet.
