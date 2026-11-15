@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, TextareaState, Textarea } from "gpui-base";
 import { shared, setShared } from "herdr";
-import { button, foldRow, legHeader, legend, joined, keyBar, keycap, row, onSubmitChord } from "./ui.js";
+import { button, foldRow, legHeader, legend, joined, keyBar, keycap, meTint, row, onSubmitChord } from "./ui.js";
 import { GOAL_MODE, GOAL_SCOPE, workflowCommand } from "./inbox-goals.js";
 import { openGoal } from "./goals-editor.js";
 import { openWorkflow, RUN_FOLLOW_UP } from "./workflow-window.js";
@@ -418,8 +418,10 @@ export class RunViews {
 
   legRow(t, leg) {
     const at = Date.parse(leg.at ?? "");
-    return row(t, `task-leg-${leg.id}`, { turn: LEG_TURN[leg.state] ?? "open", title: leg.who, reason: leg.what, tip: leg.what,
-      age: leg.now ? "now" : Number.isFinite(at) ? ago(at / 1000, true) : null });
+    const turn = LEG_TURN[leg.state] ?? "open";
+    // In a task, the one leg that is your turn stands out.
+    return row(t, `task-leg-${leg.id}`, { turn, title: leg.who, reason: leg.what, tip: leg.what,
+      age: leg.now ? "now" : Number.isFinite(at) ? ago(at / 1000, true) : null }).when(turn === "me", (el) => el.bg(meTint(t)));
   }
 
   // A task: the writer's summary, who did what, then the decision.

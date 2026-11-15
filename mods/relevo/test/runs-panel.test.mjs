@@ -107,7 +107,7 @@ test('Runs at a glance: header, legend, groups by turn, Now and Shipped, older r
   assert.deepEqual(['me', 'flight', 'ready', 'open'].map((group) => text(find(tree, `runs-leg-${group}`))), ['NEEDS ME 2', 'IN FLIGHT 1', 'READY 1', 'NOT STARTED 1']);
   assert.deepEqual(v.nav.map((entry) => entry.id), ['goal-g', 'goal-s', 'goal-f', 'goal-r', 'goal-n']);
   assert.equal(text(find(tree, 'goal-g')), 'Direct work from one Inbox Now 2 results wait for your review Shipped nothing yet Review 2');
-  assert.equal(find(tree, 'goal-g').fill, `${t.blocked}12`, 'a run that waits on you is tinted');
+  assert.equal(find(tree, 'goal-g').fill, null, 'a run that waits on you says so with its disc and words, unshaded');
   assert.equal(find(tree, 'goal-action-g').fill, t.blocked);
   assert.equal(text(find(tree, 'goal-s')), 'Ship the interface Now stuck: the reviewer rejected it twice Shipped nothing yet See why');
   assert.equal(text(find(tree, 'goal-f')), 'Workflow test Now an agent is writing "Task e" Shipped nothing yet');
