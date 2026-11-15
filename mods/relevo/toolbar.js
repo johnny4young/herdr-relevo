@@ -7,6 +7,13 @@ export const COUNT = "relevo.inbox.count";
 // The count when the Inbox was last open: a higher one pulses the badge.
 const SEEN_COUNT = "relevo.inbox.seen";
 const GOAL_MODE = "relevo.goals.mode";
+export const REVIEW_VIEW = "relevo.inbox.view";
+
+// Reviews always opens on Now; Maintenance is somewhere you go, never where you land.
+export function landOnReviews() {
+  setShared(GOAL_MODE, false);
+  setShared(REVIEW_VIEW, "now");
+}
 
 const find = (node, id) => {
   if (!node || typeof node !== "object") return null;
@@ -51,7 +58,7 @@ export class InboxButton {
         .hover((s) => s.bg(t.hover)).focus((s) => s.border_2().border_color(t.accent))
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .tooltip(isRuns ? withKey("Launch prompts and follow their results", "relevo.panel-runs") : withKey("Review changes and decisions", "relevo.panel-reviews"))
-        .on_click(() => { setShared(GOAL_MODE, isRuns); showPanel("inbox"); })
+        .on_click(() => { if (isRuns) setShared(GOAL_MODE, true); else landOnReviews(); showPanel("inbox"); })
         .child(label)
         .when(!isRuns && n > 0, (el) => el.child(div().px(5).rounded(8).bg(t.blocked)
           .text_color(t.background).text_size(11).font_semibold()

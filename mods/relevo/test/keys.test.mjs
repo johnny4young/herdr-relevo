@@ -97,9 +97,9 @@ test("/ opens a filter that narrows Now to matching rows; Esc clears it", async 
 
 test("each list says its keys at its foot", async () => {
   const { inbox, cx } = await open();
-  assert.match(text(find(inbox.render(cx), "list-keys")), /^j k move do the action m maintenance \? all keys$/);
+  assert.match(text(find(inbox.render(cx), "list-keys")), /^j k move do the action tab maintenance \? all keys$/);
   fake.stored["relevo.inbox.view"] = "maintenance";
-  assert.match(text(find(inbox.render(cx), "list-keys")), /n now/);
+  assert.match(text(find(inbox.render(cx), "list-keys")), /tab now/);
   fake.stored[GOAL_MODE] = true;
   assert.match(text(find(inbox.render(cx), "list-keys")), /open the run n new run/);
 });

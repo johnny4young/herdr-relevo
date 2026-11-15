@@ -7,7 +7,7 @@ import { props, nextCommand, setShared } from "herdr";
 import { Sidebar } from "./sidebar.js";
 import { AccountStatus } from "./account-status.js";
 import { Inbox } from "./inbox.js";
-import { InboxButton, PanelToggle, showPanel } from "./toolbar.js";
+import { InboxButton, PanelToggle, landOnReviews, showPanel } from "./toolbar.js";
 import { AccountMenu } from "./account-menu.js";
 import { PanelBar, FileFinder, CheckoutMenu, openFinder, openCheckoutsHere } from "./panelbar.js";
 import { nextWaiting, openPR, respondPR, worktrees } from "./commands.js";
@@ -60,7 +60,7 @@ export default class Relevo extends View {
   command(name, cx) {
     if (this.syntheticPreview) return;
     if (name === "goals") { setShared(GOAL_MODE, true); focusInbox(); }
-    else if (name === "classic-inbox") { setShared(GOAL_MODE, false); focusInbox(); }
+    else if (name === "classic-inbox") { landOnReviews(); focusInbox(); }
     else if (name === "goal-new") openGoal();
     else if (name.startsWith("goal-focus-")) { setShared(GOAL_MODE, true); setShared(GOAL_SCOPE, name.slice(11)); focusInbox(); }
     else if (name.startsWith("workflow-")) openWorkflow(name.slice(9));
@@ -88,7 +88,8 @@ export default class Relevo extends View {
     else if (name.startsWith("worktree-")) worktrees(name.slice(9));
     else if (name === "panel-inbox") focusInbox();
     else if (name.startsWith("reveal-")) { setShared(GOAL_MODE, false); focusInbox(name.slice(7)); }
-    else if (name === "panel-reviews" || name === "panel-runs") { setShared(GOAL_MODE, name === "panel-runs"); focusInbox(); }
+    else if (name === "panel-reviews") { landOnReviews(); focusInbox(); }
+    else if (name === "panel-runs") { setShared(GOAL_MODE, true); focusInbox(); }
     else if (name.startsWith("panel-")) showPanel(name.slice(6));
     else if (name.startsWith("launch-")) this.part.launch(name.slice(7));
   }

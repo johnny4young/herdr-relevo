@@ -143,10 +143,10 @@ export class KeyNav {
       // x, X, d and Esc on the selection; s, o and d on the selected worktree.
     } else if (key === "home" || key === "end") {
       this.sel = items[key === "home" ? 0 : items.length - 1]?.id ?? null;
-    } else if (key === "n" && reviews && this.reviewView() === "now") {
+    } else if (key === "n" && reviews) {
       openGoal();
-    } else if ((key === "m" || key === "n") && reviews) {
-      this.setReviewView(key === "m" ? "maintenance" : "now", cx);
+    } else if ((key === "tab" || key === "m") && reviews) {
+      this.setReviewView(key === "tab" && this.reviewView() === "maintenance" ? "now" : "maintenance", cx);
     } else if (/^[1-9]$/.test(key) && items[at]?.choose) {
       items[at].choose(Number(key), cx);
     } else if (key === "down" || key === "up") {

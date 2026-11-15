@@ -145,16 +145,16 @@ test("a click on a tab switches the view; Maintenance unfolds the loose worktree
   assert.equal(reads, 1, "loose worktrees are read once they unfold, not on every visit");
 });
 
-test("m and n switch the view from the keyboard, but not in Runs", async () => {
+test("m and Tab switch the view from the keyboard, but not in Runs", async () => {
   const { inbox, cx, ui } = await open();
   inbox.h.is_focused = () => true;
   ui();
   inbox.navKey({ key: "m" }, cx);
   assert.equal(fake.stored[VIEW], "maintenance");
-  inbox.navKey({ key: "n" }, cx);
+  inbox.navKey({ key: "tab" }, cx);
   assert.equal(fake.stored[VIEW], "now");
   fake.stored[GOAL_MODE] = true;
-  inbox.navKey({ key: "m" }, cx);
+  inbox.navKey({ key: "tab" }, cx);
   assert.equal(fake.stored[VIEW], "now");
 });
 
