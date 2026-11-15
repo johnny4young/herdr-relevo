@@ -91,6 +91,10 @@ sessions and Claude Code in other terminals, every terminal with the port it lis
 hover), and servers started in other apps ("vite in Ghostty :5173"). Any other space shows its port and opens with its
 chevron. A repo with something alive but no space is a "no space" row in its folder, with `+` to give it one.
 
+A repo's open PRs in Reviews show on its row, red when one needs you; a click opens Reviews showing only that repo.
+Spaces with nothing going on for over a day fold into "3 quiet for over a day" at the end of their folder, with
+**close 3** (it asks once more). Nothing closes on its own.
+
 ### Answer agents without leaving your work
 
 A waiting agent's question shows in the Inbox with its choices, its preview and a note field. Click a choice and

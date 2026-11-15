@@ -52,6 +52,8 @@ const ASK_LINES = 8;
 // Why each waiting agent waits: address -> a short line, for the agents list.
 const REASONS = "relevo.reasons";
 const AGENT_PRS = "relevo.agentPRs";
+// Open PRs in Now by repo name, and how many need you, for the Spaces list.
+export const REPO_PRS = "relevo.repoPRs";
 // The ? sheet: the Inbox's keys, then the review pane's.
 const SHEET = [...INBOX_SHORTCUT_ACTIONS, ...REVIEW_SHORTCUT_ACTIONS];
 
@@ -183,7 +185,18 @@ export class Inbox {
     if (shared(COUNT) !== n) setShared(COUNT, n);
     this.publishReasons();
     this.publishAgentPRs();
+    this.publishRepoPRs(entries);
     this.publishSettled();
+  }
+
+  publishRepoPRs(entries) {
+    const now = {};
+    for (const e of entries.filter((x) => x.repo)) {
+      const name = e.repo.split("/").pop().toLowerCase(), c = now[name] ??= { open: 0, me: 0 };
+      c.open += 1;
+      if (e.turn === "me") c.me += 1;
+    }
+    if (JSON.stringify(shared(REPO_PRS) ?? {}) !== JSON.stringify(now)) setShared(REPO_PRS, now);
   }
 
   publishAgentPRs() {

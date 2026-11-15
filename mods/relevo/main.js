@@ -90,6 +90,7 @@ export default class Relevo extends View {
     else if (name === "panel-inbox") focusInbox();
     else if (name.startsWith("reveal-")) { setShared(GOAL_MODE, false); focusInbox(name.slice(7)); }
     else if (name === "panel-reviews") { landOnReviews(); focusInbox(); }
+    else if (name.startsWith("reviews-for-")) { landOnReviews(); focusInbox(null, name.slice(12)); }
     else if (name === "panel-runs") { setShared(GOAL_MODE, true); focusInbox(); }
     else if (name === "panel-terminals") focusTerminals();
     else if (name.startsWith("term-")) { const [action, ...rest] = name.slice(5).split("-"); terminalAction(action, rest.join("-")); }

@@ -107,7 +107,7 @@ export class NowViews {
       keys: () => keysOf(this.reviewActions(entry)) });
     const prs = [...v.requested.filter(recent).map((pr) => [pr, true]), ...[...v.mine, ...(v.ready ?? [])].filter(recent).map((pr) => [pr, false])];
     for (const [pr, requested] of prs) {
-      add({ id: `pr-${pr.url}`, turn: prTurnOf(pr, requested), text: `${pr.repo} ${pr.number} ${pr.title} ${pr.author?.login ?? ""}`,
+      add({ id: `pr-${pr.url}`, repo: pr.repo, turn: prTurnOf(pr, requested), text: `${pr.repo} ${pr.number} ${pr.title} ${pr.author?.login ?? ""}`,
         draw: () => this.prCard(t, pr, requested, false, ready.has(pr.url)), go: () => this.runPR(pr), keys: () => keysOf(this.prActions(t, pr, requested)) });
     }
     for (const i of v.local.filter((x) => x.kind === "diff")) {
@@ -116,12 +116,12 @@ export class NowViews {
     }
     for (const source of this.linkedReviews(v).filter((s) => !s.addressed)) {
       const pr = source.pr;
-      add({ id: `pr-${pr.url}`, turn: source.draft ? "open" : prTurnOf(pr, false), text: `${pr.repo} ${pr.number} ${pr.title}`,
+      add({ id: `pr-${pr.url}`, repo: pr.repo, turn: source.draft ? "open" : prTurnOf(pr, false), text: `${pr.repo} ${pr.number} ${pr.title}`,
         keys: () => keysOf(source.draft ? this.draftActions(pr) : this.prActions(t, pr, false)),
         draw: () => (source.draft ? this.draftCard(t, pr) : this.prCard(t, pr, false)),
         go: () => (source.draft ? exec("open", [pr.url]) : this.runPR(pr)) });
     }
-    for (const pr of this.drafts ?? []) add({ id: `pr-${pr.url}`, turn: "open", text: `${pr.repo} ${pr.number} ${pr.title}`, draw: () => this.draftCard(t, pr), go: () => exec("open", [pr.url]),
+    for (const pr of this.drafts ?? []) add({ id: `pr-${pr.url}`, repo: pr.repo, turn: "open", text: `${pr.repo} ${pr.number} ${pr.title}`, draw: () => this.draftCard(t, pr), go: () => exec("open", [pr.url]),
       keys: () => keysOf(this.draftActions(pr)) });
     const seen = new Set();
     return out.filter((e) => !seen.has(e.id) && seen.add(e.id))
