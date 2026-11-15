@@ -1,0 +1,364 @@
+// Spaces by folder, one row per repo: its branch when unusual, ahead/behind, files changed, and its most urgent agent.
+// Worktrees sit under their checkout. The list order is the spaces' order, so ⌃1…⌃9 pick what is shown.
+// Built from Herdr's own spaces mod; folders read the file the space-folders mod kept.
+
+import { View, div, svg } from "gpui-kit";
+import { v_flex, h_flex, InputState, Input } from "gpui-base";
+import { spaces, panes, run, openOverlay, closeOverlay, props, theme, shared, setShared, watchFolder, window, layout, pickFolder } from "herdr";
+import { COLORS, folderData, loadFolders, paint, updateFolders } from "./folders.js";
+import { readGit } from "./git.js";
+import { branchNote, buildModel, movesTo, mostUrgent, spaceTurn, where } from "./model.js";
+
+function find(node, id) {
+  if (node?.id === id) return node;
+  for (const child of node?.children ?? []) {
+    const found = find(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+// The sidebar's rail goes by its width: dragging its edge narrows it too.
+const narrow = () => (find(layout(), "sidebar")?.size?.px ?? Infinity) < 160;
+const ICON = (name) => `mods/relevo/icons/${name}.svg`;
+const CHROME = (name) => `mods/workspace-chrome/${name}.svg`;
+// Changes made outside Herdr (an editor's save, a commit elsewhere): looked for this often while the window is in front.
+const FALLBACK_MS = 60000;
+const RAIL_CELL = 32;
+// The Relevo mod's lane glyphs: a mod can't import from another mod's folder.
+export function laneGlyph(t, turn) {
+  if (turn === "flight") return svg("mods/relevo/spinner.svg").size(12).flex_none().text_color(t.working).spin(900);
+  if (turn === "ready") return svg(ICON("check")).size(13).flex_none().text_color(t.done);
+  return div().size(8).flex_none().rounded_full().bg(t.blocked);
+}
+// Folders the Relevo mod keeps in step with its contexts: their rules are its repo lists.
+const managed = () => new Set((shared("relevo.setup")?.contexts ?? []).map((c) => c.key));
+
+export default class Spaces extends View {
+  init(_props, cx) {
+    const p = props() ?? {};
+    if (p.folderMenu) return;
+    if (p.editFolder !== undefined) return this.initEditor(p.editFolder, cx);
+    this.git = {}; // where() -> git info, null: not a repo
+    this.checked = {};
+    this.unsure = new Set();
+    this.pending = new Set();
+    this.busy = {};
+    this.at = {};
+    this.watching = new Set();
+    // Spaces made while this runs wait a moment for their git, so a worktree appears under its repo instead of jumping there.
+    this.shown = new Set(spaces().map((s) => s.id));
+    this.born = {};
+    this.pressed = null;
+    this.over = null;
+    cx.spawn(async (cx) => { await loadFolders(); cx.notify(); });
+    cx.timer.every(500, (cx) => this.tick(cx));
+  }
+
+  tick(cx) {
+    const now = Date.now(), sp = spaces(), ps = panes();
+    for (const s of sp) if (!this.shown.has(s.id)) this.born[s.id] ??= now;
+    const due = this.due(now, sp, ps);
+    if (due.size) this.refreshGit(due, cx);
+    if (sp.some((s) => !this.shown.has(s.id)) || this.orderingDue(now)) cx.notify();
+  }
+
+  // Places whose git could have changed: new ones, where a command or an agent's turn just ended, and the fallback.
+  due(now, sp, ps) {
+    const at = {};
+    for (const s of sp) at[s.id] = where(s, ps);
+    const keys = new Set(Object.values(at).filter((k) => JSON.parse(k)[1]));
+    const due = new Set([...keys].filter((k) => !(k in this.git)));
+    for (const [id, k] of Object.entries(at)) if (this.at[id] && this.at[id] !== k && keys.has(k)) due.add(k);
+    this.at = at;
+    const spaceOf = {};
+    for (const s of sp) for (const t of s.tabs ?? []) spaceOf[t.id] = s;
+    const busy = {};
+    for (const p of ps) {
+      if (!p.terminal || !spaceOf[p.tab]) continue;
+      busy[p.pane] = p.status === "working" || !(p.program?.shell || p.program?.agent);
+      if (this.busy[p.pane] && !busy[p.pane]) this.sameRepo(at[spaceOf[p.tab].id], keys).forEach((k) => due.add(k));
+    }
+    this.busy = busy;
+    if (window().active) {
+      for (const k of keys) if ((this.git[k] || this.unsure.has(k)) && now - (this.checked[k] ?? 0) > FALLBACK_MS) due.add(k);
+    }
+    return due;
+  }
+
+  sameRepo(key, keys) {
+    const repo = this.git[key]?.repo;
+    return [key, ...(repo ? [...keys].filter((k) => this.git[k]?.repo === repo) : [])];
+  }
+
+  // One look at a time, each place once however often it was asked for meanwhile.
+  refreshGit(keys, cx) {
+    for (const k of keys) this.pending.add(k);
+    if (this.refreshing) return;
+    this.refreshing = true;
+    cx.spawn(async (cx) => {
+      while (this.pending.size) {
+        const batch = [...this.pending];
+        this.pending.clear();
+        await Promise.all(batch.map((key) => this.check(key, cx)));
+      }
+      const used = new Set(Object.values(this.git).filter((g) => g && !JSON.parse(g.repo)[0]).map((g) => g.gitDir));
+      for (const dir of this.watching) if (!used.has(dir)) this.watching.delete(dir);
+      this.refreshing = false;
+      cx.notify();
+    });
+  }
+
+  async check(key, cx) {
+    const [on, cwd] = JSON.parse(key);
+    this.checked[key] = Date.now();
+    this.unsure.delete(key);
+    try {
+      const g = await readGit(cwd, on);
+      this.git[key] = g;
+      if (g && !on) this.watch(g.gitDir, cx);
+    } catch {
+      // Couldn't ask (a machine away, a busy disk): keep what it showed and look again later.
+      this.git[key] ??= null;
+      this.unsure.add(key);
+    }
+  }
+
+  // A commit, checkout or fetch in a local repo changes its git folder.
+  watch(dir, cx) {
+    if (this.watching.has(dir)) return;
+    this.watching.add(dir);
+    cx.spawn(async (cx) => {
+      try {
+        while (this.watching.has(dir)) {
+          await watchFolder(dir);
+          if (this.watching.has(dir)) this.refreshGit(Object.keys(this.git).filter((k) => this.git[k]?.gitDir === dir), cx);
+        }
+      } catch { this.watching.delete(dir); }
+    });
+  }
+
+  orderingDue(now) {
+    return Boolean(this.ordering) && now - this.ordering.at >= 1000;
+  }
+
+  // The model, and the spaces moved to match it. A move can lose a sync race: give the echo a second before retrying.
+  model() {
+    const sp = spaces(), ps = panes();
+    const ready = (w) => this.shown.has(w.id) || where(w, ps) in this.git || Date.now() - (this.born[w.id] ??= Date.now()) > 1500;
+    for (const w of sp) if (!this.shown.has(w.id) && ready(w)) this.shown.add(w.id);
+    const m = buildModel({ spaces: sp, panes: ps, git: this.git, folders: folderData() });
+    const current = sp.map((w) => w.id), key = JSON.stringify([current, m.order]);
+    if (current.every((id, i) => id === m.order[i])) this.ordering = null;
+    else if (this.ordering?.key !== key || this.orderingDue(Date.now())) {
+      this.ordering = { key, at: Date.now() };
+      for (const move of movesTo(current, m.order)) run("space.move", move);
+    }
+    for (const g of m.groups) g.rows = g.rows.filter((r) => this.shown.has(r.w.id));
+    return m;
+  }
+
+  // Dropped on a space: it moves there, joining that space's folder. Dropped on a folder: it goes in, last.
+  drop(target, m) {
+    const from = this.pressed, sp = spaces();
+    const moving = sp.find((s) => s.id === from);
+    if (!moving || moving.machine) return;
+    const group = m.groups.find((g) => (target.folder ? g.id === target.folder : g.rows.some((r) => r.w.id === target.space)));
+    if (!group || group.id.startsWith("machine:")) return;
+    const fromGroup = m.groups.find((g) => g.rows.some((r) => r.w.id === from));
+    if (fromGroup?.id !== group.id) updateFolders((d) => ({ ...d, of: { ...d.of, [from]: group.id === "none" ? undefined : group.id } }));
+    const anchor = target.space ?? group.rows.at(-1)?.w.id;
+    const index = sp.findIndex((s) => s.id === anchor);
+    if (anchor && anchor !== from && index !== -1) run("space.move", { id: from, index: index + 1 });
+  }
+
+  toggleFolder(id) {
+    updateFolders((d) => ({ ...d, list: d.list.map((f) => (f.id === id ? { ...f, folded: !f.folded } : f)) }));
+  }
+
+  dragHandlers(el, target, m) {
+    return el
+      .on_mouse_move((_e, cx) => {
+        if (this.pressed === null) return;
+        const over = JSON.stringify(target);
+        if (this.over !== over) { this.over = over; cx.notify(); }
+      })
+      .on_mouse_up("left", (_e, cx) => {
+        const over = this.over;
+        if (this.pressed !== null && over === JSON.stringify(target) && target.space !== this.pressed) this.drop(target, m);
+        else if (this.pressed !== null && target.space === this.pressed) run("space.select", { id: this.pressed });
+        this.pressed = null;
+        this.over = null;
+        cx.notify();
+      });
+  }
+
+  folderHeader(t, g, m) {
+    const f = g.folder, open = !f?.folded;
+    const top = mostUrgent(g.rows.map((r) => r.w.status));
+    const target = { folder: g.id };
+    const hot = this.pressed !== null && this.over === JSON.stringify(target);
+    return this.dragHandlers(h_flex().id(`folder-${g.id}`).h(26).mt(6).px(8).gap(7).flex_none().items_center().rounded(6)
+      .when(hot, (el) => el.bg(t.hover))
+      .cursor_pointer().hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => { if (f && this.pressed === null) { this.toggleFolder(f.id); cx.notify(); } })
+      .when(Boolean(f), (el) => el.on_mouse_down("right", () => openOverlay({ mod: "relevo-spaces", kind: "popup", width: 200, height: 160, props: { folderMenu: f.id } })))
+      .child(svg(ICON(`chevron-${open ? "down" : "right"}`)).size(10).flex_none().text_color(t.dim))
+      .child(svg(ICON("folder")).size(12).flex_none().text_color(paint(f?.color, t.dim)))
+      .child(div().min_w(0).truncate().text_size(11).font_medium().text_color(t.muted).child((g.label ?? "No folder").toUpperCase()))
+      .child(div().flex_none().text_size(11).text_color(t.dim).child(String(g.rows.filter((r) => !r.tree).length)))
+      .child(div().flex_1())
+      .when(!open && Boolean(spaceTurn(top)), (el) => el.child(laneGlyph(t, spaceTurn(top))))
+      .when(Boolean(f?.path), (el) => el.child(div().id(`folder-new-${g.id}`).flex_none().px(4).rounded(4).text_size(13).text_color(t.dim)
+        .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(`New space in ${f.path}`)
+        .on_click((_e, cx) => { cx.stop_propagation(); run("space.new", { folder: f.path }); })
+        .child("+"))), target, m);
+  }
+
+  row(t, r, m) {
+    const { w, g, tree } = r;
+    const color = (shared("space.colors") ?? {})[w.id] ?? "ansi6";
+    const branch = branchNote(g, w.name), turn = spaceTurn(w.status);
+    const target = { space: w.id };
+    const hot = this.pressed !== null && this.pressed !== w.id && this.over === JSON.stringify(target);
+    const tip = [r.path, g?.branch && `on ${g.branch}`].filter(Boolean).join(" · ");
+    return this.dragHandlers(h_flex().id(`space-${w.id}`).relative().h(tree ? 26 : 30).px(6).gap(8).flex_none().items_center().rounded(6)
+      .when(w.active, (el) => el.bg(t.selected))
+      .when(!w.active, (el) => el.hover((s) => s.bg(t.hover)))
+      .when(this.pressed === w.id && this.over !== JSON.stringify(target), (el) => el.opacity(0.5))
+      .when(hot, (el) => el.child(div().absolute().left(0).right(0).top(0).h(2).bg(t.accent)))
+      .when(Boolean(tip), (el) => el.tooltip(tip))
+      .on_mouse_down("left", () => { this.pressed = w.id; this.over = JSON.stringify(target); })
+      .on_mouse_down("right", () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: w.id } } }))
+      .when(Boolean(tree), (el) => el.pl(28).child(svg(ICON("tree")).size(11).flex_none().text_color(t.dim)))
+      .when(!tree, (el) => el.child(h_flex().size(18).flex_none().rounded(5).bg(paint(color, t.accent)).items_center().justify_center()
+        .text_size(11).font_bold().text_color("#ffffff").child([...w.name][0]?.toUpperCase() ?? "?")))
+      .child(div().flex_shrink(0).max_w(tree ? 120 : 130).truncate().font_medium().text_color(t.foreground).child(tree && g?.branch ? g.branch : w.name))
+      .child(h_flex().flex_1().min_w(0).gap(5).justify_end().items_center().text_size(11).text_color(t.dim)
+        .when(Boolean(branch) && !tree, (el) => el.child(div().min_w(0).truncate().child(branch)))
+        .when(g?.ahead > 0, (el) => el.child(div().flex_none().text_color(t.ansi2).child(`↑${g.ahead}`)))
+        .when(g?.behind > 0, (el) => el.child(div().flex_none().text_color(t.ansi1).child(`↓${g.behind}`)))
+        .when(g?.changed > 0, (el) => el.child(div().id(`changed-${w.id}`).flex_none().tooltip(`${g.changed} file${g.changed === 1 ? "" : "s"} changed`).child(`±${g.changed}`))))
+      .when(Boolean(turn), (el) => el.child(h_flex().w(14).flex_none().justify_center().child(laneGlyph(t, turn)))), target, m);
+  }
+
+  compact(t, r, i) {
+    const { w } = r, turn = spaceTurn(w.status);
+    return h_flex().flex_none().justify_center().child(h_flex().id(`space-${w.id}`).relative().w(RAIL_CELL).h(26).rounded(6).justify_center().items_center()
+      .when(w.active, (el) => el.bg(t.selected))
+      .when(!w.active, (el) => el.hover((s) => s.bg(t.hover)))
+      .on_click(() => run("space.select", { id: w.id }))
+      .child(div().text_color(w.active ? t.foreground : t.muted).child(String(i + 1)))
+      .when(Boolean(turn), (el) => el.child(div().absolute().right(3).child(laneGlyph(t, turn)))));
+  }
+
+  render(cx) {
+    const t = theme(), p = props() ?? {};
+    if (p.folderMenu) return this.folderMenu(t, p.folderMenu);
+    if (p.editFolder !== undefined) return this.editor(t, cx);
+    this.keepColors();
+    const collapsed = narrow(), m = this.model();
+    const count = m.groups.reduce((n, g) => n + g.rows.filter((r) => !r.tree).length, 0);
+    let i = 0;
+    const body = collapsed
+      ? m.groups.flatMap((g) => g.rows.map((r) => this.compact(t, r, i++)))
+      : m.groups.flatMap((g) => {
+        const open = !g.folder?.folded;
+        const head = g.folder || m.groups.length > 1 ? [this.folderHeader(t, g, m)] : [];
+        return [...head, ...(open ? g.rows.map((r) => this.row(t, r, m)) : [])];
+      });
+    return v_flex().size_full().min_h(0).bg(t.chrome).text_size(13)
+      .child(h_flex().h(31).pl(16).pr(8).gap(6).flex_none().items_center().text_size(11).text_color(t.dim)
+        .when(collapsed, (el) => el.pl(0).pr(0).justify_center())
+        .when(!collapsed, (el) => el.child(div().font_medium().child("Spaces")).child(div().child(String(count))).child(div().flex_1())
+          .child(div().id("folder-add").size(24).flex_none().flex().items_center().justify_center().rounded(6)
+            .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("New folder")
+            .on_click(() => openOverlay({ mod: "relevo-spaces", kind: "dialog", width: 460, props: { editFolder: null } }))
+            .child(svg(CHROME("folder-plus")).size(14))))
+        .child(div().id("space-new").size(24).flex_none().flex().items_center().justify_center().rounded(6)
+          .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("New space")
+          .on_click(() => run("space.new")).child(svg(CHROME("plus")).size(14))))
+      .child(v_flex().id("spaces-list").flex_1().min_h(0).px(collapsed ? 0 : 8).pb(14).overflow_y_scrollbar().mode("always")
+        .on_mouse_up("left", (_e, cx) => { this.pressed = null; this.over = null; cx.notify(); })
+        .children(body));
+  }
+
+  // Each space keeps one avatar color, the least used one when it appears, as Herdr's own list does.
+  keepColors() {
+    const sp = spaces(), ids = new Set(sp.map((s) => s.id)), stored = shared("space.colors") ?? {};
+    const kept = Object.fromEntries(Object.entries(stored).filter(([id]) => ids.has(id)));
+    let changed = Object.keys(kept).length !== Object.keys(stored).length;
+    const palette = ["ansi6", "ansi3", "ansi4", "ansi5", "ansi2", "ansi1"];
+    for (const s of sp) {
+      if (kept[s.id] || s.name === "~") continue;
+      const uses = (c) => Object.values(kept).filter((v) => v === c).length;
+      kept[s.id] = palette.reduce((best, c) => (uses(c) < uses(best) ? c : best));
+      changed = true;
+    }
+    if (changed) setShared("space.colors", kept);
+  }
+
+  folderMenu(t, id) {
+    const f = folderData()?.list.find((x) => x.id === id);
+    const close = () => closeOverlay(props().overlay);
+    const item = (key, label, act, danger = false) => h_flex().id(key).h(31).px(8).rounded(7).items_center()
+      .text_color(danger ? t.blocked : t.foreground).hover((el) => el.bg(t.hover))
+      .on_click(() => { act(); close(); }).child(label);
+    return v_flex().w_full().p(5).bg(t.popover).text_size(13)
+      .when(Boolean(f?.path), (el) => el.child(item("folder-space", "New space here", () => run("space.new", { folder: f.path }))))
+      .child(item("folder-edit", "Edit folder…", () => openOverlay({ mod: "relevo-spaces", kind: "dialog", width: 460, props: { editFolder: id } })))
+      .when(Boolean(f) && !managed().has(id), (el) => el.child(item("folder-delete", "Delete folder", () => updateFolders((d) => ({
+        list: d.list.filter((x) => x.id !== id), of: Object.fromEntries(Object.entries(d.of).filter(([, v]) => v !== id)),
+      })), true)));
+  }
+
+  initEditor(id, cx) {
+    const f = (id && folderData()?.list.find((x) => x.id === id)) ?? {};
+    this.editing = id;
+    this.color = f.color ?? COLORS[(folderData()?.list.length ?? 0) % COLORS.length];
+    this.name = InputState.new({ value: f.name ?? "" });
+    this.path = InputState.new({ value: f.path ?? "", placeholder: "~/code/client" });
+    this.match = InputState.new({ value: f.match ?? "", placeholder: "client-api, ~/code/client-*" });
+    for (const input of [this.name, this.path, this.match]) input.on("submit", () => this.saveFolder());
+    cx.spawn(async (cx) => { await loadFolders(); cx.notify(); });
+  }
+
+  saveFolder() {
+    const name = this.name.value().trim();
+    if (!name) return;
+    const fields = { name, color: this.color, path: this.path.value().trim() || undefined };
+    if (!managed().has(this.editing)) fields.match = this.match.value().trim() || undefined;
+    const id = this.editing ?? `f${Date.now().toString(36)}`;
+    // A new folder goes before the default one, which takes whatever no other folder does.
+    updateFolders((d) => (this.editing
+      ? { ...d, list: d.list.map((x) => (x.id === id ? { ...x, ...fields } : x)) }
+      : { ...d, list: [...d.list.slice(0, Math.max(0, d.list.length - 1)), { id, folded: false, ...fields }, ...d.list.slice(-1)] }));
+    closeOverlay(props().overlay);
+  }
+
+  editor(t, cx) {
+    const field = (label, input) => v_flex().gap(5)
+      .child(div().text_size(11).text_color(t.dim).child(label))
+      .child(h_flex().h(30).px(8).rounded(6).border_1().border_color(t.border).bg(t.background).items_center()
+        .child(Input.new(input).w_full().text_size(13).text_color(t.foreground)));
+    const button = (key, label, act, primary = false) => div().id(key).h(28).px(12).flex().items_center().rounded(6)
+      .when(primary, (el) => el.bg(t.accent).text_color(t.background))
+      .when(!primary, (el) => el.border_1().border_color(t.border).text_color(t.foreground).hover((s) => s.bg(t.hover)))
+      .on_click(act).child(label);
+    return v_flex().w_full().p(16).gap(12).bg(t.popover).text_size(13).text_color(t.foreground)
+      .child(div().font_medium().child(this.editing ? "Edit folder" : "New folder"))
+      .child(field("Name", this.name))
+      .child(h_flex().gap(6).items_end()
+        .child(div().flex_1().child(field("Start new spaces in", this.path)))
+        .child(button("folder-pick", "Choose…", () => cx.spawn(async (cx) => {
+          const picked = await pickFolder({ prompt: "Start new spaces in" });
+          if (picked) { this.path.set_value(picked); cx.notify(); }
+        }))))
+      .when(!managed().has(this.editing), (el) => el.child(field("Collect spaces from", this.match)))
+      .child(h_flex().gap(8).children(COLORS.map((c) => div().id(`folder-color-${c}`).size(18).rounded_full().bg(paint(c))
+        .when(c === this.color, (el) => el.border_2().border_color(t.foreground))
+        .cursor_pointer().on_click((_e, cx) => { this.color = c; cx.notify(); }))))
+      .child(h_flex().gap(8).justify_end()
+        .child(button("folder-cancel", "Cancel", () => closeOverlay(props().overlay)))
+        .child(button("folder-save", "Save", () => this.saveFolder(), true)));
+  }
+}

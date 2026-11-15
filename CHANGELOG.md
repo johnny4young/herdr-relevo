@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Spaces by folder, one row per repo.** The spaces list is Relevo's own now: spaces grouped by folder (your account contexts, plus any folder you add with the folder button, with its name, color, where its new spaces start and which repos it collects), each repo one row with its branch when it is not main, `↑`/`↓` against its upstream, how many files changed and the mark of its most urgent agent. A worktree sits under its checkout. Drag a space onto a folder to put it there; right-click a folder to edit or delete it. The spaces' order follows the list, so `⌃1`…`⌃9` go to the row you see. Your existing folders carry over, and the space-folders mod is no longer needed.
 - **Run again types only into the shell.** After stopping a tab's command, Run again waits until its shell is back in front; if the program does not stop, it types nothing and says so. A command with control characters is not offered to run again.
 - **Terminals read a tab's command.** A tab opened with a command runs it in a shell that stays; Terminals now shows that command ("node fail.mjs") with "ended" once its shell is back, and **Run again** types it into the same shell, stopping it first when it still runs.
 - **The panel tabs fit.** The tab bar is wide enough for Reviews with its count, Runs and Terminals; before, Reviews and Terminals were cut at both ends.

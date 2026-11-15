@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdirSync, mkdtempSync, statSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, resolve, join } from "node:path";
+import { basename, dirname, resolve, join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { fake, resetFake, theme, themeName } from "./herdr.mjs";
 import { fakeCx, flush, find, click, unmapped } from "./kit.mjs";
@@ -30,7 +30,7 @@ const width = flags.width || made.width || 380, height = flags.height || made.he
 
 const png = resolve(outFile), html = png.replace(/\.png$/i, "") + ".html";
 mkdirSync(dirname(png), { recursive: true });
-writeFileSync(html, page(el, { width, height, theme: theme(), title: `${sceneFile} · ${themeName}` }));
+writeFileSync(html, page(el, { width, height, theme: theme(), title: `${basename(sceneFile)} · ${themeName}` }));
 rmSync(png, { force: true });
 if (htmlOnly) {
   console.log(html);

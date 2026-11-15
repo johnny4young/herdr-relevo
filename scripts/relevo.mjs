@@ -8,12 +8,12 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const MODS = ['relevo', 'relevo-agents', 'relevo-files', 'relevo-tabs'];
+const MODS = ['relevo', 'relevo-agents', 'relevo-files', 'relevo-spaces', 'relevo-tabs'];
 const LAYOUTS = ['layouts/relevo.json', 'layouts/relevo.svg'];
 // The person's own settings: created once from the example, then never read, replaced or recorded.
 const CONFIG = 'mods/relevo/config.js';
 const STATE = 'relevo-install';
-const COMMUNITY = ['space-folders', 'issues'];
+const COMMUNITY = ['issues'];
 const HELP = `Usage: relevo.mjs <install|doctor|uninstall> [options]
 
   install     Install Relevo, or update it. A file you changed is kept, with the new one beside it as <file>.new.

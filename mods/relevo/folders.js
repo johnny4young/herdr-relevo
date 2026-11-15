@@ -2,7 +2,7 @@ import { exec, home, shared, setShared } from "herdr";
 import { CONTEXTS, REPOS_ROOT as ROOT } from "./config.js";
 import { contextFor } from "./context.js";
 
-// The space-folders mod keeps its folders in this file and in shared "space-folders".
+// The Spaces list keeps its folders in this file and in shared "space-folders".
 const FILE = "~/.config/herdr-space-folders.json";
 
 // One folder per context; the default one catches every path the others don't list.
