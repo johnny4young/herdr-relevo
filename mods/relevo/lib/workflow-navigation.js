@@ -64,9 +64,12 @@ const since = (ms, now) => {
   return s < 60 ? 'now' : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`;
 };
 
+// The reviewer's latest report on a task, if any.
+export const lastReview = (task) => [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === 'reviewer' && attempt.report);
+
 // What a reviewer needs before opening a result: who, how far, tests, verdict, age.
 export function resultMeta(task, now = Date.now()) {
-  const review = [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === 'reviewer' && attempt.report);
+  const review = lastReview(task);
   const agents = [task.executor?.label ?? task.executor?.address, task.reviewer?.label ?? task.reviewer?.address].filter(Boolean).join(' → ');
   const at = Date.parse(review?.at ?? task.attempts?.at(-1)?.at ?? '');
   return [agents, attemptLabel(task.round, task.maxRounds), `tests ${workflowCheckSummary(task).label.toLowerCase()}`,
