@@ -260,7 +260,7 @@ test('manual decisions stay actionable in Reviews and unreadable workflow hides 
   fake.stored[GOAL_MODE] = false;
   const tree = v.render(cx);
   assert.equal(find(tree, 'result-old'), null);
-  assert.match(text(tree), /Workflow status unavailable/);
+  assert.match(find(tree, 'error-workflow').tip, /Workflow status unavailable/);
   click(find(tree, 'open-decision-g'), cx);
   assert.equal(fake.overlays.at(-1).props.goalId, 'g');
   assert.equal(fake.overlays.at(-1).props.panel, 'decision');

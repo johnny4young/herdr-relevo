@@ -487,10 +487,12 @@ test("a first PR scan spins while pending and stops when gh fails", async () => 
   const answer = holdPRs();
   const { inbox, ui } = await open();
   assert.match(find(ui(), "inbox-refresh").tip, /loading/);
-  assert.equal(spinners(find(ui(), "inbox-refresh")), 1);
+  assert.equal(spinners(find(ui(), "first-read")), 1);
+  assert.equal(spinners(find(ui(), "inbox-refresh")), 0);
   answer({ code: 1, stderr: "offline\ndetail" });
   await flush();
   assert.match(find(ui(), "inbox-refresh").tip, /PRs unavailable/);
+  assert.equal(find(ui(), "first-read"), null);
   assert.equal(spinners(find(ui(), "inbox-refresh")) + spinners(find(ui(), "inbox-list")), 0);
   assert.equal(inbox.error, "offline");
 });

@@ -1,16 +1,33 @@
 import { div } from "gpui-kit";
+import { h_flex, v_flex } from "gpui-base";
 import { exec, run, shared, setShared, theme } from "herdr";
 import { openReview } from "./review.js";
 import { openDesktop } from "./desktop.js";
+import { openGoal } from "./goals-editor.js";
 import { recent } from "./lib/github.js";
 import { prTurn } from "./lib/lanes.js";
-import { foldRow, icon, joined, keysOf, legend, legHeader, saveFolds, TURN_LABEL } from "./ui.js";
+import { button, foldRow, icon, joined, keycap, keysOf, LANE, laneGlyph, legend, legHeader, saveFolds, TURN_LABEL } from "./ui.js";
 
 // Reviews has two views: Now, by whose turn it is, and Maintenance, for what can wait.
 export const REVIEW_VIEW = "relevo.inbox.view";
-export const NOW_SECTIONS = ["away", "me", "flight", "ready", "open"];
+export const NOW_SECTIONS = ["errors", "away", "me", "flight", "ready", "open"];
 export const MAINTENANCE_SECTIONS = ["safe", "look", "old", "quiet", "done", "today"];
 const GROUPS = ["me", "flight", "ready"];
+const SHORT = { me: "Me", flight: "Flight", ready: "Ready" };
+const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+const said = (n) => (n < WORDS.length ? WORDS[n] : String(n));
+const capital = (s) => s[0].toUpperCase() + s.slice(1);
+
+// How old the last good read is, for a source that could not be read again.
+export function staleFor(at, now = Date.now() / 1000) {
+  const m = Math.max(1, Math.round((now - at) / 60));
+  return m < 60 ? `${m} min` : m < 2880 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} d`;
+}
+
+export function inFlightLine(n) {
+  if (!n) return null;
+  return `${capital(said(n))} ${n === 1 ? "thing is" : "things are"} still in flight.`;
+}
 
 // Mixed into Inbox, so `this` is the Inbox.
 export class NowViews {
@@ -113,11 +130,12 @@ export class NowViews {
     return query ? entries.filter((e) => (e.text ?? "").toLowerCase().includes(query)) : entries;
   }
 
-  // The selectable rows in screen order: what you were away for, then each group; "open" only once unfolded.
+  // The selectable rows in screen order: what could not be read, what you were away for, then each group; "open" only once unfolded.
   nowNav(entries) {
-    const away = this.awayItems().map((r) => ({ id: r.id, section: "away", go: r.go }));
+    const errors = this.readErrors().map((e) => ({ id: e.id, section: "errors", go: e.retry, keys: () => keysOf({ main: this.retryAction(e) }) }));
+    const away = this.awayItems().map((r) => ({ id: r.id, section: "away", go: r.go, keys: () => keysOf({ main: this.awayAction(r) }) }));
     const order = [...GROUPS, ...(this.expanded["now-open"] ? ["open"] : [])];
-    return [...away, ...order.flatMap((turn) => entries.filter((e) => e.turn === turn))];
+    return [...errors, ...away, ...order.flatMap((turn) => entries.filter((e) => e.turn === turn))];
   }
 
   nowCounts(entries) {
@@ -125,11 +143,62 @@ export class NowViews {
   }
 
   nowLegend(t, counts) {
-    return legend(t, "now-legend", GROUPS.map((turn) => ({ turn, n: counts[turn] })));
+    const tight = Boolean(this.tightInbox);
+    return legend(t, "now-legend", GROUPS.map((turn) => ({ turn, n: counts[turn], label: tight ? SHORT[turn] : undefined })), { dots: tight });
+  }
+
+  // Each source whose last read failed, with how old what is on screen is and how to read it again.
+  readErrors() {
+    const asOf = (noun, at) => (at ? `${noun} are ${staleFor(at)} old` : "never read");
+    return [
+      this.error && { id: "error-prs", kind: "pr", title: `GitHub PRs${this.prLogin ? ` · ${this.prLogin}` : ""}`, reason: asOf("PRs", this.prsAt),
+        error: this.error, retry: (cx) => this.scanPRs(cx) },
+      this.localError && { id: "error-local", kind: "agent", title: "Local agents", reason: asOf("Agents", this.localOkAt),
+        error: this.localError, retry: (cx) => this.scanLocal(cx) },
+      this.workflowError && { id: "error-workflow", kind: "run", title: "Runs", reason: asOf("Runs", this.workflowAt),
+        error: this.workflowError, retry: (cx) => this.loadGoals(cx) },
+    ].filter(Boolean);
+  }
+
+  retryAction(e) {
+    return { id: `retry-${e.id}`, key: "r", label: "Retry", run: (cx) => { e.retry(cx); cx.notify(); }, tip: `Read ${e.title} again` };
+  }
+
+  errorGroup(t, errors) {
+    if (!errors.length) return [];
+    return [legHeader(t, "leg-errors", "Could not read", errors.length, { me: true }),
+      ...joined(t, errors.map((e) => this.item(t, e.id, {
+        turn: "stuck", kind: e.kind, title: e.title, reason: e.reason, tip: e.error, main: this.retryAction(e),
+        lines: [div().text_size(11).text_color(t.muted).child(e.error)],
+      })))];
+  }
+
+  // Shown in place of Needs me when nothing needs you; what is in flight still lists below it.
+  calmBlock(t, { flight, upkeep }) {
+    const line = inFlightLine(flight);
+    return h_flex().id("now-empty").pt(10).pb(8).pr(8).items_start()
+      .child(h_flex().w(LANE).h(18).flex_none().justify_center().child(laneGlyph(t, "ready")))
+      .child(v_flex().flex_1().min_w(0).gap(6)
+        .child(div().text_size(13).font_semibold().child("Nothing needs you"))
+        .when(Boolean(line), (el) => el.child(div().text_size(13).text_color(t.muted).child(line)))
+        .child(h_flex().flex_wrap().gap(6).pt(2)
+          .child(button(t, "now-empty-maintenance", [keycap(t, "m"), div().child(`Maintenance · ${upkeep}`)], (cx) => this.setReviewView("maintenance", cx), { size: "sm" }))
+          .child(button(t, "now-empty-run", [keycap(t, "n"), div().child("New run")], () => openGoal(), { size: "sm" }))));
+  }
+
+  // Before the first PR read: where pull requests will be, as grey bars.
+  prSkeleton(t) {
+    const bars = [[120, 72], [96, 110], [140, 60]];
+    return [legHeader(t, "leg-prs-loading", "Pull requests", "…"), ...joined(t, bars.map(([a, b], i) => h_flex().id(`pr-skeleton-${i}`).min_h(38).py(4).pr(8).items_center()
+      .child(div().w(LANE).flex_none())
+      .child(v_flex().pl(8).gap(6)
+        .child(div().w(a).h(8).rounded(4).bg(t.border))
+        .child(div().w(b).h(8).rounded(4).bg(t.hover)))))];
   }
 
   nowGroups(t, entries, part) {
     const counts = this.nowCounts(entries), els = [];
+    if (this.calm) els.push(...part("me", [this.calmBlock(t, this.calm)]));
     for (const turn of GROUPS) {
       const list = entries.filter((e) => e.turn === turn);
       if (!list.length) continue;
@@ -204,9 +273,5 @@ export class NowViews {
       ...Object.entries(this.landing()).filter(([, e]) => e.phase === "landed").map(([url, e]) => ({ id: `land-${url}`, go: () => exec("open", [url]), keys: () => keysOf(this.landActions(url, e)) })),
     ].map((item) => ({ ...item, section: "done" }));
     return [...trees("safe"), ...trees("look"), ...old, ...this.staleNav(), ...trees("quiet"), ...done];
-  }
-
-  emptyNow(t) {
-    return div().id("now-empty").p(12).text_size(13).text_color(t.dim).child("Nothing needs you");
   }
 }

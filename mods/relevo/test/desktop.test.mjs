@@ -213,6 +213,7 @@ test("Desktop questions need you; sessions ready for review sit under READY, out
   assert.equal(text(find(ui, "leg-me")), "NEEDS ME 1");
   assert.equal(text(find(ui, "leg-ready")), "READY 2");
   assert.ok(find(ui, "dk-local_2")); assert.ok(find(ui, "dk-local_3"));
-  assert.deepEqual(box.nav.map((n) => n.id), ["dk-local_1", "dk-local_2", "dk-local_3"]);
+  // gh answers nothing here, so the PR read's error row leads the list.
+  assert.deepEqual(box.nav.map((n) => n.id).filter((id) => !id.startsWith("error-")), ["dk-local_1", "dk-local_2", "dk-local_3"]);
   assert.equal(fake.stored["relevo.inbox.count"], 1);
 });

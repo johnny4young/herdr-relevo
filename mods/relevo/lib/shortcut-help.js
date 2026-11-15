@@ -110,7 +110,7 @@ export const INBOX_SHORTCUT_ACTIONS = [
   { id: "runs.move", label: "Select next or previous run or task", section: "Runs", fixedShortcut: "j" },
   { id: "runs.open", label: "Open the run or task in the panel", section: "Runs", fixedShortcut: "enter" },
   { id: "runs.back", label: "Back to tasks, then to runs", section: "Runs", fixedShortcut: "escape" },
-  { id: "runs.new", label: "New run", section: "Runs", fixedShortcut: "n", bar: { runs: "new run" } },
+  { id: "runs.new", label: "New run (in Runs, or from Now)", section: "Runs", fixedShortcut: "n", bar: { runs: "new run" } },
   { id: "runs.window", label: "Open the run window", section: "Runs", fixedShortcut: "w" },
   { id: "runs.accept", label: "Accept a result (Enter confirms)", section: "Runs", fixedShortcut: "a" },
   { id: "runs.changes", label: "Ask for changes", section: "Runs", fixedShortcut: "r" },
