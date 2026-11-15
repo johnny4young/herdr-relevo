@@ -2,7 +2,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, shared, setShared, openOverlay, closeOverlay, props } from "herdr";
-import { button, sectionHeader } from "./ui.js";
+import { button, legHeader } from "./ui.js";
 import { createDemoItems, visibleItems, evidenceCurrent, markReviewed, advanceRevision, refreshEvidence } from "./lib/decision-inbox.js";
 
 const STATE = "relevo.preview.decisions.v1";
@@ -62,7 +62,7 @@ export class PreviewInbox {
           button(t, `preview-filter-${id}`, `${label} ${visibleItems(s.items, id).length}`, () => this.chooseFilter(id),
             { size: "sm", kind: s.filter === id ? "solid" : "outline" }).flex_1().min_w(0))))))
       .child(v_flex().id("preview-inbox-list").min_w(0).flex_1().min_h(0).overflow_y_scrollbar().p(8).gap(7)
-        .child(sectionHeader(t, "WORK TO REVIEW", list.length))
+        .child(legHeader(t, "leg-preview", "Work to review", list.length))
         .children(list.map((i) => {
           const selected = i.id === s.selected, fresh = evidenceCurrent(i);
           return v_flex().id(`preview-item-${i.id}`).w_full().min_w(0).p(10).gap(7).rounded(8).border_1().border_color(selected ? t.accent : t.border)

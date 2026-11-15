@@ -26,36 +26,47 @@ task to another account.
 - **Files**: Herdr's tree with a right-click menu (New file, New folder, Rename, Move to Trash, Reveal in Finder,
   Copy path, Copy relative path). A preview, and a file opened from the finder, show **Edit**; editing adds a
   7px unsaved dot and **Save** (`⌘S`), and a change on disk shows a bar with **Reload** and **Keep mine**.
-- **Inbox**: a rounded (10px) list with a 36px header `Inbox · PRs <age>` and ↻. Groups in this order: waiting on
-  you, In Desktop, landing, review requests, your PRs, uncommitted work, then agent time and worktrees, folded. Each
-  open group sits under an 11px dim header with its count. A fold you open stays open across reloads (shared
-  `relevo.inbox.folds`); a card's extra lines don't:
-  - `WAITING ON YOU`: a card per blocked agent, red border. A permission or plan first shows its title, why and,
+- **Inbox** (Reviews): a rounded (10px) list with two underlined views, **Now** and **Maintenance**, each with its count,
+  then ?, ↻ and the focus button. Now opens with a legend, `● Needs me n · In flight n · Ready n`, and how long ago PRs
+  were read; its rows are grouped by whose turn it is: NEEDS ME (agents that ask, failed landings, run results and
+  decisions, review requests, your PRs with failing or cancelled CI, requested changes, threads, a conflict or a
+  base to catch up with, uncommitted agent work), IN
+  FLIGHT (CI running, an agent on the PR, a landing in progress) and READY (only the merge left, Desktop sessions
+  ready for review), then "N waiting on others" folded (PRs you already ran a skill on, drafts). The Reviews badge is
+  the Needs me count. Maintenance holds what can wait: OLD (PRs past 45 days), the worktree groups, one fold with
+  everything marked addressed or landed (each with **Undo**) and agent time today. `m` and `n` switch views. Each
+  open group sits under a caps header with its count and a hairline. Every item is one row: the lane glyph (who
+  holds it: a red disc when it needs you, the spinner while agents or CI work, a check when one key finishes it,
+  a ring when it can wait), the kind glyph, what it is, the one reason it is here, its age and its one action.
+  A row that needs you is tinted. A click or the arrow keys select a row: it opens in place with its other lines
+  and every action, and Esc or another selection closes it. A fold you open stays open across reloads (shared
+  `relevo.inbox.folds`):
+  - `WAITING ON YOU`: a row per blocked agent that always shows what it asks. A permission or plan first shows its title, why and,
     in a mono block, the command, diff or plan: up to 8 lines, wrapped and never cut, then "+N more lines", which shows the rest. A yes it can't
     read in full (the start is off screen, or it recognizes no command) has no choices, only **Agent**. Then the
     question it asks (read from its screen; with no choices, its last words) and
-    its choices as a list: number, a ☑/☐ box in a multiple choice, label and dim description; the agent's cursor
-    row is tinted. Below: **Submit** when the form has one, **Reply** when it asks in words, **Agent**. On a
+    its choices as a list: number, a box in a multiple choice, label and dim description; the agent's cursor
+    row is tinted. Its action is **Submit** when the form has one, **Reply** when it asks in words; selected, it adds **Agent**, **Note** and **Continue with…**. On a
     multi-question form's last step a gray block lists each question with its answer before "Submit answers".
-  - `UNCOMMITTED WORK`: a card per resting agent whose checkout has changes: files, `+adds −dels`, buttons
-    **Review**, **Agent**, **✓** (addressed) and **⋯** for **View diff**, **Files** and **Reply**; addressed ones fold under "▸ N addressed",
-    each with **Undo**.
-  - `YOUR PRS` and `REVIEW REQUESTS`: cards (9px radius) with a dot, `repo #n · title`, an unresolved-threads
-    badge (speech bubble + count, `ansi3`), a CI badge (✓ `ansi2`, ✕ `ansi1`, spinning ring `ansi3` while
-    running), the age, why it is here ("CI failing", "changes requested", "review from …"), a split skill button
-    (`skill` + account chip | ▾), **Review** on your own PRs, **Open PR** and **✓** (addressed); past two actions,
-    a third goes behind **⋯** only when there's a fourth. PRs older than 45
+  - `UNCOMMITTED WORK`: a row per resting agent whose checkout has changes: files and whether the agent finished,
+    with **Review**; selected, its branch, `+adds −dels`, its last words, **Agent**, **View diff**, **Files**, **Reply** and
+    **✓** (addressed). Addressed ones fold under "N addressed", each with **Undo**.
+  - `YOUR PRS` and `REVIEW REQUESTS`: a row per PR, `repo #n`, why it is here ("CI failing", "changes requested",
+    "<author> asks for your review", "2 comments"), its age and its first action. A PR waiting on you is a needs-me
+    row; one whose CI runs or whose agent works is in flight; one with only the merge left is ready. Selected, it
+    shows its title, CI, unresolved threads and size, what its agent did, and every action: a split skill button
+    (`skill` + account chip | ▾), **Review** on your own PRs, **Open PR** and **✓** (addressed). PRs older than 45
     days fold under "▸ N older than 45 days"; addressed ones under "▸ N addressed", each with **Undo**. Your PRs
     with nothing left but the merge (CI green, not a draft, no changes requested, no open threads) fold under
     "▸ N ready to merge", outside the count.
     Your drafts fold under "▸ N drafts", each with **Ready for review** (`gh pr ready`). A PR whose merge state is
-    `CLEAN` or `HAS_HOOKS` gets **Land** first (solid); one `BLOCKED` in a repo that allows auto-merge gets
+    `CLEAN` or `HAS_HOOKS` gets **Land** first; one `BLOCKED` in a repo that allows auto-merge gets
     **Land when ready**. The first click turns it into a red **Confirm land** for 4 s. `BEHIND` adds **Update branch**,
     and failed, errored or cancelled CI **Retry CI**.
-  - `LANDING`, above review requests: one card per landing PR, "Merges as soon as GitHub allows it", "Merging…", "Merged · N
-    of M workflows running", "<workflow> failed after the merge" (red border, **Open run**) or "Landed · worktree
+  - `LANDING`, above review requests: one row per landing PR, "Merges as soon as GitHub allows it", "Merging…", "Merged · N
+    of M workflows running", "<workflow> failed after the merge" (a needs-me row, **Open run**) or "Landed · worktree
     removed", with **Open PR**, **Cancel** (auto-merge off) and ✓. Done cards go after a day.
-  - `IN DESKTOP`: a card per Claude Desktop session that asks something (red border); the ones ready for review fold under "▸ N ready for review": `project
+  - `IN DESKTOP`: a row per Claude Desktop session that asks something; the ones ready for review fold under "▸ N ready for review": `project
     · title`, its question or summary, **Open in Desktop** and ✓, which folds it under "▸ N addressed" until it does
     something new.
   - A summary row heads the list: five tiles (need you, reviews and your PRs from the last 45 days, ready, tokens today), the first with a red
@@ -125,7 +136,7 @@ task to another account.
   **Continue with…** when the account is at 95% or over and has an agent to move, which opens the handoff. `1`–`9`
   press that section's button.
 
-Text is 11px for what supports a row and 13px for what it names; a test keeps it to those two. Glyphs are the SVG files in `mods/relevo/icons/` (12 px grid), colours are theme tokens only, and the shared row grammar is in [docs/design/v6.md](docs/design/v6.md). Only an agent waiting on you gets a red border.
+Text is 11px for what supports a row and 13px for what it names; a test keeps it to those two. Glyphs are the SVG files in `mods/relevo/icons/` (12 px grid), colours are theme tokens only, and the shared row grammar is in [docs/design/v6.md](docs/design/v6.md).
 
 ## How it behaves
 
