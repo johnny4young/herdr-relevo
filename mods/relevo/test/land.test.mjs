@@ -79,7 +79,6 @@ async function inbox() {
   box.init({}, cx);
   await flush();
   box.clones["me/app"] = MAIN;
-  box.expanded["mine-ready"] = true;
   return { box, cx };
 }
 
@@ -106,8 +105,9 @@ test("a landed PR whose worktree holds only the merged commit loses its worktree
   assert.equal(calls(new RegExp(`^git -C ${MAIN} worktree remove ${WT}$`)).length, 1);
   assert.equal(calls(/branch -D feat/).length, 1);
   assert.equal(find(box.render(cx), `land-${URL}`), null);
-  assert.match(text(find(box.render(cx), "landed")), /1 landed/);
-  click(find(box.render(cx), "landed"), cx);
+  click(find(box.render(cx), "view-maintenance"), cx);
+  assert.match(text(find(box.render(cx), "maintenance-done")), /^1 marked addressed or landed/);
+  click(find(box.render(cx), "maintenance-done"), cx);
   assert.match(text(find(box.render(cx), `land-${URL}`)), /Landed · worktree removed/);
 });
 

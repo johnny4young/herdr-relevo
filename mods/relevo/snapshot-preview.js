@@ -3,7 +3,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, shared, setShared, openOverlay, closeOverlay, props } from "herdr";
-import { button, sectionHeader } from "./ui.js";
+import { button, legHeader } from "./ui.js";
 import { snapshotCards, filterSnapshot, snapshotTime, SNAPSHOT_LABELS } from "./lib/snapshot-inbox.js";
 
 const SOURCE = "relevo.snapshot", SELECTED = "relevo.snapshot.selection";
@@ -48,7 +48,7 @@ export class SnapshotInbox {
           button(t, `snapshot-filter-${id}`, `${label} ${filterSnapshot(all ?? [], id).length}`, () => this.choose(id),
             { size: "sm", kind: this.filter === id ? "solid" : "outline" }).flex_1().min_w(0))))))
       .child(v_flex().id("snapshot-inbox-list").min_w(0).flex_1().min_h(0).overflow_y_scrollbar().p(8).gap(7)
-        .child(sectionHeader(t, "REAL TABS AND SESSIONS", list.length))
+        .child(legHeader(t, "leg-preview", "Real tabs and sessions", list.length))
         .when(all === null, (el) => el.child(text("No valid snapshot. No sample data is shown instead.", 13, t.ansi3)))
         .when(all !== null && !list.length, (el) => el.child(text("No sessions match this filter.", 13, t.dim)))
         .children(list.map((item) => v_flex().id(`snapshot-item-${item.id}`).w_full().min_w(0).p(10).gap(7).rounded(8).border_1()

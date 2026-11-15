@@ -133,6 +133,7 @@ test('cancelling a change request restores pane focus and Escape keeps the pane 
 
 test('a ready result card carries its meta line', async () => {
   const { view, cx } = await load(Inbox, newGoal('g', 'Search'), [{ ...task, executor: { label: 'Codex' }, reviewer: { label: 'Claude' } }]);
-  const tree = view.render(cx);
-  assert.match(text(find(tree, 'meta-result-t')), /^Codex → Claude · attempt 1 of 3/);
+  assert.equal(find(view.render(cx), 'meta-result-t'), null);
+  view.sel = 'result-t';
+  assert.match(text(find(view.render(cx), 'meta-result-t')), /^Codex → Claude · attempt 1 of 3/);
 });

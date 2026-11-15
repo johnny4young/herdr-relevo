@@ -1,7 +1,7 @@
 import './fake/register.mjs';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { fake, resetFake, calls } from './fake/herdr.mjs';
+import { fake, resetFake, calls, theme } from './fake/herdr.mjs';
 import { fakeCx, flush, find, text, click } from './fake/ui.mjs';
 const { emptyGoals, newGoal, saveGoal, parseGoals, groupSources, evidenceState } = await import('../lib/goals.js');
 const { goalsPath, writeGoal, readGoals } = await import('../goals-store.js');
@@ -156,9 +156,11 @@ test('Runs routes original PR review/actions to Reviews', async () => {
   assert.equal(find(tree, `pr-${key.slice(3)}`), null);
   click(find(new InboxButton().render(), 'reviews-toggle'), cx);
   tree = view.render(cx);
-  assert.match(text(tree), /YOUR PRS/);
+  assert.equal(text(find(tree, 'leg-me')), 'NEEDS ME 1');
   assert.ok(find(tree, `pr-${key.slice(3)}`));
   assert.ok(find(tree, `review-pr-${key.slice(3)}`));
+  assert.equal(find(tree, `source-link-${key}`), null);
+  view.sel = `pr-${key.slice(3)}`;
   assert.ok(find(view.render(cx), `source-link-${key}`));
 });
 
@@ -174,13 +176,21 @@ test('two blocked agents in one repo retain separate actionable questions', asyn
 test('Reviews keyboard order follows visible priority and hides previous cards as selection advances', async () => {
   const { view, cx } = await inbox();
   view.h.is_focused = () => true;
-  const pr = (i) => ({ url: `https://github.com/acme/app/pull/${i}`, repo: 'acme/app', number: i, title: `PR ${i}`, reasons: [], skills: [], updatedAt: new Date().toISOString() });
-  view.mine = [pr(1), pr(2), pr(3), pr(4)];
+  const ci = (state) => ({ commits: { nodes: [{ commit: { statusCheckRollup: { state } } }] } });
+  const pr = (i, extra) => ({ url: `https://github.com/acme/app/pull/${i}`, repo: 'acme/app', number: i, title: `PR ${i}`, reasons: [], skills: [], updatedAt: new Date().toISOString(), ...extra });
+  const id = (i) => `pr-https://github.com/acme/app/pull/${i}`;
+  // Listed quiet, ready, running, failing: the keyboard goes by whose turn it is instead.
+  view.mine = [pr(1), pr(2, { reasons: ['new, CI passed'], fresh: true, ...ci('SUCCESS') }), pr(3, ci('PENDING')), pr(4, { reasons: ['CI failing'] }), pr(5, { reasons: ['CI failing'] })];
   fake.stored[GOAL_MODE] = false;
-  view.render(cx); view.sel = 'pr-https://github.com/acme/app/pull/4';
+  view.render(cx);
+  assert.deepEqual(view.nav.map((n) => n.id), [id(4), id(5), id(3), id(2)]);
+  view.expanded['now-open'] = true; view.render(cx);
+  assert.deepEqual(view.nav.map((n) => n.id), [id(4), id(5), id(3), id(2), id(1)]);
+  view.sel = id(2);
   const tree = view.render(cx);
-  assert.equal(find(tree, 'pr-https://github.com/acme/app/pull/1'), null);
-  assert.ok(find(tree, 'pr-https://github.com/acme/app/pull/4'));
+  assert.equal(find(tree, id(4)), null);
+  assert.ok(find(tree, id(3)));
+  assert.ok(find(tree, id(2)));
 });
 
 test('linked quiet PR stays visible while saved evidence details stay out of its queue card', async () => {
@@ -188,7 +198,7 @@ test('linked quiet PR stays visible while saved evidence details stay out of its
   view.goalDoc = commit({ ...goal(), evidence: [{ source: key, revision: a, kind: "video", label: "Demo", url: "https://example.com/demo" }] });
   view.prsAt = Date.now() / 1000; view.error = "offline";
   view.openPRs = [{ url: key.slice(3), repo: 'acme/app', number: 1, title: 'Quiet PR', headRefOid: a, updatedAt: new Date().toISOString() }];
-  fake.stored[GOAL_MODE] = false;
+  fake.stored[GOAL_MODE] = false; view.sel = `pr-${key.slice(3)}`;
   const tree = view.render(cx);
   assert.ok(find(tree, `pr-${key.slice(3)}`));
   assert.doesNotMatch(text(tree), /Unverified|Demo|Criteria:/);
@@ -251,17 +261,22 @@ test('linked addressed PR stays folded, retains undo, and returns after new GitH
   const markedAt = Date.parse(pr.updatedAt) / 1000;
   view.addressed[pr.url] = markedAt;
   fake.stored[GOAL_MODE] = false;
+  view.expanded['now-open'] = true;
   let tree = view.render(cx);
   assert.equal(find(tree, `pr-${pr.url}`), null);
-  assert.ok(find(tree, 'addressed-mine'));
-  click(find(tree, 'addressed-mine'), cx); tree = view.render(cx);
+  assert.equal(view.nowEntries(theme(), view.shown()).some((e) => e.id === `pr-${pr.url}`), false);
+  click(find(tree, 'view-maintenance'), cx); tree = view.render(cx);
+  assert.match(text(find(tree, 'maintenance-done')), /^1 marked addressed or landed/);
+  click(find(tree, 'maintenance-done'), cx); tree = view.render(cx);
+  click(find(tree, `pr-${pr.url}`), cx); tree = view.render(cx);
+  assert.equal(view.sel, `pr-${pr.url}`);
   assert.ok(find(tree, `undo-${pr.url}`));
   assert.equal(view.nav.filter((n) => n.id === `pr-${pr.url}`).length, 1);
   view.mine = [{ ...pr, updatedAt: new Date((markedAt + 10) * 1000).toISOString() }];
-  view.expanded['mine-done'] = false;
   tree = view.render(cx);
+  assert.equal(find(tree, 'maintenance-done'), null);
+  click(find(tree, 'view-now'), cx); tree = view.render(cx);
   assert.ok(find(tree, `pr-${pr.url}`));
-  assert.equal(find(tree, 'addressed-mine'), null);
 });
 
 test('drafts keep Ready for review and Open PR and Enter does not launch a review skill', async () => {
@@ -270,7 +285,11 @@ test('drafts keep Ready for review and Open PR and Enter does not launch a revie
   fake.stored[GOAL_MODE] = false;
   let tree = view.render(cx);
   assert.equal(find(tree, `pr-${pr.url}`), null);
-  click(find(tree, 'drafts-mine'), cx); tree = view.render(cx);
+  assert.match(text(find(tree, 'now-open')), /^1 waiting on others/);
+  assert.equal(view.nav.some((n) => n.id === `pr-${pr.url}`), false);
+  click(find(tree, 'now-open'), cx); tree = view.render(cx);
+  assert.ok(find(tree, `ready-${pr.url}`)); assert.equal(find(tree, `open-${pr.url}`), null);
+  view.sel = `pr-${pr.url}`; tree = view.render(cx);
   assert.ok(find(tree, `ready-${pr.url}`)); assert.ok(find(tree, `open-${pr.url}`));
   assert.equal(view.goalProjection.sources.length, 1);
   const before = fake.execs.length;
@@ -284,7 +303,10 @@ test('local addressed work keeps undo and review in Reviews', async () => {
   view.labelling.t1 = '123:1'; fake.stored[GOAL_MODE] = false;
   let tree = view.render(cx);
   assert.equal(find(tree, 'in-t1'), null);
-  click(find(tree, 'addressed-local'), cx); tree = view.render(cx);
+  assert.equal(fake.stored['relevo.inbox.count'], 0);
+  fake.stored['relevo.inbox.view'] = 'maintenance'; tree = view.render(cx);
+  click(find(tree, 'maintenance-done'), cx); tree = view.render(cx);
+  click(find(tree, 'in-t1'), cx); tree = view.render(cx);
   assert.ok(find(tree, 'review-t1')); assert.ok(find(tree, 'undo-t1'));
 });
 
@@ -300,7 +322,7 @@ test('decision-only goals are keyboard reachable and completed goals never hide 
   assert.equal(fake.stored[GOAL_MODE], false); view.render(cx);
   view.nav.find((n) => n.id === 'decision-g1').go();
   assert.equal(fake.overlays.at(-1).props.goalId, 'g1');
-  view.goalDoc = commit({ ...goal(), state: 'completed' }); view.mine = [samplePR(1, { hot: true })];
+  view.goalDoc = commit({ ...goal(), state: 'completed' }); view.mine = [samplePR(1, { hot: true, reasons: ['CI failing'] })];
   tree = view.render(cx);
   assert.ok(find(tree, `pr-${key.slice(3)}`));
   fake.stored[GOAL_MODE] = true;
@@ -349,11 +371,18 @@ test('a ready result hides with its check until it returns a new revision', asyn
   view.prsAt = Date.now() / 1000; fake.stored[GOAL_MODE] = false;
   let tree = view.render(cx);
   assert.ok(find(tree, 'result-k1'));
+  view.sel = 'result-k1'; tree = view.render(cx);
   click(find(tree, 'addressed-result-k1'), cx); tree = view.render(cx);
   assert.equal(find(tree, 'result-k1'), null);
-  assert.match(text(tree), /1 addressed/);
+  click(find(tree, 'view-maintenance'), cx); tree = view.render(cx);
+  assert.match(text(find(tree, 'maintenance-done')), /^1 marked addressed or landed/);
+  click(find(tree, 'maintenance-done'), cx); tree = view.render(cx);
+  click(find(tree, 'result-k1'), cx); tree = view.render(cx);
+  assert.ok(find(tree, 'undo-result-k1'));
   assert.equal(view.workflowTasks[0].state, 'needs_you');
   view.workflowTasks = [{ ...view.workflowTasks[0], revision: 'r2', round: 2 }];
+  assert.equal(find(view.render(cx), 'maintenance-done'), null);
+  click(find(view.render(cx), 'view-now'), cx);
   assert.ok(find(view.render(cx), 'result-k1'));
 });
 
