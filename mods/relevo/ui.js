@@ -115,9 +115,9 @@ export const TURN_LABEL = { me: "Needs me", flight: "In flight", ready: "Ready",
 export const meTint = (t) => `${t.blocked}12`;
 
 // lane · body (kind, what, why) · edge (age, the one action). `lines` always show under the title;
-// `below` holds the selected row's extra lines.
+// `below` holds the selected row's extra lines. Narrow, the title gives way before the reason.
 export function row(t, id, { turn = "open", kind = null, title, reason = null, sub = null, lines = null, age = null, action = null,
-  selected = false, onSelect = null, below = null, tip = null } = {}) {
+  selected = false, onSelect = null, below = null, tip = null, narrow = false } = {}) {
   const hot = turn === "me" || turn === "stuck";
   return v_flex().id(id).flex_none().rounded(6).border_1().border_color(selected ? t.accent : `${t.accent}00`)
     .when(selected, (el) => el.bg(t.selected)).when(!selected && hot, (el) => el.bg(meTint(t)))
@@ -128,8 +128,9 @@ export function row(t, id, { turn = "open", kind = null, title, reason = null, s
       .child(v_flex().flex_1().min_w(0).gap(2)
         .child(h_flex().gap(7).items_center().min_w(0)
           .when(Boolean(kind), (el) => el.child(icon(kind, hot ? t.blocked : t.muted)))
-          .child(div().min_w(0).truncate().font_semibold().text_size(13).child(title))
-          .when(Boolean(reason), (el) => el.child(div().flex_1().min_w(0).truncate().text_size(13)
+          .child(div().min_w(0).truncate().font_semibold().text_size(13).when(narrow && Boolean(reason), (el) => el.flex_1()).child(title))
+          .when(Boolean(reason), (el) => el.child(div().min_w(0).truncate().text_size(13)
+            .when(narrow, (r) => r.flex_none().max_w(100)).when(!narrow, (r) => r.flex_1())
             .text_color(hot ? t.blocked : t.muted).child(reason))))
         .when(Boolean(sub), (el) => el.child(h_flex().pl(19).gap(7).items_center().min_w(0).text_size(11).text_color(t.muted).child(sub)))
         .when(Boolean(lines), (el) => el.children(lines)))
@@ -161,14 +162,15 @@ export const legHeader = (t, id, label, count, { me = false, after = [] } = {}) 
   .child(div().flex_1().h(1).bg(t.border).opacity(0.55))
   .children(after.filter(Boolean));
 
-// The counters are the legend: glyph, plain label, count. Narrow, the label moves to the tooltip.
-export const legend = (t, id, counts, { narrow = false } = {}) => h_flex().id(id).h(36).flex_none().pl(16).pr(8).gap(14).items_center()
-  .children(counts.map(({ turn, label = TURN_LABEL[turn], n }) => {
+// The counters are the legend: glyph, plain label, count. Narrow, the label moves to the tooltip; `dots` sets short labels apart.
+export const legend = (t, id, counts, { narrow = false, dots = false } = {}) => h_flex().id(id).h(36).flex_none().pl(16).pr(8).gap(dots ? 6 : 14).items_center()
+  .children(counts.flatMap(({ turn, label = TURN_LABEL[turn], n }, i) => {
     const hot = (turn === "me" || turn === "stuck") && n > 0;
-    return h_flex().id(`${id}-${turn}`).gap(6).items_center().when(narrow, (el) => el.tooltip(label))
+    const el = h_flex().id(`${id}-${turn}`).gap(6).items_center().when(narrow, (e) => e.tooltip(label))
       .child(turn === "flight" && !n ? div().size(12).flex_none().rounded_full().border_1().border_color(t.dim) : laneGlyph(t, turn))
-      .when(!narrow, (el) => el.child(div().text_size(13).text_color(hot ? t.blocked : t.muted).child(label)))
+      .when(!narrow, (e) => e.child(div().text_size(13).text_color(hot ? t.blocked : t.muted).child(label)))
       .child(div().text_size(13).font_semibold().text_color(hot ? t.blocked : t.foreground).child(String(n)));
+    return dots && i ? [div().flex_none().text_size(13).text_color(t.dim).child("·"), el] : [el];
   }));
 
 const monoFont = () => settings().font_family ?? "JetBrains Mono";

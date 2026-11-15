@@ -1,11 +1,10 @@
 // "While you were away": what finished, waits, changed on your PRs and was spent, shown once you're back.
 // Mixed into Inbox, so `this` is the Inbox.
 import { div } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
 import { agents, panes, exec, run, window } from "herdr";
 import { ACCOUNTS } from "./accounts.js";
 import { agentTimeBetween } from "./ledger.js";
-import { button } from "./ui.js";
+import { button, joined, LANE, legHeader } from "./ui.js";
 import { duration } from "./lib/time.js";
 import { lastMessage } from "./lib/prompt.js";
 import { AWAY_AFTER, leftAt, awaySummary } from "./lib/away.js";
@@ -81,28 +80,28 @@ export class AwayViews {
     ];
   }
 
+  // Each item's one action, for its button and its key alike.
+  awayAction(r) {
+    return { id: `${r.id}-open`, key: "o", label: r.kind === "pr" ? "Open" : "Agent", run: () => r.go(), kind: r.kind === "blocked" ? "go" : undefined };
+  }
+
   awayGroup(t) {
     const d = this.digest;
     if (!d) return [];
-    const dot = { done: t.done, blocked: t.blocked, pr: t.accent };
+    const turn = { done: "ready", blocked: "me", pr: "open" };
     const spent = d.quota.map((q) => `${q.label} ${[q.h5 && `5h +${q.h5}%`, q.d7 && `7d +${q.d7}%`].filter(Boolean).join(" ")}`);
     const facts = [...spent, d.seconds >= 60 && `${duration(d.seconds)} of agent time`].filter(Boolean).join(" · ");
-    return [v_flex().id("away").p(10).gap(4).rounded(9).bg(t.background).border_1().border_color(t.border)
-      .child(h_flex().gap(6).items_center().text_size(11).text_color(t.dim)
-        .child(div().flex_1().child("WHILE YOU WERE AWAY"))
-        .child(duration(Math.round((d.now - d.since) / 1000)))
-        .child(button(t, "away-dismiss", "✓", (cx) => {
+    return [
+      legHeader(t, "away", "While you were away", duration(Math.round((d.now - d.since) / 1000)), {
+        after: [button(t, "away-dismiss", "Dismiss", (cx) => {
           this.digest = null;
           cx.notify();
-        }, { size: "sm", tip: "Dismiss" })))
-      .children(this.awayItems().map((r) => h_flex().id(r.id).h(26).px(6).gap(8).items_center().rounded(6).cursor_pointer()
-        .when(this.selected(r.id), (el) => el.bg(t.selected))
-        .hover((s) => s.bg(t.hover))
-        .on_click(() => r.go())
-        .child(div().size(7).flex_none().rounded(4).bg(dot[r.kind]))
-        .child(div().flex_none().max_w(220).truncate().text_size(13).child(r.label))
-        .when(Boolean(r.note), (el) => el.child(div().flex_1().min_w(0).truncate().text_size(11).italic().text_color(t.dim)
-          .tooltip(r.note).child(r.note)))))
-      .when(Boolean(facts), (el) => el.child(div().px(6).pt(2).text_size(11).text_color(t.muted).child(facts)))];
+        }, { size: "sm", kind: "ghost" })],
+      }),
+      facts ? div().id("away-facts").pl(LANE).pr(8).pb(2).text_size(11).text_color(t.muted).child(facts) : null,
+      ...joined(t, this.awayItems().map((r) => this.item(t, r.id, {
+        turn: turn[r.kind], kind: r.kind === "pr" ? "pr" : "agent", title: r.label, reason: r.note ?? null, tip: r.note ?? null, main: this.awayAction(r),
+      }))),
+    ].filter(Boolean);
   }
 }

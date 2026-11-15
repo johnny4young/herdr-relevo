@@ -56,7 +56,7 @@ export class GoalViews {
           if (!Array.isArray(workflow.tasks)) throw Error('Invalid task state');
           this.workflowTasks = workflow.tasks;
           this.workflowEngine = workflow.engine;
-          this.workflowError = null; this.goalsKey = key;
+          this.workflowError = null; this.goalsKey = key; this.workflowAt = Date.now() / 1000;
         } catch { this.workflowError = "Workflow status unavailable; open Workflow to retry."; }
         this.goalsError = null;
         if (!this.workflowError) {

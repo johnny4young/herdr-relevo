@@ -301,6 +301,7 @@ export class Inbox {
           cx.notify();
         }
         this.localError = null;
+        this.localOkAt = Date.now() / 1000;
       } catch (e) {
         // Said in the Inbox: a scan that throws would otherwise leave the cards as they were, silently.
         this.localError = `Agents: ${String(e?.message ?? e).split("\n")[0]}`;
@@ -328,9 +329,12 @@ export class Inbox {
   // `open` keeps its lines in sight unselected; its other actions still wait for the selection.
   // `done` (marked addressed) waits on nobody, whatever its turn would be.
   // `main`, `actions` and `mark` are the row's action table (see actionButton); selected, keyed ones show their key.
-  item(t, id, { turn, kind, title, reason = null, age = null, tip = null, lines = [], main = null, actions = [], mark = null, open = false, done = false }) {
+  // `status` takes the age's place and stays at any width. At the narrowest, a me row's action is a chevron.
+  item(t, id, { turn, kind, title, reason = null, age = null, status = null, tip = null, lines = [], main = null, actions = [], mark = null, open = false, done = false }) {
     if (this.hiddenIds?.has(id)) return null;
-    const sel = this.selected(id);
+    const sel = this.selected(id), tight = Boolean(this.tightInbox), words = typeof main?.label === "string" ? main.label : null;
+    const edge = tight && !done && turn === "me" && main && !main.el
+      ? { ...main, label: [icon("chevron-right")], tip: main.tip ?? words, accessibleLabel: main.accessibleLabel ?? words ?? main.tip } : main;
     const draw = (a) => {
       const b = actionButton(t, a);
       return sel && a.key ? h_flex().gap(4).items_center().flex_none().child(keycap(t, a.key)).child(b) : b;
@@ -338,8 +342,8 @@ export class Inbox {
     const rest = sel ? [...actions.filter((a) => a && a !== main), mark].filter(Boolean).map(draw) : [];
     const below = sel || open ? [...(typeof lines === "function" ? lines() : lines).filter(Boolean), ...(rest.length ? [h_flex().flex_wrap().gap(5).pt(2).children(rest)] : [])] : [];
     return row(t, id, {
-      turn: done ? "open" : turn, kind, title, reason, age, tip, selected: sel,
-      action: (turn === "flight" && !sel) || !main ? null : draw(main),
+      turn: done ? "open" : turn, kind, title, reason, age: status ?? (tight ? null : age), tip, selected: sel, narrow: tight,
+      action: (turn === "flight" && !sel) || !main ? null : draw(edge),
       onSelect: (cx) => this.pick(id, cx),
       below: below.length ? below : null,
     });
@@ -408,7 +412,7 @@ export class Inbox {
     const kindOfAsk = p.question && short && p.question.startsWith(short.replace(/…$/, "")) ? (p.options.length ? "asks you to choose" : "waits for your reply") : short;
     return this.item(t, `in-${a.address}`, {
       turn: "me", kind: "agent", title: item.repo, reason: kindOfAsk, tip: a.tab_name || item.branch || null, open: true,
-      age: this.sending(a.address) ? "Answering…" : Date.now() - (this.nextAt.get(a.address) ?? 0) < NEXT_FOR ? "Next question" : ago(item.at, true),
+      age: ago(item.at, true), status: this.sending(a.address) ? "Answering…" : Date.now() - (this.nextAt.get(a.address) ?? 0) < NEXT_FOR ? "Next question" : null,
       ...this.localActions(item),
       lines: [
         p.ask ? this.askBlock(t, p.ask, a.address) : null,
@@ -689,7 +693,10 @@ export class Inbox {
     const reviewView = goalMode ? null : this.reviewView(), runOpen = goalMode && Boolean(this.goalProjection.scope);
     const [runLeft, runRight] = goalMode ? this.runsHeader(t) : [[], []];
     const counts = this.nowCounts(entries), upkeep = goalMode ? null : this.maintenanceModel(v);
-    const shownNow = this.filterNow(entries);
+    const shownNow = this.filterNow(entries), errors = reviewView === "now" ? this.readErrors() : [];
+    const firstRead = !goalMode && !this.prsAt && Boolean(this.scanningPRs);
+    // Nothing needs you only once PRs were read and every source answered.
+    this.calm = reviewView === "now" && Boolean(this.prsAt) && !errors.length && !counts.me && !counts.ready ? { flight: counts.flight, upkeep: upkeep.count } : null;
     this.nav = goalMode ? this.runNav(runs) : reviewView === "now" ? this.nowNav(shownNow) : this.maintenanceNav(v, upkeep);
     this.keyboard = this.h.is_focused();
     if (this.sel && !this.nav.some((i) => i.id === this.sel)) this.sel = null;
@@ -713,8 +720,8 @@ export class Inbox {
       .child(h_flex().h(38).flex_none().px(8).gap(6).items_center()
         .when(goalMode, (el) => el.children([...runLeft, ...runRight]))
         .when(!goalMode, (el) => el
-          .child(this.viewTab(t, "now", "Now", counts.me + counts.flight + counts.ready, "What needs you, what is in flight and what is ready"))
-          .child(this.viewTab(t, "maintenance", "Maintenance", upkeep.count, "What can wait: old PRs, worktrees, what you marked addressed"))
+          .child(this.viewTab(t, "now", "Now", firstRead ? "…" : counts.me + counts.flight + counts.ready, "What needs you, what is in flight and what is ready"))
+          .child(this.viewTab(t, "maintenance", "Maintenance", firstRead ? "…" : upkeep.count, "What can wait: old PRs, worktrees, what you marked addressed"))
           .child(div().flex_1()))
         .when(!runOpen, (el) => el.child(button(t, "inbox-focus-list", [icon("down")], () => this.h.focus(), { size: "sm", accessibleLabel: "Focus work queue", tip: "Focus the queue: arrow keys select, Enter opens" })))
         .child(button(t, "goal-key-help", "?", (cx) => {
@@ -723,9 +730,10 @@ export class Inbox {
           else this.h.focus();
           cx.notify();
         }, { size: "sm", tip: "Search keyboard shortcuts", accessibleLabel: "Keyboard help" }))
-        .when(!runOpen, (el) => el.child(button(t, "inbox-refresh", !this.prsAt && this.scanningPRs ? [spinner(t.dim, 10)] : [icon("refresh")], (cx) => {
+        .when(!runOpen, (el) => el.child(button(t, "inbox-refresh", goalMode && !this.prsAt && this.scanningPRs ? [spinner(t.dim, 10)] : [icon("refresh")], (cx) => {
           this.scanLocal(cx); this.scanPRs(cx); this.scanTrees(cx, true); this.loadGoals(cx);
         }, { size: "sm", accessibleLabel: "Refresh work", tip: `Refresh · ${this.prsAt ? `PRs ${ago(this.prsAt)}` : this.scanningPRs ? "PRs loading" : "PRs unavailable"}${this.error ? ` · ${this.error}` : ""}` }))))
+      .when(firstRead, (el) => el.child(this.firstReadLine(t)))
       .when(reviewView === "now" && (this.filtering || Boolean(this.filterField.value())), (el) => el.child(h_flex().id("inbox-filter").h(30).flex_none().mx(8).mt(4).px(8).gap(6)
         .items_center().rounded(6).border_1().border_color(this.filtering ? t.accent : t.border).bg(t.background)
         .child(icon("search", t.dim)).child(div().flex_1().min_w(0).child(Input.new(this.filterField).h_full()))))
@@ -739,16 +747,23 @@ export class Inbox {
       .when(goalMode && !runOpen, (el) => el.child(div().flex_none().border_b(1).border_color(t.border).child(this.runsLegend(t, runs))))
       .when(reviewView === "maintenance", (el) => el.child(h_flex().flex_none().border_b(1).border_color(t.border).child(this.maintenanceLegend(t, upkeep))))
       .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().px(4).py(6).gap(2)
-        .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
-        .when(Boolean(this.localError), (el) => el.child(div().id("local-error").p(8).text_size(11).text_color(t.blocked).child(this.localError)))
-        .when(!goalMode && Boolean(this.workflowError), (el) => el.child(div().id("workflow-error").p(8).text_size(11).text_color(t.blocked).child(this.workflowError)))
-        .when(reviewView === "now" && !entries.length && !this.digest && !this.error && Boolean(this.prsAt), (el) => el.child(this.emptyNow(t)))
+        .when(reviewView !== "now" && Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
+        .when(reviewView !== "now" && Boolean(this.localError), (el) => el.child(div().id("local-error").p(8).text_size(11).text_color(t.blocked).child(this.localError)))
+        .when(reviewView === "maintenance" && Boolean(this.workflowError), (el) => el.child(div().id("workflow-error").p(8).text_size(11).text_color(t.blocked).child(this.workflowError)))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
         .children(goalMode ? this.runsBody(t, runs) : [])
-        .children(reviewView === "now" ? [...part("away", this.awayGroup(t)), ...this.nowGroups(t, shownNow, part)] : [])
+        .children(reviewView === "now" ? [...part("errors", this.errorGroup(t, errors)), ...part("away", this.awayGroup(t)), ...this.nowGroups(t, shownNow, part),
+          ...(firstRead ? this.prSkeleton(t) : [])] : [])
         .children(reviewView === "maintenance" ? this.maintenanceGroups(t, v, part, upkeep) : []))
       .when(Boolean(bulk), (el) => el.child(bulk))
       .when(!bulk, (el) => el.child(goalMode ? this.runsKeys(t) : this.listKeys(t, reviewView)));
+  }
+
+  // The first PR read, under the header: what is read already and what is still asked.
+  firstReadLine(t) {
+    return h_flex().id("first-read").h(28).flex_none().pl(16).pr(8).gap(14).items_center().border_b(1).border_color(t.border).text_size(11).text_color(t.muted)
+      .when(Boolean(this.localOkAt), (el) => el.child(h_flex().gap(6).items_center().child(icon("check", t.done, 11)).child(div().child("agents and runs read"))))
+      .child(h_flex().gap(6).items_center().min_w(0).child(spinner(t.working, 11)).child(div().truncate().child("asking GitHub…")));
   }
 
   // The keys that work in the list on screen, at its foot, as the ? sheet tags them; a bulk bar takes its place while rows are marked.

@@ -106,6 +106,8 @@ export class PrViews {
     }
     this.error = null;
     const data = joinPRs(pages.map((r) => r.data), others.data);
+    // gh reads one login; a later failure is that login's, so its row can name it.
+    this.prLogin = data.viewer.login ?? this.prLogin;
     this.mine = mapMine(data);
     this.requested = mapRequested(data);
     const listed = new Set(this.mine.map((p) => p.url));
