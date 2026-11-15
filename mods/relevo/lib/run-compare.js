@@ -42,6 +42,7 @@ export function taskRounds(task) {
   return rounds;
 }
 export const canCompare = (task) => taskRounds(task).length >= 2;
+export const tookWords = (task) => `took ${count(taskRounds(task).length, "attempt")}`;
 
 const roundMs = (round, task, now) => {
   const start = attemptWindow(round.writer, task, now), end = (round.reviewer && attemptWindow(round.reviewer, task, now)) ?? start;
@@ -61,9 +62,12 @@ function roundVerdict({ writer, reviewer }) {
 
 // "attempt 2: Codex Luna → Team Haiku · 9 min · approved", one line per attempt.
 export function attemptHistory(task, now = Date.now()) {
-  return taskRounds(task).map((round) => ({ n: round.n, ok: roundVerdict(round).ok,
-    text: [`attempt ${round.n}: ${person(task, "executor")}${round.reviewer ? ` → ${person(task, "reviewer")}` : ""}`, minutes(roundMs(round, task, now)), roundVerdict(round).word]
-      .filter(Boolean).join(" · ") }));
+  return taskRounds(task).map((round) => {
+    const verdict = roundVerdict(round);
+    return { n: round.n, ok: verdict.ok,
+      text: [`attempt ${round.n}: ${person(task, "executor")}${round.reviewer ? ` → ${person(task, "reviewer")}` : ""}`, minutes(roundMs(round, task, now)), verdict.word]
+        .filter(Boolean).join(" · ") };
+  });
 }
 
 export const COMPARE_COLUMNS = 3;
@@ -83,6 +87,7 @@ export function compareAttempts(task, sessions = [], now = Date.now()) {
       return { text: finding ? `${verdict.word}: ${finding}` : verdict.word, ok: verdict.ok };
     },
     tests: (round) => (round.writer.tests ? { text: `${round.writer.tests.passed} of ${round.writer.tests.total} passed`, ok: round.writer.tests.passed === round.writer.tests.total }
+      : round.writer.report && round.writer.report.status !== "completed" ? { text: "not run", quiet: true }
       : round.n === all.length && task.checks?.length ? { text: workflowCheckSummary(task).label.toLowerCase() } : task.checks?.length ? NOT_KEPT : { text: "not configured", quiet: true }),
     change: ({ writer }) => (writer.change ? { text: count(writer.change.files, "file"), added: writer.change.added, removed: writer.change.removed } : NOT_KEPT),
     took: (round) => ({ text: minutes(roundMs(round, task, now)) ?? "unknown" }),
@@ -93,10 +98,10 @@ export function compareAttempts(task, sessions = [], now = Date.now()) {
     note: (round) => { const note = noteOf(round); return note ? { text: firstLine(note, 120) } : NONE; },
   };
   const row = (key, label) => ({ key, label, cells: rounds.map(cells[key]) });
-  return { took: `took ${count(all.length, "attempt")}`, columns: rounds.map((round) => ({ n: round.n, label: `Attempt ${round.n}` })),
+  return { took: tookWords(task), columns: rounds.map((round) => ({ n: round.n, label: `Attempt ${round.n}` })),
     rows: [row("said", "Reviewer said"), row("tests", "Tests"), row("change", "Change"), row("took", "Took"), row("cost", "Cost"), row("note", "Your note")],
     // The two attempts "See what changed between them" compares.
-    diff: all.length >= 2 ? { from: all.at(-2).writer.id, to: all.at(-1).writer.id } : null };
+    diff: all.length >= 2 && task.worktree && !task.worktree.removed ? { from: all.at(-2).writer.id, to: all.at(-1).writer.id } : null };
 }
 
 export const DIFF_FILES = 50;
@@ -110,7 +115,8 @@ export function diffFiles(result) {
 export function thenWords(task, tasks, engine) {
   const next = tasks.filter((item) => item.dependsOn?.includes(task.id) && !TERMINAL.includes(item.state));
   if (!next.length) return "then: done";
-  const ready = next.filter((item) => item.state === "ready" && !item.paused && engine?.enabled);
+  const accepted = (id) => id === task.id || tasks.some((item) => item.id === id && item.state === "accepted");
+  const ready = next.filter((item) => item.state === "ready" && !item.paused && engine?.enabled && item.dependsOn.every(accepted));
   return ready.length ? `then: ${count(ready.length, "follow-up")} ${ready.length === 1 ? "starts" : "start"}` : `then: ${count(next.length, "follow-up")} still ${next.length === 1 ? "waits" : "wait"}`;
 }
 

@@ -11,7 +11,7 @@ import { reviewableWork, linkedDecision, runProgress } from "./lib/goal-workflow
 import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed } from "./lib/workflow-navigation.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
   taskSummary, taskCaveats, isMerged } from "./lib/run-panel.js";
-import { canCompare, compareAttempts } from "./lib/run-compare.js";
+import { canCompare, tookWords } from "./lib/run-compare.js";
 
 // Linked PR URLs known to have merged, kept after the landing list lets them go.
 export const MERGED = "relevo.runs.merged";
@@ -154,6 +154,13 @@ export class RunViews {
     this.resetRun();
   }
 
+  // A command's answer carries the new state; keep it so the panel doesn't wait for the next read.
+  takeDoc(response) {
+    if (!Array.isArray(response.doc?.tasks)) return;
+    this.workflowTasks = response.doc.tasks;
+    this.workflowEngine = response.doc.engine ?? this.workflowEngine;
+  }
+
   // The run window's guard and command: only the revision on screen, only while it still waits.
   decideRun(task, outcome, cx, text = "") {
     if (this.runBusy || this.workflowError || !decideGuard(task, this.workflowTasks)) return;
@@ -162,7 +169,7 @@ export class RunViews {
     cx.spawn(async (cx) => {
       try {
         const response = await workflowCommand(decidePayload(task, outcome, text));
-        if (Array.isArray(response.doc?.tasks)) { this.workflowTasks = response.doc.tasks; this.workflowEngine = response.doc.engine ?? this.workflowEngine; }
+        this.takeDoc(response);
         this.runChange.set_value(""); this.runChangeFor = null;
         const kept = outcome === "accept" && Boolean(task.worktree);
         this.runNotice = outcome !== "accept" ? "Feedback saved. The next result will return for your review."
@@ -285,7 +292,7 @@ export class RunViews {
     const back = (id, label, leave) => button(t, id, `‹ ${label}`, (cx) => { leave(); this.h.focus(); cx.notify(); }, { kind: "ghost", size: "sm", tip: "Esc" });
     const compared = scope && this.runCompare ? this.runBucket(scope).all.find((item) => item.id === this.runCompare) : null;
     if (compared) return [[back("compare-back", task ? "Task" : "Tasks", () => this.leaveCompare()), title("compare-title", compared.title),
-      div().id("compare-attempts").flex_none().text_size(11).text_color(t.muted).child(compareAttempts(compared).took)], []];
+      div().id("compare-attempts").flex_none().text_size(11).text_color(t.muted).child(tookWords(compared))], []];
     if (task) return [[back("task-back", "Tasks", () => this.leaveTask()), title("task-title", task.title)], []];
     if (scope) return [[back("runs-back", "Runs", () => this.leaveRun()), title("run-title", scope.title)], this.runTools(t, scope)];
     return [[div().id("runs-title").pl(8).flex_none().text_size(13).font_semibold().child("Runs"),

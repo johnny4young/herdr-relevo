@@ -41,8 +41,7 @@ export class RunCompareViews {
     cx.spawn(async (cx) => {
       try {
         for (const payload of payloads) {
-          const response = await workflowCommand(payload);
-          if (Array.isArray(response.doc?.tasks)) { this.workflowTasks = response.doc.tasks; this.workflowEngine = response.doc.engine ?? this.workflowEngine; }
+          this.takeDoc(await workflowCommand(payload));
         }
       } catch (e) { this.runError = `Action needs attention: ${e.message ?? e}`; }
       this.runBusy = false;
@@ -65,7 +64,7 @@ export class RunCompareViews {
       .child(div().flex_1())
       .when(Boolean(this.workflowEngine?.enabled), (el) => el.child(button(t, "run-pause", "Pause automation", (cx) => this.engineCommand([{ action: "stop" }], cx),
         { kind: "ghost", size: "sm", disabled: Boolean(this.runBusy), tip: "Stops new dispatches for every run; running sessions continue" })))
-      .when(!this.workflowEngine?.enabled && paused.length > 0, (el) => el.child(button(t, "run-resume", "Resume automation",
+      .when(paused.length > 0, (el) => el.child(button(t, "run-resume", "Resume automation",
         (cx) => this.engineCommand(paused.map((task) => ({ action: "resume", taskId: task.id })), cx),
         { kind: "ghost", size: "sm", disabled: Boolean(this.runBusy), tip: `Resumes ${count(paused.length, "paused task")} of this run` })));
   }
@@ -95,18 +94,19 @@ export class RunCompareViews {
   seeAttemptDiff(task, cx) {
     const pair = compareAttempts(task).diff;
     if (!pair || this.compareDiff?.loading) return;
-    this.compareDiff = { loading: true }; cx.notify();
+    this.compareDiff = { loading: true, to: pair.to }; cx.notify();
     cx.spawn(async (cx) => {
       let next;
-      try { next = { result: (await workflowCommand({ action: "attempt-diff", taskId: task.id, from: pair.from, to: pair.to })).result ?? {} }; }
-      catch (e) { next = { error: String(e.message ?? e) }; }
+      try { next = { to: pair.to, result: (await workflowCommand({ action: "attempt-diff", taskId: task.id, from: pair.from, to: pair.to })).result ?? {} }; }
+      catch (e) { next = { to: pair.to, error: String(e.message ?? e) }; }
       if (this.runCompare === task.id) this.compareDiff = next;
       cx.notify();
     });
   }
 
   compareView(t, task) {
-    const table = compareAttempts(task, this.runSessions ?? []), diff = this.compareDiff;
+    const table = compareAttempts(task, this.runSessions ?? []);
+    const diff = table.diff && this.compareDiff?.to === table.diff.to ? this.compareDiff : null;
     const tone = (cell) => (cell.quiet ? t.dim : cell.ok === false ? t.blocked : cell.ok === true ? t.done : t.foreground);
     const cell = (c, id) => h_flex().id(id).flex_1().min_w(0).gap(5).items_start()
       .when(c.ok != null, (el) => el.child(div().pt(3).flex_none().child(icon(c.ok ? "check" : "x", tone(c), 10))))
@@ -118,8 +118,8 @@ export class RunCompareViews {
     return [
       line("compare-head", "", table.columns.map((column) => div().flex_1().min_w(0).text_size(11).text_color(t.dim).child(column.label.toUpperCase()))),
       ...table.rows.flatMap((item) => [hairline(t, 0), line(`compare-${item.key}`, item.label, item.cells.map((c, i) => cell(c, `compare-${item.key}-${table.columns[i].n}`)))]),
-      h_flex().px(8).pt(8).child(button(t, "compare-diff-open", "See what changed between them", (cx) => this.seeAttemptDiff(task, cx),
-        { disabled: Boolean(diff?.loading), tip: `Attempt ${table.columns.at(-2).n} against attempt ${table.columns.at(-1).n}` })),
+      ...(table.diff ? [h_flex().px(8).pt(8).child(button(t, "compare-diff-open", "See what changed between them", (cx) => this.seeAttemptDiff(task, cx),
+        { disabled: Boolean(diff?.loading), tip: `Attempt ${table.columns.at(-2).n} against attempt ${table.columns.at(-1).n}` }))] : []),
       ...(diff?.loading ? [quiet(t, "compare-diff-loading", "Reading the two snapshots…")] : []),
       ...(diff?.error ? [quiet(t, "compare-diff-error", diff.error)] : []),
       ...(files ? [v_flex().id("compare-diff").px(8).pt(4).gap(2)
@@ -145,10 +145,20 @@ export class RunCompareViews {
     if (anchor && !this.runBusy) this.runPicked = sameRepository(anchor, this.runBucket(goal).me).map((task) => task.id);
   }
 
+  // A selection with an unapproved or failing result arms on the first press; it is armed only for these ids.
+  batchArmed(picked) {
+    return this.runBatchArm === picked.map((task) => task.id).sort().join(" ");
+  }
+
   // The window's batch: a preview of these ids at these revisions, then the same ids and revisions applied.
   acceptPicked(goal, cx) {
-    const picked = this.pickedTasks(goal);
-    if (this.runBusy || this.workflowError || !batchSummary(picked).ok || !picked.every((task) => decideGuard(task, this.workflowTasks))) return;
+    const picked = this.pickedTasks(goal), summary = batchSummary(picked);
+    if (this.runBusy || this.workflowError || !summary.ok || !picked.every((task) => decideGuard(task, this.workflowTasks))) return;
+    if (!summary.clean && !this.batchArmed(picked)) {
+      this.runBatchArm = picked.map((task) => task.id).sort().join(" ");
+      return cx.notify();
+    }
+    this.runBatchArm = null;
     const ids = picked.map((task) => task.id), revisions = Object.fromEntries(picked.map((task) => [task.id, task.revision]));
     this.runBusy = true; this.runError = null; this.runNotice = null; cx.notify();
     cx.spawn(async (cx) => {
@@ -156,7 +166,7 @@ export class RunCompareViews {
         const preview = (await workflowCommand({ action: "batch", ids, outcome: "accept", revisions, preview: true })).preview ?? [];
         if (preview.length !== ids.length || preview.some((item) => !ids.includes(item.taskId))) throw Error("The preview does not match the selection");
         const response = await workflowCommand({ action: "batch", ids: preview.map((item) => item.taskId), outcome: "accept", revisions, preview: false });
-        if (Array.isArray(response.doc?.tasks)) { this.workflowTasks = response.doc.tasks; this.workflowEngine = response.doc.engine ?? this.workflowEngine; }
+        this.takeDoc(response);
         batchAlert(picked, goal.id);
         this.runPicked = [];
         this.runNotice = `${count(ids.length, "result")} accepted: ${picked.map((task) => task.title).join(", ")}.`;
@@ -178,8 +188,8 @@ export class RunCompareViews {
   // What sits past the Needs me header: the hint, or the repository of the selection.
   pickHint(t, goal) {
     const summary = batchSummary(this.pickedTasks(goal));
-    if (this.runPicked.length) return [div().id("run-pick-scope").flex_none().child(summary.repository ? `same repository: ${summary.repository}` : "more than one repository")];
-    return this.runBucket(goal).me.length > 1 ? [h_flex().id("run-pick-hint").flex_none().gap(4).items_center().child(keycap(t, "x")).child(div().child("select"))] : [];
+    if (this.runPicked.length) return [div().id("run-pick-scope").flex_none().text_color(t.muted).child(summary.repository ? `same repository: ${summary.repository}` : "more than one repository")];
+    return this.runBucket(goal).me.length > 1 ? [h_flex().id("run-pick-hint").flex_none().gap(4).text_color(t.muted).items_center().child(keycap(t, "x")).child(div().child("select"))] : [];
   }
 
   batchBar(t, goal) {
@@ -188,8 +198,9 @@ export class RunCompareViews {
       .child(div().flex_none().font_semibold().text_size(13).child(`${n} selected`))
       .child(div().id("runs-batch-why").flex_1().min_w(0).truncate().text_size(11).text_color(summary.clean ? t.muted : t.blocked).tooltip(summary.text).child(summary.text))
       .child(button(t, "runs-batch-cancel", [keycap(t, "esc"), "Cancel"], (cx) => { this.runPicked = []; this.h.focus(); cx.notify(); }, { size: "sm", kind: "ghost" }))
-      .child(button(t, "runs-batch-accept", [keycap(t, "enter"), `Accept ${n}`], (cx) => this.acceptPicked(goal, cx),
-        { size: "sm", kind: "accent", disabled: !summary.ok || Boolean(this.runBusy), tip: summary.ok ? "Accepts each result at the revision on screen" : summary.text }));
+      .child(button(t, "runs-batch-accept", [keycap(t, "enter"), this.batchArmed(picked) ? `Accept ${n} anyway` : `Accept ${n}`], (cx) => this.acceptPicked(goal, cx),
+        { size: "sm", kind: "accent", disabled: !summary.ok || Boolean(this.runBusy),
+          tip: !summary.ok ? summary.text : summary.clean || this.batchArmed(picked) ? "Accepts each result at the revision on screen" : `${summary.text}: press again to accept` }));
   }
 
   thenReason(task, goal) {

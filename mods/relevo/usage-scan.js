@@ -170,12 +170,10 @@ export class UsageScanner {
   }
 }
 
-// cat first, because readTextFile stops at 1 MiB.
 export async function readReport() {
   const path = `${home()}/${REPORT}`;
   try {
-    const r = await exec("cat", [path]).catch(() => null);
-    return JSON.parse((r?.code === 0 && r.stdout) || (await readTextFile(path)) || "null");
+    return JSON.parse((await new Saved(path).read()) || (await readTextFile(path)) || "null");
   } catch {
     return null;
   }

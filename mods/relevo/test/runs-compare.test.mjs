@@ -234,6 +234,8 @@ test('selection words: what holds for every selected result, or what does not', 
   assert.equal(thenWords(tasks[0], tasks, { enabled: false }), 'then: 1 follow-up still waits');
   assert.equal(thenWords(tasks[2], tasks, { enabled: true }), 'then: 1 follow-up still waits');
   assert.equal(thenWords(ready('z'), tasks, { enabled: true }), 'then: done');
+  const both = [ready('a'), ready('b'), task('n', 'ready', { dependsOn: ['a', 'b'] })];
+  assert.equal(thenWords(both[0], both, { enabled: true }), 'then: 1 follow-up still waits', 'another prerequisite still waits');
 });
 
 test('x selects results, X every one of the same repository; Enter previews, then accepts those ids at those revisions', async () => {
@@ -370,4 +372,19 @@ test('Saved setups open in the Runs list: Start fills a new task in the run wind
 test('the ? sheet lists compare, select and accepting a selection', () => {
   const keys = Object.fromEntries(INBOX_SHORTCUT_ACTIONS.filter((action) => action.section === 'Runs').map((action) => [action.id, action.fixedShortcut]));
   assert.deepEqual([keys['runs.compare'], keys['runs.select'], keys['runs.select-repository'], keys['runs.accept-selected'], keys['runs.unselect']], ['c', 'x', 'shift-x', 'enter', 'escape']);
+});
+
+test('a selection with a result nobody approved asks for a second Enter before it accepts', async () => {
+  const rejected = ready('b'); rejected.attempts = [...rejected.attempts.slice(0, -1), { ...rejected.attempts.at(-1), report: { status: 'changes_requested', summary: '' } }];
+  const { v, cx } = await opened([ready('a'), rejected]);
+  coordinator((payload) => ({ stdout: JSON.stringify({ doc: { tasks: v.workflowTasks, engine: { enabled: true } }, preview: payload.preview ? payload.ids.map((id) => ({ taskId: id })) : undefined }) }));
+  v.navKey({ key: 'X', modifiers: {} }, cx);
+  assert.match(text(find(v.render(cx), 'runs-batch')), /1 not approved .*Accept 2$/);
+  v.navKey({ key: 'enter' }, cx); await flush();
+  assert.deepEqual(sent('batch'), [], 'the first Enter only arms');
+  assert.match(text(find(v.render(cx), 'runs-batch')), /Accept 2 anyway$/);
+  v.navKey({ key: 'x' }, cx); v.navKey({ key: 'enter' }, cx); await flush();
+  assert.deepEqual(sent('batch'), [], 'a changed selection is armed again from the start');
+  v.navKey({ key: 'x' }, cx); v.navKey({ key: 'enter' }, cx); v.navKey({ key: 'enter' }, cx); await flush();
+  assert.deepEqual(sent('batch').map((payload) => payload.preview), [true, false]);
 });
