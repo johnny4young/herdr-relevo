@@ -148,7 +148,7 @@ test("a space opened after the question asks again before closing it", async () 
 // Several rows through the one question, as Remove N then its confirmation do.
 async function removeMarked(v, rows, cx) {
   v.askBulk(cx, rows);
-  assert.deepEqual(v.bulkAsk.paths, rows.map((w) => w.path));
+  assert.deepEqual([[...v.marked], Object.keys(v.bulkAsk)], [rows.map((w) => w.path), rows.map((w) => w.path)]);
   v.confirmBulk(cx);
   for (let i = 0; i < 12; i++) await flush();
 }

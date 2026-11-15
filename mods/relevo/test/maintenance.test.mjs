@@ -6,11 +6,14 @@ import assert from "node:assert/strict";
 import { fake, resetFake, calls } from "./fake/herdr.mjs";
 import { fakeCx, find, text, click, flush } from "./fake/ui.mjs";
 import { bulkPlan, laneOf, loseOf, reasonOf, totalKb } from "../lib/trees.js";
-import { checkedOut, deleteArgs, staleBranches, staleReason } from "../lib/branches.js";
+import { readFileSync } from "node:fs";
+import { URL } from "node:url";
+import { checkedOut, staleBranches, staleReason } from "../lib/branches.js";
 import { INBOX_SHORTCUT_ACTIONS, buildShortcutHelpRows } from "../lib/shortcut-help.js";
 
 const { Inbox } = await import("../inbox.js");
 const { scanStale, deleteBranch } = await import("../branches.js");
+const { deleteLocalBranch } = await import("../worktrees.js");
 
 const VIEW = "relevo.inbox.view", DAY = 86400, NOW = Date.now() / 1000, OLD = NOW - 30 * DAY;
 const REMOVE = /worktree remove/;
@@ -147,7 +150,10 @@ test("Maintenance reads as a legend and three groups, and the keyboard walks the
   assert.equal(text(find(view, "wt-/w/env")), "app env · merged #38, but has files git ignores 1.1 GB Look");
   assert.equal(text(find(view, "wt-/w/dirty")), "app dirty · work that is not saved anywhere 6 MB Look");
   assert.equal(text(find(view, "wt-/w/pushed")), "app pushed · pushed, not merged Open");
-  assert.equal(text(find(view, "view-maintenance")), "Maintenance 7");
+  assert.equal(text(find(view, "view-maintenance")), "Maintenance 6", "the tab is the legend's sum");
+  inbox.expanded["loose-recent"] = true;
+  ui();
+  assert.deepEqual(inbox.nav.map((n) => n.id), [...ids, "wt-/w/new"], "the folded row is reached only once it shows");
 });
 
 test("a selected row that needs a look says what would go, and offers its actions with their keys", async () => {
@@ -390,8 +396,14 @@ test("staleBranches: past 30 days, never the default branch or one checked out, 
   assert.deepEqual(staleBranches("\n  \nbroken\n", { now: NOW }), []);
 });
 
-test("a branch is only ever deleted with -d", () => {
-  assert.deepEqual(deleteArgs("/r/app", "old/gone"), ["-C", "/r/app", "branch", "-d", "--", "old/gone"]);
+test("a branch delete is -d unless its caller asks to force, and the stale branches never ask", async () => {
+  await deleteLocalBranch("/r/app", "old/gone");
+  await deleteLocalBranch("/r/app", "feat", true);
+  assert.deepEqual(calls(/ branch /), ["git -C /r/app branch -d old/gone", "git -C /r/app branch -D feat"]);
+  for (const file of ["../branches.js", "../inbox-branches.js", "../lib/branches.js"]) {
+    const source = readFileSync(new URL(file, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /"-D"|--force|deleteLocalBranch\([^)]*,[^)]*,/, file);
+  }
 });
 
 // One clone under ROOT whose refs are REFS, with old/open checked out in a worktree.
@@ -426,7 +438,7 @@ test("git's refusal comes back as git said it, and nothing is forced", async () 
   const refusal = "error: the branch 'old/kept' is not fully merged";
   const main = repo("refused", { refuse: `${refusal}\n` });
   assert.deepEqual(await deleteBranch({ main, name: "old/kept" }), { error: refusal });
-  assert.deepEqual(calls(/ branch /), [`git -C ${main} branch -d -- old/kept`]);
+  assert.deepEqual(calls(/ branch /), [`git -C ${main} branch -d old/kept`]);
   assert.equal(fake.execs.some((l) => /\s-D(\s|$)|--force/.test(l)), false);
 });
 
@@ -442,12 +454,13 @@ test("the fold reads the branches when it opens; Delete branch runs git branch -
   assert.match(text(find(view, "stale-branches")), /^3 branches nobody touched in 30 days Hide$/);
   assert.equal(text(find(view, "leg-old")), "OLD 3");
   assert.match(text(find(view, "maintenance-legend")), /Old 3$/);
+  assert.equal(text(find(view, "view-maintenance")), "Maintenance 3");
   const id = `br-${main}:old/gone`;
   assert.equal(text(find(view, id)), "fold old/gone · last commit 52 days ago · gone upstream Delete branch");
   assert.deepEqual(inbox.nav.map((n) => n.id), ["old/plain", "old/gone", "old/kept"].map((n) => `br-${main}:${n}`));
   click(find(view, `br-del-${main}:old/gone`), cx);
   await settled();
-  assert.deepEqual(calls(/ branch /), [`git -C ${main} branch -d -- old/gone`]);
+  assert.deepEqual(calls(/ branch /), [`git -C ${main} branch -d old/gone`]);
   assert.deepEqual([fake.notices.at(-1).title, fake.notices.at(-1).body], ["Deleted branch old/gone", "Deleted branch old/gone (was abc1234)."]);
   view = ui();
   assert.equal(find(view, id), null);
@@ -468,5 +481,5 @@ test("a refused delete shows git's words on the row and keeps the branch listed"
   await settled();
   const row = find(ui(), `br-${main}:old/kept`);
   assert.match(text(row), /error: the branch 'old\/kept' is not fully merged/);
-  assert.equal(calls(/ branch /).every((l) => l.includes(" branch -d -- ")), true);
+  assert.equal(calls(/ branch /).every((l) => l.includes(" branch -d ")), true);
 });

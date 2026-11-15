@@ -105,13 +105,17 @@ test("the Now tab counts what needs you, is in flight or is ready, not what wait
   assert.equal(text(find(ui(), "now-legend")).replace(/\s+/g, " "), "Needs me 7 In flight 2 Ready 2");
 });
 
-test("the Maintenance tab counts old PRs, merged worktrees and loose rows", async () => {
+test("the Maintenance tab counts what its legend does: old PRs, safe worktrees and ones that need a look", async () => {
   const { inbox, ui } = await open();
   inbox.requested = [pr(1, { updatedAt: OLD })];
   inbox.mine = [pr(2, { updatedAt: OLD }), pr(3, { reasons: ["CI failing"] })];
   const tree = (name, extra) => ({ main: "/w/app", path: `/w/${name}`, branch: name, repo: "app", name, merged: false, open: false, at: 1, ...extra });
-  inbox.worktrees = [tree("m1", { merged: true }), tree("m2", { merged: true }), tree("loose"), tree("spaced", { open: true })];
+  inbox.worktrees = [tree("m1", { merged: true }), tree("m2", { merged: true }), tree("loose"), tree("unread"), tree("spaced", { open: true })];
+  inbox.treeStates = new Map([["/w/loose", { state: { files: 2, unpushed: 0, unique: 0 } }]]);
   assert.equal(text(find(ui(), "view-maintenance")), "Maintenance 5");
+  fake.stored[VIEW] = "maintenance";
+  assert.equal(text(find(ui(), "maintenance-legend")).replace(/\s+/g, " "), "Safe to remove 2 Needs a look 1 Old 2");
+  fake.stored[VIEW] = "now";
   assert.equal(text(find(ui(), "view-now")), "Now 1");
 });
 

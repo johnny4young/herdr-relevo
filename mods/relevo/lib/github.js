@@ -172,9 +172,8 @@ export function agentPRs(places, started, prs) {
   return out;
 }
 
-// Branch names of merged PRs from this repo; a fork's branch named like one of yours says nothing about yours.
-export const mergedHeads = (prs) => prs.filter((p) => !p.isCrossRepository).map((p) => p.headRefName);
-// Each of those branches with its merged PR; gh lists the newest first, so a reused name keeps its last merge.
+// The merged PR of each of this repo's branches; a fork's branch named like one of yours says nothing about yours.
+// gh lists the newest first, so a reused name keeps its last merge.
 export function mergedByHead(prs) {
   const out = new Map();
   for (const p of prs.filter((x) => !x.isCrossRepository)) {

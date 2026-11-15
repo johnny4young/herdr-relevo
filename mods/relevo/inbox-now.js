@@ -42,8 +42,9 @@ export class NowViews {
       if (entry.turn === "open") this.expanded["now-open"] = true;
     } else {
       if (this.reviewView() !== "maintenance") setShared(REVIEW_VIEW, "maintenance");
-      if (this.treeLanes(v.worktrees).quiet.some((w) => `wt-${w.path}` === id)) this.expanded["loose-recent"] = true;
-      this.expanded["maintenance-done"] = this.expanded["maintenance-done"] || !this.maintenanceNav(v).some((n) => n.id === id);
+      const m = this.maintenanceModel(v);
+      if (m.lanes.quiet.some((w) => `wt-${w.path}` === id)) this.expanded["loose-recent"] = true;
+      this.expanded["maintenance-done"] = this.expanded["maintenance-done"] || !this.maintenanceNav(v, m).some((n) => n.id === id);
     }
     saveFolds(this.expanded);
   }
@@ -121,17 +122,22 @@ export class NowViews {
       ...[...v.mine, ...(v.ready ?? [])].filter((p) => !recent(p)).map((p) => [p, false])];
   }
 
-  // Safe to remove, Needs a look and Old, as the legend counts them: a branch counts once its fold has read it.
-  maintenanceLegend(t, v) {
-    const lanes = this.treeLanes(v.worktrees);
+  // What Maintenance shows, read once per draw: the worktree lanes, the old PRs and the stale branches read so
+  // far. The legend, the tab's count, the groups and the keyboard all take it from here.
+  maintenanceModel(v) {
+    const lanes = this.treeLanes(v.worktrees), old = this.oldPRs(v), oldCount = old.length + this.staleShown().length;
+    return { lanes, old, oldCount, count: lanes.safe.length + lanes.look.length + oldCount };
+  }
+
+  maintenanceLegend(t, m) {
     return legend(t, "maintenance-legend", [
-      { turn: "ready", label: "Safe to remove", n: lanes.safe.length }, { turn: "open", label: "Needs a look", n: lanes.look.length },
-      { turn: "old", n: this.oldPRs(v).length + this.staleShown().length },
+      { turn: "ready", label: "Safe to remove", n: m.lanes.safe.length }, { turn: "open", label: "Needs a look", n: m.lanes.look.length },
+      { turn: "old", n: m.oldCount },
     ], { narrow: Boolean(this.tightInbox) });
   }
 
-  maintenanceGroups(t, v, part) {
-    const old = this.oldPRs(v), trees = this.treeSections(t, v.worktrees), oldCount = old.length + this.staleShown().length;
+  maintenanceGroups(t, v, part, m) {
+    const { old, oldCount } = m, trees = this.treeSections(t, m.lanes);
     const landed = Object.entries(this.landing()).filter(([, e]) => e.phase === "landed");
     const doneCount = v.localDone.length + v.mineDone.length + v.requestedDone.length + v.desktopDone.length + this.doneReviews().length + landed.length;
     return [
@@ -155,14 +161,8 @@ export class NowViews {
     ].filter(Boolean);
   }
 
-  // Old PRs, merged worktrees and worktrees without a space, folded or not.
-  maintenanceCount(v) {
-    return this.oldPRs(v).length + v.worktrees.filter((w) => w.merged || !w.open).length;
-  }
-
-  maintenanceNav(v) {
-    const old = this.oldPRs(v).map(([pr]) => ({ id: `pr-${pr.url}`, section: "old", go: () => this.runPR(pr) }));
-    const lanes = this.treeLanes(v.worktrees);
+  maintenanceNav(v, m = this.maintenanceModel(v)) {
+    const old = m.old.map(([pr]) => ({ id: `pr-${pr.url}`, section: "old", go: () => this.runPR(pr) })), lanes = m.lanes;
     const trees = (key) => (key === "quiet" && !this.expanded["loose-recent"] ? [] : lanes[key])
       .map((w) => ({ id: `wt-${w.path}`, section: key, go: () => this.openTree(w) }));
     // Unfolded, what you marked addressed is selectable too, so its Undo can be reached.

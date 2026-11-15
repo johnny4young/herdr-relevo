@@ -10,6 +10,14 @@ import { button, checkbox, foldRow, joined, keycap, legHeader, row, spinner, LAN
 
 const deletes = (files) => `deletes ${files.slice(0, 2).join(", ")}${files.length > 2 ? ` +${files.length - 2}` : ""}`;
 const TURN = { safe: "ready", look: "open", quiet: "old" };
+const TIPS = {
+  remove: "Removes the worktree and its local branch. Files git ignores go with it",
+  pushed: "Removes the worktree and its local branch. The branch stays on GitHub",
+  forever: "Deletes the worktree and everything in it. Says what would be lost first",
+  patch: "Saves uncommitted changes outside the repo",
+  commits: "Saves commits not on GitHub outside the repo",
+  push: "Pushes its commits to a backup branch",
+};
 
 export class TreeViews {
   scanTrees(cx, force = false) {
@@ -79,20 +87,16 @@ export class TreeViews {
     w.unsaved = Boolean(s) && ((s.files > 0 && !s.patchSaved) || (s.unpushed > 0 && !s.commitsSaved));
   }
 
-  // The worktrees Maintenance lists, by what removing one would lose; a row can't offer more than its state allows.
+  // The worktrees Maintenance lists, by what removing one would lose, each stamped with its lane. Read once per
+  // draw and handed to the legend, the groups, the keyboard and the rows.
   treeLanes(worktrees) {
     const now = Date.now() / 1000, lanes = { safe: [], look: [], quiet: [] };
     for (const w of worktrees.filter((x) => x.merged || !x.open)) {
       this.applyState(w, now);
-      lanes[laneOf(w, now)].push(w);
+      w.lane = laneOf(w, now);
+      lanes[w.lane].push(w);
     }
     return lanes;
-  }
-
-  // Keyboard order: what's drawn, so nothing in the folded group.
-  treeRows(worktrees) {
-    const lanes = this.treeLanes(worktrees);
-    return [...lanes.safe, ...lanes.look, ...(this.expanded["loose-recent"] ? lanes.quiet : [])];
   }
 
   openTree(w) {
@@ -100,15 +104,23 @@ export class TreeViews {
     else run("space.new", { folder: w.path });
   }
 
+  // The look-again before any removal. `same` holds only when the space and the ignored files the question
+  // named are the ones that would go now.
+  async checkStillMatches(w, shownSpace, shownIgnored) {
+    const check = await removalCheck(w);
+    if (check.error) return { error: check.error };
+    return { ...check, same: JSON.stringify([check.ignored, check.space]) === JSON.stringify([shownIgnored ?? [], shownSpace ?? null]) };
+  }
+
   // Only clean, unlocked worktrees get here; one with a space closes it first, as Herdr's dialog does.
   removeTree(w, cx) {
     this.checking ??= new Set();
     if (this.checking.has(w.path)) return;
     this.checking.add(w.path);
-    const asked = this.confirm === w.path, shown = JSON.stringify([w.ignored ?? [], w.space ?? null]);
+    const asked = this.confirm === w.path;
     cx.spawn(async (cx) => {
       try {
-        const check = await removalCheck(w);
+        const check = await this.checkStillMatches(w, w.space, w.ignored);
         if (check.error) {
           this.confirm = null;
           this.wtError[w.path] = check.error;
@@ -117,8 +129,7 @@ export class TreeViews {
         delete this.wtError[w.path];
         w.space = check.space;
         w.ignored = check.ignored;
-        // What the confirmation names must be what goes.
-        if (!asked || JSON.stringify([check.ignored, check.space]) !== shown) {
+        if (!asked || !check.same) {
           this.confirm = w.path;
           return cx.notify();
         }
@@ -249,10 +260,11 @@ export class TreeViews {
       && !(w.merged && justUsed(w.at, Date.now() / 1000)));
   }
 
-  // One row of a batch: the same look-again as its own Remove, and it goes only if that is what the question said.
+  // One row of a batch: the same look-again as its own Remove. The question named no ignored files and
+  // `space`, so anything else keeps the row, with the reason.
   async removeChecked(w, space, cx) {
-    const check = await removalCheck(w);
-    const err = check.error ?? (check.ignored.length ? deletes(check.ignored) : check.space && check.space !== space ? "has a space" : null);
+    const check = await this.checkStillMatches(w, space, []);
+    const err = check.error ?? (check.same ? null : check.ignored.length ? deletes(check.ignored) : check.space ? "has a space" : "changed, look again");
     if (err) {
       this.wtError[w.path] = err;
       w.ignored = check.ignored ?? w.ignored;
@@ -293,20 +305,19 @@ export class TreeViews {
   }
 
   // Asks once for the marked rows, or for `list`; a row that is not safe stops it, and the bar says which.
+  // The selection is `marked`; bulkAsk only holds the space each row had when the question was drawn.
   askBulk(cx, list = null) {
     if (this.bulkBusy) return;
     if (list) this.marked = new Set(list.map((w) => w.path));
     const rows = this.markedRows();
-    this.bulkAsk = bulkPlan(rows, Date.now() / 1000).ok
-      ? { paths: rows.map((w) => w.path), spaces: Object.fromEntries(rows.map((w) => [w.path, w.space ?? null])) } : null;
+    this.bulkAsk = bulkPlan(rows, Date.now() / 1000).ok ? Object.fromEntries(rows.map((w) => [w.path, w.space ?? null])) : null;
     cx.notify();
   }
 
   // Each row goes through removeChecked on its own; one that fails stays selected with its reason.
   confirmBulk(cx) {
-    const ask = this.bulkAsk;
-    if (!ask || this.bulkBusy) return;
-    const rows = this.inView().filter((w) => ask.paths.includes(w.path));
+    const spaces = this.bulkAsk, rows = this.markedRows();
+    if (!spaces || this.bulkBusy) return;
     this.bulkAsk = null;
     if (!bulkPlan(rows, Date.now() / 1000).ok) return cx.notify();
     this.bulkBusy = true;
@@ -315,7 +326,7 @@ export class TreeViews {
       let kept = 0;
       try {
         for (const w of rows) {
-          if (await this.removeChecked(w, ask.spaces[w.path], cx)) kept += 1;
+          if (await this.removeChecked(w, spaces[w.path], cx)) kept += 1;
           else this.marked.delete(w.path);
         }
       } finally {
@@ -393,21 +404,36 @@ export class TreeViews {
     return !w.dirty && !w.locked && !inUse && (w.merged || w.group === "safe" || w.group === "pushed");
   }
 
-  // What a row can do, for its buttons and its keys alike. Save, push and Delete only where there is work.
+  // What a row can do, for its buttons and its keys alike. Save, push and Delete only where there is work;
+  // `direct` says Remove loses nothing here, so it can be the row's one action.
   rowMoves(w, now) {
     const acts = w.group === "work" ? w.actions ?? [] : [], saved = (r) => ({ title: "Saved", body: r.file });
+    const forever = acts.includes("delete"), offers = !forever && this.offersRemove(w, now);
     return {
       patch: acts.includes("patch") ? (cx) => this.treeAction(w, cx, () => savePatch(w), saved) : null,
       commits: acts.includes("commits") ? (cx) => this.treeAction(w, cx, () => saveCommits(w), saved) : null,
       push: acts.includes("push") ? (cx) => this.askPush(w, cx) : null,
       folder: () => exec("open", [w.path]),
-      forever: acts.includes("delete"),
-      remove: acts.includes("delete") ? (cx) => this.askDelete(w, cx) : this.offersRemove(w, now) ? (cx) => this.removeTree(w, cx) : null,
+      forever, offers,
+      direct: offers && !w.ignored?.length && !w.unreadable && w.group !== "work" && (w.merged || w.group === "safe"),
+      remove: forever ? (cx) => this.askDelete(w, cx) : offers ? (cx) => this.removeTree(w, cx) : null,
     };
   }
 
+  // Remove, or its Confirm once asked. `keyed` is the selected row's: with its key, and named for what it costs.
+  removeButton(t, w, { sure = false, keyed = false } = {}) {
+    const lost = w.ignored?.length > 0, words = keyed ? [keycap(t, "d"), lost ? "Delete forever" : "Remove"] : "Remove";
+    return button(t, `wt-rm-${w.path}`, sure ? "Confirm" : words, (cx) => this.removeTree(w, cx), {
+      size: "sm", tip: w.group === "pushed" ? TIPS.pushed : TIPS.remove, kind: sure || (keyed && lost) ? "danger" : "outline", disabled: this.treeBusy?.has(w.path),
+    });
+  }
+
+  openButton(t, w) {
+    return button(t, `wt-open-${w.path}`, w.space ? "Go" : "Open", () => this.openTree(w), { size: "sm", tip: w.space ? "Go to its space" : "Open a space here" });
+  }
+
   // Under a selected row: the question before a push or a delete, else every action with its key.
-  actionsLine(t, w, now, { open = true, remove = true } = {}) {
+  actionsLine(t, w, moves, { open = true, remove = true } = {}) {
     const id = (name) => `wt-${name}-${w.path}`, busy = this.treeBusy?.has(w.path);
     const line = (children) => h_flex().pt(2).gap(5).flex_wrap().items_center().children(children.filter(Boolean));
     const cancel = (key) => button(t, id("cancel"), "Cancel", (cx) => {
@@ -426,19 +452,15 @@ export class TreeViews {
         size: "sm", kind: "danger", disabled: busy,
       }), cancel("pushAsk")]);
     }
-    const moves = this.rowMoves(w, now), lost = moves.forever || w.ignored?.length > 0;
-    const act = (name, label, onClick, tip, kind = "outline") => onClick && button(t, id(name), label, onClick, { size: "sm", tip, kind, disabled: busy });
-    const key = (cap, label, on = true) => (on ? [keycap(t, cap), label] : label);
+    const act = (name, label, onClick, kind = "outline") => onClick && button(t, id(name), label, onClick, { size: "sm", tip: TIPS[name] ?? w.path, kind, disabled: busy });
     return line([
-      act("patch", key("s", "Save patch"), moves.patch, "Saves uncommitted changes outside the repo"),
-      act("commits", key("s", "Save commits", !moves.patch), moves.commits, "Saves commits not on GitHub outside the repo"),
-      act("push", "Push backup", moves.push, "Pushes its commits to a backup branch"),
-      open && act("open", w.space ? "Go" : "Open", () => this.openTree(w), w.space ? "Go to its space" : "Open a space here"),
-      act("folder", key("o", "Open folder"), moves.folder, w.path),
-      remove && act(moves.forever ? "delete" : "rm", key("d", lost ? "Delete forever" : "Remove"), moves.remove,
-        moves.forever ? "Deletes the worktree and everything in it. Says what would be lost first"
-          : w.group === "pushed" ? "Removes the worktree and its local branch. The branch stays on GitHub"
-            : "Removes the worktree and its local branch. Files git ignores go with it", lost ? "danger" : "outline"),
+      act("patch", [keycap(t, "s"), "Save patch"], moves.patch),
+      act("commits", moves.patch ? "Save commits" : [keycap(t, "s"), "Save commits"], moves.commits),
+      act("push", "Push backup", moves.push),
+      open && this.openButton(t, w),
+      act("folder", [keycap(t, "o"), "Open folder"], moves.folder),
+      remove && moves.forever && button(t, id("delete"), [keycap(t, "d"), "Delete forever"], moves.remove, { size: "sm", tip: TIPS.forever, kind: "danger", disabled: busy }),
+      remove && moves.offers && this.removeButton(t, w, { keyed: true }),
     ]);
   }
 
@@ -467,24 +489,18 @@ export class TreeViews {
     const id = `wt-${w.path}`, now = Date.now() / 1000;
     if (this.hiddenIds?.has(id)) return null;
     if (this.removing.has(w.path)) return this.removingRow(t, w);
-    const lane = laneOf(w, now), sel = this.selected(id), err = this.wtError[w.path], sure = this.confirm === w.path;
+    const lane = w.lane ?? laneOf(w, now), sel = this.selected(id), err = this.wtError[w.path], sure = this.confirm === w.path;
     const warn = sure ? [w.space && "closes its space", w.ignored?.length && deletes(w.ignored)].filter(Boolean).join(", ") : "";
-    const asking = this.deleteAsk?.path === w.path || this.pushAsk?.path === w.path;
-    const small = (name, label, tip, onClick, kind = "outline") => button(t, `wt-${name}-${w.path}`, label, onClick, { size: "sm", tip, kind });
-    const remove = () => small("rm", sure ? "Confirm" : "Remove",
-      w.group === "pushed" ? "Removes the worktree and its local branch. The branch stays on GitHub" : "Removes the worktree and its local branch. Files git ignores go with it",
-      (cx) => this.removeTree(w, cx), sure ? "danger" : "outline");
-    const open = () => small("open", w.space ? "Go" : "Open", w.space ? "Go to its space" : "Open a space here", () => this.openTree(w));
-    // Remove is the row's one action only where it loses nothing: no work, no ignored files to keep.
-    const direct = this.offersRemove(w, now) && (lane === "safe" || (w.group === "safe" && !w.ignored?.length));
+    const asking = this.deleteAsk?.path === w.path || this.pushAsk?.path === w.path, moves = this.rowMoves(w, now);
     const edge = this.marked?.size ? this.markBox(t, w)
-      : sure || direct ? remove()
-        : lane === "quiet" ? open()
+      : sure || moves.direct ? this.removeButton(t, w, { sure })
+        : lane === "quiet" ? this.openButton(t, w)
           : sel || asking ? null
-            : w.group === "pushed" ? open() : small("look", "Look", "What removing it would lose", (cx) => this.look(id, cx));
+            : w.group === "pushed" ? this.openButton(t, w)
+              : button(t, `wt-look-${w.path}`, "Look", (cx) => this.look(id, cx), { size: "sm", tip: "What removing it would lose" });
     const below = [
       err || warn ? div().id(`wt-note-${w.path}`).min_w(0).text_size(11).text_color(t.blocked).child(err ?? warn) : null,
-      ...(sel || asking ? [...this.loseLines(t, w), this.actionsLine(t, w, now, { open: lane !== "quiet", remove: !sure && !direct })] : []),
+      ...(sel || asking ? [...this.loseLines(t, w), this.actionsLine(t, w, moves, { open: lane !== "quiet", remove: !sure && !moves.direct })] : []),
     ].filter(Boolean);
     return row(t, id, {
       turn: !w.merged && !w.group ? "flight" : TURN[lane], kind: "tree", title: w.repo,
@@ -527,8 +543,8 @@ export class TreeViews {
 
   // Maintenance's worktree groups: Safe to remove with its total and Remove N, Needs a look, and one quiet fold
   // for what was used lately or is still being read.
-  treeSections(t, worktrees) {
-    const lanes = this.treeLanes(worktrees), rows = (list) => joined(t, list.map((w) => this.treeRow(t, w)));
+  treeSections(t, lanes) {
+    const rows = (list) => joined(t, list.map((w) => this.treeRow(t, w)));
     const clean = this.removable(lanes.safe), kb = totalKb(lanes.safe);
     const safe = lanes.safe.length ? [legHeader(t, "leg-safe", "Safe to remove", lanes.safe.length, { after: [
       kb && !this.tightInbox ? div().id("safe-size").flex_none().text_color(t.muted).child(sizeOf(kb)) : null,
@@ -547,8 +563,4 @@ export class TreeViews {
     return { safe, look, quiet };
   }
 
-  treeGroups(t, worktrees) {
-    const sections = this.treeSections(t, worktrees);
-    return [...sections.safe, ...sections.look, ...sections.quiet];
-  }
 }

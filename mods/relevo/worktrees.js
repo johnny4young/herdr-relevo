@@ -7,6 +7,12 @@ import { groupOf, justUsed } from "./lib/trees.js";
 // Every linked worktree of the clones in ROOT, as "<main>\t<porcelain line>".
 const LIST = 'for d in "$1"/*/; do [ -d "$d.git" ] || continue; git -C "$d" worktree list --porcelain 2>/dev/null | awk -v d="${d%/}" \'{ print d "\t" $0 }\'; done';
 
+// The clones in ROOT, as full paths.
+const CLONES = 'for d in "$1"/*/; do [ ! -d "$d.git" ] || printf "%s\\n" "${d%/}"; done';
+export async function clones() {
+  return (await exec("sh", ["-c", CLONES, "sh", `${home()}/${ROOT}`])).stdout.split("\n").filter(Boolean);
+}
+
 function parse(out) {
   const list = [];
   let cur = null;
@@ -200,6 +206,9 @@ export async function removalCheck(w) {
   }
 }
 
+// Every local branch delete goes through here. -d unless the caller proved the branch can't hold work git still needs.
+export const deleteLocalBranch = (main, name, force = false) => exec("git", ["-C", main, "branch", force ? "-D" : "-d", name]);
+
 // Never forced: git keeps a worktree with changes, and -d keeps a branch with unmerged commits. A branch whose
 // tip is the PR head that merged goes with -D, since a squash or rebase merge leaves it looking unmerged.
 export async function removeWorktree(w, merged = null) {
@@ -207,7 +216,7 @@ export async function removeWorktree(w, merged = null) {
   if (r.code !== 0) return r.stderr.trim().split("\n")[0] || "git worktree remove failed";
   if (w.branch) {
     const tip = merged ? (await exec("git", ["-C", w.main, "rev-parse", `refs/heads/${w.branch}`])).stdout.trim() : "";
-    const b = await exec("git", ["-C", w.main, "branch", tip && tip === merged ? "-D" : "-d", w.branch]);
+    const b = await deleteLocalBranch(w.main, w.branch, Boolean(tip) && tip === merged);
     if (b.code !== 0) notify({ title: `Kept branch ${w.branch}`, body: b.stderr.trim().split("\n")[0], level: "warning" });
   }
   return null;

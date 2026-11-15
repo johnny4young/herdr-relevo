@@ -18,6 +18,3 @@ export function staleBranches(out, { now, skip = new Set(), after = STALE_AFTER 
 
 export const staleReason = (b, now) => [`last commit ${Math.floor((now - b.at) / 86400)} days ago`, b.gone && "gone upstream"]
   .filter(Boolean).join(" · ");
-
-// Never forced: git keeps a branch whose commits are not merged.
-export const deleteArgs = (main, name) => ["-C", main, "branch", "-d", "--", name];

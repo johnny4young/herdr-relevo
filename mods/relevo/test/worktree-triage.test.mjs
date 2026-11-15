@@ -72,7 +72,10 @@ beforeEach(() => {
   mock.timers.enable({ apis: ["Date"], now: NOW * 1000 });
 });
 
-const draw = (v, worktrees) => ({ items: v.treeGroups(theme(), worktrees).filter(Boolean), handlers: {}, key: null });
+// The three worktree groups as Maintenance stacks them.
+const groups = (v, worktrees) => Object.values(v.treeSections(theme(), v.treeLanes(worktrees))).flat().filter(Boolean);
+const draw = (v, worktrees) => ({ items: groups(v, worktrees), handlers: {}, key: null });
+const asked = (v) => v.bulkAsk && [...v.marked];
 
 test("only rows with nothing to lose or already on GitHub offer Remove", () => {
   const { v, worktrees } = view({
@@ -121,10 +124,10 @@ test("recent rows fold, and the keyboard doesn't reach them until they show", ()
   const ui = draw(v, worktrees);
   assert.match(text(ui), /1 recent/);
   assert.equal(find(ui, "wt-/w/used"), null);
-  assert.deepEqual(v.treeRows(worktrees).map((w) => w.name), ["gone"]);
+  assert.deepEqual(v.treeLanes(worktrees).quiet.map((w) => w.name), ["used"]);
   v.expanded["loose-recent"] = true;
   assert.ok(find(draw(v, worktrees), "wt-/w/used"));
-  assert.equal(v.treeRows(worktrees).length, 2);
+  assert.deepEqual(v.treeLanes(worktrees).look.map((w) => w.name), ["gone"]);
 });
 
 test("Remove N takes only rows with no ignored files to keep, and asks first", async () => {
@@ -136,7 +139,7 @@ test("Remove N takes only rows with no ignored files to keep, and asks first", a
   assert.match(text(find(ui, "wt-/w/kept")), /merged #7, but has files git ignores/);
   assert.equal(find(ui, "wt-rm-/w/kept"), null);
   all.handlers.on_click({}, cx);
-  assert.deepEqual(v.bulkAsk.paths, ["/w/a", "/w/b"]);
+  assert.deepEqual(asked(v), ["/w/a", "/w/b"]);
   assert.match(text(v.bulkBar(theme(), worktrees)), /Remove 2 merged worktrees\?/);
   await settled();
   assert.equal(calls(/worktree remove/).length, 0);
@@ -552,9 +555,9 @@ test("backups: the folder's size, and no row before anything is saved", async ()
   fake.exec = () => ({ code: 1, stderr: "no such file" });
   assert.equal(await backupsSize("/h/relevo-backups"), 0);
   const v = Object.assign(new TreeViews(), { expanded: {}, removing: new Set(), gone: new Set(), wtError: {} });
-  assert.equal(v.treeGroups(theme(), []).length, 0);
+  assert.equal(groups(v, []).length, 0);
   v.backupsKb = 2048;
-  const rows = v.treeGroups(theme(), []);
+  const rows = groups(v, []);
   assert.equal(rows.length, 1);
   assert.match(text(rows[0]), /Backups.*2 MB.*Open/s);
 });
@@ -616,7 +619,7 @@ test("merged worktrees that are clean sit under Safe to remove with Remove N; on
   assert.equal(find(ui, "wt-rm-/w/dirty"), null);
   assert.match(text(ui), /Backups/);
   find(ui, "wt-rm-all").handlers.on_click({}, fakeCx());
-  assert.deepEqual(v.bulkAsk.paths, ["/w/a", "/w/b"]);
+  assert.deepEqual(asked(v), ["/w/a", "/w/b"]);
   v.marked.add("/w/dirty");
   v.askBulk(fakeCx());
   assert.equal(v.bulkAsk, null, "one that is not safe stops the question");

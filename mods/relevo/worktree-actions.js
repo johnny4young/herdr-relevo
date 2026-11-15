@@ -3,7 +3,7 @@ import { exec, home, panes, readTextFile, spaces } from "herdr";
 import * as config from "./config.js";
 import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
 import { RECENT_AFTER, plural, sizeOf } from "./lib/trees.js";
-import { baseBranch, ignoredPaths, isLocked, nestedRepo, touchedAt, treeSize, treeState } from "./worktrees.js";
+import { baseBranch, deleteLocalBranch, ignoredPaths, isLocked, nestedRepo, touchedAt, treeSize, treeState } from "./worktrees.js";
 
 export const backupsRoot = () => `${home()}/${config.BACKUPS_ROOT ?? "relevo-backups"}`;
 
@@ -211,7 +211,7 @@ export async function deleteWorktree(w) {
   if (removed.code !== 0) return failure(removed, "git worktree remove failed");
   if (w.path.includes("/.codex/worktrees/")) await exec("rmdir", [w.path.split("/").slice(0, -1).join("/")]);
   const base = (await baseBranch(w.main)).replace(/^origin\//, "");
-  if (w.branch && w.branch !== base) await exec("git", ["-C", w.main, "branch", "-D", w.branch]);
+  if (w.branch && w.branch !== base) await deleteLocalBranch(w.main, w.branch, true);
   return null;
 }
 

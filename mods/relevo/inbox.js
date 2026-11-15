@@ -666,8 +666,8 @@ export class Inbox {
     const goalMode = shared(GOAL_MODE) === true;
     this.goalProjection = this.projectGoals(v);
     const reviewView = goalMode ? null : this.reviewView();
-    const counts = this.nowCounts(entries);
-    this.nav = goalMode ? this.goalNav(this.goalProjection.ordered) : reviewView === "now" ? this.nowNav(entries) : this.maintenanceNav(v);
+    const counts = this.nowCounts(entries), upkeep = goalMode ? null : this.maintenanceModel(v);
+    this.nav = goalMode ? this.goalNav(this.goalProjection.ordered) : reviewView === "now" ? this.nowNav(entries) : this.maintenanceNav(v, upkeep);
     this.keyboard = this.h.is_focused();
     if (this.sel && !this.nav.some((i) => i.id === this.sel)) this.sel = null;
     const view = goalMode ? this.goalViewport() : this.viewport(reviewView === "now" ? NOW_SECTIONS : MAINTENANCE_SECTIONS);
@@ -691,7 +691,7 @@ export class Inbox {
         .when(goalMode, (el) => el.child(this.goalNewButton(t)))
         .when(!goalMode, (el) => el
           .child(this.viewTab(t, "now", "Now", counts.me + counts.flight + counts.ready, "What needs you, what is in flight and what is ready"))
-          .child(this.viewTab(t, "maintenance", "Maintenance", this.maintenanceCount(v), "What can wait: old PRs, worktrees, what you marked addressed")))
+          .child(this.viewTab(t, "maintenance", "Maintenance", upkeep.count, "What can wait: old PRs, worktrees, what you marked addressed")))
         .child(div().flex_1())
         .child(button(t, "inbox-focus-list", [icon("down")], () => this.h.focus(), { size: "sm", accessibleLabel: "Focus work queue", tip: "Focus the queue: arrow keys select, Enter opens" }))
         .child(button(t, "goal-key-help", "?", (cx) => {
@@ -710,7 +710,7 @@ export class Inbox {
       .when(reviewView === "now", (el) => el.child(h_flex().flex_none().pr(12).items_center().border_b(1).border_color(t.border)
         .child(div().flex_1().min_w(0).child(this.nowLegend(t, counts)))
         .when(Boolean(this.prsAt), (row) => row.child(div().id("read-age").flex_none().text_size(11).text_color(t.dim).child(`read ${ago(this.prsAt)}`)))))
-      .when(reviewView === "maintenance", (el) => el.child(h_flex().flex_none().border_b(1).border_color(t.border).child(this.maintenanceLegend(t, v))))
+      .when(reviewView === "maintenance", (el) => el.child(h_flex().flex_none().border_b(1).border_color(t.border).child(this.maintenanceLegend(t, upkeep))))
       .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().px(4).py(6).gap(2)
         .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
         .when(Boolean(this.localError), (el) => el.child(div().id("local-error").p(8).text_size(11).text_color(t.blocked).child(this.localError)))
@@ -719,7 +719,7 @@ export class Inbox {
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
         .children(goalMode ? this.goalsGroup(t) : [])
         .children(reviewView === "now" ? [...part("away", this.awayGroup(t)), ...this.nowGroups(t, entries, part)] : [])
-        .children(reviewView === "maintenance" ? this.maintenanceGroups(t, v, part) : []))
+        .children(reviewView === "maintenance" ? this.maintenanceGroups(t, v, part, upkeep) : []))
       .when(Boolean(bulk), (el) => el.child(bulk));
   }
 
