@@ -1,7 +1,7 @@
 // The Terminals view in the panel: every terminal that is not an agent, by space, and what can be done with each.
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { agents, exec, focused, panes, run, settings, setShared, shared, terminals, theme } from "herdr";
+import { agents, exec, focused, notify, panes, run, settings, setShared, shared, terminals, theme } from "herdr";
 import { button, chevron, joined, keyBar, keycap, legHeader, legend, row, tag } from "./ui.js";
 import { lastLines, parseListening, parseParents, portsOf, terminalCounts, terminalGroups, terminalRow } from "./lib/terminals.js";
 import { ago } from "./lib/time.js";
@@ -11,12 +11,28 @@ export const TERMINALS_FOCUS = "relevo.terminals.focus";
 const TURN = { running: "flight", idle: "open", old: "old", failed: "stuck", done: "ready" };
 const READ_EVERY_MS = 10000;
 
+const quote = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replaceAll("'", "'\\''")}'`);
+
+// True once the terminal's own shell is in front again, so typed text reaches the shell and nothing else.
+async function shellIsBack(address, tries = 15) {
+  for (let i = 0; i < tries; i++) {
+    const k = terminals().find((x) => x.address === address);
+    if (k?.state !== "live") return false;
+    if (k.foreground?.pid === k.pid) return true;
+    await exec("sleep", ["0.2"]);
+  }
+  return false;
+}
+
 // Herdr has no restart: end it, remove it so its name is free, and start the same command in the same folder.
 export async function restartTerminal(r) {
-  // A tab's command runs again in its own shell: stopped first if it still runs.
+  // A tab's command runs again in its own shell: stopped first if it still runs, typed only once the shell is back.
   if (r.rerun) {
     if (r.state === "running") await exec("hc", ["interrupt", r.address]);
-    return exec("hc", ["send", r.address, r.rerun.map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replaceAll("'", "'\\''")}'`)).join(" ")]);
+    if (!(await shellIsBack(r.address))) {
+      return notify({ title: `${r.title} did not stop`, body: "Its shell is not back in front, so nothing was typed.", level: "warning" });
+    }
+    return exec("hc", ["send", r.address, r.rerun.map(quote).join(" ")]);
   }
   if (r.live) await exec("hc", ["kill", r.address]);
   await exec("hc", ["rm", r.address]);

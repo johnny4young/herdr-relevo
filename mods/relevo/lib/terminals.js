@@ -13,6 +13,9 @@ export function wrappedCommand(argv) {
   return isShell(argv) && /^-[li]*c$/.test(argv?.[1] ?? "") && /exec "\$0"/.test(argv?.[2] ?? "") ? argv.slice(4) : null;
 }
 
+// A command is typed again only when it is plain text: a control character could end the quoting it is typed in.
+const typable = (argv) => Boolean(argv?.length) && argv.every((a) => !/[\x00-\x1f\x7f]/.test(a));
+
 export function isAgent(k, agentAddresses = new Set()) {
   return agentAddresses.has(k.address) || Boolean(k.program?.agent) || (k.status !== null && typeof k.status === "object" && Boolean(k.status.app));
 }
@@ -34,9 +37,9 @@ export function terminalRow(k, { agents = new Set(), panes = [], now = Date.now(
     spaceId: k.labels?.["herdr.space"] ?? null, argv: k.argv ?? [], name: k.name ?? null, exit: k.exit_code ?? null,
     pids: [k.pid, fg?.pid].filter(Boolean), at: (live ? k.created_ms : k.finished_ms ?? k.created_ms) ?? now,
     // A tab's command ended when its shell is back in front; it runs again in that shell.
-    rerun: live && wrapped?.length ? wrapped : null, ended: live && Boolean(wrapped?.length) && !busy,
+    rerun: live && typable(wrapped) ? wrapped : null, ended: live && Boolean(wrapped?.length) && !busy,
     // Restart re-runs the terminal's own command; a program typed into a plain shell can only be stopped.
-    canRestart: (!shell && (k.argv?.length ?? 0) > 0) || (live && Boolean(wrapped?.length)), canStop: live && shell && busy,
+    canRestart: (!shell && (k.argv?.length ?? 0) > 0) || (live && typable(wrapped)), canStop: live && shell && busy,
   };
 }
 
