@@ -185,7 +185,7 @@ test('paused work and pending review have distinct actions; the topbar switches 
   assert.match(text(find(tree, 'goal-g')), /paused: "Implement search" waits to resume/);
   assert.equal(text(find(tree, 'runs-leg-flight')), 'IN FLIGHT 1');
   assert.equal(find(tree, 'goal-action-g'), null, 'a run in flight offers nothing until it is selected');
-  v.workflowTasks[0].state = 'needs_you';
+  v.workflowTasks = [{ ...v.workflowTasks[0], state: 'needs_you' }];
   tree = v.render(cx);
   assert.equal(text(find(tree, 'goal-action-g')), 'Review 1');
   assert.equal(fake.stored[GOAL_MODE], true, 'opening a queue action keeps the Runs mode');
@@ -239,7 +239,7 @@ test('Runs contains only run navigation; Reviews receives each ready result and 
   assert.equal(fake.execs.length, before);
   assert.equal(JSON.stringify(v.goalDoc), saved);
   assert.equal(JSON.stringify(v.workflowTasks), tasks);
-  v.workflowTasks[1].state = 'accepted';
+  v.workflowTasks = v.workflowTasks.map((task) => (task.id === 'second' ? { ...task, state: 'accepted' } : task));
   tree = v.render(cx);
   assert.equal(find(tree, 'result-second'), null);
   assert.equal(fake.stored['relevo.inbox.count'], count - 1);

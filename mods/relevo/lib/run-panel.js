@@ -1,5 +1,5 @@
 // What the Runs panel says about a run and its tasks; pure, so the tests can run it under Node.
-import { count, role, verdictLine } from "./run-words.js";
+import { count, role, verdictLine, attemptLabel } from "./run-words.js";
 import { lastReview, workflowCheckSummary } from "./workflow-navigation.js";
 import { reportNotes } from "./run-report.js";
 
@@ -26,17 +26,31 @@ export function taskTurn(task) {
 }
 
 export const TASK_GROUPS = ["me", "stuck", "flight"];
+export const emptyBucket = () => ({ all: [], me: [], stuck: [], flight: [], open: [], done: [] });
 
-export function runCounts(tasks) {
-  const counts = { me: 0, stuck: 0, flight: 0, open: 0, done: 0 };
-  for (const task of tasks) counts[taskTurn(task)] += 1;
-  return counts;
+// Every run's tasks by turn, in one pass: goal id -> bucket.
+export function bucketTasks(tasks) {
+  const buckets = new Map();
+  for (const task of tasks) {
+    if (!buckets.has(task.goalId)) buckets.set(task.goalId, emptyBucket());
+    const bucket = buckets.get(task.goalId);
+    bucket.all.push(task); bucket[taskTurn(task)].push(task);
+  }
+  return buckets;
+}
+export const runBucket = (tasks, goalId) => bucketTasks(tasks).get(goalId) ?? emptyBucket();
+
+// What asking for changes does: another attempt, or a follow-up task when none is left.
+export function changesPlan(task) {
+  const spent = !attemptsLeft(task);
+  return { spent, send: spent ? "Prepare follow-up" : "Send feedback",
+    hint: spent ? "No attempts left: this prepares a follow-up task for you to start." : `Starts ${attemptLabel((task.round ?? 0) + 1, task.maxRounds)}: write, then review.` };
 }
 
 // "9 tasks:" and its parts; `hot` marks the ones that wait on the person.
-export function runSummary(tasks) {
-  const c = runCounts(tasks);
-  return { head: `${count(tasks.length, "task")}:`, parts: [
+export function runSummary(bucket) {
+  const c = Object.fromEntries(Object.entries(bucket).map(([turn, list]) => [turn, list.length]));
+  return { head: `${count(c.all, "task")}:`, parts: [
     [c.me, `${c.me} ${c.me === 1 ? "needs" : "need"} you`, true], [c.stuck, `${c.stuck} stuck`, true], [c.flight, `${c.flight} in flight`],
     [c.open, `${c.open} not started`], [c.done, `${c.done} done`],
   ].filter(([n]) => n > 0).map(([, text, hot = false]) => ({ text, hot })) };
@@ -85,26 +99,26 @@ export function followUpAvailable(task) {
   return !attemptsLeft(task) || (task.attempts ?? []).filter((attempt) => attempt.role === "reviewer").length >= (task.maxRounds ?? 2) + 1;
 }
 
-// A run row: its group, lane glyph, what it is doing or wants, and its one action.
-export function runRow(goal, all, { engine = null, error = null, decision = false, reviewCount = 0 } = {}) {
+// A run row from its bucket of tasks: its group, lane glyph, what it is doing or wants, and its one action.
+export function runRow(goal, bucket, { engine = null, error = null, decision = false, reviewCount = 0 } = {}) {
   const open = { kind: "open", label: "Open" };
   if (error) return { group: "me", turn: "stuck", now: "status unavailable", hot: true, action: open };
-  const tasks = all.filter((task) => task.goalId === goal.id), c = runCounts(tasks);
+  const c = { me: bucket.me.length, open: bucket.open.length };
   if (c.me) return { group: "me", turn: "me", hot: true, now: `${count(c.me, "result")} ${c.me === 1 ? "waits" : "wait"} for your review`,
     action: { kind: "review", label: `Review ${c.me}` } };
-  if (c.stuck) {
-    const task = tasks.find((item) => taskTurn(item) === "stuck");
+  if (bucket.stuck.length) {
+    const task = bucket.stuck[0];
     return { group: "me", turn: "stuck", hot: true, now: `stuck: ${stuckWhy(task)}`, action: { kind: "why", label: "See why", taskId: task.id } };
   }
-  if (c.flight) {
-    const flying = tasks.filter((item) => taskTurn(item) === "flight"), task = flying.find(live) ?? flying[0], attempt = live(task);
+  if (bucket.flight.length) {
+    const flying = bucket.flight, task = flying.find(live) ?? flying[0], attempt = live(task);
     if (attempt) return { group: "flight", turn: "flight", now: `an agent is ${attempt.role === "reviewer" ? "reviewing" : "writing"} "${task.title}"`, action: open };
     const paused = !engine?.enabled || flying.every((item) => item.paused);
     return { group: "flight", turn: paused ? "open" : "flight", action: open,
       now: paused ? `paused: "${task.title}" waits to resume` : `"${task.title}" ${task.state === "needs_review" ? "waits for its reviewer" : "waits for its agent"}` };
   }
   if (c.open) return { group: "open", turn: "open", now: c.open === 1 ? "1 task planned, not started" : `${c.open} tasks planned, not started`, action: open };
-  if (tasks.some((task) => task.state === "accepted")) return { group: "ready", turn: "ready", now: "finished, everything accepted", action: open };
+  if (bucket.done.some((task) => task.state === "accepted")) return { group: "ready", turn: "ready", now: "finished, everything accepted", action: open };
   if (decision && goal.decision?.trim()) return { group: "me", turn: "me", hot: true, now: `your decision: ${firstLine(goal.decision, 120)}`, action: { kind: "decide", label: "Decide" } };
   if (goal.state === "completed") return { group: "ready", turn: "old", now: "closed", action: open };
   if (reviewCount) return { group: "open", turn: "open", now: `${count(reviewCount, "linked change")} to review`, action: { kind: "changes", label: "Review" } };
@@ -119,9 +133,9 @@ const prNumber = (url) => `#${/\/pull\/(\d+)/.exec(url)?.[1] ?? "?"}`;
 
 // What reached GitHub: the run's linked PRs and the draft PRs of its accepted worktree tasks.
 // `items` are its open linked sources, `merged` the URLs known to have merged.
-export function runShipped(goal, tasks, items = [], merged = {}) {
+export function runShipped(goal, bucket, items = [], merged = {}) {
   const state = new Map();
-  for (const task of tasks) if (task.goalId === goal.id && task.state === "accepted" && task.worktree?.pr) state.set(task.worktree.pr, "opened");
+  for (const task of bucket.done) if (task.state === "accepted" && task.worktree?.pr) state.set(task.worktree.pr, "opened");
   for (const source of items) if (source.kind === "pr") state.set(source.pr.url, source.draft ? "draft" : "open");
   for (const key of goal.sources ?? []) if (key.startsWith("pr:") && merged[key.slice(3)]) state.set(key.slice(3), "merged");
   for (const url of state.keys()) if (merged[url]) state.set(url, "merged");

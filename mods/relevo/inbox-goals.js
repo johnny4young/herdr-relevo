@@ -109,17 +109,17 @@ export class GoalViews {
 
   goalAction(key, cx) {
     const runMode = shared(GOAL_MODE) === true;
-    if (key === "g" && runMode) { this.nextGoal(cx); return true; }
     if (key === "?") {
       this.goalHelp = !this.goalHelp;
       if (this.goalHelp) this.shortcutHelp?.focus();
       else this.h.focus();
       return true;
     }
+    // An open run has its own keys; the list's shortcuts wait until it closes.
+    if (runMode && this.goalProjection?.scope) return false;
+    if (key === "g" && runMode) { this.nextGoal(cx); return true; }
     const group = runMode && this.goalProjection?.groups.find((g) => `goal-${g.goal.id}` === this.sel);
-    if (key === "f" && runMode && (group || this.goalProjection?.scope)) {
-      this.focusGoal(this.goalProjection.scope ? null : group.goal.id, cx); return true;
-    }
+    if (key === "f" && group) { this.focusGoal(group.goal.id, cx); return true; }
     if (key === "r" && group) { this.showRunReviews(group.goal); return true; }
     if (key === "w" && group) { openWorkflow(group.goal.id); return true; }
     const source = this.goalProjection?.sources.find((s) => (s.kind === "pr" ? `pr-${s.pr.url}` : `in-${s.item.agent.address}`) === this.sel);
@@ -225,9 +225,7 @@ export class GoalViews {
   projectGoals(v) {
     const sources = this.goalSources(v);
     const scoped = scopeGoals({ sources, ...groupSources(this.goalDoc ?? emptyGoals(), sources) }, shared(GOAL_SCOPE));
-    const { groups, unlinked } = scoped;
-    const waiting = unlinked.filter((s) => s.blocked), other = unlinked.filter((s) => !s.blocked);
-    return { ...scoped, sources, groups, waiting, other };
+    return { ...scoped, sources };
   }
 
   goalViewport() {

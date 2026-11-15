@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { fake, resetFake, calls, theme } from './fake/herdr.mjs';
 import { fakeCx, flush, find, click, text } from './fake/ui.mjs';
 import { newGoal, saveGoal, emptyGoals } from '../lib/goals.js';
-import { runRow, runShipped, runSummary, taskReason, taskTurn, taskLegs, stuckFindings, followUpAvailable } from '../lib/run-panel.js';
+import { runBucket, runRow, runShipped, runSummary, taskReason, taskTurn, taskLegs, stuckFindings, followUpAvailable } from '../lib/run-panel.js';
 const { Inbox } = await import('../inbox.js');
 const { Workflow } = await import('../workflow.js');
 const { GOAL_MODE, GOAL_SCOPE } = await import('../inbox-goals.js');
@@ -38,7 +38,7 @@ const decided = () => calls(/"action":"decide"/).map((line) => JSON.parse(line.s
 const windows = () => fake.runs.filter(([name]) => name === 'pane.split').map(([, args]) => args.props);
 
 test('a run row says what it does now, by whose turn it is, with its one action', () => {
-  const row = (tasks, options) => runRow(goal, tasks, { engine: { enabled: true }, ...options });
+  const row = (tasks, options) => runRow(goal, runBucket(tasks, 'g'), { engine: { enabled: true }, ...options });
   assert.deepEqual(row([ready('a'), ready('b'), ready('c'), stuck('d'), writing('e')]),
     { group: 'me', turn: 'me', hot: true, now: '3 results wait for your review', action: { kind: 'review', label: 'Review 3' } });
   assert.deepEqual(row([stuck('d'), writing('e')]),
@@ -51,20 +51,20 @@ test('a run row says what it does now, by whose turn it is, with its one action'
   assert.deepEqual(row([task('x', 'accepted'), task('y', 'cancelled')]), { group: 'ready', turn: 'ready', now: 'finished, everything accepted', action: { kind: 'open', label: 'Open' } });
   assert.deepEqual(row([]), { group: 'open', turn: 'open', now: 'needs a plan before agents start', action: { kind: 'plan', label: 'Plan' } });
   assert.equal(row([], { decision: true }).action.kind, 'plan', 'no decision text, nothing to decide');
-  assert.equal(runRow({ ...goal, decision: 'Ship it?' }, [], { decision: true }).now, 'your decision: Ship it?');
+  assert.equal(runRow({ ...goal, decision: 'Ship it?' }, runBucket([], 'g'), { decision: true }).now, 'your decision: Ship it?');
   assert.deepEqual(row([ready('a')], { error: 'unreadable' }), { group: 'me', turn: 'stuck', now: 'status unavailable', hot: true, action: { kind: 'open', label: 'Open' } });
 });
 
 test('Shipped names what reached GitHub: merged, open and draft pull requests, or nothing yet', () => {
   const url = (n) => `https://github.com/acme/app/pull/${n}`;
   const linked = { ...goal, sources: [`pr:${url(38)}`, `pr:${url(43)}`, 'local:/work/app'] };
-  assert.deepEqual(runShipped(goal, [ready('a')]), { any: false, text: 'nothing yet' });
+  assert.deepEqual(runShipped(goal, runBucket([ready('a')], 'g')), { any: false, text: 'nothing yet' });
   const tasks = [task('x', 'accepted', { worktree: { branch: 'run/x', pr: url(42) } }), task('y', 'accepted', { worktree: { branch: 'run/y', pr: url(44) } }),
     task('z', 'needs_you', { worktree: { branch: 'run/z', pr: url(50) } }), { ...task('o', 'accepted', { worktree: { pr: url(60) } }), goalId: 'other' }];
   const open = [{ kind: 'pr', pr: { url: url(43) } }, { kind: 'pr', draft: true, pr: { url: url(45) } }, { kind: 'local', item: {} }];
-  assert.equal(runShipped(linked, tasks, open, { [url(38)]: true, [url(42)]: true }).text,
+  assert.equal(runShipped(linked, runBucket(tasks, 'g'), open, { [url(38)]: true, [url(42)]: true }).text,
     '2 pull requests merged: #42, #38 · 1 pull request open: #43 · 1 draft pull request: #45 · 1 pull request opened: #44');
-  assert.equal(runShipped(linked, [], [], {}).text, 'nothing yet', 'a linked PR that is no longer open is not claimed as merged');
+  assert.equal(runShipped(linked, runBucket([], 'g'), [], {}).text, 'nothing yet', 'a linked PR that is no longer open is not claimed as merged');
 });
 
 test('task words: turn, short state, summary line, who did what and why it is stuck', () => {
@@ -77,7 +77,7 @@ test('task words: turn, short state, summary line, who did what and why it is st
   assert.equal(taskReason(stuck('d', { maxRounds: 3 })), 'rejected twice');
   assert.equal(taskReason(writing('e')), 'Codex Luna is writing it');
   assert.equal(taskReason(task('v', 'needs_review', { attempts: [wrote(), { id: 'a2', role: 'reviewer', state: 'running' }] })), 'Team Haiku is reviewing it');
-  const summary = runSummary([ready('a'), ready('b'), ready('c'), stuck('d'), writing('e'), task('p', 'planned'), task('x', 'accepted'), task('y', 'accepted'), task('z', 'cancelled')]);
+  const summary = runSummary(runBucket([ready('a'), ready('b'), ready('c'), stuck('d'), writing('e'), task('p', 'planned'), task('x', 'accepted'), task('y', 'accepted'), task('z', 'cancelled')], 'g'));
   assert.equal(`${summary.head} ${summary.parts.map((part) => part.text).join(' · ')}`, '9 tasks: 3 need you · 1 stuck · 1 in flight · 1 not started · 3 done');
   assert.deepEqual(summary.parts.map((part) => part.hot), [true, true, false, false, false]);
   assert.deepEqual(taskLegs(ready('a', { worktree: { branch: 'run/a' } })).map((leg) => `${leg.state} ${leg.who} ${leg.what}`), [

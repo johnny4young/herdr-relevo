@@ -4,8 +4,8 @@ import { agents, panes, props, theme, appHome, readTextFile, run, focused, share
 import { runtimeCommand } from "./runtime-cli.js";
 import { button, onSubmitChord, tabButton, checkbox } from "./ui.js";
 import { focusedCwd } from "./panelbar.js";
-import { workflowBucket, workflowItems, queueSummary } from "./lib/workflow-navigation.js";
-import { followUpAvailable } from "./lib/run-panel.js";
+import { workflowBucket, workflowItems, queueSummary, armAccept, acceptArmed } from "./lib/workflow-navigation.js";
+import { followUpAvailable, changesPlan } from "./lib/run-panel.js";
 import { readGoals } from "./goals-store.js";
 import { batchScope } from "./lib/workflow-preferences.js";
 import { batchAlert } from "./alerts.js";
@@ -113,7 +113,7 @@ export class Workflow extends WorkflowDetail {
     const task = this.tasks?.find((item) => item.id === taskId);
     if (task) { this.selected = task.id; this.filter = workflowBucket(task); this.explicitNew = false; this.tab = TABS.includes(tab) ? tab : "Overview"; }
     if (task && followUp === "blocked" && followUpAvailable(task)) this.prepareBlockedFollowUp(task, cx);
-    else if (task && followUp === "changes" && task.state === "needs_you" && task.round >= task.maxRounds && text?.trim()) {
+    else if (task && followUp === "changes" && task.state === "needs_you" && changesPlan(task).spent && text?.trim()) {
       this.form.decision.set_value(text); this.prepareFollowUp(task, cx);
     }
     if (setups) { this.selected = null; this.explicitNew = true; this.tab = "Overview"; this.taskSetupOpen = true; this.setupsOpen = true; }
@@ -581,9 +581,9 @@ export class Workflow extends WorkflowDetail {
         if (!this.h.is_focused() || event.modifiers?.platform || event.modifiers?.alt || event.modifiers?.control) return;
         if (task?.state === "needs_you" && !this.busy && this.tab === "Overview" && !this.showHelp) {
           if (event.key === "a" && this.requestChangesFor !== task.id) {
-            this.acceptIntent = { id: task.id, revision: task.revision }; cx.stop_propagation(); cx.notify(); return;
+            this.acceptIntent = armAccept(task); cx.stop_propagation(); cx.notify(); return;
           }
-          if (event.key === "enter" && this.acceptIntent?.id === task.id && this.acceptIntent.revision === task.revision) {
+          if (event.key === "enter" && acceptArmed(this.acceptIntent, task)) {
             this.submitDecision(task, "accept", cx); cx.stop_propagation(); return;
           }
           if (event.key === "r") { this.editDecisionNote(task, true, cx); cx.stop_propagation(); return; }

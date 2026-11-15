@@ -668,11 +668,11 @@ export class Inbox {
     this.refreshGoals(cx);
     const goalMode = shared(GOAL_MODE) === true;
     this.goalProjection = this.projectGoals(v);
-    if (goalMode) this.syncRun();
+    const runs = goalMode ? this.syncRun() : [];
     const reviewView = goalMode ? null : this.reviewView(), runOpen = goalMode && Boolean(this.goalProjection.scope);
     const [runLeft, runRight] = goalMode ? this.runsHeader(t) : [[], []];
     const counts = this.nowCounts(entries), upkeep = goalMode ? null : this.maintenanceModel(v);
-    this.nav = goalMode ? this.runNav() : reviewView === "now" ? this.nowNav(entries) : this.maintenanceNav(v, upkeep);
+    this.nav = goalMode ? this.runNav(runs) : reviewView === "now" ? this.nowNav(entries) : this.maintenanceNav(v, upkeep);
     this.keyboard = this.h.is_focused();
     if (this.sel && !this.nav.some((i) => i.id === this.sel)) this.sel = null;
     const view = goalMode ? this.goalViewport() : this.viewport(reviewView === "now" ? NOW_SECTIONS : MAINTENANCE_SECTIONS);
@@ -715,7 +715,7 @@ export class Inbox {
       .when(reviewView === "now", (el) => el.child(h_flex().flex_none().pr(12).items_center().border_b(1).border_color(t.border)
         .child(div().flex_1().min_w(0).child(this.nowLegend(t, counts)))
         .when(Boolean(this.prsAt), (row) => row.child(div().id("read-age").flex_none().text_size(11).text_color(t.dim).child(`read ${ago(this.prsAt)}`)))))
-      .when(goalMode && !runOpen, (el) => el.child(div().flex_none().border_b(1).border_color(t.border).child(this.runsLegend(t))))
+      .when(goalMode && !runOpen, (el) => el.child(div().flex_none().border_b(1).border_color(t.border).child(this.runsLegend(t, runs))))
       .when(reviewView === "maintenance", (el) => el.child(h_flex().flex_none().border_b(1).border_color(t.border).child(this.maintenanceLegend(t, upkeep))))
       .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().px(4).py(6).gap(2)
         .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
@@ -723,7 +723,7 @@ export class Inbox {
         .when(!goalMode && Boolean(this.workflowError), (el) => el.child(div().id("workflow-error").p(8).text_size(11).text_color(t.blocked).child(this.workflowError)))
         .when(reviewView === "now" && !entries.length && !this.digest && !this.error && Boolean(this.prsAt), (el) => el.child(this.emptyNow(t)))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
-        .children(goalMode ? this.runsBody(t) : [])
+        .children(goalMode ? this.runsBody(t, runs) : [])
         .children(reviewView === "now" ? [...part("away", this.awayGroup(t)), ...this.nowGroups(t, entries, part)] : [])
         .children(reviewView === "maintenance" ? this.maintenanceGroups(t, v, part, upkeep) : []))
       .when(goalMode, (el) => el.child(this.runsKeys(t)))
