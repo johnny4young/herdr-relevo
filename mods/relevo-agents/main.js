@@ -128,16 +128,18 @@ const SECTION = { 4: ME, 3: ME, 2: { id: "sec-flight", label: "In flight", statu
 const IDLE_SHOWN = 3;
 // Where a row's words start, past its glyph; the row's own padding and outline come before it.
 const GUTTER = 22, ROW_PAD = 7;
-// A status as the lane's turn; an agent's own turn also counts a result not yet seen (turnOf).
+// A status as the lane's turn; an agent's own turn also counts its helpers and a result not yet seen (turnOf).
 const TURN = { blocked: "me", working: "flight", done: "ready", idle: "ready" };
+const plainTurn = (status) => TURN[status] ?? "open";
+const URGENT = { me: 2, flight: 1 };
 // The Relevo mod's laneGlyph, kept here too: a mod can't import from another mod's folder.
 export function laneGlyph(t, turn) {
   if (turn === "flight") return svg("mods/relevo/spinner.svg").size(12).flex_none().text_color(t.working).spin(900);
   if (turn === "ready") return svg("mods/relevo/icons/check.svg").size(13).flex_none().text_color(t.done);
   if (turn === "me") return div().size(8).flex_none().rounded_full().bg(t.blocked);
-  return div().size(8).flex_none().rounded_full().border_1().border_color(t.dim);
+  return div().size(8).flex_none().rounded_full().border_1().border_color(t.accent);
 }
-const statusGlyph = (t, status) => laneGlyph(t, TURN[status] ?? "open");
+const statusGlyph = (t, status) => laneGlyph(t, plainTurn(status));
 
 function duration(ms) {
   const m = Math.floor(ms / 60000);
@@ -146,7 +148,6 @@ function duration(ms) {
   const h = Math.floor(m / 60);
   return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
 }
-
 
 // The agent's icon from the app's program table: a one-color glyph or a picture.
 function icon(p, size, color) {
@@ -283,9 +284,13 @@ export default class Agents extends View {
     if (!same || cur.status !== "idle") this.held = cur ? { address: cur.address, rank: RANK[cur.status] ?? 0 } : null;
   }
 
-  // Asking, or a result not yet seen: both wait on me and are drawn alike.
+  // Asking, or a result not yet seen: both wait on me and are drawn alike. A held done agent
+  // keeps its place (rank) but has been seen, so it draws as finished.
+  // A helper that asks or works puts its parent there too.
   turnOf(a) {
-    return this.rank(a) >= RANK.done ? "me" : TURN[a.status] ?? "open";
+    const own = a.status === "done" ? "me" : plainTurn(a.status), subs = this.subStates?.get(a.address) ?? [];
+    if (own === "me" || subs.includes("blocked")) return "me";
+    return own === "flight" || subs.includes("working") ? "flight" : own;
   }
 
   rank(a) {
@@ -424,7 +429,8 @@ export default class Agents extends View {
     this.track(list, now);
     this.hold(list);
     const byPriority = sort.id === "priority";
-    const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...this.tree(all, a.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0))]));
+    this.subStates = new Map(list.map((a) => [a.address, this.tree(all, a.address).map((s) => kidStatus(s.t, this.listed))]));
+    const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...this.subStates.get(a.address).map((s) => RANK[s] ?? 0))]));
     const rankOf = (a) => urgency.get(a.address);
     if (byPriority) list = [...list].sort((x, y) => rankOf(y) - rankOf(x) || this.since(y) - this.since(x) || y.seq - x.seq);
     this.migratePins(all);
@@ -499,7 +505,8 @@ export default class Agents extends View {
       const more = detail.get(a.address);
       // An agent on another machine (`vps/t7`) says which.
       const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
-      const turn = this.turnOf(a), me = turn === "me";
+      // A settled result has been dealt with, so it no longer waits on me.
+      const turn = isSettled(a) ? plainTurn(a.status) : this.turnOf(a), me = turn === "me";
       if (collapsed) {
         return h_flex()
           .id(`ag-${a.address}`)
@@ -556,9 +563,11 @@ export default class Agents extends View {
       const pr = agentPRs[a.address];
       // What it is doing or needs; the detail stands in when nothing shorter says it.
       const told = full && more ? more : null;
+      const helper = me && a.status !== "blocked" && a.status !== "done" ? "a helper needs you"
+        : turn === "flight" && a.status !== "working" ? "a helper is working" : null;
       const what = a.status === "blocked" ? reasons[a.address] ?? told ?? "needs an answer"
-        : me ? "result ready"
-        : pr ? `${a.status === "working" ? "writing" : "finished"} #${pr.number}` : told;
+        : helper ?? (me ? "result ready"
+        : pr ? `${a.status === "working" ? "writing" : "finished"} #${pr.number}` : told);
       const selected = Boolean(a.focused);
       const rested = a.status === "idle" || a.status === "done";
       const line = h_flex()
@@ -581,7 +590,7 @@ export default class Agents extends View {
         .when(this.hovered === a.address, el => el.child(reply)
           .when(rested, (el) => el.child(this.settleButton(t, a, all, isSettled(a))))
           .child(pin))
-        .when(this.hovered !== a.address && rested && Boolean(when), el => el.child(div().id(`age-${a.address}`).flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
+        .when(this.hovered !== a.address && a.status !== "working" && Boolean(when), el => el.child(div().id(`age-${a.address}`).flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
         .when(Boolean(tag), el => el.child(tag));
       // The second line, built for the selected agent only: what every row used to carry.
       const below = () => {
@@ -635,7 +644,8 @@ export default class Agents extends View {
     // A group's header; it folds the group. Folded, it says how many and the most urgent state.
     const header = (g) => {
       const open = !this.folded.has(g.id);
-      const top = g.members.reduce((m, a) => ((RANK[a.status] ?? 0) > (RANK[m?.status] ?? 0) ? a : m), null);
+      const turns = g.members.map(g.turn ?? ((a) => this.turnOf(a)));
+      const top = turns.reduce((m, turn) => ((URGENT[turn] ?? 0) > (URGENT[m] ?? 0) ? turn : m), null);
       return h_flex()
         .id(g.id)
         .px(8)
@@ -656,10 +666,10 @@ export default class Agents extends View {
         .when(byPriority || !open, (el) => el.child(div().font_semibold().text_color(t.muted).child(String(g.members.length))))
         .child(div().flex_1())
         .when(!open, (el) => el
-          .when(!byPriority && top && top.status !== "idle", (el) => el.child(laneGlyph(t, this.turnOf(top))))
+          .when(Boolean(top) && !g.id.startsWith("sec-"), (el) => el.child(laneGlyph(t, top)))
           .child(svg("mods/workspace-chrome/chevron-right.svg").size(11).flex_none().text_color(t.dim)));
     };
-    if (settled.length) groups.push({ id: "settled", label: "Settled", status: null, members: settled });
+    if (settled.length) groups.push({ id: "settled", label: "Settled", status: null, members: settled, turn: (a) => plainTurn(a.status) });
     // The idle section past its first rows; the focused agent is never the one folded away.
     const members = (g) => {
       if (g.id !== "sec-idle" || g.members.length <= IDLE_SHOWN + 1) return g.members.flatMap(withKids);
@@ -680,7 +690,7 @@ export default class Agents extends View {
       ? list.flatMap(withKids)
       : [
         ...groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : members(g))]),
-        ...(desktop.length ? [header({ id: "desktop", label: "Desktop", status: null, members: desktop }),
+        ...(desktop.length ? [header({ id: "desktop", label: "Desktop", status: null, members: desktop, turn: (s) => plainTurn(DESKTOP_STATUS[s.state]) }),
           ...(this.folded.has("desktop") ? [] : desktop.map((s) => this.desktopRow(t, s, now)))] : []),
       ];
 

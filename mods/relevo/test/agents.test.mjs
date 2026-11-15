@@ -135,7 +135,7 @@ test("a waiting agent's row says why, in its own line and colour; another's old 
   const { ui } = await open([agent("t1", { status: "blocked" }), agent("t2", { status: "working" })]);
   const view = ui(), why = find(view, "what-t1");
   assert.equal(text(why), "Run: rm -rf dist");
-  assert.equal(text(find(view, "ag-t1")), "app Run: rm -rf dist");
+  assert.equal(text(find(view, "ag-t1")), "app Run: rm -rf dist <1m");
   assert.equal(text(find(view, "what-t2")), "t2");
   assert.doesNotMatch(text(find(view, "ag-t2")), /stale/);
   assert.doesNotMatch(text(view), /Needs me/);
@@ -257,8 +257,7 @@ test("an agent takes one line until it is selected, and then shows its PR, model
   const list = glance();
   const { ui } = await open(list);
   let drawn = ui();
-  assert.deepEqual(["t1", "t2", "t3", "t4"].map((id) => text(find(drawn, `ag-${id}`))), ["app Approve the plan", "app writing #43", "app finished #40 <1m", "app result ready <1m"]);
-  assert.equal(find(drawn, "age-t1"), null);
+  assert.deepEqual(["t1", "t2", "t3", "t4"].map((id) => text(find(drawn, `ag-${id}`))), ["app Approve the plan <1m", "app writing #43", "app finished #40 <1m", "app result ready <1m"]);
   assert.equal(find(drawn, "age-t2"), null);
   for (const id of ["more-t2", "pr-t2", "ctx-t2", "pr-t3"]) assert.equal(find(drawn, id), null, id);
   assert.doesNotMatch(text(drawn), /Opus|125k|cache/);
@@ -334,6 +333,23 @@ test("the glyph says whose turn it is: a disc needs me, the spinner is in flight
   assert.equal(text(find(drawn, "sec-idle")), "IDLE 2");
 });
 
+test("a result being looked at keeps its place in Needs me but draws as finished; a settled one never needs me", async () => {
+  const list = [agent("t1", { status: "done" }), agent("t2", { status: "done" })];
+  const { ui, mod } = await open(list, [{ address: "t1", state: "live", labels: {} }, { address: "t2", state: "live", turn: 2, labels: { "relevo.addressed": "1:2" } }]);
+  mod.folded.delete("settled");
+  let drawn = ui();
+  assert.equal(find(drawn, "agent-fold-t1").items[0].fill, "#blocked");
+  assert.equal(find(drawn, "agent-fold-t2").items[0].src, "mods/relevo/icons/check.svg");
+  assert.doesNotMatch(text(find(drawn, "ag-t2")), /result ready/);
+  list[0].focused = true;
+  ui();
+  list[0].status = "idle";
+  drawn = ui();
+  assert.equal(text(find(drawn, "sec-me")), "NEEDS ME 1");
+  assert.equal(find(drawn, "agent-fold-t1").items[0].src, "mods/relevo/icons/check.svg");
+  assert.doesNotMatch(text(find(drawn, "ag-t1")), /result ready/);
+});
+
 test("no row draws a narrow strip on its leading edge, selected or not", async () => {
   const list = glance();
   list[0].focused = true;
@@ -356,5 +372,55 @@ test("the agents list draws whose turn with the same glyphs as Reviews", async (
   const ui = await import("../ui.js");
   const t = new Proxy({}, { get: (_x, name) => (typeof name === "string" ? `#${name}` : undefined) });
   const shape = (el) => ({ src: typeof el.src === "string" ? el.src : null, fill: el.fill, stroke: el.stroke, spinning: el.spinning === true });
-  for (const turn of ["me", "flight", "ready"]) assert.deepEqual(shape(laneGlyph(t, turn)), shape(ui.laneGlyph(t, turn)), turn);
+  for (const turn of ["me", "flight", "ready", "open"]) assert.deepEqual(shape(laneGlyph(t, turn)), shape(ui.laneGlyph(t, turn)), turn);
+});
+
+test("a parent shows the turn of a helper that asks or works, and says so", async () => {
+  const kid = (address, parent, status) => ({ address, parent, state: "live", status, labels: {} });
+  const list = [agent("t1"), agent("t2"), agent("t3", { status: "working" }), agent("t4", { status: "blocked" }), agent("t5")];
+  fake.stored["relevo.reasons"] = { t4: "Approve the plan" };
+  const { ui, mod } = await open(list, [...list.map((a) => ({ address: a.address, state: "live", labels: {} })),
+    kid("k1", "t1", "blocked"), kid("k2", "t2", "working"), kid("k3", "t3", "blocked"), kid("k4", "t4", "blocked"), kid("k5", "t5", "idle")]);
+  let drawn = ui();
+  const glyph = (id) => find(drawn, `agent-fold-${id}`).items[0];
+  assert.deepEqual(["sec-me", "sec-flight", "sec-idle"].map((id) => text(find(drawn, id))), ["NEEDS ME 3", "IN FLIGHT 1", "IDLE 1"]);
+  for (const id of ["t1", "t3", "t4"]) assert.equal(glyph(id).fill, "#blocked", id);
+  assert.equal(text(find(drawn, "what-t1")), "a helper needs you");
+  assert.equal(find(drawn, "what-t1").ink, "#blocked");
+  assert.equal(text(find(drawn, "what-t3")), "a helper needs you");
+  assert.equal(text(find(drawn, "what-t4")), "Approve the plan");
+  assert.equal(glyph("t2").spinning, true);
+  assert.equal(text(find(drawn, "what-t2")), "a helper is working");
+  assert.equal(find(drawn, "what-t2").ink, "#muted");
+  assert.equal(glyph("t5").src, "mods/relevo/icons/check.svg");
+  assert.equal(text(find(drawn, "what-t5")), "t5");
+  // Folded, a space says its most urgent turn, a helper's included.
+  fake.stored["agents.sort"] = "grouped";
+  mod.folded.add("sp-sp1");
+  drawn = ui();
+  assert.ok(find(drawn, "sp-sp1").items.some((item) => item?.fill === "#blocked"));
+});
+
+test("a folded space or Desktop group says a working helper or session with the spinner", async () => {
+  fake.stored["agents.sort"] = "grouped";
+  fake.stored["relevo.desktop"] = [{ id: "local_1", project: "app", title: "Fix login", state: "working", at: Date.now() / 1000 }];
+  const { ui, mod } = await open([agent("t1")], [{ address: "t1", state: "live", labels: {} }, { address: "k1", parent: "t1", state: "live", status: "working", labels: {} }]);
+  mod.folded.add("sp-sp1").add("desktop");
+  let drawn = ui();
+  for (const id of ["sp-sp1", "desktop"]) assert.ok(find(drawn, id).items.some((item) => item?.spinning === true), id);
+  fake.stored["relevo.desktop"][0].state = "blocked";
+  drawn = ui();
+  assert.ok(find(drawn, "desktop").items.some((item) => item?.fill === "#blocked"));
+});
+
+test("a waiting agent says how long it has waited; a working one says no age", async () => {
+  const { ui, mod } = await open([agent("t1", { status: "blocked" }), agent("t2", { status: "working" }), agent("t3")]);
+  ui();
+  for (const id of ["t1", "t2", "t3"]) mod.changed[id].at = Date.now() - 5 * 60000;
+  const drawn = ui();
+  assert.equal(text(find(drawn, "age-t1")), "5m");
+  assert.equal(find(drawn, "age-t2"), null);
+  assert.equal(text(find(drawn, "age-t3")), "5m");
+  mod.hovered = "t1";
+  assert.equal(find(ui(), "age-t1"), null);
 });
