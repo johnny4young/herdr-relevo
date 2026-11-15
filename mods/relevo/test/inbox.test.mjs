@@ -3,7 +3,7 @@ import "./fake/register.mjs";
 import { test, beforeEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { fake, resetFake, calls, changeFolder, watched, theme } from "./fake/herdr.mjs";
-import { fakeCx, find, text, click, flush, spinners, element } from "./fake/ui.mjs";
+import { fakeCx, find, text, click, flush, spinners } from "./fake/ui.mjs";
 
 const { Inbox } = await import("../inbox.js");
 const { meTint } = await import("../ui.js");
@@ -850,7 +850,7 @@ test("an unselected row shows only its main action; selected, it shows every oth
 
 test("a selected row lists each action once, its main one at the edge, and in flight shows none until selected", () => {
   const v = new Inbox();
-  const btn = (id) => element("button").id(id);
+  const btn = (id) => ({ id, label: id, run() {} });
   const ids = (node) => [node?.key, ...(node?.items ?? []).flatMap(ids)].filter((k) => /^(a|b|x|y|mark)$/.test(k ?? ""));
   const opts = () => { const a = btn("a"); return { turn: "open", title: "c", main: a, actions: [a, btn("b"), btn("x"), btn("y")], mark: btn("mark") }; };
   assert.deepEqual(ids(v.item(theme(), "c", opts())), ["a"]);
