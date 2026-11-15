@@ -76,7 +76,7 @@ test("reading the diff marks the files git says it creates", async () => {
     ? { stdout: "3\t0\tsrc/new file.ts\n1\t1\told.ts\n create mode 100644 src/new file.ts\n delete mode 100644 gone.ts\n" }
     : null);
   await v.read(cx);
-  assert.deepEqual(v.files, [{ path: "src/new file.ts", add: 3, del: 0, added: true }, { path: "old.ts", add: 1, del: 1, added: false }]);
+  assert.deepEqual(v.files, [{ path: "src/new file.ts", add: 3, del: 0, added: true, binary: false }, { path: "old.ts", add: 1, del: 1, added: false, binary: false }]);
   assert.equal(calls(/ diff .*--numstat --summary/).length, 1);
   v.close();
 });
@@ -287,5 +287,139 @@ test("the footer shows the ⌘↵ keys beside Send", () => {
   const { v } = review(), key = find(v.render(), "rv-send-key");
   assert.equal(text(key), "⌘");
   assert.deepEqual(icons(key), ["mods/relevo/icons/enter.svg"]);
+  v.close();
+});
+
+test("a second ⌘↵ while hc send is still answering sends nothing more", async () => {
+  const { v, cx } = review();
+  fake.agents = [{ address: "t1", pane: "p1", tab_name: "fix" }];
+  fake.panes = [{ pane: "p1", cwd: "/synthetic" }];
+  v.snapshot = async () => "abc";
+  let answer;
+  fake.exec = (cmd) => (cmd === "hc" ? new Promise((resolve) => { answer = resolve; }) : null);
+  v.setComments([fileComment("README.md", "Shorter")]);
+  v.render().handlers.on_key_down(cmdEnter, cx);
+  await flush();
+  assert.equal(find(v.render(), "rv-send").isDisabled, true);
+  v.render().handlers.on_key_down(cmdEnter, cx);
+  v.send(cx);
+  answer({});
+  await flush();
+  assert.equal(calls(/^hc send t1 /).length, 1);
+  assert.deepEqual(v.comments, []);
+  v.close();
+});
+
+test("a shift-click after opening a range comment extends from that range", () => {
+  const { v, cx } = review();
+  v.rows = diffRows(["@@ -0,0 +1,6 @@", "+one", "+two", "+three", "+four", "+five", "+six"]);
+  const range = lineComment("src/limiter/clock.ts", v.rows, 3, 4, "range");
+  v.setComments([range]);
+  v.clickRow(1, cx);
+  v.cancelEdit(cx);
+  v.clickRow(1, cx);
+  clickItem(v, cx, `c:${commentId(range)}`);
+  v.shift = true;
+  v.clickRow(6, cx);
+  assert.deepEqual(v.editing, { start: 3, end: 6 });
+  v.close();
+});
+
+test("a press anywhere in the pane gives it focus for ⌘↵, but not while a comment is open", () => {
+  const { v, cx } = review();
+  let focused = 0;
+  v.focus.focus = () => { focused += 1; };
+  v.render().handlers["on_mouse_down:left"]({});
+  assert.equal(focused, 1);
+  v.edit("file", cx);
+  v.render().handlers["on_mouse_down:left"]({});
+  assert.equal(focused, 1);
+  v.close();
+});
+
+test("a saved range whose first line left the diff opens as itself and keeps its lines when saved", () => {
+  const { v, cx } = review();
+  const range = lineComment("src/limiter/clock.ts", v.rows, 1, 3, "Keep the range"), other = fileComment("README.md", "other");
+  v.setComments([range, other]);
+  // The refreshed diff starts at line 3: the range's last line is drawn, its first is not.
+  v.rows = diffRows(["@@ -2,0 +3,2 @@", "+three", "+four"]);
+  assert.deepEqual(diffList(v).keys, ["0", "1", `c:${commentId(range)}`, "2"]);
+  clickItem(v, cx, `c:${commentId(range)}`);
+  assert.deepEqual(v.editing, { id: commentId(range) });
+  assert.equal(v.input.value(), "Keep the range");
+  assert.match(text(find(v.render(), "rv-comment-editor")), /^Edit comment · src\/limiter\/clock\.ts · L1-3 /);
+  assert.ok(find(v.render(), "rv-comment-delete"));
+  // No row reads as being edited, and a second click changes nothing.
+  assert.ok(!diffList(v).items.some((row) => row.fill === "#selected"));
+  const target = v.editing;
+  clickItem(v, cx, `c:${commentId(range)}`);
+  assert.equal(v.editing, target);
+  v.input.set_value("Reworded");
+  v.save(cx);
+  assert.equal(v.editing, null);
+  assert.deepEqual(v.comments, [other, { ...range, text: "Reworded" }]);
+  assert.deepEqual(fake.stored[NOTES][v.key], v.comments);
+  v.close();
+});
+
+test("a binary file says so instead of counts and squares", async () => {
+  const { v, cx } = review();
+  fake.exec = (_cmd, args) => (args.includes("--numstat") ? { stdout: "-\t-\tlogo.png\n0\t0\tempty.txt\n" } : null);
+  await v.read(cx);
+  assert.deepEqual(v.files, [{ path: "logo.png", add: 0, del: 0, added: false, binary: true }, { path: "empty.txt", add: 0, del: 0, added: false, binary: false }]);
+  const list = v.fileList(t), row = find(list, "rv-file-logo.png");
+  assert.equal(text(find(list, "rv-tag-binary-logo.png")), "binary");
+  assert.match(text(row), /logo\.png binary$/);
+  assert.equal(row.items.at(-1).key, "rv-tag-binary-logo.png");
+  assert.equal(find(list, "rv-tag-binary-empty.txt"), null);
+  assert.match(text(find(list, "rv-file-empty.txt")), /\+0$/);
+  v.close();
+});
+
+test("a comment in the strip opens for editing from its label and text, × apart", () => {
+  const { v, cx } = review();
+  const range = lineComment("src/limiter/clock.ts", v.rows, 2, 3, "range"), file = fileComment("src/limiter/clock.ts", "file");
+  // A comment on lines the diff does not draw has no box in the list: the strip is its only way in.
+  const far = { file: "src/limiter/clock.ts", key: "+900", line: 900, side: "+", code: "far", text: "far away" };
+  v.setComments([range, file, far]);
+  assert.ok(!diffList(v).keys.includes(`c:${commentId(far)}`));
+  const strip = () => find(v.render(), "rv-saved");
+  for (const c of [range, file, far]) {
+    const edit = find(strip(), `rv-edit-${commentId(c)}`);
+    assert.equal(edit.kind, "button");
+    assert.equal(find(edit, `rv-del-${commentId(c)}`), null);
+    assert.ok(find(strip(), `rv-del-${commentId(c)}`));
+  }
+  click(find(strip(), `rv-edit-${commentId(range)}`), cx);
+  assert.deepEqual(v.editing, { start: 2, end: 3 });
+  assert.equal(v.input.value(), "range");
+  click(find(strip(), "rv-edit-file"), cx);
+  assert.equal(v.editing, "file");
+  click(find(strip(), `rv-edit-${commentId(far)}`), cx);
+  assert.deepEqual(v.editing, { id: "+900" });
+  assert.equal(v.input.value(), "far away");
+  v.input.set_value("still far");
+  v.save(cx);
+  assert.deepEqual(v.comments, [range, file, { ...far, text: "still far" }]);
+  v.close();
+});
+
+test("deleting matches a comment by what it is on, and says deleted only when one went", () => {
+  const { v, cx } = review();
+  const line = lineComment("src/limiter/clock.ts", v.rows, 4, 4, "line"), other = fileComment("README.md", "other");
+  v.setComments([line, other]);
+  // The stored objects were replaced since this × was drawn, as a save or a restart does.
+  const stale = find(v.render(), `rv-del-${commentId(line)}`);
+  v.setComments(JSON.parse(JSON.stringify(v.comments)));
+  click(stale, cx);
+  assert.deepEqual(v.comments, [other]);
+  assert.equal(v.note, "Comment deleted");
+  v.note = null;
+  const before = v.comments;
+  click(stale, cx);
+  v.removeComment(fileComment("src/limiter/clock.ts", "never saved"), cx);
+  assert.equal(v.comments, before);
+  assert.equal(v.note, null);
+  assert.deepEqual(fake.stored[NOTES][v.key], [other]);
   v.close();
 });
