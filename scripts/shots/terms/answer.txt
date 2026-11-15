@@ -1,0 +1,12 @@
+~/code/api-gateway
+● The gateway needs a rate limiter before the public launch.
+● Read(src/middleware/auth.ts)
+~   └ Read 84 lines
+
+# Which strategy should the rate limiter use?
+
+> 1. Token bucket      Smooth bursts, refills per client
+  2. Sliding window    Exact counts, more memory
+  3. Fixed window
+
+~ Enter to select · ↑/↓ to navigate · Esc to cancel

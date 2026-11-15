@@ -1,0 +1,16 @@
+~/code/api-gateway
+> Add X-RateLimit headers and a 429 with Retry-After over the quota.
+
+● I'll add a middleware that reads the bucket for each API key.
+● Read(src/middleware/auth.ts)
+~   └ Read 84 lines
+● Write(src/middleware/rateLimit.ts)
+~   └ Wrote 61 lines
+● Bash(npm test -- rateLimit)
+✓ sets X-RateLimit-Remaining (12 ms)
+✓ answers 429 with Retry-After over the limit (9 ms)
+✗ resets the bucket after the window (31 ms)
+
+● The reset test uses wall-clock time; I'll inject the clock instead.
+
+* Refactoring… (42s · ↓ 3.1k tokens)

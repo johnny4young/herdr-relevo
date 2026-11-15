@@ -7,7 +7,7 @@ alerts when a PR's CI or reviews change, and a ledger of agent time per ticket.
 
 ![Relevo](preview.png)
 
-*The pictures use demo data; most are drawn from Relevo's own code.*
+*The pictures use demo data; most are drawn from Relevo's own code with `node scripts/shots/readme.mjs`.*
 
 ## Whose turn is it?
 
