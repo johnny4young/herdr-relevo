@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Run again types only into the shell.** After stopping a tab's command, Run again waits until its shell is back in front; if the program does not stop, it types nothing and says so. A command with control characters is not offered to run again.
 - **Terminals read a tab's command.** A tab opened with a command runs it in a shell that stays; Terminals now shows that command ("node fail.mjs") with "ended" once its shell is back, and **Run again** types it into the same shell, stopping it first when it still runs.
 - **The panel tabs fit.** The tab bar is wide enough for Reviews with its count, Runs and Terminals; before, Reviews and Terminals were cut at both ends.
 - **Maintenance tidies terminals too.** A Terminals to tidy group lists a command that failed (with **Restart**), the finished ones in one row (**Close N**), what runs with no pane for over an hour (**Show**) and shells idle over a day (**Close**); `d` closes one when pressed twice, as it removes a worktree.

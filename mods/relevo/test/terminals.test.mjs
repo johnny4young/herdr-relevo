@@ -177,7 +177,16 @@ test("a tab's command runs in a shell that stays: it reads as that command, ende
   const ended = terminalRow(term("w2", { argv: [...wrap.slice(0, 4), "node", "fail.mjs"] }), { now: NOW });
   assert.deepEqual([ended.state, ended.title, ended.ended, ended.canRestart, ended.canStop], ["idle", "node fail.mjs", true, true, false]);
   const { restartTerminal } = await import("../terminals.js");
+  fake.terminals = [term("w2", { argv: wrap }), term("w1", { argv: wrap, foreground: { pid: 140, name: "node" } })];
   await restartTerminal(ended);
+  assert.deepEqual(calls(/^hc /), ["hc send w2 node fail.mjs"]);
+  // The server ignores Ctrl-C: its shell never comes back, so nothing is typed into the server.
+  await restartTerminal(ran);
+  assert.deepEqual(calls(/^hc /), ["hc send w2 node fail.mjs", "hc interrupt w1"]);
+  assert.match(fake.notices.at(-1).title, /did not stop/);
+  fake.terminals[1].foreground.pid = 100;
   await restartTerminal({ ...ran, rerun: ["node", "it's here.mjs"] });
-  assert.deepEqual(calls(/^hc /), ["hc send w2 node fail.mjs", "hc interrupt w1", "hc send w1 node 'it'\\''s here.mjs'"]);
+  assert.equal(calls(/^hc send w1/).at(-1), "hc send w1 node 'it'\\''s here.mjs'");
+  const odd = terminalRow(term("w3", { argv: [...wrap.slice(0, 4), "echo", "a\u001b[201~b"] }), { now: NOW });
+  assert.deepEqual([odd.rerun, odd.canRestart], [null, false], "a control character is never typed back");
 });
