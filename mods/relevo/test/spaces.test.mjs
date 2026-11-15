@@ -71,7 +71,7 @@ test("the branch shows only when unusual", () => {
   assert.equal(branchNote(null, "x"), null);
 });
 
-test("git is read without optional locks, and its counts and changed files come back", async () => {
+test("git is read without optional locks or the repo's own programs, and its counts and changed files come back", async () => {
   fake.exec = (cmd, args) => {
     const a = args.join(" ");
     if (a.includes("--show-toplevel")) return { stdout: "/home/test/code/acme-api\n" };
@@ -83,7 +83,9 @@ test("git is read without optional locks, and its counts and changed files come 
   };
   const g = await readGit("/home/test/code/acme-api");
   assert.deepEqual({ name: g.name, branch: g.branch, ahead: g.ahead, behind: g.behind, changed: g.changed, linked: g.linked }, { name: "acme-api", branch: "feat/limits", ahead: 2, behind: 1, changed: 2, linked: false });
-  assert.ok(calls(/^git /).every((line) => line.startsWith("git --no-optional-locks ")));
+  const reads = calls(/^git /);
+  assert.ok(reads.length >= 5 && reads.every((line) => line.startsWith("git --no-optional-locks -c core.fsmonitor=false -c diff.autoRefreshIndex=false -c diff.external= ")), reads.join("\n"));
+  assert.match(reads.find((line) => line.includes(" status ")), /--ignore-submodules=all/);
 });
 
 test("not a repo is remembered; a git that can't answer is asked again", async () => {

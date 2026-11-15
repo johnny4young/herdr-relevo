@@ -3,10 +3,12 @@ import { exec } from "herdr";
 
 const base = (path) => path.replace(/\/+$/, "").split("/").pop();
 const lines = (r) => r.stdout.replace(/\n$/, "");
+// Reads only: no index.lock held while an agent commits, and no program the repo's config names (fsmonitor, external diff).
+export const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false", "-c", "diff.external=",
+  "-c", "submodule.recurse=false", "-c", "status.submoduleSummary=false"];
 
 export async function readGit(cwd, on = null) {
-  // Optional locks off: a status here must never hold index.lock while an agent commits.
-  const git = (...args) => exec("git", ["--no-optional-locks", ...args], { cwd, on });
+  const git = (...args) => exec("git", [...READ, ...args], { cwd, on });
   // Two reads: a folder name may itself contain a newline.
   const [top, common] = await Promise.all([
     git("rev-parse", "--path-format=absolute", "--show-toplevel"),
@@ -21,7 +23,7 @@ export async function readGit(cwd, on = null) {
   const [branch, counts, status] = await Promise.all([
     git("symbolic-ref", "-q", "HEAD"),
     git("rev-list", "--left-right", "--count", "HEAD...@{upstream}"),
-    git("status", "--porcelain", "--untracked-files=normal"),
+    git("status", "--porcelain", "--untracked-files=normal", "--ignore-submodules=all"),
   ]);
   const [ahead, behind] = counts.code === 0 ? counts.stdout.trim().split(/\s+/).map(Number) : [0, 0];
   return {
