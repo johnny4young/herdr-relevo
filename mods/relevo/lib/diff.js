@@ -50,6 +50,9 @@ export const fileComment = (file, text) => ({ file, scope: "file", key: "file", 
 // One comment per line, range or file: saving the same target again replaces it.
 export const commentId = (c) => (c.scope === "file" ? "file" : c.start ? `${c.start}..${c.key}` : c.key);
 
+// Where a comment sits, as the pane labels it: "L5-7", "L12" or "File".
+export const commentLabel = (c) => (c.scope === "file" ? "File" : `L${c.line}${c.start ? `-${c.end}` : ""}`);
+
 // Rows covered by saved ranges of the open file, so they stay tinted after the editor closes.
 export function rangeRows(rows, comments) {
   if (!comments.some((c) => c.start)) return new Set();
