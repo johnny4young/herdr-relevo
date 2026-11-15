@@ -57,8 +57,9 @@ test('a PR with a missing skill keeps review, open and addressed controls', asyn
   const view = new Inbox(), cx = fakeCx(); view.init({}, cx); await flush();
   view.mine = [pr]; view.clones[pr.repo] = '/work/app';
   let tree = view.render(cx);
-  assert.ok(find(tree, `pr-${pr.url}`)); assert.ok(find(tree, `review-pr-${pr.url}`));
-  click(find(tree, `more-pr-${pr.url}`), cx); tree = view.render(cx);
+  assert.ok(find(tree, `pr-${pr.url}`)); assert.equal(find(tree, `review-pr-${pr.url}`), null);
+  click(find(tree, `pr-${pr.url}`), cx); tree = view.render(cx);
+  assert.ok(find(tree, `review-pr-${pr.url}`));
   assert.ok(find(tree, `open-${pr.url}`)); assert.ok(find(tree, `addressed-${pr.url}`));
   assert.equal(find(tree, `run-retired-${pr.url}`).isDisabled, true);
 });

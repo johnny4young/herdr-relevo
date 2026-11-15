@@ -56,7 +56,7 @@ test('folds and skill launchers are native keyboard controls', async () => {
   fake.stored[GOAL_MODE] = false;
   let tree = v.render(cx); const fold = find(tree, 'drafts-mine');
   assert.equal(fold.kind, 'button'); assert.match(fold.accessibleLabel, /Expand/);
-  click(fold, cx); tree = v.render(cx);
+  click(fold, cx); v.sel = `pr-${pr.url}`; tree = v.render(cx);
   assert.equal(find(tree, `source-skills-pr:${pr.url}`).kind, 'button');
   assert.equal(find(tree, `ready-${pr.url}`).kind, 'button');
 });

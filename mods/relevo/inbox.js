@@ -11,7 +11,7 @@ import { today, duration } from "./ledger.js";
 import { openReview } from "./review.js";
 import { openHandoff } from "./handoff.js";
 import { openReplies } from "./replies.js";
-import { button, sectionHeader, spinner, withKey, foldRow, FOLDS, shortcutBindings, icon, checkbox } from "./ui.js";
+import { button, spinner, withKey, foldRow, FOLDS, shortcutBindings, icon, checkbox, keycap, row, legHeader, joined, diffRatio } from "./ui.js";
 import { ShortcutHelp } from "./shortcut-help.js";
 import { INBOX_SHORTCUT_ACTIONS } from "./lib/shortcut-help.js";
 import { agentPRs, seconds, recent } from "./lib/github.js";
@@ -314,37 +314,34 @@ export class Inbox {
     return head;
   }
 
-  card(t, id, hot, head, meta, actions) {
+  // An item as one row: its one action at the edge. Selected, it opens in place with its lines and every
+  // other action; in flight rows offer nothing until then.
+  // `open` keeps its lines in sight unselected; its other actions still wait for the selection.
+  item(t, id, { turn, kind, title, reason = null, age = null, tip = null, sub = null, lines = [], main = null, actions = [], mark = null, open = false }) {
     if (this.hiddenIds?.has(id)) return null;
     const sel = this.selected(id);
-    return v_flex().id(id).p(10).gap(6).rounded(9).bg(sel ? t.selected : t.background).border_1()
-      .border_color(sel ? t.accent : hot ? t.blocked : t.border)
-      .child(head)
-      .child(meta)
-      .child(h_flex().flex_wrap().gap(5).children(actions));
+    const rest = sel ? [...actions.filter((a) => a && a !== main), mark].filter(Boolean) : [];
+    const below = sel || open ? [...lines.filter(Boolean), ...(rest.length ? [h_flex().flex_wrap().gap(5).pt(2).children(rest)] : [])] : [];
+    return row(t, id, {
+      turn, kind, title, reason, age, tip, sub, selected: sel,
+      action: turn === "flight" && !sel ? null : main,
+      onSelect: (cx) => this.pick(id, cx),
+      below: below.length ? below : null,
+    });
   }
 
-  // What a card does most stays in sight; the rest folds behind ⋯ once it's more than one button.
-  foldActions(t, id, actions, mark = null) {
-    const last = mark ? [mark] : [], extra = actions.slice(2);
-    if (extra.length < 2) return [...actions, ...last];
-    const key = `more-${id}`, open = this.expanded[key];
-    return [...actions.slice(0, 2), ...last, button(t, key, [icon("more")], (cx) => {
-      this.expanded[key] = !open;
-      cx.notify();
-    }, { tip: open ? "Fewer actions" : "More actions" }), ...(open ? extra : [])];
+  // A click opens a row, or closes the one already open; the keyboard follows.
+  pick(id, cx) {
+    this.sel = this.sel === id ? null : id;
+    this.h.focus();
+    cx.notify();
   }
 
-  head(t, dot, title, when, ci = null, threads = 0) {
-    const ring = dot === "ring";
-    return h_flex().gap(7).items_center().min_w(0)
-      .child(div().size(7).flex_none().rounded_full()
-        .when(ring, (el) => el.border_1().border_color(t.dim))
-        .when(!ring, (el) => el.bg(dot)))
-      .child(div().flex_1().min_w(0).truncate().font_semibold().text_size(13).child(title))
-      .when(threads > 0, (el) => el.child(this.threadBadge(t, threads, title)))
-      .when(Boolean(ci), (el) => el.child(this.ciBadge(t, ci, title)))
-      .child(div().flex_none().text_size(11).text_color(t.dim).child(when));
+  // ✓ hides an item until something new happens; Undo brings it back.
+  markButton(t, id, addressed, set, tip) {
+    return addressed
+      ? button(t, `undo-${id}`, "Undo", (cx) => set(false, cx), { tip: "Back to the list" })
+      : button(t, `addressed-${id}`, [icon("check")], (cx) => set(true, cx), { tip });
   }
 
   close() {
@@ -373,11 +370,12 @@ export class Inbox {
           .child(`+${more} more ${more === 1 ? "line" : "lines"}`)))));
   }
 
-  // A waiting agent's question and its choices as a list: a click answers (or checks, in a multiple choice).
+  // A waiting agent: its question, the command or plan it asks about, and its numbered answers stay in
+  // sight, since answering without them is unsafe. A click answers (or checks, in a multiple choice).
   waitingCard(t, item, goAgent) {
     const a = item.agent, p = item.prompt ?? { question: "", options: [] }, replying = this.replying === a.address;
     const free = this.prompts.get(a.address)?.free;
-    const row = (o) => h_flex().id(`answer-${a.address}-${o.n}`).h(24).px(6).gap(7).items_center().rounded(5)
+    const choice = (o) => h_flex().id(`answer-${a.address}-${o.n}`).h(24).px(6).gap(7).items_center().rounded(5)
       .cursor_pointer()
       .when(p.cursor === o.n, (el) => el.bg(t.selected)).hover((st) => st.bg(t.hover))
       .tooltip(o.detail ? `${o.label} · ${o.detail}` : o.label)
@@ -386,17 +384,15 @@ export class Inbox {
         cx.stop_propagation();
         this.answer(a, o, cx, p);
       })
-      .child(div().w(12).flex_none().text_size(11).text_color(t.dim).child(String(o.n)))
+      .child(keycap(t, String(o.n)))
       .when("checked" in o, (el) => el.child(checkbox(t, o.checked)))
       .child(div().flex_none().max_w(200).truncate().text_size(13).text_color(t.foreground)
         .child(o.n === free && /^type something/i.test(o.label) ? "Type something…" : o.label))
       .when(Boolean(o.detail), (el) => el.child(
         div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(o.detail)));
+    const submit = p.submit ? button(t, `submit-${a.address}`, "Submit", (cx) => this.submit(a, p, cx), { kind: "go" }) : null;
+    const reply = p.options.length || p.unparsed ? null : button(t, `reply-${a.address}`, "Reply", (cx) => this.startReply(a, null, cx), { kind: "go" });
     const actions = [
-      ...(p.submit ? [button(t, `submit-${a.address}`, "Submit", (cx) => this.submit(a, p, cx), { kind: "solid" })] : []),
-      ...(p.options.length || p.unparsed
-        ? []
-        : [button(t, `reply-${a.address}`, "Reply", (cx) => this.startReply(a, null, cx), { kind: "solid" })]),
       button(t, `go-${a.address}`, p.options.length ? "Agent" : "Go to agent", goAgent),
       ...(p.options.length
         ? [button(t, `note-${a.address}`, "Note", (cx) => this.startReply(a, null, cx, "note"), {
@@ -405,30 +401,35 @@ export class Inbox {
         : []),
       button(t, `handoff-${a.address}`, "Continue with…", () => openHandoff(a.address)),
     ];
-    return this.card(t, `in-${a.address}`, true,
-      this.head(t, t.blocked, `${item.repo} · ${a.tab_name || item.branch || ""}`,
-        this.sending(a.address) ? "Answering…" : Date.now() - (this.nextAt.get(a.address) ?? 0) < NEXT_FOR ? "Next question" : ago(item.at)),
-      v_flex().gap(4)
-        .when(Boolean(p.ask), (el) => el.child(this.askBlock(t, p.ask, a.address)))
-        .child(v_flex().children((p.question || "Waiting for you").split("\n")
-          .map((l) => div().min_w(0).text_size(13).text_color(t.foreground).child(l))))
-        .when(Boolean(p.summary?.length), (el) => el.child(v_flex().gap(3).py(4).px(8).rounded(6).bg(t.raised)
+    // The question shows whole below, so the row names only what kind of ask it is.
+    const report = terminals().find((k) => k.address === a.address)?.report, short = reasonOf(p, report);
+    const kindOfAsk = p.question && short && p.question.startsWith(short.replace(/…$/, "")) ? (p.options.length ? "asks you to choose" : "waits for your reply") : short;
+    return this.item(t, `in-${a.address}`, {
+      turn: "me", kind: "agent", title: item.repo, reason: kindOfAsk, tip: a.tab_name || item.branch || null, open: true,
+      age: this.sending(a.address) ? "Answering…" : Date.now() - (this.nextAt.get(a.address) ?? 0) < NEXT_FOR ? "Next question" : ago(item.at, true),
+      main: replying ? null : submit ?? reply,
+      actions: replying ? [] : actions,
+      lines: [
+        p.ask ? this.askBlock(t, p.ask, a.address) : null,
+        v_flex().children((p.question || "Waiting for you").split("\n").map((l) => div().min_w(0).text_size(13).text_color(t.foreground).child(l))),
+        p.summary?.length ? v_flex().gap(3).py(4).px(8).rounded(6).bg(t.raised)
           .children(p.summary.map((s) => v_flex()
             .child(div().truncate().text_size(11).text_color(t.muted).child(s.question))
-            .child(div().truncate().text_size(13).text_color(t.foreground).child(`→ ${s.answer || "(no answer)"}`))))))
-        .when(p.options.length > 0, (el) => el.child(v_flex().gap(1).children(p.options.map(row))))
-        .when(Boolean(p.preview), (el) => el.child(div().px(8).py(5).rounded(6).border_1().border_color(t.border)
+            .child(div().truncate().text_size(13).text_color(t.foreground).child(`→ ${s.answer || "(no answer)"}`)))) : null,
+        p.options.length ? v_flex().gap(1).children(p.options.map(choice)) : null,
+        p.preview ? div().px(8).py(5).rounded(6).border_1().border_color(t.border)
           .font_family(settings().font_family ?? "JetBrains Mono").text_size(11).text_color(t.muted)
-          .children(p.preview.split("\n").slice(0, 8).map((l) => div().truncate().child(l || " ")))))
-        .when(this.notes.has(a.address), (el) => el.child(h_flex().gap(6).items_center().text_size(11).text_color(t.muted)
+          .children(p.preview.split("\n").slice(0, 8).map((l) => div().truncate().child(l || " "))) : null,
+        this.notes.has(a.address) ? h_flex().gap(6).items_center().text_size(11).text_color(t.muted)
           .child(div().flex_1().min_w(0).truncate().child(`Note: ${this.notes.get(a.address)}`))
-          .child(button(t, `note-clear-${a.address}`, "×", (cx) => {
+          .child(button(t, `note-clear-${a.address}`, [icon("x")], (cx) => {
             this.notes.delete(a.address);
             cx.notify();
-          }, { size: "sm", tip: "Drop the note" }))))
-        .when(replying, (el) => el.child(div().mt(2).h(28).px(8).flex().items_center().rounded(6).border_1()
-          .border_color(t.accent).bg(t.background).child(Input.new(this.reply).h_full()))),
-      replying ? [] : this.foldActions(t, `in-${a.address}`, actions));
+          }, { size: "sm", tip: "Drop the note" })) : null,
+        replying ? div().mt(2).h(28).px(8).flex().items_center().rounded(6).border_1()
+          .border_color(t.accent).bg(t.background).child(Input.new(this.reply).h_full()) : null,
+      ],
+    });
   }
 
   // Measured on Claude's menus: in a single choice ↑/↓ then Enter answers in every variant (a number answers
@@ -614,20 +615,21 @@ export class Inbox {
     const a = item.agent;
     const goAgent = () => run("agent.focus", { terminal: a.address });
     if (item.kind === "blocked") return this.waitingCard(t, item, goAgent);
-    return this.card(t, `in-${a.address}`, false,
-      this.head(t, a.status === "done" ? t.done : t.idle, `${item.repo}${item.branch ? ` · ${item.branch}` : ""}`, ago(item.at)),
-      v_flex().gap(3)
-        .child(h_flex().gap(8).items_center().text_size(11).text_color(t.muted)
-          .child(`${item.files} ${item.files === 1 ? "file" : "files"}`)
+    const files = `${item.files} ${item.files === 1 ? "file" : "files"}`, state = a.status === "done" ? "agent finished" : "uncommitted";
+    return this.item(t, `in-${a.address}`, {
+      turn: "me", kind: "agent", title: item.repo, reason: `${files} · ${state}`, tip: item.branch || null, age: ago(item.at, true),
+      main: button(t, `review-${a.address}`, "Review", () => openReview(item.top, a.address), {
+        kind: "go", tip: withKey("Comment on the diff line by line", "relevo.review"),
+      }),
+      lines: [
+        h_flex().gap(8).items_center().text_size(11).text_color(t.muted)
+          .when(Boolean(item.branch), (el) => el.child(div().min_w(0).truncate().child(item.branch)))
           .child(div().text_color(t.ansi2).child(`+${item.add}`))
           .child(div().text_color(t.ansi1).child(`−${item.del}`))
-          .child(div().text_color(t.dim).child(a.status === "done" ? "agent finished" : "uncommitted")))
-        .when(Boolean(item.said), (el) => el.child(div().id(`said-${a.address}`).truncate().text_size(11)
-          .text_color(t.dim).italic().tooltip(item.said).child(`“${item.said}”`))),
-      this.foldActions(t, `in-${a.address}`, [
-        button(t, `review-${a.address}`, "Review", () => openReview(item.top, a.address), {
-          kind: "solid", tip: withKey("Comment on the diff line by line", "relevo.review"),
-        }),
+          .child(diffRatio(t, item.add, item.del)),
+        item.said ? div().id(`said-${a.address}`).truncate().text_size(11).text_color(t.dim).italic().tooltip(item.said).child(`“${item.said}”`) : null,
+      ],
+      actions: [
         button(t, `agent-${a.address}`, "Agent", goAgent),
         this.sourceContextButton(t, `local:${item.top || a.address}`),
         button(t, `diff-${a.address}`, "View diff", () => {
@@ -641,18 +643,16 @@ export class Inbox {
         button(t, `reply-${a.address}`, "Reply", () => openReplies(a.address), {
           tip: withKey("Send it a message or a quick reply", "relevo.quick-reply"),
         }),
-      ], addressed
-        ? button(t, `undo-${a.address}`, "Undo", (cx) => this.setLocalAddressed(a, false, cx), { tip: "Back to the list" })
-        : button(t, `addressed-${a.address}`, "✓", (cx) => this.setLocalAddressed(a, true, cx), {
-          tip: "Addressed: hide until its agent works again",
-        })));
+      ],
+      mark: this.markButton(t, a.address, addressed, (on, cx) => this.setLocalAddressed(a, on, cx), "Addressed: hide until its agent works again"),
+    });
   }
 
   localGroup(t, key, label, items, done = []) {
     if (!items.length && !done.length) return [];
     return [
-      sectionHeader(t, label, items.length),
-      ...items.map((i) => this.localCard(t, i)),
+      legHeader(t, `leg-${key}`, label, items.length, { me: key === "waiting" }),
+      ...joined(t, items.map((i) => this.localCard(t, i))),
       ...this.addressedFold(t, key, done, (i) => this.localCard(t, i, true)),
     ];
   }
@@ -707,7 +707,7 @@ export class Inbox {
         this.shortcutHelp.setData(INBOX_SHORTCUT_ACTIONS, shortcutBindings());
         return el.child(this.shortcutHelp.render(t, cx));
       })
-      .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().p(8).gap(6)
+      .child(v_flex().id("inbox-list").flex_1().min_h(0).overflow_y_scrollbar().px(4).py(6).gap(2)
         .when(Boolean(this.error), (el) => el.child(div().p(8).text_size(11).text_color(t.blocked).child(this.error)))
         .when(Boolean(this.localError), (el) => el.child(div().id("local-error").p(8).text_size(11).text_color(t.blocked).child(this.localError)))
         .when(!goalMode && !total && !this.error && Boolean(this.prsAt), (el) => el.child(

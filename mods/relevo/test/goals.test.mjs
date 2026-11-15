@@ -159,6 +159,8 @@ test('Runs routes original PR review/actions to Reviews', async () => {
   assert.match(text(tree), /YOUR PRS/);
   assert.ok(find(tree, `pr-${key.slice(3)}`));
   assert.ok(find(tree, `review-pr-${key.slice(3)}`));
+  assert.equal(find(tree, `source-link-${key}`), null);
+  view.sel = `pr-${key.slice(3)}`;
   assert.ok(find(view.render(cx), `source-link-${key}`));
 });
 
@@ -188,7 +190,7 @@ test('linked quiet PR stays visible while saved evidence details stay out of its
   view.goalDoc = commit({ ...goal(), evidence: [{ source: key, revision: a, kind: "video", label: "Demo", url: "https://example.com/demo" }] });
   view.prsAt = Date.now() / 1000; view.error = "offline";
   view.openPRs = [{ url: key.slice(3), repo: 'acme/app', number: 1, title: 'Quiet PR', headRefOid: a, updatedAt: new Date().toISOString() }];
-  fake.stored[GOAL_MODE] = false;
+  fake.stored[GOAL_MODE] = false; view.sel = `pr-${key.slice(3)}`;
   const tree = view.render(cx);
   assert.ok(find(tree, `pr-${key.slice(3)}`));
   assert.doesNotMatch(text(tree), /Unverified|Demo|Criteria:/);
@@ -254,7 +256,7 @@ test('linked addressed PR stays folded, retains undo, and returns after new GitH
   let tree = view.render(cx);
   assert.equal(find(tree, `pr-${pr.url}`), null);
   assert.ok(find(tree, 'addressed-mine'));
-  click(find(tree, 'addressed-mine'), cx); tree = view.render(cx);
+  click(find(tree, 'addressed-mine'), cx); view.sel = `pr-${pr.url}`; tree = view.render(cx);
   assert.ok(find(tree, `undo-${pr.url}`));
   assert.equal(view.nav.filter((n) => n.id === `pr-${pr.url}`).length, 1);
   view.mine = [{ ...pr, updatedAt: new Date((markedAt + 10) * 1000).toISOString() }];
@@ -271,6 +273,8 @@ test('drafts keep Ready for review and Open PR and Enter does not launch a revie
   let tree = view.render(cx);
   assert.equal(find(tree, `pr-${pr.url}`), null);
   click(find(tree, 'drafts-mine'), cx); tree = view.render(cx);
+  assert.ok(find(tree, `ready-${pr.url}`)); assert.equal(find(tree, `open-${pr.url}`), null);
+  view.sel = `pr-${pr.url}`; tree = view.render(cx);
   assert.ok(find(tree, `ready-${pr.url}`)); assert.ok(find(tree, `open-${pr.url}`));
   assert.equal(view.goalProjection.sources.length, 1);
   const before = fake.execs.length;
@@ -284,7 +288,7 @@ test('local addressed work keeps undo and review in Reviews', async () => {
   view.labelling.t1 = '123:1'; fake.stored[GOAL_MODE] = false;
   let tree = view.render(cx);
   assert.equal(find(tree, 'in-t1'), null);
-  click(find(tree, 'addressed-local'), cx); tree = view.render(cx);
+  click(find(tree, 'addressed-local'), cx); view.sel = 'in-t1'; tree = view.render(cx);
   assert.ok(find(tree, 'review-t1')); assert.ok(find(tree, 'undo-t1'));
 });
 
@@ -349,6 +353,7 @@ test('a ready result hides with its check until it returns a new revision', asyn
   view.prsAt = Date.now() / 1000; fake.stored[GOAL_MODE] = false;
   let tree = view.render(cx);
   assert.ok(find(tree, 'result-k1'));
+  view.sel = 'result-k1'; tree = view.render(cx);
   click(find(tree, 'addressed-result-k1'), cx); tree = view.render(cx);
   assert.equal(find(tree, 'result-k1'), null);
   assert.match(text(tree), /1 addressed/);

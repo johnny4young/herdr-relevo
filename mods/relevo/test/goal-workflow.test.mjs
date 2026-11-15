@@ -256,7 +256,7 @@ test('Reviews refreshes workflow metadata without switching to Runs', async () =
 test('linked PRs outside the ordinary queue remain reachable once in Reviews, including addressed Undo', async () => {
   const { v, cx } = await inbox();
   v.mine = []; v.openPRs = [{ ...pr, headRefOid: 'head-1' }];
-  fake.stored[GOAL_MODE] = false;
+  fake.stored[GOAL_MODE] = false; v.sel = `pr-${pr.url}`;
   let tree = v.render(cx);
   assert.ok(find(tree, `pr-${pr.url}`));
   assert.ok(find(tree, `source-link-pr:${pr.url}`));

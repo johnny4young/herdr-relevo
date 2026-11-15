@@ -142,6 +142,7 @@ export function row(t, id, { turn = "open", kind = null, title, reason = null, s
 
 // Rows are separated by a hairline that starts at the body, past the lane.
 export const hairline = (t) => div().h(1).ml(LANE).mr(8).flex_none().bg(t.border).opacity(0.55);
+export const joined = (t, rows) => rows.filter(Boolean).flatMap((el, i) => (i ? [hairline(t), el] : [el]));
 
 // A section label in caps with its count and a hairline to the edge.
 export const legHeader = (t, id, label, count, { me = false } = {}) => h_flex().id(id).h(28).pt(6).pl(LANE).pr(8).gap(8).items_center()
@@ -235,7 +236,7 @@ export function foldRow(view, t, id, key, label, { gap = false, onOpen = null, a
   const open = Boolean(view.expanded[key]);
   return Button.new(id).id(id).tab_index(0).selected(open).accessibility_label(`${label}. ${open ? "Collapse" : "Expand"}`)
     .tooltip(`${open ? "Collapse" : "Expand"} ${label}`).focus((el) => el.border_2().border_color(t.accent))
-    .min_h(28).px(4).when(gap, (el) => el.pt(6)).when(!gap, (el) => el.py(2))
+    .min_h(28).pl(LANE).pr(8).when(gap, (el) => el.pt(6)).when(!gap, (el) => el.py(2))
     .flex().items_center().gap(5).text_size(11).text_color(t.dim).cursor_pointer()
     .hover((s) => s.text_color(t.muted))
     .on_click((_e, cx) => {

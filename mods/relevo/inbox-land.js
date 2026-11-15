@@ -1,14 +1,13 @@
 // Land from the Inbox: merge a PR, follow the workflows its merge starts, then remove its worktree when nothing
 // is lost. Mixed into Inbox, so `this` is the Inbox.
 import { div } from "gpui-kit";
-import { v_flex } from "gpui-base";
 import { exec, notify, panes, run, shared, setShared, spaces } from "herdr";
 import { ARM_MS, landLine, mergeFlag, runsPhase } from "./lib/land.js";
 import { localBranch } from "./lib/prmenu.js";
 import { ago } from "./lib/time.js";
 import { scanWorktrees, removalCheck, removeWorktree } from "./worktrees.js";
 import { headOf, logRemoval } from "./worktree-actions.js";
-import { button, sectionHeader, foldRow } from "./ui.js";
+import { button, foldRow, icon, legHeader, joined } from "./ui.js";
 
 export const LANDING = "relevo.landing";
 const TICK_MS = 20000;
@@ -147,21 +146,22 @@ export class LandViews {
   }
 
   landCard(t, url, e) {
-    const failed = e.phase === "failed";
-    const actions = [
-      ...(failed && /^https:\/\//.test(e.failed?.url ?? "") ? [button(t, `land-run-${url}`, "Open run", () => exec("open", [e.failed.url]), { kind: "solid" })] : []),
-      button(t, `land-pr-${url}`, "Open PR", () => exec("open", [url])),
-      ...(e.phase === "queued"
-        ? [button(t, `land-cancel-${url}`, "Cancel", (cx) => this.cancelAuto(url, e, cx), { tip: "Turns auto-merge off" })]
-        : []),
-      ...(failed || e.phase === "landed" ? [button(t, `land-done-${url}`, "✓", () => this.setLanding(url, null), { tip: "Remove from the list" })] : []),
-    ];
-    // Merged in GitHub's purple.
-    const dot = failed ? t.blocked : e.phase === "landed" ? t.ansi5 : t.working;
-    return this.card(t, `land-${url}`, failed,
-      this.head(t, dot, `${e.repo.split("/")[1]} #${e.number} · ${e.title}`, ago(e.done ?? e.at)),
-      v_flex().text_size(11).text_color(failed ? t.blocked : t.muted).child(div().child(landLine(e))),
-      actions);
+    const failed = e.phase === "failed", landed = e.phase === "landed";
+    const run = failed && /^https:\/\//.test(e.failed?.url ?? "") ? button(t, `land-run-${url}`, "Open run", () => exec("open", [e.failed.url]), { kind: "go" }) : null;
+    const pr = button(t, `land-pr-${url}`, "Open PR", () => exec("open", [url]));
+    return this.item(t, `land-${url}`, {
+      turn: failed ? "me" : landed ? "ready" : "flight", kind: "land", title: `${e.repo.split("/")[1]} #${e.number}`, reason: landLine(e),
+      tip: e.title, age: ago(e.done ?? e.at, true),
+      lines: [div().min_w(0).truncate().text_size(13).text_color(t.foreground).child(e.title)],
+      main: run ?? pr,
+      actions: [
+        pr,
+        ...(e.phase === "queued"
+          ? [button(t, `land-cancel-${url}`, "Cancel", (cx) => this.cancelAuto(url, e, cx), { tip: "Turns auto-merge off" })]
+          : []),
+      ],
+      mark: failed || landed ? button(t, `land-done-${url}`, [icon("check")], () => this.setLanding(url, null), { tip: "Remove from the list" }) : null,
+    });
   }
 
   cancelAuto(url, e, cx) {
@@ -178,11 +178,11 @@ export class LandViews {
     const open = all.filter(([, e]) => e.phase !== "landed"), landed = all.filter(([, e]) => e.phase === "landed");
     const shown = this.expanded["landed"];
     return [
-      ...(open.length ? [sectionHeader(t, "LANDING", open.length), ...open.map(([url, e]) => this.landCard(t, url, e))] : []),
+      ...(open.length ? [legHeader(t, "leg-landing", "Landing", open.length), ...joined(t, open.map(([url, e]) => this.landCard(t, url, e)))] : []),
       ...(landed.length
         ? [foldRow(this, t, "landed", "landed", `${landed.length} landed`, { after: div().size(6).rounded_full().bg(t.ansi5) })]
         : []),
-      ...(shown ? landed.map(([url, e]) => this.landCard(t, url, e)) : []),
+      ...(shown ? joined(t, landed.map(([url, e]) => this.landCard(t, url, e))) : []),
     ];
   }
 }

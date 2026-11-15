@@ -82,8 +82,9 @@ export class KeyNav {
     return { hidden, sections, above: hidden.size };
   }
 
+  // A selected row stays open until Esc or another selection, with or without the keyboard here.
   selected(id) {
-    return this.keyboard && this.sel === id;
+    return this.sel === id;
   }
 
   // A new focus request from the shortcut moves the keyboard here.

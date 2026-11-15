@@ -50,10 +50,12 @@ async function inbox() {
 
 test("a waiting session shows in the Inbox and counts", async () => {
   fake.stored[DESKTOP] = [session({ at: Date.now() / 1000 })];
-  const { ui } = await inbox();
-  const shown = text(find(ui(), "dk-local_1"));
-  assert.match(shown, /app · Fix login/);
-  assert.match(shown, /Pick one/);
+  const { ui, box } = await inbox();
+  const row = find(ui(), "dk-local_1");
+  assert.match(text(row), /app Pick one/);
+  assert.equal(row.tip, "Fix login");
+  box.sel = "dk-local_1";
+  assert.match(text(find(ui(), "dk-says-local_1")), /Fix login/);
   assert.equal(fake.stored["relevo.inbox.count"], 1);
 });
 
@@ -67,7 +69,9 @@ test("Open in Desktop uses the session's link", async () => {
 
 test("marking one addressed folds it and frees the count", async () => {
   fake.stored[DESKTOP] = [session({ at: Date.now() / 1000 - 60 })];
-  const { ui, cx } = await inbox();
+  const { ui, cx, box } = await inbox();
+  assert.equal(find(ui(), "dk-settle-local_1"), null);
+  box.sel = "dk-local_1";
   click(find(ui(), "dk-settle-local_1"), cx);
   await flush();
   assert.equal(find(ui(), "dk-local_1"), null);

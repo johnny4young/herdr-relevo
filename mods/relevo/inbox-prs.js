@@ -1,13 +1,14 @@
 // The Inbox's pull requests: fetch, cards, skill buttons. Mixed into Inbox, so `this` is the Inbox.
-import { div, svg } from "gpui-kit";
-import { h_flex, v_flex, Button } from "gpui-base";
+import { div } from "gpui-kit";
+import { h_flex, Button } from "gpui-base";
 import { home, exec, run, notify, shared, setShared, openOverlay, readTextFile } from "herdr";
 import { accountOf, pickAccount, chip } from "./accounts.js";
 import { contextFor } from "./context.js";
 import { reviewAlerts, prAlerts, mergedAlert } from "./alerts.js";
 import { REPOS_ROOT } from "./config.js";
 import { LAUNCHED, SKILLS, configuredSkill, launched, launchSkill } from "./skills.js";
-import { button, sectionHeader, spinner, withKey, foldRow, icon } from "./ui.js";
+import { button, spinner, withKey, foldRow, icon, legHeader, joined, diffRatio } from "./ui.js";
+import { CI_WORDS, prReason, prTurn } from "./lib/lanes.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
@@ -195,21 +196,6 @@ export class PrViews {
         .child(icon("chevron-down", null, 10)));
   }
 
-  threadBadge(t, n, key) {
-    return h_flex().id(`threads-${key}`).flex_none().gap(3).items_center().text_size(11).text_color(t.ansi3)
-      .tooltip(`${n} unresolved ${n === 1 ? "thread" : "threads"}`)
-      .child(svg("mods/relevo/thread.svg").size(11).text_color(t.ansi3))
-      .child(String(n));
-  }
-
-  ciBadge(t, state, key) {
-    const [glyph, color, tip] = state === "SUCCESS" ? ["✓", t.ansi2, "CI passed"]
-      : state === "FAILURE" || state === "ERROR" ? ["✕", t.ansi1, "CI failed"]
-        : state === "CANCELLED" ? ["⊘", t.ansi3, "CI cancelled"] : ["◌", t.ansi3, "CI running"];
-    return div().id(`ci-${key}`).flex_none().text_size(11).font_semibold().text_color(color).tooltip(tip)
-      .child(glyph === "◌" ? spinner(color, 11) : glyph);
-  }
-
   // Only the failed and cancelled jobs of each run go again; a run with none left says so.
   retryCI(pr, cx) {
     this.retrying ??= new Set();
@@ -253,15 +239,34 @@ export class PrViews {
   }
 
   draftCard(t, pr) {
-    return this.card(t, `pr-${pr.url}`, false,
-      this.head(t, "ring", `${pr.repo.split("/")[1]} #${pr.number} · ${pr.title}`, ago(seconds(pr.updatedAt)), ciOf(pr), pr.threads),
-      v_flex().text_size(11).text_color(t.muted).child("draft"),
-      [
-        button(t, `ready-${pr.url}`, "Ready for review", (cx) => this.prCommand(pr, ["ready"], "Ready for review", cx)),
+    return this.item(t, `pr-${pr.url}`, {
+      turn: "open", kind: "pr", title: `${pr.repo.split("/")[1]} #${pr.number}`, reason: "draft", tip: pr.title, age: ago(seconds(pr.updatedAt), true),
+      lines: this.prLines(t, pr),
+      main: button(t, `ready-${pr.url}`, "Ready for review", (cx) => this.prCommand(pr, ["ready"], "Ready for review", cx)),
+      actions: [
         button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url])),
         this.sourceContextButton(t, `pr:${pr.url}`),
         button(t, `source-skills-pr:${pr.url}`, "Skills…", () => this.openSkillMenu(pr), { size: "sm", disabled: !this.clones[pr.repo], tip: "Choose a skill and account before running" }),
-      ]);
+      ],
+    });
+  }
+
+  // The selected PR's lines: its title, CI and comments, its size, and what its agent did.
+  prLines(t, pr, agentLine = null) {
+    const ci = ciOf(pr);
+    return [
+      div().min_w(0).truncate().text_size(13).text_color(t.foreground).child(pr.title),
+      h_flex().gap(8).items_center().text_size(11).text_color(t.muted)
+        .when(Boolean(ci), (el) => el.child(h_flex().id(`ci-${pr.url}`).gap(5).items_center()
+          .child(ci === "PENDING" || ci === "EXPECTED" ? spinner(t.working, 11) : icon(ci === "SUCCESS" ? "check" : ci === "CANCELLED" ? "warn" : "x", ci === "SUCCESS" ? t.done : ci === "CANCELLED" ? t.ansi3 : t.blocked))
+          .child(CI_WORDS[ci] ?? ci)))
+        .when(pr.threads > 0, (el) => el.child(h_flex().id(`threads-${pr.url}`).gap(4).items_center()
+          .child(icon("comment", t.ansi3)).child(`${pr.threads} unresolved`)))
+        .when(Number.isFinite(pr.additions), (el) => el.child(h_flex().gap(5).items_center()
+          .child(div().text_color(t.ansi2).child(`+${pr.additions}`)).child(div().text_color(t.ansi1).child(`−${pr.deletions ?? 0}`))
+          .child(diffRatio(t, pr.additions, pr.deletions ?? 0)))),
+      agentLine,
+    ];
   }
 
   // What the PR's agent left running when its turn ended, like a monitor waiting on CI: null when nothing.
@@ -287,11 +292,11 @@ export class PrViews {
 
   prCard(t, pr, requested, addressed = false) {
     const l = this.launchedMap()[pr.url], agent = this.prAgents[pr.url], seen = this.seen(pr), busy = Boolean(l) && this.prBusy(pr);
-    const meta = requested ? `review requested · ${pr.author?.login ?? ""}` : pr.reasons.join(" · ");
     const done = Boolean(l && seen) && (!agent || agent.status === "idle" || agent.status === "done");
     const openPR = button(t, `open-${pr.url}`, "Open PR", () => exec("open", [pr.url]), {
       kind: done && l.skill === "review" ? "solid" : "outline",
     });
+    const ready = (this.ready ?? []).some((p) => p.url === pr.url);
     const actions = done && l.skill === "review" ? [openPR] : [];
     if (agent) actions.push(button(t, `agent-${pr.url}`, "Agent", () => run("agent.focus", { terminal: agent.address })));
     if (this.clones[pr.repo] && !(seen && agent) && !busy) {
@@ -308,7 +313,7 @@ export class PrViews {
       const label = moves.land ? "Land" : "Land when ready";
       actions.unshift(button(t, `land-btn-${pr.url}`, armed ? `Confirm ${label.toLowerCase()}` : label,
         (cx) => this.arm(key, cx, () => this.land(pr, !moves.land, cx)), {
-          kind: armed ? "danger" : "solid",
+          kind: armed ? "danger" : "outline",
           tip: moves.land
             ? `Merges (${how}), follows the workflows it starts, then removes its worktree if nothing would be lost`
             : `Turns on auto-merge (${how}) and follows it like Land`,
@@ -327,20 +332,16 @@ export class PrViews {
     if (!actions.includes(openPR)) actions.push(openPR);
     const context = this.sourceContextButton(t, `pr:${pr.url}`);
     if (context) actions.push(context);
-    const mark = addressed
-      ? button(t, `undo-${pr.url}`, "Undo", (cx) => this.setAddressed(pr, false, cx), { tip: "Back to the list" })
-      : button(t, `addressed-${pr.url}`, "✓", (cx) => this.setAddressed(pr, true, cx), {
-        tip: "Addressed: hide until there's new activity",
-      });
-    const dot = seen ? "ring" : !requested && pr.hot ? t.blocked : t.accent;
-    return this.card(t, `pr-${pr.url}`, false,
-      this.head(t, dot, `${pr.repo.split("/")[1]} #${pr.number} · ${pr.title}`, ago(seconds(pr.updatedAt)),
-        ciOf(pr), pr.threads),
-      v_flex().gap(2).text_size(11).text_color(t.muted)
-        .when(Boolean(meta), (el) => el.child(meta))
-        .when(Boolean(l && (seen || busy)), (el) => el.child(
-          div().text_color(agent?.status === "working" || this.backgroundOf(agent) !== null ? t.working : t.dim).child(this.agentLine(pr, agent)))),
-      this.foldActions(t, `pr-${pr.url}`, actions, mark));
+    const working = agent?.status === "working" || this.backgroundOf(agent) !== null;
+    return this.item(t, `pr-${pr.url}`, {
+      turn: prTurn(pr, { requested, seen, busy, ready }), kind: requested ? "review" : "pr",
+      title: `${pr.repo.split("/")[1]} #${pr.number}`, reason: prReason(pr, { requested, ready }), tip: pr.title,
+      age: ago(seconds(pr.updatedAt), true),
+      lines: this.prLines(t, pr, l && (seen || busy)
+        ? div().text_size(11).text_color(working ? t.working : t.dim).child(this.agentLine(pr, agent)) : null),
+      main: actions[0], actions,
+      mark: this.markButton(t, pr.url, addressed, (on, cx) => this.setAddressed(pr, on, cx), "Addressed: hide until there's new activity"),
+    });
   }
 
   // The review pane on the PR's checkout, else on its exact head; comments go to its agent, or a new one when none runs.
@@ -363,19 +364,19 @@ export class PrViews {
   prGroup(t, key, label, list, requested, done = [], ready = []) {
     if (!list.length && !done.length && !ready.length && (requested || !this.drafts?.length)) return [];
     const fresh = list.filter(recent), old = list.filter((p) => !recent(p)), open = this.expanded[key];
-    const rows = [sectionHeader(t, label, fresh.length), ...fresh.map((p) => this.prCard(t, p, requested))];
+    const rows = [legHeader(t, `leg-${key}`, label, fresh.length), ...joined(t, fresh.map((p) => this.prCard(t, p, requested)))];
     if (old.length) {
       rows.push(foldRow(this, t, `older-${key}`, key, `${old.length} older than 45 days`));
-      if (open) rows.push(...old.map((p) => this.prCard(t, p, requested)));
+      if (open) rows.push(...joined(t, old.map((p) => this.prCard(t, p, requested))));
     }
     if (ready.length) {
       rows.push(foldRow(this, t, `ready-${key}`, `${key}-ready`, `${ready.length} ready to merge`));
-      if (this.expanded[`${key}-ready`]) rows.push(...ready.map((p) => this.prCard(t, p, requested)));
+      if (this.expanded[`${key}-ready`]) rows.push(...joined(t, ready.map((p) => this.prCard(t, p, requested))));
     }
     const drafts = requested ? [] : this.drafts ?? [];
     if (drafts.length) {
       rows.push(foldRow(this, t, `drafts-${key}`, `${key}-drafts`, `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"}`));
-      if (this.expanded[`${key}-drafts`]) rows.push(...drafts.map((p) => this.draftCard(t, p)));
+      if (this.expanded[`${key}-drafts`]) rows.push(...joined(t, drafts.map((p) => this.draftCard(t, p))));
     }
     rows.push(...this.addressedFold(t, key, done, (p) => this.prCard(t, p, requested, true)));
     return rows;

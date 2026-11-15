@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **The Inbox reads as rows: whose turn, what, why.** Every item is one line that starts with who holds it (a red disc when it needs you, the spinner while agents or CI work, a check when one key finishes it), then what it is, the one reason it is here, its age and its one action. Click a row, or move to it with the arrow keys, and it opens in place with its details and every other action; Esc closes it. A waiting agent always shows its question, the command it asks about and its numbered answers. A PR with failing CI or requested changes is now marked as needing you, like an agent that asks.
 - **One set of glyphs.** Folds, refresh, more, check boxes and menu arrows are drawn from 28 icons in `mods/relevo/icons/` instead of text characters, so they line up and take the theme colour.
 
 ## 0.7.3 · 2026-11-14

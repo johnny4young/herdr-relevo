@@ -3,7 +3,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { run, exec, shared, setShared, readTextFile, appHome } from "herdr";
 import { runtimeCommand } from "./runtime-cli.js";
 import { accountFor, inFocus } from "./context.js";
-import { button, sectionHeader, foldRow } from "./ui.js";
+import { button, foldRow, legHeader, joined } from "./ui.js";
 import { openGoal } from "./goals-editor.js";
 import { readGoals, writeGoal, GOALS_CHANGED } from "./goals-store.js";
 import { emptyGoals, groupSources, sourceKey, closeGoal, goalState } from "./lib/goals.js";
@@ -184,8 +184,8 @@ export class GoalViews {
   linkedReviewRows(t, v) {
     const sources = this.linkedReviews(v);
     if (!sources.length) return [];
-    return [sectionHeader(t, "LINKED WORK", sources.filter((source) => !source.addressed).length),
-      ...sources.filter((source) => !source.addressed).map((source) => source.draft ? this.draftCard(t, source.pr) : this.prCard(t, source.pr, false)),
+    return [legHeader(t, "leg-linked", "Linked work", sources.filter((source) => !source.addressed).length),
+      ...joined(t, sources.filter((source) => !source.addressed).map((source) => source.draft ? this.draftCard(t, source.pr) : this.prCard(t, source.pr, false))),
       ...this.addressedFold(t, "linked", sources.filter((source) => source.addressed), (source) => this.prCard(t, source.pr, false, true)),
     ];
   }
@@ -225,19 +225,22 @@ export class GoalViews {
 
   runReviewRows(t) {
     const open = this.openReviews(), done = this.doneReviews();
-    const draw = (entry, addressed = false) => this.card(t, entry.id, false,
-      div().text_size(11).text_color(t.muted).truncate().tooltip(entry.detail).child(entry.detail),
-      v_flex().gap(3).child(div().text_size(13).font_semibold().child(entry.title))
-        .when(Boolean(entry.meta), (el) => el.child(div().id(`meta-${entry.id}`).text_size(11).text_color(t.muted).truncate().tooltip(entry.meta).child(entry.meta))),
-      [button(t, `open-${entry.id}`, entry.id.startsWith("result-") ? "Review result" : "Review decision", entry.go,
-        { kind: this.selected(entry.id) ? "solid" : "outline" }),
-      addressed
-        ? button(t, `undo-${entry.id}`, "Undo", (cx) => this.setReviewAddressed(entry, false, cx), { tip: "Back to the list" })
-        : button(t, `addressed-${entry.id}`, "✓", (cx) => this.setReviewAddressed(entry, true, cx), { tip: "Hide until it changes. Nothing is accepted." })]);
+    const draw = (entry, addressed = false) => {
+      const result = entry.id.startsWith("result-");
+      return this.item(t, entry.id, {
+        turn: "me", kind: result ? "relay" : "comment", title: entry.title, reason: result ? "result ready" : "your decision", tip: entry.detail,
+        lines: [
+          div().text_size(11).text_color(t.muted).truncate().child(entry.detail),
+          entry.meta ? div().id(`meta-${entry.id}`).text_size(11).text_color(t.muted).truncate().tooltip(entry.meta).child(entry.meta) : null,
+        ],
+        main: button(t, `open-${entry.id}`, result ? "Review result" : "Review decision", entry.go, { kind: "go" }),
+        mark: this.markButton(t, entry.id, addressed, (on, cx) => this.setReviewAddressed(entry, on, cx), "Hide until it changes. Nothing is accepted."),
+      });
+    };
     return [
       ...(this.workflowError ? [line(this.workflowError, t, true)] : []),
-      ...(open.length ? [sectionHeader(t, "READY FOR YOU", open.length)] : []),
-      ...open.filter((entry) => !this.hiddenIds.has(entry.id)).map((entry) => draw(entry)),
+      ...(open.length ? [legHeader(t, "leg-results", "Ready for you", open.length, { me: true })] : []),
+      ...joined(t, open.map((entry) => draw(entry))),
       ...this.addressedFold(t, "results", done, (entry) => draw(entry, true)),
     ];
   }
