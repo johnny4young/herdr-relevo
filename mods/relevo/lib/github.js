@@ -1,8 +1,8 @@
 // The Inbox's GitHub query and what it makes of the answer; pure, so the tests can feed it fixtures.
 
-const ROLLUP = "statusCheckRollup { state contexts(first: 50) { pageInfo { hasNextPage } nodes { ... on CheckRun { conclusion } ... on StatusContext { state } } } }";
+const ROLLUP = "statusCheckRollup { state contexts(first: 50) { pageInfo { hasNextPage } nodes { ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } }";
 
-const MINE_FIELDS = `number title url isDraft createdAt updatedAt reviewDecision headRefName baseRefName isCrossRepository headRefOid additions deletions mergeable mergeStateStatus
+const MINE_FIELDS = `number title url isDraft createdAt updatedAt reviewDecision headRefName baseRefName isCrossRepository headRefOid additions deletions changedFiles mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     repository { nameWithOwner viewerDefaultMergeMethod squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed autoMergeAllowed }
     commits(last: 1) { nodes { commit { committedDate ${ROLLUP} } } }
@@ -22,7 +22,7 @@ export const OTHERS_QUERY = `query {
   viewer { login merged: pullRequests(states: MERGED, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
     url number headRefName isCrossRepository repository { nameWithOwner } } } }
   search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 20) { nodes {
-    ... on PullRequest { number title url updatedAt headRefName baseRefName isCrossRepository headRefOid additions deletions author { login } repository { nameWithOwner }
+    ... on PullRequest { number title url createdAt updatedAt headRefName baseRefName isCrossRepository headRefOid additions deletions changedFiles author { login } repository { nameWithOwner }
       commits(last: 1) { nodes { commit { ${ROLLUP} } } }
       reviewThreads(first: 50) { nodes { isResolved } } } } }
 }`;
@@ -51,6 +51,17 @@ export const unresolved = (pr) => (pr.reviewThreads?.nodes ?? []).filter((n) => 
 const newest = (x, y) => seconds(y.updatedAt) - seconds(x.updatedAt);
 
 const NOT_RED = new Set(["SUCCESS", "NEUTRAL", "SKIPPED", "CANCELLED", "PENDING", "EXPECTED"]);
+
+// Each check of the last commit, in GitHub's order: { name, state: ok | bad | run | wait }.
+const CHECK_OK = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]), CHECK_BAD = new Set(["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"]);
+export function checksOf(p) {
+  const nodes = p.commits?.nodes[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [];
+  return nodes.map((n) => {
+    const name = n.name ?? n.context ?? "check", end = n.conclusion ?? (n.status && n.status !== "COMPLETED" ? null : n.state);
+    const state = CHECK_OK.has(end) ? "ok" : CHECK_BAD.has(end) ? "bad" : end === "CANCELLED" ? "wait" : "run";
+    return { name, state };
+  });
+}
 
 // GitHub rolls a cancelled check up as FAILURE, but nothing failed. Anything else, or a list cut short, stays red.
 export function ciOf(p) {
