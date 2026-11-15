@@ -168,18 +168,21 @@ export function prAlerts(events, contextOf) {
 
 // A run result that now waits on you; the click opens Reviews with that result selected.
 const NOTIFIED = "relevo.runs.notified";
-export function runResultAlerts(tasks, select) {
+export function runResultAlerts(tasks) {
   const stored = shared(NOTIFIED), { fresh, marks } = newResults(stored ?? null, tasks);
-  for (const task of fresh.filter((t) => inFocus(contextOfPath(batchScope(t))))) {
-    select(`result-${task.id}`);
+  const shown = fresh.filter((t) => inFocus(contextOfPath(batchScope(t))));
+  for (const task of shown) {
     const review = lastReview(task), who = task.reviewer?.label ?? task.reviewer?.address, verdict = VERDICT[review?.report.status];
     notify({
       title: `Result ready · ${task.title}`,
-      body: [who && verdict ? `${who} ${verdict.toLowerCase()}` : null, "click to review"].filter(Boolean).join(" · "),
-      level: "success", action: { name: "relevo.panel-reviews" },
+      body: who && verdict ? `${who} ${verdict.toLowerCase()}` : undefined,
+      level: "success", action: { name: `relevo.reveal-result-${task.id}` },
     });
   }
-  if (stored == null || JSON.stringify(stored) !== JSON.stringify(marks)) setShared(NOTIFIED, marks);
+  // Merged with what another Relevo copy stored, so an older read can't drop a mark; marks of gone tasks go.
+  const ids = new Set(tasks.map((task) => task.id));
+  const next = [...new Set([...marks, ...(stored ?? []).filter((m) => ids.has(String(m).split("@")[0]))])];
+  if (stored == null || JSON.stringify(stored) !== JSON.stringify(next)) setShared(NOTIFIED, next);
 }
 
 // Several results accepted at once; the click opens their run.

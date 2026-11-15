@@ -407,11 +407,14 @@ export class Workflow extends WorkflowDetail {
         { disabled: this.busy || picked.length < 2 || new Set(picked.map(batchScope)).size > 1 || new Set(picked.map((task) => task.goalId)).size > 1, tip: "Preview explicit task ids and revisions before accepting" }))
       .when(Boolean(this.batchSnapshot?.preview.length), (el) => el.child(v_flex().gap(3)
         .children(this.batchSnapshot.preview.map((item) => row(t, `${item.title}: ${item.nextEffect}`)))
-        .child(button(t, "workflow-batch-confirm", "Apply bulk acceptance", (cx) => this.command({ action: "batch", ids: this.batchSnapshot.ids, outcome: "accept", revisions: this.batchSnapshot.revisions, preview: false }, cx,
-          () => {
-            batchAlert((this.tasks ?? []).filter((task) => this.batchSnapshot.ids.includes(task.id)), this.goalId);
+        .child(button(t, "workflow-batch-confirm", "Apply bulk acceptance", (cx) => {
+          // applyState clears the snapshot before this callback runs when fewer than two results remain.
+          const { ids, revisions } = this.batchSnapshot;
+          this.command({ action: "batch", ids, outcome: "accept", revisions, preview: false }, cx, () => {
+            batchAlert((this.tasks ?? []).filter((task) => ids.includes(task.id)), this.goalId);
             this.batchSnapshot = null; this.batchIds = []; this.batchMode = false;
-          }),
+          });
+        },
           { kind: "solid", disabled: this.busy, tip: "Record acceptance for only the previewed tasks" }))));
   }
 

@@ -36,6 +36,27 @@ test('batch review reuses the task list and previews only explicitly selected re
   view.close();
 });
 
+test('accepting every waiting result saves without an error and posts Batch accepted', async () => {
+  fake.props = { goalId: 'g', overlay: 'o' };
+  const tasks = (state) => [
+    { id: 'one', goalId: 'g', title: 'First result', root: '/repo', state, revision: 'r1' },
+    { id: 'two', goalId: 'g', title: 'Second result', root: '/repo', state, revision: 'r1' },
+  ];
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: tasks('needs_you') });
+  const view = new Workflow(), cx = fakeCx(); view.init({}, cx); await flush();
+  click(find(view.render(), 'workflow-batch-toggle'), cx);
+  click(find(view.render(), 'workflow-batch-select-one'), cx);
+  click(find(view.render(), 'workflow-batch-select-two'), cx);
+  fake.exec = async (_cmd, args) => JSON.parse(args.at(-1)).preview
+    ? { stdout: JSON.stringify({ preview: [{ title: 'First result', nextEffect: 'accepted' }, { title: 'Second result', nextEffect: 'accepted' }] }) }
+    : { stdout: JSON.stringify({ doc: { tasks: tasks('accepted') } }) };
+  click(find(view.render(), 'workflow-batch-preview'), cx); await flush();
+  click(find(view.render(), 'workflow-batch-confirm'), cx); await flush();
+  assert.equal(view.error, null);
+  assert.equal(fake.notices.at(-1)?.title, 'Batch accepted · 2 results');
+  view.close();
+});
+
 test('history offers archiving and reports how many tasks moved', async () => {
   fake.props = { goalId: 'g', overlay: 'o' };
   fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [
