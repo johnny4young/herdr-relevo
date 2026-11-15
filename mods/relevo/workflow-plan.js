@@ -102,7 +102,7 @@ export class WorkflowPlan {
         const next = tasks.find((task) => !terminal(task));
         const nextAction = plan.state === "planned" ? (stopped ? "Ready to resume and start" : "Ready to start")
           : cancelledTask ? `Cancelled: ${cancelledTask.title} · plan needs an update`
-          : needsYou ? `${needsYou.state === "needs_you" ? "Review" : "Resolve"}: ${needsYou.title}`
+          : needsYou ? `${needsYou.state === "needs_you" ? "Review" : STATES.blocked}: ${needsYou.title}`
           : pausedTask ? `Paused: ${pausedTask.title}`
           : next ? `${next.state === "needs_review" ? "In review" : next.state === "running" || next.state === "working" ? "In progress" : next.state === "ready" ? "Queued" : "Next"}: ${next.title}`
           : "All tasks accepted";
@@ -110,7 +110,7 @@ export class WorkflowPlan {
         return v_flex().gap(5).p(8).border(1).border_color(t.border).rounded(5)
           .child(div().font_semibold().child(`${accepted}/${tasks.length} tasks accepted`))
           .child(row(t, nextAction))
-          .when(Boolean(needsYou), (el) => el.child(button(t, `workflow-plan-next-${plan.id}`, needsYou.state === "needs_you" ? "Review result" : "Resolve issue", (cx) => openTask(needsYou, cx), { tip: "Open this task in Workflow without dispatching work" })))
+          .when(Boolean(needsYou), (el) => el.child(button(t, `workflow-plan-next-${plan.id}`, needsYou.state === "needs_you" ? "Review result" : "See why", (cx) => openTask(needsYou, cx), { tip: "Open this task in Workflow without dispatching work" })))
           .when(plan.state !== "planned" && !needsYou && Boolean(next) && !cancelledTask, (el) => el.child(button(t, `workflow-plan-next-${plan.id}`, "View progress", (cx) => openTask(next, cx), { tip: "Open this task's progress in Workflow without dispatching work" })))
           .child(button(t, `workflow-plan-details-${plan.id}`, detailsOpen ? "Hide plan details" : "Plan details", (cx) => {
             this.planDetailsOpen ??= {}; this.planDetailsOpen[plan.id] = !detailsOpen; cx.notify();
@@ -118,7 +118,7 @@ export class WorkflowPlan {
           .when(detailsOpen, (el) => el
             .children(tasks.map((task, index) => row(t, `${index + 1}. ${task.title} · ${labels[task.state] ?? task.state}`)))
             .child(row(t, `Repository: ${first?.root ?? "Unavailable"}`))
-            .child(row(t, `${first?.executor?.label ?? role("executor").name} → ${first?.reviewer?.label ?? role("reviewer").name} · ${first?.maxRounds ? count(first.maxRounds, "attempt") : "? attempts"} · ${first?.maxMinutes ?? "?"} min per attempt`)))
+            .child(row(t, `${first?.executor?.label ?? role("executor").name} → ${first?.reviewer?.label ?? role("reviewer").name} · ${count(first?.maxRounds, "attempt")} · ${first?.maxMinutes ?? "?"} min per attempt`)))
           .when(plan.state === "planned", (el) => el.child(button(t, `workflow-start-plan-${plan.id}`, stopped ? "Resume & start plan" : "Start plan", (cx) => this.command({ action: "start-plan", planId: plan.id, ...(stopped ? { resumePaused: true } : {}) }, cx, (_response, context) => {
             this.notice = "Plan started. Review results in Needs me; accepted tasks release the next step automatically.";
             this.selectFilter("In progress", context);

@@ -19,10 +19,10 @@ export function scopeGoals(projection, id) {
 // Task records drive the next action; saved free-form notes never override them.
 export function runNextAction(goal, tasks, engine, error, reviewCount = 0) {
   const current = tasks.filter((task) => task.goalId === goal.id && !['accepted', 'cancelled'].includes(task.state));
-  if (error) return { status: 'Status unavailable', detail: 'Open the run to reload task status.', label: 'Open run', action: 'workflow', attention: true };
+  if (error) return { status: 'Status unavailable', detail: 'Open the run to reload task status.', label: 'Open run', action: 'workflow', attention: true, stuck: true };
   const attention = current.find((task) => task.state === 'needs_you') ?? current.find((task) => ['blocked', 'failed'].includes(task.state));
   if (attention) return { status: taskState(attention.state === 'needs_you' ? 'needs_you' : 'blocked'), detail: attention.title,
-    label: attention.state === 'needs_you' ? 'Review result' : 'See why', action: 'workflow', attention: true };
+    label: attention.state === 'needs_you' ? 'Review result' : 'See why', action: 'workflow', attention: true, stuck: attention.state !== 'needs_you' };
   if (current.length) {
     const planned = current.every((task) => task.state === 'planned');
     const live = current.find((task) => task.attempts?.some((attempt) => attempt.state === "running"));

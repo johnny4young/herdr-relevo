@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { acceptanceEffect, queueSummary, resultMeta, workflowCheckSummary, workflowItems } from '../lib/workflow-navigation.js';
 import { runNextAction } from '../lib/goal-workflow.js';
+import { count, reportState } from '../lib/run-words.js';
 
 test('ready decisions appear before historical blockers without hiding or mutating either', () => {
   const tasks = [
@@ -66,4 +67,19 @@ test('result meta names the agents, round, checks, verdict and age', () => {
       { role: 'reviewer', state: 'reported', report: { status: 'completed' }, at: '2026-01-01T10:00:00Z' }] };
   assert.equal(resultMeta(task, now), 'Codex → Claude · attempt 1 of 2 · tests 1 of 1 passed · reviewer approved · 2h ago');
   assert.equal(resultMeta({ attempts: [] }, now), 'tests not configured');
+});
+
+test('a stuck run is flagged for the blocked colour whatever its words say', () => {
+  assert.equal(runNextAction({ id: 'g' }, [{ id: 'a', goalId: 'g', state: 'blocked', title: 'A' }], { enabled: true }).stuck, true);
+  assert.equal(runNextAction({ id: 'g' }, [{ id: 'a', goalId: 'g', state: 'failed', title: 'A' }], { enabled: true }).stuck, true);
+  assert.equal(runNextAction({ id: 'g' }, [], { enabled: true }, 'unreadable').stuck, true);
+  assert.ok(!runNextAction({ id: 'g' }, [{ id: 'a', goalId: 'g', state: 'needs_you', title: 'A' }], { enabled: true }).stuck);
+});
+
+test('report words and counts never show a raw status or NaN', () => {
+  assert.equal(reportState('changes_requested', 'executor'), 'Asked for changes');
+  assert.equal(reportState('completed', 'executor'), 'Completed');
+  assert.equal(reportState('completed', 'reviewer'), 'Approved');
+  assert.deepEqual([count(1, 'attempt'), count('3', 'attempt'), count('', 'attempt'), count('abc', 'attempt'), count(undefined, 'attempt')],
+    ['1 attempt', '3 attempts', '? attempts', '? attempts', '? attempts']);
 });

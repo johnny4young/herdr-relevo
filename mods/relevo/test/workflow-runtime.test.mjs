@@ -173,7 +173,7 @@ test("reviewer findings at the attempt cap block further correction dispatch", a
   f.report("reviewer", "changes_requested", "The empty state needs an explanation"); await f.runtime.tick();
   const task = f.runtime.read().tasks[0];
   assert.equal(task.state, "blocked");
-  assert.match(task.error, /Correction budget exhausted/);
+  assert.match(task.error, /No attempts left/);
   assert.equal(task.round, 1);
   assert.equal(f.sends.length, 2);
 });
@@ -202,7 +202,7 @@ test("a second reviewer correction exhausts the bounded retry budget", async (t)
   f.report("reviewer", "changes_requested", "Second finding"); await f.runtime.tick();
   const task = f.runtime.read().tasks[0];
   assert.equal(task.state, "blocked");
-  assert.match(task.error, /Correction budget exhausted/);
+  assert.match(task.error, /No attempts left/);
   assert.equal(task.round, 2);
 });
 
@@ -212,7 +212,7 @@ test("a failed required check at the attempt cap blocks acceptance and further d
   f.report("executor", "completed", "Done"); await f.runtime.tick();
   const task = f.runtime.read().tasks[0];
   assert.equal(task.state, "blocked");
-  assert.match(task.error, /Correction budget exhausted/);
+  assert.match(task.error, /No attempts left/);
   assert.equal(task.checksResult[0].code, 1);
   assert.equal(task.attempts.length, 1);
 });

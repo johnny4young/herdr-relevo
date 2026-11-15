@@ -88,7 +88,7 @@ For the product goal, the research behind it and the engineering handoff, see th
 
 ## Everyday use
 
-Open a run to see **Needs you** first. Read the result and the evidence, then **Accept** or **Request changes**. Accepting advances the queue; dependent tasks continue only when their prerequisites are accepted and automation is on.
+Open a run to see **Needs me** first. Read the result and the evidence, then **Accept** or **Ask for changes**. Accepting advances the queue; dependent tasks continue only when their prerequisites are accepted and automation is on.
 
 **Tools** (**T** in the run window) searches task actions, configured skills and agent sessions. Choosing a skill previews its command and recipient; **Queue skill** sends it. Queued work can change a pending result, so look at new changes before accepting. **Activity** shows who received each assignment and what they reported.
 

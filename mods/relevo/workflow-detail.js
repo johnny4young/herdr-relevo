@@ -112,7 +112,7 @@ export class WorkflowDetail extends WorkflowRuns {
           cx.stop_propagation();
           this.sendChanges(task, cx);
         }))
-        .when(changes, (panel) => panel.child(row(t, task.round >= task.maxRounds
+        .when(changes, (panel) => panel.child(row(t, (task.round ?? 0) >= (task.maxRounds ?? 2)
           ? "No attempts left: this prepares a follow-up task for you to start."
           : `Starts ${attemptLabel((task.round ?? 0) + 1, task.maxRounds)}: write, then review.`))))
       .child(h_flex().w_full().min_w(0).gap(6).items_center().flex_wrap()
@@ -226,7 +226,7 @@ export class WorkflowDetail extends WorkflowRuns {
       .when(details, (el) => el.child(v_flex().gap(8)
         .child(row(t, task.criteria || "No acceptance criteria recorded"))
         .child(row(t, ["executor", "reviewer"].map((key) => `${role(key).pick}: ${task[key]?.label ?? task[key]?.address ?? "Unknown"}`).join(" · ")))
-        .child(row(t, `${attemptLabel(task.round, task.maxRounds)?.replace(/^a/, "A") ?? `Up to ${count(task.maxRounds ?? 2, "attempt")}`} · ${task.maxMinutes ?? 20} minutes per attempt`))));
+        .child(row(t, `${attemptLabel(task.round, task.maxRounds, { capital: true }) ?? `Up to ${count(task.maxRounds ?? 2, "attempt")}`} · ${task.maxMinutes ?? 20} minutes per attempt`))));
   }
 
   activity(t, task) {
