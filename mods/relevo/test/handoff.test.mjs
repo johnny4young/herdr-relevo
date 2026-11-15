@@ -3,11 +3,12 @@ import "./fake/register.mjs";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { fake, resetFake, calls } from "./fake/herdr.mjs";
-import { fakeCx, find, flush } from "./fake/ui.mjs";
+import { fakeCx, find, flush, text } from "./fake/ui.mjs";
 
 const { Handoff, openHandoff, handoffFrom, closeHandedOff } = await import("../handoff.js");
 const { default: Relevo } = await import("../main.js");
-const { ACCOUNTS, accountOf } = await import("../accounts.js");
+const { ACCOUNTS, CODEX, accountOf } = await import("../accounts.js");
+const { resetClock } = await import("../lib/time.js");
 
 const FROM = ACCOUNTS[0], TO = ACCOUNTS[1], TAB = `work · ${TO.letter}`, INTERRUPT = /^hc interrupt t1/;
 const UUID = "11111111-2222-3333-4444-555555555555";
@@ -138,9 +139,86 @@ test("a full account can't be picked", async () => {
   fake.props = PROPS;
   const part = new Handoff();
   part.quotas = { [TO.key]: { h5: { pct: 100 } } };
-  assert.equal(find(part.render(), `handoff-${TO.key}`).handlers.on_click, undefined);
+  assert.equal(find(part.render(), `handoff-row-${TO.key}`).handlers.on_click, undefined);
   part.quotas = { [TO.key]: { h5: { pct: 40 } } };
-  assert.ok(find(part.render(), `handoff-${TO.key}`).handlers.on_click);
+  assert.ok(find(part.render(), `handoff-row-${TO.key}`).handlers.on_click);
+});
+
+const row = (part, account) => find(part.render(), `handoff-row-${account.key}`);
+
+test("each row says its room and how the work continues; the account being left can't be picked", () => {
+  const resets = Date.now() / 1000 + 3600, left = { h5: { pct: 100, resets }, d7: { pct: 40 } };
+  fake.props = { ...PROPS, transcript: SESSION };
+  const part = new Handoff();
+  part.quotas = { [FROM.key]: left, [TO.key]: { h5: { pct: 12 }, d7: { pct: 6 } }, [CODEX.key]: { h5: { pct: 12 }, d7: { pct: 64 } } };
+  assert.equal(text(find(part.render(), "handoff-title")), "Continue work with…");
+  assert.equal(text(row(part, TO)), `1 ${TO.letter} ${TO.label} 88% room same conversation`);
+  assert.equal(text(row(part, CODEX)), `2 ${CODEX.letter} ${CODEX.label} 36% room from a note`, "room is what the tightest window leaves");
+  assert.equal(text(row(part, FROM)), `${FROM.letter} ${FROM.label} full · resets ${resetClock(left.h5)} this is the one you leave`);
+  assert.equal(row(part, FROM).handlers.on_click, undefined);
+  assert.match(row(part, TO).accessibleLabel, /88% room\. Continues same conversation/);
+  const ids = part.render().items.map((item) => item.key).filter((key) => key?.startsWith("handoff-row-"));
+  assert.equal(ids.at(-1), `handoff-row-${FROM.key}`, "the one you leave is last");
+
+  // Without the session file's label, a Claude account starts from a note too.
+  fake.props = PROPS;
+  assert.match(text(row(part, TO)), /from a note$/);
+  // An account that isn't full is still the one you leave.
+  part.quotas[FROM.key] = { h5: { pct: 70 } };
+  assert.equal(text(row(part, FROM)), `${FROM.letter} ${FROM.label} 30% room this is the one you leave`);
+  assert.equal(row(part, FROM).handlers.on_click, undefined);
+  part.quotas[TO.key] = null;
+  assert.match(text(row(part, TO)), /no data/);
+});
+
+test("number keys pick the numbered rows only, and a full account has no number", () => {
+  fake.props = PROPS;
+  const part = new Handoff(), picked = [];
+  part.go = (key) => picked.push(key);
+  const press = (key, modifiers = {}) => find(part.render(), "handoff").handlers.on_key_down({ key, modifiers }, fakeCx());
+  part.quotas = { [TO.key]: { h5: { pct: 40 } }, [CODEX.key]: { h5: { pct: 10 } } };
+  press("1");
+  press("2");
+  press("3");
+  press("1", { platform: true });
+  assert.deepEqual(picked, [TO.key, CODEX.key]);
+
+  part.quotas[TO.key] = { h5: { pct: 100, resets: null } };
+  assert.equal(text(row(part, TO)), `${TO.letter} ${TO.label} full from a note`);
+  assert.match(text(row(part, CODEX)), /^1 /, "the numbers follow the accounts that can be picked");
+  picked.length = 0;
+  press("1");
+  press("2");
+  assert.deepEqual(picked, [CODEX.key]);
+});
+
+test("before the readings arrive no row is numbered or pickable", () => {
+  fake.props = PROPS;
+  const part = new Handoff(), picked = [];
+  part.go = (key) => picked.push(key);
+  find(part.render(), "handoff").handlers.on_key_down({ key: "1", modifiers: {} }, fakeCx());
+  assert.deepEqual(picked, []);
+  assert.equal(row(part, TO).handlers.on_click, undefined);
+  assert.doesNotMatch(text(row(part, TO)), /^1 /);
+});
+
+test("a full account says when its last full window resets", () => {
+  fake.props = PROPS;
+  const now = Date.now() / 1000, h5 = { pct: 100, resets: now + 3600 }, d7 = { pct: 100, resets: now + 3 * 86400 };
+  const part = new Handoff();
+  part.quotas = { [TO.key]: { h5, d7 } };
+  assert.match(text(row(part, TO)), new RegExp(`full · resets ${resetClock(d7)}`));
+  assert.match(row(part, TO).accessibleLabel, /Can't be picked until it resets/);
+});
+
+test("the popup is tall enough for every account, the one being left included", () => {
+  fake.agents = [agent("t1")];
+  fake.terminals = [{ address: "t1", labels: { "agent.account": FROM.key } }];
+  openHandoff("t1");
+  assert.equal(fake.overlays.at(-1).height, 44 + (ACCOUNTS.length + 1) * 48);
+  fake.terminals = [];
+  openHandoff("t1");
+  assert.equal(fake.overlays.at(-1).height, 44 + (ACCOUNTS.length + 1) * 48, "an agent of no known account lists them all");
 });
 
 test("only a handoff from a full account says the quota ran out", async () => {

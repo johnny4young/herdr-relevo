@@ -4,7 +4,7 @@ import { theme, exec, run, spaces, panes, focused, props, openOverlay, closeOver
 import { touchedAt } from "./worktrees.js";
 import { ago } from "./lib/time.js";
 import { GIT_READ } from "./lib/git.js";
-import { spinner, withKey, icon } from "./ui.js";
+import { spinner, withKey, icon, grabFocus } from "./ui.js";
 
 const MAX_FILES = 20000, SHOWN = 60;
 
@@ -127,8 +127,7 @@ export class FileFinder {
       cx.notify();
     });
     this.input.on("submit", () => { if (!this.closed) this.open(this.shown()[this.at]); });
-    this.input.focus();
-    cx.timer.after(300, () => { if (!this.closed) this.input.focus(); });
+    grabFocus(this.input, cx, () => !this.closed);
     cx.spawn(async (cx) => {
       const root = props()?.root;
       if (!root) {

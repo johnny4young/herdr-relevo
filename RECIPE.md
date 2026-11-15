@@ -78,9 +78,14 @@ task to another account.
     **Open**, once it exists. Each worktree Remove or Delete takes adds a JSON line to `~/<BACKUPS_ROOT>/deletions.log`:
     time, what the row said, repo, path, branch and commit.
 - **Review pane** (opened beside the terminal): header `Review · <folder>` with an **Uncommitted | All changes**
-  picker (or `<repo> #n · against <base>` for a PR), the changed files (max 150px) with comment counts, a bar with the open file and **Comment on file**, the
-  diff with old/new line numbers, green and red rows, and a footer "N comments for <agent>" with **Clear** and
-  **Send to agent**.
+  picker (or `<repo> #n · against <base>` for a PR), the changed files (max 150px), a bar with the open file and **Comment on file**, the
+  diff with old/new line numbers, green and red rows, and a footer "N comments for <agent>" with **Clear**, the
+  `⌘` `↵` keycaps and **Send to agent**. A file row is the viewed checkbox, the folder dimmed (11px) before the
+  file name, then on the right an accent tag with the comment icon and the count, a green **new** tag on a file the
+  diff creates, `+adds` `−dels` (a zero side is left out) and five squares split between them; a binary file has a grey **binary** tag instead. In the diff, the
+  line where a comment starts has the comment icon beside its number and the lines of a range are tinted
+  (`accent` at 12%); the saved comment is a box under its last line: `L5-7`, `L12` or `File` in accent and the
+  text. Above the footer, the open file's saved comments are listed one per line (max 96px, scrolls), a click opens one for editing, its × deletes it.
 - **Tokens dialog** (880×620, `⌥⌘U`): a header with Today / 7 / 14 / 30 days and the accounts, the age of the last
   read and ↻; four 76px tiles per surface (share of the output, output, new context); new context per day as bars in
   one hue, with the peak; **By project** with a bar, new context and output; **What filled it** (main conversations,
@@ -93,8 +98,26 @@ task to another account.
   dir, colors), Codex's launcher, contexts (label, account, orgs), fallback order, repos root and skills; Save.
 - **Week dialog** (720×460): `Agent time · week of <date>` with ‹ › and **Copy**, a table of tickets × Mon–Sun
   plus total, today's column in the accent color.
-- **Handoff popup** (300px): "Continue <tab> with…" and every other account, Codex included, with its quota. A full
-  account can't be picked.
+- **Handoff popup** (340px): "Continue <tab> with…", then one 46px row per account, Codex included: a number
+  keycap, the chip, the label over a thin band of its tightest window, and on the right "88% room" (100 minus that
+  window) over how the work continues: "same conversation" between Claude accounts, "from a note" to or from Codex.
+  A full account is dimmed, says "full · resets 23:00", has no number and can't be picked; the account being left is
+  last, dimmed, with "this is the one you leave". `1`–`9` pick a numbered row.
+- **Account status** (status bar block, 440px, min 150): one item per account and Codex, a chip and a ring of 20
+  dots for its tightest window; a click opens the usage popup. Six states, each also in the item's accessibility
+  label: the focused repository's account adds its name; from 50% the ring is `ansi3`, with no number; from 80% the
+  item is tinted and adds the percent, and "resets 23:00" from 360px; a reading older than 30 min has a dim ring and
+  its age ("42m"); an account with no reading has an empty ring with "?"; at 150px or less only chips and rings show.
+- **Account usage popup** (420px, up to 500px tall): a header with "Account usage", the age of the newest reading
+  ("read 2m ago"), **Settings** and **Refresh** (`R`); the focus picker; then one section per account, with
+  hairlines between them. A section has the chip, the label, one note and a numbered button; under it a "5h" and a
+  "Weekly" row (the window's real length when it is longer, "30d"), each a band with a pace tick and "12% · resets
+  16:40", in `blocked` from 80%. The note is the first that applies: "stale · read 42m ago", "full in 9 min at this
+  pace" (`blocked`, when a window fills within the hour), "focused repository", "weekly window is the tight one"
+  (the long window is the fuller and at 50% or more). A section at 80% or over is tinted. An account with no
+  reading shows "Usage unavailable · no reading yet" instead of the rows. The button is **Start here**, or
+  **Continue with…** when the account is at 95% or over and has an agent to move, which opens the handoff. `1`–`9`
+  press that section's button.
 
 Text is 11px for what supports a row and 13px for what it names; a test keeps it to those two. Glyphs are the SVG files in `mods/relevo/icons/` (12 px grid), colours are theme tokens only, and the shared row grammar is in [docs/design/v6.md](docs/design/v6.md). Only an agent waiting on you gets a red border.
 
@@ -161,8 +184,10 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   `history.jsonl` (prefiltered with `grep`, read at most once an hour).
 - **Review pane**: a click on a line opens a comment field, a shift-click extends it to a range, **Comment on file**
   comments on the whole file (Enter saves, Esc cancels); comments survive refreshes
-  (every 10 s while you are not typing), closing the pane and restarting Herdr. **Send to agent** pastes the
-  numbered comments into the agent's terminal with `hc send`. **Clear** asks once more. Review on the same
+  (every 10 s while you are not typing), closing the pane and restarting Herdr. A click on a saved comment's box opens it again (a
+  range as a range); its × in the list above the footer deletes that comment alone and saves the rest. **Send to agent** pastes the
+  numbered comments into the agent's terminal with `hc send`; `⌘↵` in the pane does the same under the same
+  conditions, and in an open comment field it saves the comment instead. **Clear** asks once more. Review on the same
   checkout twice focuses the open pane. **All changes** diffs the working tree from the merge base with origin's default branch, and the message sent says so.
   **Review** on a PR diffs from the merge base with its base branch: the
   checkout's working tree, or the branch itself when it isn't checked out (fetched when not local); with no agent on
