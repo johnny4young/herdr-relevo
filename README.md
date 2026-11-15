@@ -11,12 +11,12 @@ alerts when a PR's CI or reviews change, and a ledger of agent time per ticket.
 
 ## Runs: hand a task to two agents
 
-The panel has two views. **Reviews** is the Inbox described below. **Runs** is for work you hand off: one agent implements, your checks run, a second agent reviews, and the result waits for your decision.
+The panel has two views. **Reviews** is the Inbox described below. **Runs** is for work you hand off: one agent writes it, your tests run, a second agent reviews it, and the result waits for your decision.
 
 1. **+ Run** takes a prompt. Its first line names the run.
-2. Pick the repository, the checks (none, `npm test` or your own commands) and who implements and who reviews. Accounts at 100% are skipped.
+2. Pick the repository, the tests (none, `npm test` or your own commands), who writes it and who reviews it. Accounts at 100% are skipped.
 3. **Start**. By default the run gets its own worktree, `run/<slug>` under `~/.herdr/worktrees/<repo>/`, and both agents open there in two tabs. **Existing sessions** uses agents you already have open in the repository instead.
-4. The result appears under **Ready for you** with its agents, round, checks, verdict and age. Open it to read the summary, the diff and the evidence, then accept (**A**, then Enter), request changes (**R**) or defer.
+4. The result appears under **Needs me** with its agents, attempt, tests, verdict and age, for example "attempt 1 of 2 · tests 1 of 1 passed". Open it to read the summary, the diff and the evidence, then accept (**A**, then Enter), ask for changes (**R**) or defer. A run the agents could not finish shows as **Stuck**; **See why** opens the run to its findings.
 
 **What accepting does.** In a worktree run, acceptance commits exactly the tree the reviewer saw to the run branch, without running hooks. Anything changed after the review stays uncommitted. From there the run offers **Open draft PR** (pushes the branch and runs `gh pr create --draft`) and **Remove worktree**, which keeps a branch that has commits. A cancelled run offers **Discard worktree**. Accepting never approves, merges or pushes anything by itself.
 
@@ -24,9 +24,9 @@ The panel has two views. **Reviews** is the Inbox described below. **Runs** is f
 
 **What a run agent can touch.** Its worktree and its own report, nothing else. Codex runs with `workspace-write`; set `RUN_CODEX_MODEL` in `config.js` to choose its model. Claude runs Bash in the system sandbox, and its file tools cannot edit Relevo's state, mods or settings. A Claude reviewer has no shell at all.
 
-**While it works and when it reports.** The implementing agent says what it is doing, how far along it is and how long it thinks is left; the run shows that line. The reviewer lists its findings by level: blocker, major or minor. Only a finding at major or above sends the work back for a correction round; lower ones reach you as notes beside the result, with what the reviewer could not run or prove. Set `RUN_MUST_FIX` in `config.js` to `"blocker"` or `"minor"` to move that bar. What each agent is told lives in `mods/relevo/runtime/roles/executor.md` and `reviewer.md`.
+**While it works and when it reports.** The implementing agent says what it is doing, how far along it is and how long it thinks is left; the run shows that line. The reviewer lists its findings by level: blocker, major or minor. Only a finding at major or above sends the work back for another attempt; lower ones reach you as notes beside the result, with what the reviewer could not run or prove. Set `RUN_MUST_FIX` in `config.js` to `"blocker"` or `"minor"` to move that bar. What each agent is told lives in `mods/relevo/runtime/roles/executor.md` and `reviewer.md`.
 
-**Limits.** Each run has a maximum number of correction rounds and minutes per attempt, and two runs work at a time. A message Relevo cannot confirm was delivered is never sent again: the run waits for you to look at the agent and reconcile it.
+**Limits.** Each run has a maximum number of attempts and minutes per attempt, and two runs work at a time. A message Relevo cannot confirm was delivered is never sent again: the run waits for you to look at the agent and reconcile it.
 
 **More than one result.** **Review a batch** previews and accepts several results of one repository at once. **History** keeps finished tasks; **Archive older than 7 days** moves the ones the run no longer needs to `relevo-workflow/archive/`.
 

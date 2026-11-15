@@ -1,9 +1,9 @@
 import { div } from "gpui-kit";
 
-const STATES = { planned: "Planned", ready: "Ready", running: "In progress", needs_review: "Needs review", needs_you: "Needs you", accepted: "Completed", completed: "Completed", blocked: "Blocked", failed: "Failed", cancelled: "Cancelled" };
+const STATES = { planned: "Planned", ready: "Ready", running: "In progress", needs_review: "Needs review", needs_you: "Needs me", accepted: "Completed", completed: "Completed", blocked: "Stuck", failed: "Failed", cancelled: "Cancelled" };
 export const row = (t, value) => div().w_full().min_w(0).text_size(13).text_color(t.muted).child(value);
 export const taskState = (state) => STATES[state] ?? state ?? "Unknown";
-export const reportState = (state) => ({ completed: "Completed", changes_requested: "Changes requested", blocked: "Blocked" }[state] ?? taskState(state));
+export const reportState = (state) => ({ completed: "Completed", changes_requested: "Asked for changes", blocked: "Stuck" }[state] ?? taskState(state));
 export const caption = (value, limit = 42) => value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 export const SUMMARY_PREVIEW = 1200;
 export { reportNotes } from "./lib/run-report.js";

@@ -35,7 +35,7 @@ test("a working run says what its agent last said, and when that was long ago", 
   const now = Date.parse("2026-01-02T03:20:00Z");
   const task = (at) => [{ goalId: "g", state: "running", executor: { label: "Codex" }, reviewer: { label: "Claude" },
     attempts: [{ role: "executor", state: "running", delivery: "acknowledged", progress: { line: "Fixing tests", done: 40, left: 12, at } }] }];
-  assert.equal(runProgress("g", task("2026-01-02T03:18:00Z"), { enabled: true }, null, now), "Codex: Fixing tests · 40% · ~12m left. Next: checks and independent review.");
+  assert.equal(runProgress("g", task("2026-01-02T03:18:00Z"), { enabled: true }, null, now), "Codex: Fixing tests · 40% · ~12m left. Next: tests and review.");
   assert.match(runProgress("g", task("2026-01-02T03:00:00Z"), { enabled: true }, null, now), /~12m left · said 20m ago\. Next:/);
   const silent = task(); delete silent[0].attempts[0].progress;
   assert.match(runProgress("g", silent, { enabled: true }, null, now), /^Awaiting implementation report from Codex\./);

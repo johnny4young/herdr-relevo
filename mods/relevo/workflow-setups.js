@@ -31,7 +31,7 @@ export class WorkflowSetup extends WorkflowPlan {
     const reviewer = agents().find((agent) => agent.address === this.reviewer);
     let checks;
     try { checks = this.checkPreset === "npm-test" ? [["npm", "test"]] : this.checkPreset === "custom" ? JSON.parse(this.form.checks.value() || "[]") : []; }
-    catch { this.setupError = "Fix the custom checks before saving this setup."; cx.notify(); return; }
+    catch { this.setupError = "Fix the custom test commands before saving this setup."; cx.notify(); return; }
     const setup = { id: `setup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name, purpose, root,
       executor: executor && { address: executor.address, label: executor.title || executor.address },
       reviewer: reviewer && { address: reviewer.address, label: reviewer.title || reviewer.address },
@@ -58,7 +58,7 @@ export class WorkflowSetup extends WorkflowPlan {
     const root = this.form.root.value().trim();
     if (root && root !== setup.root) { this.setupError = "This setup belongs to another repository."; cx.notify(); return; }
     this.applySetup(setup, cx);
-    this.setupReuseNotice = `“${setup.name}” applied · ${setup.maxRounds} ${setup.maxRounds === 1 ? "round" : "rounds"} · ${setup.maxMinutes} min per round. Review agents before creating.`;
+    this.setupReuseNotice = `“${setup.name}” applied · ${setup.maxRounds} ${setup.maxRounds === 1 ? "attempt" : "attempts"} · ${setup.maxMinutes} min per attempt. Review agents before creating.`;
     this.setupError = null; this.setupNotice = null;
   }
 
@@ -68,23 +68,23 @@ export class WorkflowSetup extends WorkflowPlan {
     return v_flex().w_full().min_w(0).gap(6)
       .child(button(t, "workflow-saved-setups", [chevron(this.setupsOpen), `Saved setups${items.length ? ` · ${items.length}` : ""}`], (cx) => {
         this.setupsOpen = !this.setupsOpen; this.setupError = null; cx.notify();
-      }, { size: "sm", selected: Boolean(this.setupsOpen), tip: "Reuse repository, agent and check choices. Selecting a setup never starts work." }).w_full().justify_start())
+      }, { size: "sm", selected: Boolean(this.setupsOpen), tip: "Reuse repository, agent and test choices. Selecting a setup never starts work." }).w_full().justify_start())
       .when(this.setupsOpen, (el) => el.child(v_flex().w_full().min_w(0).gap(8)
         .when(!items.length, (list) => list.child(row(t, "No saved setups for this repository.")))
         .child(v_flex().max_h(200).overflow_y_scrollbar().gap(8).children(items.map((item) => v_flex().w_full().min_w(0).gap(3)
           .child(div().font_semibold().child(item.name))
           .when(Boolean(item.purpose), (entry) => entry.child(row(t, item.purpose)))
-          .child(row(t, `${item.root} · ${item.maxRounds} ${item.maxRounds === 1 ? "round" : "rounds"} · ${item.maxMinutes} min · ${item.checks.length} ${item.checks.length === 1 ? "check" : "checks"}`))
+          .child(row(t, `${item.root} · ${item.maxRounds} ${item.maxRounds === 1 ? "attempt" : "attempts"} · ${item.maxMinutes} min · ${item.checks.length} ${item.checks.length === 1 ? "test" : "tests"}`))
           .child(h_flex().gap(6).flex_wrap()
             .child(button(t, `workflow-apply-setup-${item.id}`, "Use setup", (cx) => this.applySavedSetup(item.id, cx),
-              { disabled: this.busy, tip: `${item.executor.label ?? item.executor.address} + ${item.reviewer.label ?? item.reviewer.address}. Checks: ${JSON.stringify(item.checks)}. Your title and outcome stay unchanged.` }))
+              { disabled: this.busy, tip: `${item.executor.label ?? item.executor.address} + ${item.reviewer.label ?? item.reviewer.address}. Tests: ${JSON.stringify(item.checks)}. Your title and outcome stay unchanged.` }))
             .child(button(t, `workflow-remove-setup-${item.id}`, "Remove", (cx) => {
               setShared(SETUPS_KEY, { version: 1, items: savedSetups().filter((value) => value.id !== item.id) });
               this.setupNotice = "Saved setup removed. Existing tasks are unchanged."; cx.notify();
             }, { size: "sm", tip: "Remove only this reusable setup; keep tasks, sessions and the current draft" }))))))
         .child(button(t, "workflow-save-setup-toggle", this.setupSaveOpen ? "Cancel saving setup" : "Save current setup…", (cx) => {
           this.setupSaveOpen = !this.setupSaveOpen; this.setupError = null; cx.notify();
-        }, { size: "sm", tip: "Save these repository, agent, check and limit choices for later tasks" }))
+        }, { size: "sm", tip: "Save these repository, agent, test and limit choices for later tasks" }))
         .when(this.setupSaveOpen, (form) => form
           .child(this.field(t, "setupName", "Setup name"))
           .child(this.field(t, "setupPurpose", "When to use it"))

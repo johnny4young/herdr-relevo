@@ -34,27 +34,27 @@ test('empty decision queues distinguish completion from ongoing, planned and sto
 test('workflow check summary distinguishes unconfigured, unrun, complete and incomplete checks', () => {
   assert.deepEqual(workflowCheckSummary({ checks: [], checksResult: [] }), { label: 'Not configured', tone: 'muted' });
   assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test']], checksResult: [] }), { label: 'Not run', tone: 'muted' });
-  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test'], ['npm', 'lint']], checksResult: [{ code: 0 }, { code: 0 }] }), { label: '2/2 passed', tone: 'normal' });
-  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test'], ['npm', 'lint']], checksResult: [{ code: 0 }] }), { label: '1/2 passed · incomplete', tone: 'muted' });
-  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test']], checksResult: [{ code: 0 }, { code: 0 }] }), { label: '2/2 passed', tone: 'normal' });
+  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test'], ['npm', 'lint']], checksResult: [{ code: 0 }, { code: 0 }] }), { label: '2 of 2 passed', tone: 'normal' });
+  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test'], ['npm', 'lint']], checksResult: [{ code: 0 }] }), { label: '1 of 2 passed · incomplete', tone: 'muted' });
+  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test']], checksResult: [{ code: 0 }, { code: 0 }] }), { label: '2 of 2 passed', tone: 'normal' });
 });
 
 test('workflow check failures take priority and unknown exit codes stay incomplete', () => {
-  assert.deepEqual(workflowCheckSummary({ checks: [['a'], ['b'], ['c']], checksResult: [{ code: 1 }, { code: 0 }] }), { label: '1 failed · 1/3 passed', tone: 'failure' });
-  assert.deepEqual(workflowCheckSummary({ checks: [['a']], checksResult: [{ code: 0 }, { code: '0' }] }), { label: '1/2 passed · incomplete', tone: 'muted' });
+  assert.deepEqual(workflowCheckSummary({ checks: [['a'], ['b'], ['c']], checksResult: [{ code: 1 }, { code: 0 }] }), { label: '1 failed · 1 of 3 passed', tone: 'failure' });
+  assert.deepEqual(workflowCheckSummary({ checks: [['a']], checksResult: [{ code: 0 }, { code: '0' }] }), { label: '1 of 2 passed · incomplete', tone: 'muted' });
 });
 
 test('a running executor hides stale check results until the current checks arrive', () => {
-  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test']], checksResult: [{ code: 1 }], attempts: [{ role: 'executor', state: 'running' }] }), { label: 'Awaiting checks', tone: 'muted' });
-  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test']], checksResult: [{ code: 1 }], attempts: [{ role: 'reviewer', state: 'running' }] }), { label: '1 failed · 0/1 passed', tone: 'failure' });
+  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test']], checksResult: [{ code: 1 }], attempts: [{ role: 'executor', state: 'running' }] }), { label: 'Awaiting tests', tone: 'muted' });
+  assert.deepEqual(workflowCheckSummary({ checks: [['npm', 'test']], checksResult: [{ code: 1 }], attempts: [{ role: 'reviewer', state: 'running' }] }), { label: '1 failed · 0 of 1 passed', tone: 'failure' });
 });
 
 test('a blocked implementation does not revive prior-round checks and cancellation is not failure', () => {
   const checks = [['node', '--test']];
   assert.deepEqual(workflowCheckSummary({ checks, checksResult: [{ code: 0 }], attempts: [{ role: 'executor', state: 'reported', report: { status: 'blocked' } }] }), { label: 'Not run', tone: 'muted' });
-  assert.deepEqual(workflowCheckSummary({ checks, checksResult: [{ code: 'timeout' }] }), { label: '1 failed · 0/1 passed', tone: 'failure' });
-  assert.deepEqual(workflowCheckSummary({ checks, checksResult: [{ code: 'ENOENT' }] }), { label: '1 failed · 0/1 passed', tone: 'failure' });
-  assert.deepEqual(workflowCheckSummary({ checks, checksResult: [{ code: 'cancelled' }] }), { label: '0/1 passed · incomplete', tone: 'muted' });
+  assert.deepEqual(workflowCheckSummary({ checks, checksResult: [{ code: 'timeout' }] }), { label: '1 failed · 0 of 1 passed', tone: 'failure' });
+  assert.deepEqual(workflowCheckSummary({ checks, checksResult: [{ code: 'ENOENT' }] }), { label: '1 failed · 0 of 1 passed', tone: 'failure' });
+  assert.deepEqual(workflowCheckSummary({ checks, checksResult: [{ code: 'cancelled' }] }), { label: '0 of 1 passed · incomplete', tone: 'muted' });
   assert.deepEqual(workflowCheckSummary({ checks: [], attempts: [{ role: 'executor', state: 'running' }] }), { label: 'Not configured', tone: 'muted' });
 });
 
@@ -64,6 +64,6 @@ test('result meta names the agents, round, checks, verdict and age', () => {
     checksResult: [{ argv: ['npm', 'test'], code: 0 }],
     attempts: [{ role: 'executor', state: 'reported', report: { status: 'completed' }, at: '2026-01-01T09:00:00Z' },
       { role: 'reviewer', state: 'reported', report: { status: 'completed' }, at: '2026-01-01T10:00:00Z' }] };
-  assert.equal(resultMeta(task, now), 'Codex → Claude · round 1/2 · checks 1/1 passed · review approved · 2h ago');
-  assert.equal(resultMeta({ attempts: [] }, now), 'checks not configured');
+  assert.equal(resultMeta(task, now), 'Codex → Claude · attempt 1 of 2 · tests 1 of 1 passed · review approved · 2h ago');
+  assert.equal(resultMeta({ attempts: [] }, now), 'tests not configured');
 });

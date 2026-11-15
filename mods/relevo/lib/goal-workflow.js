@@ -20,8 +20,8 @@ export function runNextAction(goal, tasks, engine, error, reviewCount = 0) {
   const current = tasks.filter((task) => task.goalId === goal.id && !['accepted', 'cancelled'].includes(task.state));
   if (error) return { status: 'Status unavailable', detail: 'Open the run to reload task status.', label: 'Open run', action: 'workflow', attention: true };
   const attention = current.find((task) => task.state === 'needs_you') ?? current.find((task) => ['blocked', 'failed'].includes(task.state));
-  if (attention) return { status: attention.state === 'needs_you' ? 'Ready for your review' : 'Needs attention', detail: attention.title,
-    label: attention.state === 'needs_you' ? 'Review result' : 'Resolve blocker', action: 'workflow', attention: true };
+  if (attention) return { status: attention.state === 'needs_you' ? 'Needs me' : 'Stuck', detail: attention.title,
+    label: attention.state === 'needs_you' ? 'Review result' : 'See why', action: 'workflow', attention: true };
   if (current.length) {
     const planned = current.every((task) => task.state === 'planned');
     const live = current.find((task) => task.attempts?.some((attempt) => attempt.state === "running"));
@@ -67,25 +67,25 @@ export function runProgress(goalId, tasks, engine, error = null, now = Date.now(
   if (live) {
     const attempt = [...live.attempts].reverse().find((attempt) => attempt.state === 'running');
     const reviewer = attempt.role === 'reviewer';
-    const person = (reviewer ? live.reviewer : live.executor)?.label || (reviewer ? 'Reviewer' : 'Executor');
+    const person = (reviewer ? live.reviewer : live.executor)?.label || (reviewer ? 'Reviewer' : 'Writer');
     if (attempt.delivery === 'uncertain') return `Assignment to ${person} is unconfirmed. Check delivery before retrying.`;
     if (attempt.delivery === 'sending') return `Sending ${reviewer ? 'review' : 'implementation'} assignment to ${person}.`;
     const said = progressLine(attempt.progress), age = now - Date.parse(attempt.progress?.at ?? '');
-    if (said) return `${person}: ${said}${age > STALE_MS ? ` · said ${Math.round(age / 60000)}m ago` : ''}. Next: ${reviewer ? 'your review' : 'checks and independent review'}.${!engine?.enabled || live.paused ? ' Further dispatches paused.' : ''}`;
-    return `Awaiting ${reviewer ? 'review' : 'implementation'} report from ${person}. Next: ${reviewer ? 'your review' : 'checks and independent review'}.${!engine?.enabled || live.paused ? ' Further dispatches paused.' : ''}`;
+    if (said) return `${person}: ${said}${age > STALE_MS ? ` · said ${Math.round(age / 60000)}m ago` : ''}. Next: ${reviewer ? 'your review' : 'tests and review'}.${!engine?.enabled || live.paused ? ' Further dispatches paused.' : ''}`;
+    return `Awaiting ${reviewer ? 'review' : 'implementation'} report from ${person}. Next: ${reviewer ? 'your review' : 'tests and review'}.${!engine?.enabled || live.paused ? ' Further dispatches paused.' : ''}`;
   }
   const pending = active.find((task) => task.state === 'needs_you');
   if (pending) {
     const blocked = active.filter((task) => ['blocked', 'failed'].includes(task.state)).length;
-    return blocked ? `${blocked} other ${blocked === 1 ? 'task is' : 'tasks are'} blocked. Review the ready result first.` : '';
+    return blocked ? `${blocked} other ${blocked === 1 ? 'task is' : 'tasks are'} stuck. Review the ready result first.` : '';
   }
   const blocked = active.find((task) => ['blocked', 'failed'].includes(task.state));
-  if (blocked) return `Blocked: ${blocked.error || 'open the findings to resolve the issue.'}`;
+  if (blocked) return `Stuck: ${blocked.error || 'open the findings to resolve the issue.'}`;
   if (!active.length) return '';
   if (active.every((task) => task.state === 'planned')) return 'Not started. Review the assignment before starting.';
   if (!engine?.enabled || active.every((task) => task.paused)) return 'Paused. Resume when you want agents to continue.';
   const waiting = active.find((task) => task.dependsOn?.some((id) => !own.some((parent) => parent.id === id && parent.state === 'accepted')));
   if (waiting) return 'Waiting for prerequisite acceptance. Eligible work continues automatically.';
-  if (active.some((task) => task.state === 'needs_review')) return 'Queued for independent review. Next: your decision.';
+  if (active.some((task) => task.state === 'needs_review')) return 'Queued for review. Next: your decision.';
   return 'Waiting for the next coordinator check. Next: assignment to an agent.';
 }

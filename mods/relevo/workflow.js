@@ -4,7 +4,7 @@ import { agents, panes, props, theme, appHome, readTextFile, run, focused, share
 import { runtimeCommand } from "./runtime-cli.js";
 import { button, onSubmitChord, tabButton, checkbox } from "./ui.js";
 import { focusedCwd } from "./panelbar.js";
-import { workflowBucket, workflowItems, queueSummary } from "./lib/workflow-navigation.js";
+import { workflowBucket, workflowItems, queueSummary, filterLabel } from "./lib/workflow-navigation.js";
 import { readGoals } from "./goals-store.js";
 import { batchScope } from "./lib/workflow-preferences.js";
 import { ShortcutHelp } from "./shortcut-help.js";
@@ -22,7 +22,7 @@ const isPicked = (ids, task) => Boolean(ids?.includes(task.id));
 const pickLabel = (ids, task) => `${task.title}. ${isPicked(ids, task) ? "Selected" : "Not selected"}`;
 const WINDOW_SHORTCUTS = [
   ...TABS.map((tab, index) => ({ id: `view-${tab}`, label: ["Decision / summary", "Result / findings", "Evidence", "Activity", "Preferences"][index], fixedShortcut: String(index + 1), section: "Run window" })),
-  ...[["accept", "Prepare acceptance (Enter confirms)", "a"], ["changes", "Write change request", "r"], ["new", "New task", "n"], ["plan", "Plan work", "p"], ["tools", "Task actions and skills", "t"], ["next", "Next task", "down"], ["previous", "Previous task", "up"], ["help", "Keyboard help", "?"], ["close", "Return to queue focus, then close window", "escape"]]
+  ...[["accept", "Prepare acceptance (Enter confirms)", "a"], ["changes", "Ask for changes", "r"], ["new", "New task", "n"], ["plan", "Plan work", "p"], ["tools", "Task actions and skills", "t"], ["next", "Next task", "down"], ["previous", "Previous task", "up"], ["help", "Keyboard help", "?"], ["close", "Return to queue focus, then close window", "escape"]]
     .map(([id, label, fixedShortcut]) => ({ id, label, fixedShortcut, section: "Run window" })),
 ];
 
@@ -53,8 +53,8 @@ export class Workflow extends WorkflowDetail {
       message: TextareaState.new({ value: "" }), decision: TextareaState.new({ value: "" }),
       preference: TextareaState.new({ value: "" }), preferenceScope: InputState.new({ value: "goal" }),
       toolSearch: InputState.new({ value: "", placeholder: "Find an action or skill…" }),
-      executorSearch: InputState.new({ value: "", placeholder: "Find an executor…" }),
-      reviewerSearch: InputState.new({ value: "", placeholder: "Find a reviewer…" }),
+      executorSearch: InputState.new({ value: "", placeholder: "Find an agent…" }),
+      reviewerSearch: InputState.new({ value: "", placeholder: "Find an agent…" }),
       setupName: InputState.new({ value: "" }), setupPurpose: InputState.new({ value: "" }),
     };
     this.form.toolSearch.on("change", (_event, cx) => cx.notify());
@@ -260,7 +260,7 @@ export class Workflow extends WorkflowDetail {
     }
     if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5 || !Number.isInteger(maxMinutes) || maxMinutes < 1 || maxMinutes > 120) {
       this.taskAdvancedOpen = true;
-      this.error = "Use 1–5 rounds and a 1–120 minute limit."; cx.notify(); return;
+      this.error = "Use 1–5 attempts and a 1–120 minute limit."; cx.notify(); return;
     }
     let checks = [];
     try {
@@ -269,7 +269,7 @@ export class Workflow extends WorkflowDetail {
       if (!Array.isArray(checks) || checks.some((args) => !Array.isArray(args) || !args.length || args.some((arg) => typeof arg !== "string"))) throw Error();
     } catch {
       this.taskAdvancedOpen = true;
-      this.error = 'Checks must be JSON argv lists, such as [["npm","test"]]. Leave empty to record no checks.';
+      this.error = 'Tests must be JSON argv lists, such as [["npm","test"]]. Leave empty to run no tests.';
       cx.notify();
       return;
     }
@@ -338,7 +338,7 @@ export class Workflow extends WorkflowDetail {
     const executor = executorChoice?.agent, reviewer = reviewerChoice?.agent;
     this.executor = executor?.address ?? "";
     this.reviewer = reviewer && reviewer.address !== this.executor ? reviewer.address : "";
-    this.setupReuseWarning = [!executor ? `Implementer “${task.executor?.label ?? task.executor?.address ?? "unknown"}” is unavailable` : executorChoice.verifyRoot ? `Verify implementer repository for ${agentLabel(executor)}` : null,
+    this.setupReuseWarning = [!executor ? `Writer “${task.executor?.label ?? task.executor?.address ?? "unknown"}” is unavailable` : executorChoice.verifyRoot ? `Verify writer repository for ${agentLabel(executor)}` : null,
       !reviewer || reviewer.address === this.executor ? `Reviewer “${task.reviewer?.label ?? task.reviewer?.address ?? "unknown"}” is unavailable` : reviewerChoice.verifyRoot ? `Verify reviewer repository for ${agentLabel(reviewer)}` : null]
       .filter(Boolean).join(". ");
     this.form.maxRounds.set_value(String(task.maxRounds ?? 2));
@@ -358,7 +358,7 @@ export class Workflow extends WorkflowDetail {
     const selecting = this.batchMode && this.filter === "Needs you" && batchable.length > 1;
     return v_flex().id("workflow-queue").when(!this.compact, (el) => el.w(200).flex_none().border_r(1).border_color(t.border)).when(this.compact, (el) => el.w_full().flex_1()).h_full().min_h(0).min_w(0).gap(2).p(8).bg(t.chrome)
       .children(["Needs you", "In progress", "Completed"].map((filter) => button(t, `workflow-filter-${filter}`,
-        [div().flex_1().child(filter === "Completed" ? "History" : filter), div().text_color(t.dim).child(String(workflowItems(this.tasks ?? [], filter).length))],
+        [div().flex_1().child(filterLabel(filter)), div().text_color(t.dim).child(String(workflowItems(this.tasks ?? [], filter).length))],
         (context) => this.selectFilter(filter, context), { kind: "ghost", size: "sm", selected: this.tab !== "Plan" && this.filter === filter }).w_full()))
       .child(div().h(1).my(6).bg(t.border))
       .child(v_flex().w_full().min_w(0).flex_1().min_h(0).overflow_y_scrollbar().gap(5).children((selecting ? batchable : visible).map((task) => selecting ? button(t,
@@ -432,7 +432,7 @@ export class Workflow extends WorkflowDetail {
       return { agent, cwd, caption: caption(fullCaption), detail };
     }).filter(({ cwd, detail }) => (!selectedRoot || !cwd || cwd === selectedRoot) && (!query || detail.toLowerCase().includes(query)));
     return v_flex().w_full().min_w(0).gap(4).child(row(t, label))
-      .child(Input.new(search).id(`workflow-${key}-search`).accessibility_label(`Find ${label.toLowerCase()}`).w_full().h(30).px(7).rounded(5).border_1().border_color(t.border).bg(t.background))
+      .child(Input.new(search).id(`workflow-${key}-search`).accessibility_label(`${label}: find an agent`).w_full().h(30).px(7).rounded(5).border_1().border_color(t.border).bg(t.background))
       .when(options.length === 0, (el) => el.child(row(t, query ? "No matching agents. Try another search." : "No connected agents in this repository. Open an agent there, then return here.")))
       .child(v_flex().w_full().max_h(140).overflow_y_scrollbar().gap(4).children(options.map(({ agent, caption, detail }) => button(t,
       `workflow-${key}-${agent.address}`, caption, (cx) => { this[key] = agent.address; cx.notify(); },
@@ -458,8 +458,8 @@ export class Workflow extends WorkflowDetail {
     const fromPrompt = Boolean(this.goal && !this.goal.steps?.length && !this.tasks?.length && this.form.criteria.value().trim());
     const previousSetup = this.previousSuccessfulSetup();
     const previousChecks = previousSetup?.checks ?? [];
-    const previousCheckLabel = !previousChecks.length ? "No automated checks"
-      : previousChecks.length === 1 && previousChecks[0]?.length === 2 && previousChecks[0][0] === "npm" && previousChecks[0][1] === "test" ? "npm test" : "Custom checks";
+    const previousCheckLabel = !previousChecks.length ? "No tests"
+      : previousChecks.length === 1 && previousChecks[0]?.length === 2 && previousChecks[0][0] === "npm" && previousChecks[0][1] === "test" ? "npm test" : "Custom tests";
     const previousRootName = previousSetup?.root?.split("/").filter(Boolean).at(-1) || "Unknown repository";
     const agentName = (address) => { const agent = agents().find((item) => item.address === address); return agent ? agentLabel(agent) : null; };
     const rootName = this.form.root.value().trim().split("/").filter(Boolean).at(-1);
@@ -478,14 +478,14 @@ export class Workflow extends WorkflowDetail {
         .child(button(t, "workflow-discard-draft", "Discard draft", (context) => this.discardDraft(context), { size: "sm", disabled: this.busy, tip: "Clear this unsent task draft without changing existing work" }))))
       .when(Boolean(this.draftError), (el) => el.child(div().role("alert").text_color(t.blocked).child(`Draft not saved: ${this.draftError}`)))
       .when(Boolean(previousSetup), (el) => el.child(v_flex().gap(4).id("workflow-previous-setup")
-        .child(row(t, `Previous setup · ${previousRootName} · ${previousSetup.executor?.label ?? previousSetup.executor?.address ?? "Implementer unavailable"} + ${previousSetup.reviewer?.label ?? previousSetup.reviewer?.address ?? "Reviewer unavailable"}`))
+        .child(row(t, `Previous setup · ${previousRootName} · ${previousSetup.executor?.label ?? previousSetup.executor?.address ?? "Writer unavailable"} + ${previousSetup.reviewer?.label ?? previousSetup.reviewer?.address ?? "Reviewer unavailable"}`))
         .child(button(t, "workflow-use-previous-setup", "Use previous setup", (context) => this.usePreviousSetup(context),
-          { disabled: this.busy, tip: `Copy setup from ${previousSetup.title} in this run: ${previousSetup.root}; ${previousSetup.maxRounds ?? 2} rounds; ${previousSetup.maxMinutes ?? 20} minutes; ${previousCheckLabel} (${JSON.stringify(previousChecks)}). Title and outcome stay as drafted; nothing starts.` }))))
+          { disabled: this.busy, tip: `Copy setup from ${previousSetup.title} in this run: ${previousSetup.root}; ${previousSetup.maxRounds ?? 2} ${(previousSetup.maxRounds ?? 2) === 1 ? "attempt" : "attempts"}; ${previousSetup.maxMinutes ?? 20} minutes; ${previousCheckLabel} (${JSON.stringify(previousChecks)}). Title and outcome stay as drafted; nothing starts.` }))))
       .when(Boolean(this.setupReuseNotice), (el) => el.child(row(t, this.setupReuseNotice)))
       .when(Boolean(this.setupReuseWarning), (el) => el.child(row(t, this.setupReuseWarning)))
       .child(button(t, "workflow-task-setup", setupLabel, (context) => {
         this.taskSetupOpen = !this.taskSetupOpen; context.notify();
-      }, { selected: Boolean(this.taskSetupOpen), tip: "Repository, implementer and independent reviewer" }))
+      }, { selected: Boolean(this.taskSetupOpen), tip: "Repository and the agents that write and review it" }))
       .when(this.taskSetupOpen, (el) => el.child(v_flex().gap(8).p(10).rounded(6).bg(t.raised)
         .child(this.setupLibrary(t))
         .child(this.field(t, "root", "Repository path"))
@@ -493,18 +493,18 @@ export class Workflow extends WorkflowDetail {
         .child(h_flex().gap(4)
           .child(button(t, "workflow-mode-worktree", "Own worktree", (cx) => { setShared(RUN_MODE, "worktree"); cx.notify(); }, { kind: "ghost", size: "sm", selected: isolated }))
           .child(button(t, "workflow-mode-sessions", "Existing sessions", (cx) => { setShared(RUN_MODE, "sessions"); cx.notify(); }, { kind: "ghost", size: "sm", selected: !isolated })))
-        .when(isolated, (panel) => panel.child(this.accountPicker(t, "executor", "Implements")).child(this.accountPicker(t, "reviewer", "Reviews")))
-        .when(!isolated, (panel) => panel.child(this.agentPicker(t, "executor", "Implementer")).child(this.agentPicker(t, "reviewer", "Independent reviewer")))))
-      .child(button(t, "workflow-task-advanced", `Checks, limits & dependencies · ${this.form.maxRounds.value()} rounds · ${this.form.maxMinutes.value()} min`, (context) => {
+        .when(isolated, (panel) => panel.child(this.accountPicker(t, "executor", "Writes it")).child(this.accountPicker(t, "reviewer", "Reviews it")))
+        .when(!isolated, (panel) => panel.child(this.agentPicker(t, "executor", "Writes it")).child(this.agentPicker(t, "reviewer", "Reviews it")))))
+      .child(button(t, "workflow-task-advanced", `Tests, limits & dependencies · ${this.form.maxRounds.value()} ${this.form.maxRounds.value().trim() === "1" ? "attempt" : "attempts"} · ${this.form.maxMinutes.value()} min`, (context) => {
         this.taskAdvancedOpen = !this.taskAdvancedOpen; context.notify();
-      }, { size: "sm", selected: Boolean(this.taskAdvancedOpen), tip: "Optional checks and prerequisites; limits always apply" }))
+      }, { size: "sm", selected: Boolean(this.taskAdvancedOpen), tip: "Optional tests and prerequisites; limits always apply" }))
       .when(this.taskAdvancedOpen, (el) => el.child(v_flex().gap(8).p(10).rounded(6).bg(t.raised)
-        .child(h_flex().gap(6).child(this.field(t, "maxRounds", "Maximum rounds (1–5)"))
-          .child(this.field(t, "maxMinutes", "Minutes per round (1–120)")))
-        .children([["none", "No automated checks"], ["npm-test", "npm test"], ["custom", "Custom"]].map(([value, label]) => button(t, `workflow-check-preset-${value}`, label,
-          (context) => { this.checkPreset = value; context.notify(); }, { selected: this.checkPreset === value, tip: value === "custom" ? "Enter custom checks as JSON argv lists" : `Use ${label}` })))
+        .child(h_flex().gap(6).child(this.field(t, "maxRounds", "Maximum attempts"))
+          .child(this.field(t, "maxMinutes", "Minutes per attempt")))
+        .children([["none", "No tests"], ["npm-test", "npm test"], ["custom", "Custom"]].map(([value, label]) => button(t, `workflow-check-preset-${value}`, label,
+          (context) => { this.checkPreset = value; context.notify(); }, { selected: this.checkPreset === value, tip: value === "custom" ? "Enter custom test commands as JSON argv lists" : `Use ${label}` })))
         .when(this.checkPreset === "custom", (el) => el.child(row(t, "Advanced: enter JSON argument lists, for example [[\"npm\",\"test\"]]."))
-          .child(this.field(t, "checks", "Custom checks JSON")))
+          .child(this.field(t, "checks", "Custom test commands (JSON)")))
         .child(div().font_semibold().child("Wait for earlier tasks"))
         .child(row(t, "Only selected prerequisites must be accepted before this task can start."))
         .children((this.tasks ?? []).filter((task) => task.goalId === this.goalId && !["cancelled", "failed"].includes(task.state))
@@ -603,7 +603,7 @@ export class Workflow extends WorkflowDetail {
         .when(Boolean(this.error), (el) => el.child(div().id("workflow-error").role("alert").text_color(t.blocked).child(this.error)))
         .when(Boolean(this.pendingDraft), (el) => el.child(this.draftRecovery(t)))
         .when(this.showHelp && Boolean(this.shortcutHelp), (el) => el.child(this.shortcutHelp.render(t)))
-        .when(this.compact && Boolean(this.tasks?.length || this.goal?.steps?.length), (el) => el.child(button(t, "workflow-queue-toggle", this.compactQueueOpen ? "← Back to work" : `Tasks · ${this.filter === "Completed" ? "History" : this.filter} ${workflowItems(this.tasks ?? [], this.filter).length}`, (cx) => {
+        .when(this.compact && Boolean(this.tasks?.length || this.goal?.steps?.length), (el) => el.child(button(t, "workflow-queue-toggle", this.compactQueueOpen ? "← Back to work" : `Tasks · ${filterLabel(this.filter)} ${workflowItems(this.tasks ?? [], this.filter).length}`, (cx) => {
           this.compactQueueOpen = !this.compactQueueOpen; this.h.focus(); cx.notify();
         }, { kind: "ghost", size: "sm", selected: Boolean(this.compactQueueOpen) }).self_start())))
       .child(h_flex().items_start().flex_1().min_h(0).min_w(0)

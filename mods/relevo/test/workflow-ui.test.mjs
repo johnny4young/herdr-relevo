@@ -62,7 +62,7 @@ test('reuse copies only this run’s latest successful setup after an explicit c
   const preview = text(find(tree, 'workflow-previous-setup'));
   assert.match(preview, /Previous setup · app · Builder \+ Reviewer/);
   assert.ok(!preview.includes('/work/app') && !preview.includes('Earlier result'));
-  assert.match(find(tree, 'workflow-use-previous-setup').tip, /Earlier result.*\/work\/app.*4 rounds.*33 minutes/);
+  assert.match(find(tree, 'workflow-use-previous-setup').tip, /Earlier result.*\/work\/app.*4 attempts.*33 minutes/);
   click(find(tree, 'workflow-use-previous-setup'), cx); tree = v.render();
   assert.equal(v.form.title.value(), 'New title'); assert.equal(v.form.criteria.value(), 'New outcome');
   assert.equal(v.form.root.value(), '/work/app'); assert.equal(v.executor, 'builder'); assert.equal(v.reviewer, 'reviewer');
@@ -185,7 +185,7 @@ test('exhausted blocked work offers a review and a follow-up draft without retry
   assert.equal(find(tree, 'workflow-review-findings'), null, 'findings use the existing result navigation action');
   assert.equal((text(tree).match(/Findings/g) ?? []).length, 1);
   assert.ok(!text(tree).includes('Added search behavior.'), 'executor success does not obscure blocked reviewer findings on the overview');
-  assert.match(text(tree), /Changes requested/);
+  assert.match(text(tree), /Asked for changes/);
   assert.match(text(tree), /Latest finding: preserve the query/);
   click(find(tree, 'workflow-prepare-follow-up'), cx);
   tree = v.render();
@@ -259,8 +259,8 @@ test('the first screen explains the decision and keeps sessions and messaging se
     executor: { address: 'builder' }, reviewer: { address: 'reviewer' }, revision: 'current',
     checksResult: [{ code: 0 }], attempts: [{ role: 'executor', report: { summary: 'Search implemented' } }] }];
   v.selected = 'result'; let tree = v.render();
-  assert.match(text(tree), /Ready for your review/); assert.match(text(tree), /Search implemented/);
-  assert.match(text(tree), /✓ Checks 1\/1 passed/);
+  assert.match(text(tree), /Needs me/); assert.match(text(tree), /Search implemented/);
+  assert.match(text(tree), /✓ Tests 1 of 1 passed/);
   assert.ok(find(tree, 'workflow-decide-accept')); assert.ok(find(tree, 'workflow-tab-Changes'));
   assert.equal(find(tree, 'workflow-inspect-result'), null); assert.equal(find(tree, 'workflow-inspect-evidence'), null);
   assert.ok(find(tree, 'workflow-tab-Evidence'));
@@ -282,11 +282,11 @@ test('check summary distinguishes partial evidence, failure and a fresh implemen
   const task = { id: 'checks', goalId: 'g', title: 'Verify result', state: 'blocked',
     checks: [['node', '--test'], ['npm', 'run', 'lint']], checksResult: [{ code: 0 }], attempts: [] };
   v.tasks = [task]; v.selected = task.id;
-  assert.match(text(v.render()), /Checks · 1\/2 passed · incomplete/);
+  assert.match(text(v.render()), /Tests · 1 of 2 passed · incomplete/);
   task.checksResult.push({ code: 1 });
-  assert.match(text(v.render()), /✗ Checks 1 failed · 1\/2 passed/);
+  assert.match(text(v.render()), /✗ Tests 1 failed · 1 of 2 passed/);
   task.state = 'running'; task.attempts = [{ role: 'executor', state: 'running' }];
-  assert.match(text(v.render()), /Checks · awaiting checks/);
+  assert.match(text(v.render()), /Tests · awaiting tests/);
   assert.equal(fake.execs.length, 0, 'summarizing evidence never starts work');
   v.close();
 });
@@ -296,7 +296,7 @@ test('requesting changes previews the next effect and requires explicit feedback
   v.tasks = [{ id: 'result', goalId: 'g', title: 'Search', state: 'needs_you', round: 1, maxRounds: 2, revision: 'current' }];
   v.selected = 'result'; click(find(v.render(), 'workflow-decide-changes'), cx);
   let tree = v.render(); assert.equal(fake.execs.length, 0);
-  assert.match(text(tree), /another implementation and review round/);
+  assert.match(text(tree), /Starts attempt 2 of 2: write, then review/);
   assert.equal(find(tree, 'workflow-send-changes').isDisabled, true);
   assert.equal(find(tree, 'workflow-decide-accept'), null, 'the change request replaces the decision buttons');
   v.form.decision.set_value('Handle empty results');
@@ -357,7 +357,7 @@ test('compact review preserves full context on demand without dispatching or imp
     { id: 'review', role: 'reviewer', report: { status: 'blocked', summary: reviewerSummary } },
   ] }]; v.selected = 'result'; v.engine = { enabled: true };
   let tree = v.render();
-  assert.match(text(tree), /Checks · not configured ✗ Review blocked/);
+  assert.match(text(tree), /Tests · not configured ✗ Reviewer could not approve/);
   assert.ok(!text(tree).includes(reviewerSummary));
   assert.ok(!text(find(tree, 'workflow-outcome-header')).includes(title), 'long assignments are disclosed instead of dominating the first screen');
   assert.equal(find(tree, 'workflow-engine-stop'), null);
@@ -459,8 +459,8 @@ test('Activity distinguishes actual delivery and reports without inventing auton
     { id: 'two', role: 'reviewer', address: 'reviewer', delivery: 'uncertain', state: 'running', prompt: 'Review assignment' },
   ] }]; v.selected = 'a'; v.tab = 'Activity';
   let tree = v.render();
-  assert.match(text(tree), /Coordinator → Implementer/); assert.match(text(tree), /Report: Completed/);
-  assert.match(text(tree), /Coordinator → Reviewer/); assert.match(text(tree), /Delivery uncertain/);
+  assert.match(text(tree), /1\. Writes it/); assert.match(text(tree), /Report: Completed/);
+  assert.match(text(tree), /2\. Reviews it/); assert.match(text(tree), /Delivery uncertain/);
   assert.match(text(tree), /No acceptance recorded/); assert.ok(!text(tree).includes('Exact assignment'));
   click(find(tree, 'workflow-prompt-toggle-one'), cx); assert.match(text(v.render()), /Exact assignment/);
   assert.equal(fake.execs.length, 0); v.close();
@@ -637,7 +637,7 @@ test('the decision bar sits outside the scrolling content and the summary render
   assert.ok(find(tree, 'workflow-decision-card'));
   assert.equal(find(scroll, 'workflow-decision-card'), null);
   assert.equal(find(tree, 'workflow-summary-x').kind, 'textview');
-  assert.match(text(find(tree, 'workflow-status-chips')), /Codex → Claude · round 1\/2/);
+  assert.match(text(find(tree, 'workflow-status-chips')), /Codex → Claude · attempt 1 of 2/);
   v.close();
 });
 
@@ -804,7 +804,7 @@ test('a result waiting on the person shows what nobody could verify beside Accep
   v.selected = 'result';
   const tree = v.render(), words = text(tree);
   assert.ok(find(tree, 'workflow-review-notes'));
-  assert.match(words, /Before you accept \[minor\] math\.js:2: Name could be clearer Not run: node --test Not proven: The output is from this state Not proven by the implementer: Large numbers/);
+  assert.match(words, /Before you accept \[minor\] math\.js:2: Name could be clearer Not run: node --test Not proven: The output is from this state Not proven by the writer: Large numbers/);
   assert.doesNotMatch(words, /Matches the task/);
   assert.ok(find(tree, 'workflow-decide-accept'));
   v.close();
@@ -821,5 +821,17 @@ test('an accepted worktree run in a repository without origin offers only Remove
   const tree = v.render();
   assert.equal(find(tree, 'workflow-worktree-pr'), null);
   assert.ok(find(tree, 'workflow-worktree-remove'));
+  v.close();
+});
+
+test('runs speak in plain words: attempts, tests and who writes or reviews it', async () => {
+  const { resultMeta, workflowCheckSummary } = await import('../lib/workflow-navigation.js');
+  const task = { round: 2, maxRounds: 3, checks: [['npm', 'test']], checksResult: [{ code: 0 }], attempts: [] };
+  assert.equal(workflowCheckSummary(task).label, '1 of 1 passed');
+  assert.equal(resultMeta(task), 'attempt 2 of 3 · tests 1 of 1 passed');
+  const { v } = await setup(); v.taskSetupOpen = true;
+  const words = text(v.render());
+  assert.match(words, /Writes it/); assert.match(words, /Reviews it/);
+  assert.doesNotMatch(words, /Implementer|Independent reviewer|Executor/);
   v.close();
 });

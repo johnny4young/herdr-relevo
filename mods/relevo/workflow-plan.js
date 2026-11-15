@@ -5,7 +5,7 @@ import { button, checkbox } from "./ui.js";
 import { projectGoalPlan, defaultPlanStepIds } from "./lib/goal-plan.js";
 import { workflowBucket } from "./lib/workflow-navigation.js";
 
-const labels = { todo: "Not started", planned: "Planned", ready: "Ready", running: "In progress", working: "In progress", needs_review: "Independent review", review: "Needs review", needs_you: "Needs your review", accepted: "Accepted", done: "Validated", blocked: "Needs attention", failed: "Failed", cancelled: "Cancelled" };
+const labels = { todo: "Not started", planned: "Planned", ready: "Ready", running: "In progress", working: "In progress", needs_review: "In review", review: "Needs review", needs_you: "Needs me", accepted: "Accepted", done: "Validated", blocked: "Stuck", failed: "Failed", cancelled: "Cancelled" };
 const row = (t, value) => div().w_full().min_w(0).text_size(13).text_color(t.muted).child(value);
 
 export class WorkflowPlan {
@@ -36,14 +36,14 @@ export class WorkflowPlan {
     }
     if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5 || !Number.isInteger(maxMinutes) || maxMinutes < 1 || maxMinutes > 120) {
       this.planMoreOpen = true; this.planConfigOpen = true;
-      this.error = "Use 1–5 rounds and a 1–120 minute limit."; cx.notify(); return;
+      this.error = "Use 1–5 attempts and a 1–120 minute limit."; cx.notify(); return;
     }
     let checks;
     try {
       checks = this.checkPreset === "npm-test" ? [["npm", "test"]]
         : this.checkPreset === "custom" ? (this.form.checks.value().trim() ? JSON.parse(this.form.checks.value()) : []) : [];
       if (!Array.isArray(checks) || checks.some((args) => !Array.isArray(args) || !args.length || args.some((arg) => typeof arg !== "string"))) throw Error();
-    } catch { this.planMoreOpen = true; this.planConfigOpen = true; this.error = 'Checks must be JSON argv lists, such as [["npm","test"]].'; cx.notify(); return; }
+    } catch { this.planMoreOpen = true; this.planConfigOpen = true; this.error = 'Tests must be JSON argv lists, such as [["npm","test"]].'; cx.notify(); return; }
     const payload = { action: "create-plan", goalId: goal.id, goalVersion: goal.version,
       stepIds: goal.steps.filter((step) => this.planStepIds.includes(step.id)).map((step) => step.id), root,
       executor: { address: executor.address, label: executor.title || executor.address },
@@ -103,7 +103,7 @@ export class WorkflowPlan {
           : cancelledTask ? `Cancelled: ${cancelledTask.title} · plan needs an update`
           : needsYou ? `${needsYou.state === "needs_you" ? "Review" : "Resolve"}: ${needsYou.title}`
           : pausedTask ? `Paused: ${pausedTask.title}`
-          : next ? `${next.state === "needs_review" ? "Independent review" : next.state === "running" || next.state === "working" ? "In progress" : next.state === "ready" ? "Queued" : "Next"}: ${next.title}`
+          : next ? `${next.state === "needs_review" ? "In review" : next.state === "running" || next.state === "working" ? "In progress" : next.state === "ready" ? "Queued" : "Next"}: ${next.title}`
           : "All tasks accepted";
         const detailsOpen = Boolean(this.planDetailsOpen?.[plan.id]);
         return v_flex().gap(5).p(8).border(1).border_color(t.border).rounded(5)
@@ -117,9 +117,9 @@ export class WorkflowPlan {
           .when(detailsOpen, (el) => el
             .children(tasks.map((task, index) => row(t, `${index + 1}. ${task.title} · ${labels[task.state] ?? task.state}`)))
             .child(row(t, `Repository: ${first?.root ?? "Unavailable"}`))
-            .child(row(t, `${first?.executor?.label ?? "Executor"} → ${first?.reviewer?.label ?? "Independent reviewer"} · ${first?.maxRounds ?? "?"} rounds · ${first?.maxMinutes ?? "?"} min per task`)))
+            .child(row(t, `${first?.executor?.label ?? "Writes it"} → ${first?.reviewer?.label ?? "Reviews it"} · ${first?.maxRounds ?? "?"} ${first?.maxRounds === 1 ? "attempt" : "attempts"} · ${first?.maxMinutes ?? "?"} min per attempt`)))
           .when(plan.state === "planned", (el) => el.child(button(t, `workflow-start-plan-${plan.id}`, stopped ? "Resume & start plan" : "Start plan", (cx) => this.command({ action: "start-plan", planId: plan.id, ...(stopped ? { resumePaused: true } : {}) }, cx, (_response, context) => {
-            this.notice = "Plan started. Review results in Needs you; accepted tasks release the next step automatically.";
+            this.notice = "Plan started. Review results in Needs me; accepted tasks release the next step automatically.";
             this.selectFilter("In progress", context);
           }), { kind: "solid", disabled: this.busy || cancelled || !active || plan.goalVersion !== this.goal.version,
             tip: cancelled ? "Cancel this draft and prepare an updated plan without the cancelled task." : plan.goalVersion !== this.goal.version ? "The goal changed. Cancel these planned tasks and prepare an updated plan." : stopped ? "Explicitly resume the paused tasks in this draft and start the plan; other paused work stays paused" : "Start this bounded plan once; each subsequent task waits for human acceptance" })))
@@ -179,16 +179,16 @@ export class WorkflowPlan {
           .when(Boolean(this.setupReuseWarning), (el) => el.child(row(t, this.setupReuseWarning)))
           .child(this.field(t, "root", "Repository path"))
           .child(this.repositoryPicker(t))
-          .child(this.agentPicker(t, "executor", "Executor"))
-          .child(this.agentPicker(t, "reviewer", "Independent reviewer"))
-          .child(h_flex().gap(6).child(this.field(t, "maxRounds", "Rounds per task (1–5)"))
-            .child(this.field(t, "maxMinutes", "Minutes per round (1–120)")))
-          .child(row(t, "Automated checks run after implementation. Nothing runs until you start the plan."))
-          .children([["none", "No automated checks"], ["npm-test", "npm test"], ["custom", "Custom"]].map(([value, label]) => button(t, `workflow-plan-check-${value}`, label,
+          .child(this.agentPicker(t, "executor", "Writes it"))
+          .child(this.agentPicker(t, "reviewer", "Reviews it"))
+          .child(h_flex().gap(6).child(this.field(t, "maxRounds", "Attempts per task"))
+            .child(this.field(t, "maxMinutes", "Minutes per attempt")))
+          .child(row(t, "Tests run after each attempt. Nothing runs until you start the plan."))
+          .children([["none", "No tests"], ["npm-test", "npm test"], ["custom", "Custom"]].map(([value, label]) => button(t, `workflow-plan-check-${value}`, label,
             (cx) => { this.checkPreset = value; cx.notify(); }, { selected: (this.checkPreset ?? "none") === value,
-              tip: value === "custom" ? "Enter custom checks as JSON argv lists" : `Use ${label}` })))
+              tip: value === "custom" ? "Enter custom test commands as JSON argv lists" : `Use ${label}` })))
           .when(this.checkPreset === "custom", (el) => el.child(row(t, 'Advanced: JSON argument lists, for example [["npm","test"]].'))
-            .child(this.field(t, "checks", "Custom checks JSON")))
+            .child(this.field(t, "checks", "Custom test commands (JSON)")))
           .child(row(t, "Limits apply to each task. Saving creates a preview; Start plan is what authorizes agents to begin.")))
         .child(button(t, "workflow-create-plan", "Save plan preview", (cx) => this.createPlan(cx), { kind: "solid", disabled: this.busy || stale || !active || !goal.criteria?.trim(), tip: "Atomically create all selected tasks and their dependencies without running agents" })))
       .when(!active, (el) => el.child(row(t, "This goal is not active. Its history remains available; reopen the goal before planning new work."))));

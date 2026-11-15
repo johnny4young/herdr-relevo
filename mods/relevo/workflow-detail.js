@@ -34,7 +34,7 @@ export class WorkflowDetail extends WorkflowRuns {
     const canResume = task.paused && !planDraft && !["needs_you", "accepted", "cancelled"].includes(task.state) && noUncertainDelivery && noLiveAttempt &&
       (!["blocked", "failed", "planned"].includes(task.state) || attemptBudgetAvailable);
     if (canRetryReview) {
-      actions.push(action("Retry review", "retry-review", "Ask the independent reviewer to reassess the same checked revision; the coordinator verifies it is unchanged"));
+      actions.push(action("Retry review", "retry-review", "Ask the reviewer to reassess the same tested revision; the coordinator verifies it is unchanged"));
     }
     if (canStartAgain) actions.push(action("Retry", "start", "Start a new bounded attempt after reviewing the reported issue"));
     if (canResume) actions.push(action("Resume", "resume", "Resume dispatches for this task"));
@@ -113,14 +113,14 @@ export class WorkflowDetail extends WorkflowRuns {
           this.sendChanges(task, cx);
         }))
         .when(changes, (panel) => panel.child(row(t, task.round >= task.maxRounds
-          ? "Round limit reached: this prepares a follow-up task for you to start."
-          : "Sends another implementation and review round."))))
+          ? "No attempts left: this prepares a follow-up task for you to start."
+          : `Starts attempt ${(task.round ?? 0) + 1} of ${task.maxRounds}: write, then review.`))))
       .child(h_flex().w_full().min_w(0).gap(6).items_center().flex_wrap()
         .when(!editing, (bar) => bar
           .child(button(t, "workflow-decide-accept", confirming ? "Confirm ↵" : "Accept", (cx) => submit("accept", cx),
             { kind: "solid", disabled: this.busy || changes, tip: "A, then Enter" })
             .when(!this.busy && !changes, (el) => el.bg(t.accent).text_color(t.accent_foreground)))
-          .child(button(t, "workflow-decide-changes", "Request changes", (cx) => this.editDecisionNote(task, true, cx), { disabled: this.busy, tip: "R" }))
+          .child(button(t, "workflow-decide-changes", "Ask for changes", (cx) => this.editDecisionNote(task, true, cx), { disabled: this.busy, tip: "R" }))
           .child(button(t, "workflow-decision-diff", "Diff", (cx) => this.openDiff(task, cx), { kind: "ghost", size: "sm", disabled: this.busy || !task.root }))
           .child(button(t, "workflow-decide-defer", "Later", (cx) => submit("defer", cx), { kind: "ghost", size: "sm", disabled: this.busy, tip: "Keep it pending and pause further work" }))
           .child(button(t, "workflow-decision-note-toggle", "Note", (cx) => this.editDecisionNote(task, false, cx), { kind: "ghost", size: "sm" })))
@@ -147,37 +147,37 @@ export class WorkflowDetail extends WorkflowRuns {
   }
 
   nextStep(task) {
-    if (task.state === "needs_you") return "The agents have finished. Review the result below, then accept it or request changes. You do not need to open their sessions.";
+    if (task.state === "needs_you") return "The agents have finished. Review the result below, then accept it or ask for changes. You do not need to open their sessions.";
     if (task.state === "accepted") return "Accepted and saved in History.";
     if (task.state === "cancelled") return "Cancelled. Create a new task to continue.";
-    if (task.state === "blocked" || task.state === "failed") return "Blocked. Review the findings, then prepare a follow-up.";
+    if (task.state === "blocked" || task.state === "failed") return "Stuck. Review the findings, then prepare a follow-up.";
     if (task.state === "ready") {
       const pending = (task.dependsOn ?? []).map((id) => this.tasks?.find((item) => item.id === id)).filter((item) => !item || item.state !== "accepted");
       const continuation = this.engine?.enabled && !task.paused ? "This task continues automatically once its prerequisite is accepted." : "After the prerequisite is accepted, resume this task or start automation to continue.";
       const cancelled = pending.find((item) => item?.state === "cancelled");
       if (cancelled) return `The prerequisite “${cancelled.title}” was cancelled. This task cannot start automatically. Cancel this task and prepare an updated plan, or create a separate task with the prerequisites you need.`;
       const blocked = pending.find((item) => ["blocked", "failed"].includes(item?.state));
-      if (blocked) return `Waiting for “${blocked.title}” to be resolved and accepted. Open that task in Needs you to inspect the issue. ${continuation}`;
+      if (blocked) return `Waiting for “${blocked.title}” to be resolved and accepted. Open that task in Needs me to see why. ${continuation}`;
       if (pending.length) return `Waiting for your acceptance of ${pending.map((item) => item?.title ?? "a prerequisite task").join(", ")}. ${continuation}`;
     }
     if (task.paused) return "This task is paused.";
     if (task.state === "planned" && task.planId) return "This task belongs to a saved plan. Open Goal plan and choose Start plan once for the whole sequence.";
     if (task.state === "ready" && this.engine?.enabled) return "Queued. Starts when its agent is free.";
     if (task.state === "planned" || task.state === "ready") return "Choose Start to assign this task.";
-    if (task.state === "needs_review") return "Independent review in progress.";
-    return "In progress. Checks and independent review follow.";
+    if (task.state === "needs_review") return "Review in progress.";
+    return "In progress. Tests and review follow.";
   }
 
   statusChips(t, task, review) {
     const checks = workflowCheckSummary(task);
-    const checkText = checks.tone === "normal" ? `✓ Checks ${checks.label}` : checks.tone === "failure" ? `✗ Checks ${checks.label}` : `Checks · ${checks.label.toLowerCase()}`;
-    const reviewText = !review ? "Review pending" : review.status === "completed" ? "✓ Review approved" : review.status === "changes_requested" ? "Changes requested" : "✗ Review blocked";
+    const checkText = checks.tone === "normal" ? `✓ Tests ${checks.label}` : checks.tone === "failure" ? `✗ Tests ${checks.label}` : `Tests · ${checks.label.toLowerCase()}`;
+    const reviewText = !review ? "Review pending" : review.status === "completed" ? "✓ Review approved" : review.status === "changes_requested" ? "Asked for changes" : "✗ Reviewer could not approve";
     const agents = [task.executor?.label ?? task.executor?.address, task.reviewer?.label ?? task.reviewer?.address].filter(Boolean).join(" → ");
     const evidence = task.evidence?.length ?? 0;
     return h_flex().id("workflow-status-chips").w_full().min_w(0).flex_wrap().gap(5).children([
       pill(t, "workflow-chip-checks", checkText, checks.tone === "normal" ? t.done : checks.tone === "failure" ? t.blocked : t.muted),
       pill(t, "workflow-chip-review", reviewText, !review ? t.muted : review.status === "completed" ? t.done : t.blocked),
-      agents ? pill(t, "workflow-chip-agents", `${agents} · round ${task.round ?? 0}/${task.maxRounds ?? 2}`) : null,
+      agents ? pill(t, "workflow-chip-agents", `${agents} · attempt ${task.round ?? 0} of ${task.maxRounds ?? 2}`) : null,
       evidence ? pill(t, "workflow-chip-evidence", `${evidence} evidence`) : null,
       task.worktree?.branch ? pill(t, "workflow-chip-worktree", task.worktree.branch) : null,
     ].filter(Boolean));
@@ -196,11 +196,11 @@ export class WorkflowDetail extends WorkflowRuns {
     const followUpAvailable = blocked && !unresolvedAttempt && ((task.round ?? 0) >= (task.maxRounds ?? 2) ||
       (task.attempts ?? []).filter((attempt) => attempt.role === "reviewer").length >= (task.maxRounds ?? 2) + 1);
     const details = this.detailsFor === task.id;
-    const caveats = [...reportNotes(review), ...(implementation?.notProven ?? []).map((item) => `Not proven by the implementer: ${item}`)];
+    const caveats = [...reportNotes(review), ...(implementation?.notProven ?? []).map((item) => `Not proven by the writer: ${item}`)];
     const statusColor = task.state === "needs_you" ? t.accent : blocked ? t.blocked : task.state === "accepted" ? t.done : t.muted;
     return v_flex().w_full().min_w(0).gap(14)
       .child(v_flex().id("workflow-outcome-header").w_full().min_w(0).gap(6)
-        .child(div().text_size(11).font_semibold().text_color(statusColor).child(task.state === "needs_you" ? "Ready for your review" : taskState(task.state)))
+        .child(div().text_size(11).font_semibold().text_color(statusColor).child(taskState(task.state)))
         .child(div().text_size(13).font_semibold().w_full().min_w(0).tooltip(task.title).accessibility_label(task.title).child(caption(task.title, 115)))
         .child(this.statusChips(t, task, review))
         .when(task.state !== "needs_you", (el) => el.child(row(t, this.nextStep(task)))))
@@ -225,8 +225,8 @@ export class WorkflowDetail extends WorkflowRuns {
       }, { kind: "ghost", size: "sm" }).self_start())
       .when(details, (el) => el.child(v_flex().gap(8)
         .child(row(t, task.criteria || "No acceptance criteria recorded"))
-        .child(row(t, `Executor: ${task.executor?.label ?? task.executor?.address ?? "Unknown"} · Reviewer: ${task.reviewer?.label ?? task.reviewer?.address ?? "Unknown"}`))
-        .child(row(t, `Rounds ${task.round ?? 0}/${task.maxRounds ?? 2} · ${task.maxMinutes ?? 20} minutes per round`))));
+        .child(row(t, `Writes it: ${task.executor?.label ?? task.executor?.address ?? "Unknown"} · Reviews it: ${task.reviewer?.label ?? task.reviewer?.address ?? "Unknown"}`))
+        .child(row(t, `Attempt ${task.round ?? 0} of ${task.maxRounds ?? 2} · ${task.maxMinutes ?? 20} minutes per attempt`))));
   }
 
   activity(t, task) {
@@ -243,7 +243,7 @@ export class WorkflowDetail extends WorkflowRuns {
             : delivered ? (attempt.state === "running" ? "Assignment sent · awaiting report" : "Assignment sent")
               : attempt.delivery === "sending" ? "Sending assignment" : "Delivery not confirmed";
         return v_flex().id(`workflow-handoff-${attempt.id}`).gap(6).p(12).rounded(8).bg(t.raised)
-          .child(div().font_semibold().child(`${index + 1}. Coordinator → ${attempt.role === "reviewer" ? "Reviewer" : "Implementer"}`))
+          .child(div().font_semibold().child(`${index + 1}. ${attempt.role === "reviewer" ? "Reviews it" : "Writes it"}`))
           .child(row(t, `${attempt.address ?? "Unknown session"} · ${status}`))
           .when(Boolean(attempt.at), (el) => el.child(div().text_size(11).text_color(t.muted).child(attempt.at)))
           .when(Boolean(attempt.report?.summary), (el) => el.child(row(t, expanded ? attempt.report.summary : caption(attempt.report.summary, 180))))
@@ -267,14 +267,14 @@ export class WorkflowDetail extends WorkflowRuns {
     const latest = ["executor", "reviewer"].map((role) => [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === role && attempt.report)).filter(Boolean);
     return v_flex().w_full().min_w(0).gap(9)
       .child(button(t, "workflow-review-diff", "Open diff", (cx) => this.openDiff(task, cx), { disabled: !task.root }))
-      .child(div().font_semibold().child("Observed checks"))
-      .when(!task.checksResult?.length, (el) => el.child(row(t, "No checks recorded for this task.")))
+      .child(div().font_semibold().child("Tests"))
+      .when(!task.checksResult?.length, (el) => el.child(row(t, "No tests recorded for this task.")))
       .children((task.checksResult ?? []).map((check, index) => v_flex().w_full().min_w(0).gap(3)
-        .child(row(t, (check.argv?.join(" ") ?? "Check " + (index + 1)) + " · " + (check.code === 0 ? "passed" : "failed (" + (check.code ?? "unknown") + ")")))
+        .child(row(t, (check.argv?.join(" ") ?? "Test " + (index + 1)) + " · " + (check.code === 0 ? "passed" : "failed (" + (check.code ?? "unknown") + ")")))
         .when(Boolean(this.showCheckOutput), (el) => el.child(row(t, "stdout: " + String(check.stdout ?? "").slice(-2000) + " · stderr: " + String(check.stderr ?? "").slice(-2000))))))
-      .when(Boolean(task.checksResult?.length), (el) => el.child(button(t, "workflow-check-output", this.showCheckOutput ? "Hide check output" : "Show check output", (cx) => { this.showCheckOutput = !this.showCheckOutput; cx.notify(); }, { tip: "Expand recorded check output" })))
+      .when(Boolean(task.checksResult?.length), (el) => el.child(button(t, "workflow-check-output", this.showCheckOutput ? "Hide test output" : "Show test output", (cx) => { this.showCheckOutput = !this.showCheckOutput; cx.notify(); }, { tip: "Expand recorded test output" })))
       .children(latest.map((attempt) => v_flex().w_full().min_w(0).gap(5).p(8).rounded(6).border_1().border_color(t.border)
-        .child(div().font_semibold().child((attempt.role === "reviewer" ? "Independent review" : "Implementation report") + " · " + reportState(attempt.report.status)))
+        .child(div().font_semibold().child((attempt.role === "reviewer" ? "Reviews it" : "Writes it") + " · " + reportState(attempt.report.status)))
         .child(row(t, this.expandedReports?.[attempt.id] ? attempt.report.summary : caption(attempt.report.summary, 260)))
         .children(reportNotes(attempt.report).map((note) => row(t, note)))
         .when(Boolean(this.expandedReports?.[attempt.id]), (el) => el.children((attempt.report.details ?? []).map((detail) => row(t, detail))))
@@ -323,16 +323,16 @@ export class WorkflowDetail extends WorkflowRuns {
     if (!task) return v_flex().gap(8).child(row(t, "Select a task to see its tools."));
     const navigate = (tab, cx) => { this.tab = tab; this.h.focus(); cx.notify(); };
     const entries = [
-      { id: "result", label: "Review result", detail: "Inspect changes, checks and agent reports", action: (cx) => navigate("Changes", cx) },
+      { id: "result", label: "Review result", detail: "Inspect changes, tests and agent reports", action: (cx) => navigate("Changes", cx) },
       { id: "evidence", label: "Open evidence", detail: "Screenshots, videos and reports for this task", action: (cx) => navigate("Evidence", cx) },
       { id: "activity", label: "Who did what", detail: "See assignments and reports in order", action: (cx) => navigate("Activity", cx) },
       ...["executor", "reviewer"].filter((role) => task[role]?.address).map((role) => ({
-        id: role, label: role === "executor" ? "Open implementer session" : "Open reviewer session",
+        id: role, label: role === "executor" ? "Open writer session" : "Open reviewer session",
         detail: `${task[role].label ?? task[role].address} · ${task[role].address}`,
         action: () => run("agent.focus", { terminal: task[role].address }),
       })),
       ...Object.entries(CONFIGURED_SKILLS).filter(([, value]) => typeof value === "string" && value.trim()).map(([name, command]) => ({
-        id: `skill-${name}`, label: `Skill: ${name}`, detail: `/${command} · queue for the implementer`,
+        id: `skill-${name}`, label: `Skill: ${name}`, detail: `/${command} · queue for the writer`,
         action: (cx) => { this.toolPreview = { taskId: task.id, name, command }; cx.notify(); },
         disabled: this.busy || ["accepted", "cancelled"].includes(task.state),
       })),
@@ -355,12 +355,12 @@ export class WorkflowDetail extends WorkflowRuns {
       .child(Input.new(this.form.toolSearch).id("workflow-tool-search").w_full().h(32).px(7).rounded(5).border_1().border_color(t.border).bg(t.background).accessibility_label("Find an action or skill"))
       .when(Boolean(preview), (el) => el.child(v_flex().gap(8).p(12).rounded(8).bg(t.raised)
         .child(div().font_semibold().child(`Queue /${preview.command}?`))
-        .child(row(t, `Recipient: ${task.executor?.label ?? task.executor?.address ?? "Not assigned"}. Sends when the session is ready and independent review is not running.`))
+        .child(row(t, `Recipient: ${task.executor?.label ?? task.executor?.address ?? "Not assigned"}. Sends when the session is ready and review is not running.`))
         .when(task.state === "needs_you", (panel) => panel.child(row(t, "This may change the pending result. Review any new changes before accepting.")))
         .child(h_flex().gap(5)
           .child(button(t, "workflow-tool-confirm", "Queue skill", (cx) => this.command({ action: "skill", taskId: task.id, skill: preview.command, mode: "queue" }, cx, () => {
-            this.toolPreview = null; this.notice = "Skill queued for the implementer's next safe turn.";
-          }), { kind: "solid", disabled: this.busy || ["accepted", "cancelled"].includes(task.state), tip: "Send only this configured skill to the selected task's implementer" }))
+            this.toolPreview = null; this.notice = "Skill queued for the writer's next safe turn.";
+          }), { kind: "solid", disabled: this.busy || ["accepted", "cancelled"].includes(task.state), tip: "Send only this configured skill to the selected task's writer" }))
           .child(button(t, "workflow-tool-cancel", "Cancel", (cx) => { this.toolPreview = null; cx.notify(); }, { tip: "Close the preview without sending" })))))
       .when(!visible.length, (el) => el.child(row(t, "No matching tools. Try review, evidence, session or a skill name.")))
       .children(visible.map((entry) => button(t, `workflow-tool-${entry.id}`, [v_flex().w_full().min_w(0).gap(3).text_left()
@@ -405,7 +405,7 @@ export class WorkflowDetail extends WorkflowRuns {
     const acceptedTasks = (this.tasks ?? []).filter((task) => task.state === "accepted");
     const correctionCount = acceptedTasks.reduce((total, task) => total + Math.max(0, (task.round ?? 0) - 1), 0);
     return v_flex().gap(7).child(div().font_semibold().child("Workflow preferences"))
-      .child(row(t, `Observed accepted tasks: ${acceptedTasks.length}. Accepted tasks with correction rounds: ${acceptedTasks.length ? `${correctionCount}/${acceptedTasks.length}` : "unavailable (no accepted tasks yet)"}. This is a count, not a measure of improvement.`))
+      .child(row(t, `Observed accepted tasks: ${acceptedTasks.length}. Accepted tasks that needed another attempt: ${acceptedTasks.length ? `${correctionCount}/${acceptedTasks.length}` : "unavailable (no accepted tasks yet)"}. This is a count, not a measure of improvement.`))
       .child(row(t, `Pending and rejected guidance is never sent to agents. Accepted guidance applies to future task prompts. ${this.form.preferenceScope.value() === "project" ? `Project: ${(this.tasks ?? []).find((task) => task.id === this.selected)?.root ?? "Select a task to choose a project"}` : "Scope: this goal"}`))
       .child(this.field(t, "preference", "Preference text", true))
       .child(this.field(t, "preferenceScope", "Scope: goal or project path"))

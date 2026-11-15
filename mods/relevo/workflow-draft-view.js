@@ -40,7 +40,7 @@ export class WorkflowDraftView extends WorkflowSetup {
     this.dependsOn = draft.dependsOn.filter((id) => existing.has(id));
     const missing = this.dependsOn.length !== draft.dependsOn.length;
     this.setupReuseWarning = [...restored.warnings, missing ? "Some prerequisites are no longer available. Review dependencies before creating." : null].filter(Boolean).join(" ");
-    this.setupReuseNotice = `Draft restored · ${draft.maxRounds} rounds · ${draft.maxMinutes} min per round. Nothing has started.`;
+    this.setupReuseNotice = `Draft restored · ${draft.maxRounds} ${String(draft.maxRounds).trim() === "1" ? "attempt" : "attempts"} · ${draft.maxMinutes} min per attempt. Nothing has started.`;
     this.pendingDraft = null; this.draftSaved = true;
     this.explicitNew = true; this.selected = null; this.tab = "Overview"; this.compactQueueOpen = false;
     this.taskSetupOpen = Boolean(restored.warnings.length); this.taskAdvancedOpen = missing;

@@ -39,5 +39,5 @@ test('ready and historical tasks do not add redundant progress text', () => {
   assert.equal(runProgress('g', [task], { enabled: true }), '');
   assert.equal(runProgress('g', [], { enabled: false }), '');
   assert.equal(runProgress('g', [{ ...task, state: 'accepted' }], { enabled: false }), '');
-  assert.match(runProgress('g', [task, { ...task, id: 'blocked', state: 'blocked' }], { enabled: true }), /1 other task is blocked/);
+  assert.match(runProgress('g', [task, { ...task, id: 'blocked', state: 'blocked' }], { enabled: true }), /1 other task is stuck/);
 });

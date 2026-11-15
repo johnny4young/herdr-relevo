@@ -8,12 +8,15 @@ export const workflowItems = (tasks, bucket) => {
   return bucket === "Needs you" ? items.sort((a, b) => Number(b.state === "needs_you") - Number(a.state === "needs_you")) : items;
 };
 
+// Bucket names are ids; this is what the person reads.
+export const filterLabel = (bucket) => ({ "Needs you": "Needs me", Completed: "History" }[bucket] ?? bucket);
+
 export function workflowCheckSummary(task) {
   const results = Array.isArray(task.checksResult) ? task.checksResult : [];
   const latest = Array.isArray(task.attempts) ? task.attempts.at(-1) : null;
   const configured = Array.isArray(task.checks) ? task.checks.length : 0;
   if (!configured && !results.length) return { label: 'Not configured', tone: 'muted' };
-  if (latest?.role === 'executor' && latest.state === 'running') return { label: 'Awaiting checks', tone: 'muted' };
+  if (latest?.role === 'executor' && latest.state === 'running') return { label: 'Awaiting tests', tone: 'muted' };
   // A non-completed implementation does not run checks; the store can still
   // contain a preceding round's results for its history.
   if (latest?.role === 'executor' && latest.state === 'reported' && latest.report?.status && latest.report.status !== 'completed') {
@@ -28,12 +31,12 @@ export function workflowCheckSummary(task) {
     return (Number.isFinite(code) && code !== 0) ||
       (typeof code === 'string' && code.trim() !== '' && !['0', 'cancelled'].includes(code));
   }).length;
-  if (failures) return { label: `${failures} failed · ${passed}/${total} passed`, tone: 'failure' };
+  if (failures) return { label: `${failures} failed · ${passed} of ${total} passed`, tone: 'failure' };
 
   const complete = results.length >= configured && results.every((result) => Number.isFinite(result?.code));
   return complete
-    ? { label: `${passed}/${total} passed`, tone: 'normal' }
-    : { label: `${passed}/${total} passed · incomplete`, tone: 'muted' };
+    ? { label: `${passed} of ${total} passed`, tone: 'normal' }
+    : { label: `${passed} of ${total} passed · incomplete`, tone: 'muted' };
 }
 
 export function acceptanceEffect(task, tasks, engine) {
@@ -57,17 +60,17 @@ export function queueSummary(tasks, engine) {
   return { title: "Work continues", detail: "The next result will come back here." };
 }
 
-const VERDICT = { completed: 'review approved', changes_requested: 'changes requested', blocked: 'review blocked' };
+const VERDICT = { completed: 'review approved', changes_requested: 'asked for changes', blocked: 'reviewer could not approve' };
 const since = (ms, now) => {
   const s = Math.max(0, Math.floor((now - ms) / 1000));
   return s < 60 ? 'now' : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`;
 };
 
-// What a reviewer needs before opening a result: who, how far, checks, verdict, age.
+// What a reviewer needs before opening a result: who, how far, tests, verdict, age.
 export function resultMeta(task, now = Date.now()) {
   const review = [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === 'reviewer' && attempt.report);
   const agents = [task.executor?.label ?? task.executor?.address, task.reviewer?.label ?? task.reviewer?.address].filter(Boolean).join(' → ');
   const at = Date.parse(review?.at ?? task.attempts?.at(-1)?.at ?? '');
-  return [agents, task.maxRounds ? `round ${task.round ?? 0}/${task.maxRounds}` : null, `checks ${workflowCheckSummary(task).label.toLowerCase()}`,
+  return [agents, task.maxRounds ? `attempt ${task.round ?? 0} of ${task.maxRounds}` : null, `tests ${workflowCheckSummary(task).label.toLowerCase()}`,
     review ? VERDICT[review.report.status] ?? review.report.status : null, Number.isFinite(at) ? since(at, now) : null].filter(Boolean).join(' · ');
 }
