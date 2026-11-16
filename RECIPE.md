@@ -261,7 +261,11 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   "Batch accepted" alert. Enter on a task shows "‹ Tasks", the writer's summary, four rows of who did
   what (writer, tests, reviewer, you; yours tinted), what nobody verified, and the decision: **a Accept** (A or a click arms,
   Enter or a second click sends `decide` with the revision on screen), **r Ask for changes** (a text area, ⌘↵ sends; with no
-  attempts left it prepares a follow-up), **d See the diff** and **More**, both in the run window; the attempts above the decision when there was more than one; and,
+  attempts left it prepares a follow-up), **d See the diff** (beside Accept while it waits on you) and **More**. A worktree run lists its
+  changed files with their lines under who did what (`task-diff`: from the run's base commit to the accepted commit, else the tree the
+  reviewer saw, else the last snapshot); `d` or a file opens that change in the review pane beside the panel, with a fixed `range`
+  and no scopes or checkpoint. A run on existing sessions opens the run window instead. More opens the run window; the attempts
+  above the decision when there was more than one; and,
   on an accepted or cancelled task, **Re-run with changes…** (a new task in the run window with its prompt). Esc goes back one level.
   A merged linked PR is remembered in shared `relevo.runs.merged` once the landing list has seen it merge.
 - **Run alerts**: a run result that comes to wait on you posts "Result ready · <task>" with the reviewer's verdict; the click opens Reviews with that result selected, and **Review result** there opens the task in Runs. Each result is announced once per revision and attempt, and the first read after a start only learns what already waits. Accepting several results at once posts "Batch accepted · N results" with their repository; its click opens the run. Results outside the focused context stay quiet.

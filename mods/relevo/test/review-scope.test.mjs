@@ -78,3 +78,21 @@ test("review scope is a named native keyboard control that changes comparison wi
   assert.equal(fake.execs.some((s) => s.startsWith("hc send ")), false);
   assert.equal(v.seenMark(), null);
 });
+
+test("a run's range shows its two revisions only: no scope to pick, no checkpoint, the asked file first, nothing read again", async () => {
+  const from = "b".repeat(40), to = "c".repeat(40);
+  fake.exec = (cmd, args) => (cmd === "git" && args.includes("--numstat")
+    ? { stdout: args.includes(from) && args.includes(to) ? "1\t0\tREADME.md\n6\t1\tslug.js\n" : "" } : null);
+  const { v, cx } = await open({ range: { from, to, label: "Slugify · as reviewed", file: "slug.js" } });
+  assert.deepEqual(v.files.map((f) => f.path), ["README.md", "slug.js"]);
+  assert.equal(v.open.path, "slug.js");
+  assert.equal(fake.execs.filter((l) => l.includes("ls-files --others")).length, 0, "two revisions have no untracked files");
+  const view = v.render(cx);
+  assert.equal(find(view, "rv-scope"), null);
+  assert.equal(find(view, "rv-mark-seen"), null);
+  assert.match(text(view), /Slugify · as reviewed/);
+  const reads = fake.execs.length;
+  for (const tick of cx.timers ?? []) tick.fn?.(cx);
+  await settled();
+  assert.equal(fake.execs.filter((l) => l.includes("--numstat")).length, fake.execs.slice(0, reads).filter((l) => l.includes("--numstat")).length);
+});

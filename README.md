@@ -37,7 +37,7 @@ The panel has two views. **Reviews** is the Inbox described below. **Runs** is f
 1. **New run** (`n`) takes a prompt. Its first line names the run.
 2. Pick the repository, the tests (none, `npm test` or your own commands), who writes it and who reviews it. Accounts at 100% are skipped.
 3. **Start**. By default the run gets its own worktree, `run/<slug>` under `~/.herdr/worktrees/<repo>/`, and both agents open there in two tabs. **Existing sessions** uses agents you already have open in the repository instead.
-4. The result appears under **Needs me**, in Reviews with its agents, attempt, tests, verdict and age, and in Runs on its run. Open it to read the writer's summary and who did what, then accept (**A**, then Enter), ask for changes (**R**) or see the diff (**D**). A run the agents could not finish shows as **Stuck**; **See why** opens it on the reviewer's finding.
+4. The result appears under **Needs me**, in Reviews with its agents, attempt, tests, verdict and age, and in Runs on its run. Open it to read the writer's summary, who did what and the files it changed, then see the diff (**D**, or a click on a file, opens it beside the panel), accept (**A**, then Enter) or ask for changes (**R**). A run the agents could not finish shows as **Stuck**; **See why** opens it on the reviewer's finding.
 
 **Runs at a glance.** Each run is one row that answers three questions: what it is, what it is doing or wants **Now** ("3 results wait for your review", "stuck: the reviewer rejected it twice", "an agent is writing …", "needs a plan before agents start") and what it **Shipped** ("2 pull requests merged: #38, #42", "nothing yet"). Runs are grouped Needs me, In flight, Ready and Not started, with the counts as a legend and one action at the edge: **Review 3**, **See why**, **Open** or **Plan**. Closed runs fold under "N older finished runs", and **Saved setups** opens in place with one row per setup (name, repository, agents, attempts): **Start** fills a new task in the run window with it, and **×** removes it.
 
@@ -53,7 +53,7 @@ The panel has two views. **Reviews** is the Inbox described below. **Runs** is f
 
 **Run it again.** An accepted or cancelled task offers **Re-run with changes…**, which opens a new task in the run window with its prompt, repository, agents and limits; nothing is sent until you start it.
 
-The separate run window is for planning (prompt, repository, agents, plan) and for the deep views a task links to: **See the diff** opens its result and diff, **More** its full report, evidence and activity, where you can also defer or add a note.
+The separate run window is for planning (prompt, repository, agents, plan) and for the deep views a task links to: **More** opens its full report, evidence and activity, where you can also defer or add a note.
 
 **What accepting does.** In a worktree run, acceptance commits exactly the tree the reviewer saw to the run branch, without running hooks. Anything changed after the review stays uncommitted. From there the run offers **Open draft PR** (pushes the branch and runs `gh pr create --draft`) and **Remove worktree**, which keeps a branch that has commits. A cancelled run offers **Discard worktree**. Accepting never approves, merges or pushes anything by itself.
 
