@@ -138,7 +138,7 @@ test("a waiting agent's row says why, in its own line and colour; another's old 
   assert.equal(text(find(view, "ag-t1")), "app Run: rm -rf dist <1m");
   assert.equal(text(find(view, "what-t2")), "t2");
   assert.doesNotMatch(text(find(view, "ag-t2")), /stale/);
-  assert.doesNotMatch(text(view), /Needs you.*app Run/);
+  assert.doesNotMatch(text(view), /Needs me.*app Run/);
 });
 
 test("a row says its folder only when the space's name doesn't", async () => {
@@ -227,7 +227,7 @@ test("Claude Desktop sessions that work, ask or wait for review join the section
   ];
   fake.stored["relevo.desktop.settled"] = ["local_2"];
   const { ui, cx } = await open([]);
-  assert.match(text(find(ui(), "sec-me")), /^NEEDS YOU 1$/);
+  assert.match(text(find(ui(), "sec-me")), /^NEEDS ME 1$/);
   assert.match(text(find(ui(), "dk-local_1")), /^app Pick one Desktop/);
   assert.equal(find(ui(), "dk-local_2"), null);
   assert.equal(find(ui(), "dk-local_3"), null);
@@ -249,7 +249,7 @@ test("Claude in a terminal outside Herdr joins the section of its state, with it
     { id: "s-2", project: "web", app: "iTerm", state: "idle", at: now },
   ];
   const { ui, cx } = await open([]);
-  assert.match(text(find(ui(), "sec-me")), /^NEEDS YOU 1$/);
+  assert.match(text(find(ui(), "sec-me")), /^NEEDS ME 1$/);
   assert.match(text(find(ui(), "ew-s-1")), /^app asks to use Bash Terminal/);
   assert.equal(find(ui(), "ew-s-2"), null);
   find(ui(), "ew-s-1").handlers.on_click({}, cx);
@@ -297,15 +297,15 @@ test("an agent takes one line until it is selected, and then shows its PR, model
   assert.notEqual(find(drawn, "ag-t3").stroke, "#accent");
 });
 
-test("the priority view has one open section per state: Needs you, Done, Working, Idle", async () => {
+test("the priority view has one open section per state: Needs me, Done, Working, Idle", async () => {
   const { ui, cx } = await open([...glance(), agent("t5"), agent("t6", { pinned: true })]);
   let drawn = ui();
   assert.deepEqual(["pinned", "sec-me", "sec-done", "sec-flight", "sec-idle"].map((id) => text(find(drawn, id))),
-    ["PINNED 1", "NEEDS YOU 1", "DONE 1", "WORKING 1", "IDLE 2"]);
+    ["PINNED 1", "NEEDS ME 1", "DONE 1", "WORKING 1", "IDLE 2"]);
   for (const id of ["t1", "t2", "t3", "t4", "t5", "t6"]) assert.ok(find(drawn, `ag-${id}`), `${id} is shown`);
   assert.equal(find(drawn, "sec-done").items[0].ink, "#done");
   const order = (id) => text(drawn).indexOf(id);
-  assert.ok(order("NEEDS YOU") < order("DONE") && order("DONE") < order("WORKING") && order("WORKING") < order("IDLE"));
+  assert.ok(order("NEEDS ME") < order("DONE") && order("DONE") < order("WORKING") && order("WORKING") < order("IDLE"));
   assert.doesNotMatch(text(drawn), /resting|Nothing needs you/);
   find(drawn, "sec-idle").handlers.on_click({}, cx);
   assert.equal(find(ui(), "ag-t5"), null, "a section folds only when you fold it");
@@ -398,7 +398,7 @@ test("a parent shows the turn of a helper that asks or works, and says so", asyn
     kid("k1", "t1", "blocked"), kid("k2", "t2", "working"), kid("k3", "t3", "blocked"), kid("k4", "t4", "blocked"), kid("k5", "t5", "idle")]);
   let drawn = ui();
   const glyph = (id) => find(drawn, `agent-fold-${id}`).items[0];
-  assert.deepEqual(["sec-me", "sec-flight", "sec-idle"].map((id) => text(find(drawn, id))), ["NEEDS YOU 3", "WORKING 1", "IDLE 1"]);
+  assert.deepEqual(["sec-me", "sec-flight", "sec-idle"].map((id) => text(find(drawn, id))), ["NEEDS ME 3", "WORKING 1", "IDLE 1"]);
   for (const id of ["t1", "t3", "t4"]) assert.equal(glyph(id).fill, "#blocked", id);
   assert.equal(text(find(drawn, "what-t1")), "a helper needs you");
   assert.equal(find(drawn, "what-t1").ink, "#blocked");
@@ -436,6 +436,23 @@ test("a waiting agent says how long it has waited; a working one says no age", a
   assert.equal(text(find(drawn, "age-t1")), "5m");
   assert.equal(find(drawn, "age-t2"), null);
   assert.equal(text(find(drawn, "age-t3")), "5m");
-  mod.hovered = "t1";
-  assert.equal(find(ui(), "age-t1"), null);
+  assert.ok(find(find(drawn, "meta-t1"), "age-t1"), "what waits on me says its age on the line below");
+  mod.hovered = "t3";
+  assert.equal(find(ui(), "age-t3"), null, "hover actions take the age's place");
+});
+
+test("a row that waits on me keeps its first line for the reason: ticket and age go below until selected", async () => {
+  fake.stored["relevo.reasons"] = { t1: "Which limiter should I use for the gateway?" };
+  const list = [agent("t1", { status: "blocked" }), agent("t2")];
+  const { ui, mod } = await open(list, [{ address: "t1", state: "live", labels: { "agent.jira": "ABC-142" } }, { address: "t2", state: "live", labels: { "agent.jira": "ABC-9" } }]);
+  ui();
+  mod.changed.t1.at = Date.now() - 4 * 60000;
+  let drawn = ui();
+  assert.doesNotMatch(text(find(drawn, "acct-t1") ?? {}), /ABC-142/);
+  assert.match(text(find(drawn, "meta-t1")), /^4m ABC-142$/);
+  assert.match(text(find(drawn, "acct-t2")), /ABC-9/, "an idle row keeps its ticket where it was");
+  list[0].focused = true;
+  drawn = ui();
+  assert.match(text(find(drawn, "acct-t1")), /ABC-142/);
+  assert.equal(find(drawn, "meta-t1"), null);
 });

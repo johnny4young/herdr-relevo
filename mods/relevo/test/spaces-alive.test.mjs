@@ -84,6 +84,21 @@ async function open(spaces, { alive = null, desktop = [], agents = [], folders =
   return { mod, cx, ui: () => mod.render(cx) };
 }
 
+test("a space lists what runs, listens or failed; a resting shell stays out", () => {
+  const rows = [row("api", "/home/test/code/api")];
+  const { by, loose } = aliveBySpace(rows, { alive: { terminals: [
+    { address: "t1", spaceId: "api", live: true, state: "idle", ports: [] },
+    { address: "t2", spaceId: "api", live: true, state: "old", ports: [] },
+    { address: "t3", spaceId: "api", live: true, state: "running", ports: [] },
+    { address: "t4", spaceId: "api", live: true, state: "idle", ports: [4100] },
+    { address: "t5", spaceId: "api", live: false, state: "failed" },
+    { address: "t6", spaceId: "api", live: false, state: "done" },
+    { address: "t7", spaceId: "gone", live: true, state: "idle", ports: [], cwd: "/home/test/code/blog" },
+  ], outside: [] } });
+  assert.deepEqual(by.get("api").terminals.map((x) => x.address), ["t3", "t4", "t5"]);
+  assert.deepEqual(loose, []);
+});
+
 const space = (id, name, cwd, over = {}) => ({ id, name, folder: cwd, machine: null, active: false, status: null, tabs: [{ id: `tb-${id}` }], ...over });
 const ALIVE_NOW = {
   terminals: [{ address: "t9", title: "npm run dev", state: "running", live: true, spaceId: "api", ports: [3000], canRestart: false, canStop: true }],

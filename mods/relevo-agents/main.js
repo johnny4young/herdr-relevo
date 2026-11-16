@@ -123,7 +123,7 @@ const SORTS = [
 const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
 // Herdr's own states, one section each; done means a result not seen yet.
 const SECTION = {
-  4: { id: "sec-me", label: "Needs you", status: "blocked" }, 3: { id: "sec-done", label: "Done", status: "done" },
+  4: { id: "sec-me", label: "Needs me", status: "blocked" }, 3: { id: "sec-done", label: "Done", status: "done" },
   2: { id: "sec-flight", label: "Working", status: "working" }, 1: { id: "sec-idle", label: "Idle", status: null },
 };
 // Past this share of its window an agent's context shows on its line.
@@ -185,8 +185,8 @@ function backgroundTag(t, a, labels) {
 // A letter inside a 14px chip, not text to read.
 const CHIP_LETTER = 9;
 
-function accountTag(t, a, labels, pane) {
-  const accounts = setup().accounts, acc = accounts[labels["agent.account"]], jira = labels["agent.jira"];
+function accountTag(t, a, labels, pane, { ticket = true } = {}) {
+  const accounts = setup().accounts, acc = accounts[labels["agent.account"]], jira = ticket ? labels["agent.jira"] : null;
   if (!acc && !jira) return null;
   // A repo's account is a Claude one, so Codex can't be borrowing it.
   const borrowed = acc && labels["agent.account"] !== "codex" && labels["agent.account"] !== repoAccount(pane?.cwd ?? a.cwd);
@@ -547,13 +547,16 @@ export default class Agents extends View {
     const reasons = shared("relevo.reasons") ?? {}, folders = shared("space-folders"), agentPRs = shared("relevo.agentPRs") ?? {};
     const contexts = shared("relevo.agentContext") ?? {};
     const row = (a, i, subs = []) => {
-      const tag = accountTag(t, a, labels.get(a.address) ?? {}, paneOf.get(a.pane));
-      const bg = backgroundTag(t, a, labels.get(a.address) ?? {});
+      // A settled result has been dealt with, so it no longer waits on me.
+      const turn = isSettled(a) ? plainTurn(a.status) : this.turnOf(a), me = turn === "me";
+      // What waits on me keeps its first line for the reason: its ticket and age go to the line below.
+      const queued = byPriority && !a.pinned && !isSettled(a) && (me || this.rank(a) === RANK.done), tight = queued && !a.focused;
+      const own = labels.get(a.address) ?? {};
+      const tag = accountTag(t, a, own, paneOf.get(a.pane), { ticket: !tight });
+      const bg = backgroundTag(t, a, own);
       const more = detail.get(a.address);
       // An agent on another machine (`vps/t7`) says which.
       const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
-      // A settled result has been dealt with, so it no longer waits on me.
-      const turn = isSettled(a) ? plainTurn(a.status) : this.turnOf(a), me = turn === "me";
       if (collapsed) {
         return h_flex()
           .id(`ag-${a.address}`)
@@ -638,7 +641,7 @@ export default class Agents extends View {
         .when(this.hovered === a.address, el => el.child(reply)
           .when(rested, (el) => el.child(this.settleButton(t, a, all, isSettled(a))))
           .child(pin))
-        .when(this.hovered !== a.address && a.status !== "working" && Boolean(when), el => el.child(div().id(`age-${a.address}`).flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
+        .when(this.hovered !== a.address && a.status !== "working" && Boolean(when) && !tight, el => el.child(div().id(`age-${a.address}`).flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
         .when(Boolean(tag), el => el.child(tag));
       // The second line, built for the selected agent only: what every row used to carry.
       const below = () => {
@@ -657,19 +660,20 @@ export default class Agents extends View {
           .when(Boolean(folder), (el) => el.child(div().id(`folder-${a.address}`).flex_none().max_w(110).truncate().child(folder)))
           .when(Boolean(extra), (el) => el.child(div().id(`detail-${a.address}`).flex_1().min_w(0).truncate().child(extra)));
       };
-      // By state, what waits on me carries one dim line: its branch, its PR, and its context once nearly full.
+      // By state, what waits on me carries one dim line: its age, ticket, branch, PR, and its context once nearly full.
       const meta = () => {
-        const ctx = contexts[a.address], raw = paneOf.get(a.pane)?.branch;
+        const ctx = contexts[a.address], raw = paneOf.get(a.pane)?.branch, ticket = own["agent.jira"];
         const branch = raw && raw !== "main" && raw !== "master" ? raw : null;
         const pct = ctx ? Math.round(Math.min(100, (ctx.context / (ctx.context > WINDOW ? LONG_WINDOW : WINDOW)) * 100)) : 0;
-        if (!(branch || pr || pct >= CTX_WARN)) return null;
+        if (!(when || ticket || branch || pr || pct >= CTX_WARN)) return null;
         return h_flex().id(`meta-${a.address}`).h(16).mb(4).pl(GUTTER).gap(8).items_center().overflow_hidden().text_size(11).text_color(t.dim)
+          .when(Boolean(when), (el) => el.child(div().id(`age-${a.address}`).flex_none().child(duration(now - when))))
+          .when(Boolean(ticket), (el) => el.child(div().id(`ticket-${a.address}`).flex_none().child(ticket)))
           .when(Boolean(branch), (el) => el.child(div().flex_shrink(1).min_w(0).truncate().child(branch)))
           .when(Boolean(pr), (el) => el.child(prTag(t, a, pr)))
           .when(pct >= CTX_WARN, (el) => el.child(div().id(`ctx-hot-${a.address}`).flex_none().text_color(t.ansi3)
             .tooltip(`${pct}% of its context window used`).child(`ctx ${pct}%`)));
       };
-      const queued = byPriority && !isPinned && !isSettled(a) && (turn === "me" || this.rank(a) === RANK.done);
       const second = selected ? below() : queued ? meta() : null;
       return v_flex()
         .id(`ag-${a.address}`)
