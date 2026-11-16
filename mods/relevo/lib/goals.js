@@ -61,7 +61,8 @@ export function saveGoal(doc, goal, expectedVersion, at = new Date().toISOString
   const next = { ...goal, version: expectedVersion + 1 };
   const result = { ...doc, revision: doc.revision + 1,
     goals: old ? doc.goals.map((g) => g.id === next.id ? next : g) : [...doc.goals, next],
-    history: [...doc.history, { goal: next.id, version: next.version, at, action: close ? "closed" : old ? "updated" : "created", state: goalState(next) }] };
+    // The newest saves: a long-lived goal file would otherwise refuse every save once the log was full.
+    history: [...doc.history, { goal: next.id, version: next.version, at, action: close ? "closed" : old ? "updated" : "created", state: goalState(next) }].slice(-1000) };
   return validateGoals(result);
 }
 

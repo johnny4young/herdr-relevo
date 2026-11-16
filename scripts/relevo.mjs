@@ -117,6 +117,17 @@ export function missingKeys(source, root) {
   return { file, ours, theirs, section, add, moved, taken };
 }
 
+// The newest backups stay; older ones go. Only folders named by an install's timestamp are touched.
+export const KEEP_BACKUPS = 10;
+export function pruneBackups(root, keep = KEEP_BACKUPS) {
+  const dir = path.join(root, STATE, 'backups');
+  let names = [];
+  try { names = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && /^\d{4}-\d{2}-\d{2}T[\dZ-]+$/.test(e.name)).map((e) => e.name).sort(); } catch { return []; }
+  const gone = names.slice(0, Math.max(0, names.length - keep));
+  for (const name of gone) fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+  return gone;
+}
+
 // A coordinator that is running keeps the code it started with. An idle one is stopped, so the next run starts
 // the new version; a busy one finishes its runs first and then rests on its own.
 export function stopIdleCoordinator(root, { log = () => {}, kill = process.kill,
@@ -172,6 +183,7 @@ export function install({ source, root, dry = false, log = () => {}, coordinator
     ...(Object.keys(keys.add).length + keys.moved.length ? [`${Object.keys(keys.add).length + keys.moved.length} keys`] : [])].join(', ');
   log(`${dry ? 'Would install' : 'Installed'} Relevo ${versionOf(source)} in ${root}: ${summary || 'nothing to change'}.`);
   if (!dry && fs.existsSync(backup)) log(`What it replaced is in ${backup}`);
+  if (!dry) pruneBackups(root);
   return { steps, keys, count };
 }
 

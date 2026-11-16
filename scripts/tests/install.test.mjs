@@ -223,6 +223,20 @@ test("doctor says when the node Runs use is gone", () => {
   assert.ok(lines.includes("FAIL  Runs use /nowhere/node, which is gone. Run install again."));
 });
 
+test("an install keeps the ten newest backups and leaves other folders there alone", () => {
+  install({ source, root, log });
+  const dir = path.join(root, "relevo-install/backups");
+  for (let n = 0; n < 12; n++) fs.mkdirSync(path.join(dir, `2020-01-${String(n + 10).padStart(2, "0")}T00-00-00-000Z`), { recursive: true });
+  fs.mkdirSync(path.join(dir, "mine"));
+  put(source, "mods/relevo/lib/a.js", "a2\n");
+  install({ source, root, log });
+  const left = fs.readdirSync(dir).sort();
+  assert.equal(left.length, 11);
+  assert.ok(left.includes("mine"));
+  assert.ok(!left.includes("2020-01-10T00-00-00-000Z") && !left.includes("2020-01-12T00-00-00-000Z") && left.includes("2020-01-13T00-00-00-000Z"));
+  assert.ok(left.some((name) => name.startsWith(new Date().toISOString().slice(0, 4))), "this install's backup is kept");
+});
+
 // A stand-in coordinator: a process whose command line reads like the installed one serving this folder.
 function coordinator(tasks) {
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", path.join(root, "mods/relevo/runtime/cli.mjs"), "--home", root, "serve"], { stdio: "ignore" });
