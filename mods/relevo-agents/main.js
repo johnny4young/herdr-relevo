@@ -130,6 +130,7 @@ const SECTION = {
 const CTX_WARN = 80;
 // Where a row's words start, past its glyph; the row's own padding and outline come before it.
 const GUTTER = 22, ROW_PAD = 7;
+const HOVER_SETTLE_MS = 60;
 // A status as the lane's turn; an agent's own turn also counts its helpers and a result not yet seen (turnOf).
 const TURN = { blocked: "me", working: "flight", done: "ready", idle: "ready" };
 const plainTurn = (status) => TURN[status] ?? "open";
@@ -160,16 +161,21 @@ function icon(p, size, color) {
 
 // Account chip from the Claude hook's labels; "borrowed" when it isn't the repo's account.
 // The accounts and contexts come from the Relevo mod's config, through shared "relevo.setup".
-const setup = () => shared("relevo.setup") ?? { accounts: {}, contexts: [] };
+// Every row asks for both; a draw reads them once (`frame`, set while render runs).
+let frame = null;
+const setup = () => frame?.setup ?? shared("relevo.setup") ?? { accounts: {}, contexts: [] };
 
 function repoAccount(cwd) {
+  if (frame?.repos.has(cwd)) return frame.repos.get(cwd);
   const { contexts } = setup(), parts = (cwd ?? "").split("/");
-  const folders = shared("space-folders")?.[""]?.list ?? [];
+  const folders = frame?.folders ?? shared("space-folders")?.[""]?.list ?? [];
   const owner = contexts.slice(1).find((c) => {
     const names = folders.find((f) => f.id === c.key)?.match?.split(", ") ?? [];
     return names.some((n) => n && parts.includes(n));
   });
-  return (owner ?? contexts[0])?.account ?? null;
+  const account = (owner ?? contexts[0])?.account ?? null;
+  frame?.repos.set(cwd, account);
+  return account;
 }
 
 // Background shells or wakeups the Claude hook reports (agent.bg); full text in the tooltip.
@@ -461,6 +467,15 @@ export default class Agents extends View {
   }
 
   render(cx) {
+    frame = { setup: shared("relevo.setup") ?? { accounts: {}, contexts: [] }, folders: shared("space-folders")?.[""]?.list ?? [], repos: new Map() };
+    try {
+      return this.draw(cx);
+    } finally {
+      frame = null;
+    }
+  }
+
+  draw(cx) {
     const t = theme();
     if (props()?.sortMenu) return this.sortMenu(t);
     const collapsed = narrow();
@@ -552,8 +567,6 @@ export default class Agents extends View {
       // What waits on me keeps its first line for the reason: its ticket and age go to the line below.
       const queued = byPriority && !a.pinned && !isSettled(a) && (me || this.rank(a) === RANK.done), tight = queued && !a.focused;
       const own = labels.get(a.address) ?? {};
-      const tag = accountTag(t, a, own, paneOf.get(a.pane), { ticket: !tight });
-      const bg = backgroundTag(t, a, own);
       const more = detail.get(a.address);
       // An agent on another machine (`vps/t7`) says which.
       const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
@@ -570,6 +583,9 @@ export default class Agents extends View {
           .child(div().flex_1().min_w(0).whitespace_nowrap().text_right().text_color(t.muted).child(String(i + 1)))
           .child(h_flex().w(14).flex_none().items_center().justify_center().child(laneGlyph(t, turn)));
       }
+      // The rail shows a number and a glyph: the chips are built only for the full row.
+      const tag = accountTag(t, a, own, paneOf.get(a.pane), { ticket: !tight });
+      const bg = backgroundTag(t, a, own);
       const when = this.since(a);
       const idle = a.status === "idle" && !a.focused;
       const isPinned = a.pinned;
@@ -686,9 +702,12 @@ export default class Agents extends View {
         .cursor_pointer()
         .hover((s) => s.bg(t.hover))
         .on_hover((on, cx) => {
-          if (on) this.hovered = a.address;
-          else if (this.hovered === a.address) this.hovered = null;
-          cx.notify();
+          // Moving to the next row redraws once, on its enter; leaving the list redraws a moment later.
+          const seq = this.hoverSeq = (this.hoverSeq ?? 0) + 1;
+          if (on) { this.hovered = a.address; cx.notify(); return; }
+          if (this.hovered !== a.address) return;
+          this.hovered = null;
+          cx.timer.after(HOVER_SETTLE_MS, (cx) => { if (seq === this.hoverSeq) cx.notify(); });
         })
         .on_click(() => run("pane.focus", { pane: a.pane }))
         .when(Boolean(cwd), (el) => el.tooltip(cwd))

@@ -374,11 +374,11 @@ export default class Spaces extends View {
 
   row(t, r, m, life = null) {
     const { w, g, tree } = r;
-    const color = (shared("space.colors") ?? {})[w.id] ?? "ansi6";
+    const color = (this.frame?.colors ?? shared("space.colors") ?? {})[w.id] ?? "ansi6";
     const branch = branchNote(g, w.name), turn = spaceTurn(w.status);
     const lively = Boolean(life) && shows(life);
     const open = lively && this.isOpen(w.id), ports = life ? portsIn(life) : [];
-    const repo = (g?.name ?? w.name ?? "").toLowerCase(), prs = (shared(REPO_PRS) ?? {})[repo] ?? null;
+    const repo = (g?.name ?? w.name ?? "").toLowerCase(), prs = (this.frame?.prs ?? shared(REPO_PRS) ?? {})[repo] ?? null;
     const target = { space: w.id };
     const hot = this.pressed !== null && this.pressed !== w.id && this.over === JSON.stringify(target);
     const tip = [r.path, g?.branch && `on ${g.branch}`].filter(Boolean).join(" · ");
@@ -420,6 +420,8 @@ export default class Spaces extends View {
     if (p.folderMenu) return this.folderMenu(t, p.folderMenu);
     if (p.editFolder !== undefined) return this.editor(t, cx);
     this.keepColors();
+    // Every row reads these; once per draw is enough.
+    this.frame = { colors: shared("space.colors") ?? {}, prs: shared(REPO_PRS) ?? {} };
     const collapsed = narrow(), m = this.model();
     const count = m.groups.reduce((n, g) => n + g.rows.filter((r) => !r.tree).length, 0);
     let i = 0;

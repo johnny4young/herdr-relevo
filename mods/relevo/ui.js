@@ -145,7 +145,7 @@ export const joined = (t, rows) => rows.filter(Boolean).flatMap((el, i) => (i ? 
 
 // A row action as data, so its button, its key and its keycap come from one table; `el` is a control drawn elsewhere.
 export function actionButton(t, a) {
-  if (a.el) return a.el;
+  if (a.el) return typeof a.el === "function" ? a.el() : a.el;
   const { kind, size, tip, disabled, accessibleLabel } = a;
   return button(t, a.id, a.label, a.run, { kind, size, tip, disabled, accessibleLabel });
 }

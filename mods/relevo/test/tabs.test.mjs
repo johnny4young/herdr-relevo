@@ -26,3 +26,14 @@ test("switching spaces never shows or hides the panel", () => {
   }
   assert.deepEqual(fake.runs.filter(([name]) => name.startsWith("layout.")), []);
 });
+
+test("a draw reads the panes once, however many tabs", () => {
+  const tabs = new Tabs(), cx = fakeCx();
+  tabs.init({}, cx);
+  fake.layout = layoutWith(false);
+  fake.spaces = [{ id: "a", name: "a", active: true, tabs: Array.from({ length: 8 }, (_, i) => ({ id: `t${i}`, name: `tb${i}`, active: i === 0 })) }];
+  fake.panes = Array.from({ length: 8 }, (_, i) => ({ pane: `p${i}`, tab: `t${i}`, program: { name: "zsh" } }));
+  const before = fake.reads.panes;
+  tabs.render(cx);
+  assert.equal(fake.reads.panes - before, 1);
+});
