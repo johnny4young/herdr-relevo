@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Runs say why a task waits.** A queued task no longer just reads "not started" or "waits for its agent": its row and its window say "waits for a free slot: 2 tasks run at once", "waits for “Fix search”, which works in the same checkout", "waits for Luna, which works on “Fix search”" or "waits for Luna to be free".
 - **Tokens holds less in memory.** Between reads the token scanner keeps only the saved list of each day's message ids, not a set of every id from the last 31 days (about 8 MB here); a read builds the set of a day only when a message from that day comes in.
 - **Runs fixes.** A reviewer that sits on a prompt is waited for instead of blocking the task and costing it an implementation round. A change longer than about 1,500 lines reaches the reviewer cut short instead of as "Could not read the diff". Closing the laptop no longer times out running attempts. Two cancelled tasks no longer stop every other run from starting, and an attempt whose agent's tab is gone can be reconciled. Runs keeps loading once its saved state passes 1 MiB. A finished run's worktree that can't be read says so, with **Read again**, instead of "checking…" for good.
 - **Inbox and Spaces fixes.** An agent in a folder that was deleted no longer freezes every agent card. A reply left open after its question was answered in the terminal lets go of the keyboard. "close N" in Spaces disarms after four seconds or when the quiet spaces change, and a drag let go outside the list ends when the pointer leaves it.

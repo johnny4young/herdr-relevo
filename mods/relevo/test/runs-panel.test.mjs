@@ -79,6 +79,10 @@ test('task words: turn, short state, summary line, who did what and why it is st
   assert.equal(taskReason(stuck('d', { maxRounds: 3 })), 'rejected twice');
   assert.equal(taskReason(writing('e')), 'Codex Luna is writing it');
   assert.equal(taskReason(task('v', 'needs_review', { attempts: [wrote(), { id: 'a2', role: 'reviewer', state: 'running' }] })), 'Team Haiku is reviewing it');
+  const slot = 'Waits for a free slot: 2 tasks run at once.';
+  assert.equal(taskReason(task('q', 'ready', { waitsFor: slot })), 'waits for a free slot: 2 tasks run at once');
+  assert.equal(taskReason(task('w', 'needs_review', { attempts: [wrote()], waitsFor: 'Waits for Team Haiku to be free.' })), 'waits for Team Haiku to be free');
+  assert.equal(taskReason(task('q', 'ready', { waitsFor: slot, paused: true })), 'not started');
   const summary = runSummary(runBucket([ready('a'), ready('b'), ready('c'), stuck('d'), writing('e'), task('p', 'planned'), task('x', 'accepted'), task('y', 'accepted'), task('z', 'cancelled')], 'g'));
   assert.equal(`${summary.head} ${summary.parts.map((part) => part.text).join(' · ')}`, '9 tasks: 3 need you · 1 stuck · 1 in flight · 1 not started · 3 done');
   assert.deepEqual(summary.parts.map((part) => part.hot), [true, true, false, false, false]);

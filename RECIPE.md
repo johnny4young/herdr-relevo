@@ -245,7 +245,9 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   **Pause automation** (`stop`) or, with the engine off, **Resume automation** (`resume` for this run's paused tasks that were
   ready, running or in review). Tokens come from `report.runs`, read with `cat` and again only when `relevo.usage` says the
   scanner wrote a newer report. A task row is lane glyph, relay glyph, title, short state ("reviewer
-  approved", "rejected twice, no attempts left", "<agent> is writing it"), age and **Review** or **See why**; a stuck one,
+  approved", "rejected twice, no attempts left", "<agent> is writing it", or for a queued one what it waits for: "waits for a
+  free slot: 2 tasks run at once", another task in the same checkout, or its agent; the coordinator writes `waitsFor` only
+  when it changes), age and **Review** or **See why**; a stuck one,
   selected, shows **Why** (the reviewer's summary and findings, else the task's error) and **Next** (**Prepare a follow-up**,
   which fills a new task in the run window). Any selected task lists its attempts as 11px lines ("attempt 2: Codex Luna →
   Team Haiku · 9 min · approved") and, written more than once, **c Compare attempts**: "‹ Tasks", the title, "took N
