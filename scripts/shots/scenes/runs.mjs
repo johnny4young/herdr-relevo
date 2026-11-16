@@ -18,11 +18,17 @@ export default async function scene({ fake, cx, flush, load }) {
     task("t7", "g3", "Account status in the status bar", "accepted"),
   ];
   if (process.env.TWICE) tasks[0].attempts.unshift(wrote("First try", 200), reviewed("changes_requested", 190));
+  // The first task ran in its own worktree, so it lists the files it changed and accepting opens its draft PR.
+  tasks[0].worktree = { path: "/home/demo/.herdr/worktrees/billing/verify-ready-review-1a2b3c", branch: "run/verify-ready-review-1a2b3c", base: "/home/demo/code/billing",
+    baseCommit: "a".repeat(40), reviewedTree: "b".repeat(40) };
+  const change = { taskId: "t1", root: "/home/demo/code/billing", fromCommit: "a".repeat(40), toCommit: "b".repeat(40), files: 3, added: 64, removed: 11,
+    list: [{ path: "src/runs/queue.js", added: 38, removed: 9 }, { path: "src/runs/queue.test.js", added: 24, removed: 0 }, { path: "src/runs/legend.js", added: 2, removed: 2 }] };
   fake.files[goalsPath()] = JSON.stringify(goals.reduce((doc, g) => saveGoal(doc, g, 0), emptyGoals()));
   fake.files["/home/demo/.config/herdr-app/relevo-workflow/state.json"] = JSON.stringify({ tasks, events: [], engine: { enabled: true } });
   const none = { data: { viewer: { login: "me", merged: { nodes: [] }, pullRequests: { pageInfo: { hasNextPage: false }, nodes: [] } }, search: { nodes: [] } } };
   const orig = fake.exec;
-  fake.exec = (cmd, args, o) => (cmd === "gh" && args[0] === "api" ? { stdout: JSON.stringify(none) } : orig?.(cmd, args, o) ?? null);
+  fake.exec = (cmd, args, o) => (cmd === "gh" && args[0] === "api" ? { stdout: JSON.stringify(none) }
+    : /cli\.mjs$/.test(args?.[0] ?? "") && args.at(-1).includes('"task-diff"') ? { code: 0, stdout: JSON.stringify({ result: change }) } : orig?.(cmd, args, o) ?? null);
   const { Inbox } = await load("mods/relevo/inbox.js");
   const inbox = new Inbox();
   inbox.init({}, cx);
@@ -31,7 +37,7 @@ export default async function scene({ fake, cx, flush, load }) {
   inbox.h.is_focused = () => true;
   inbox.render(cx);
   if (process.env.RUN) { inbox.openRun(inbox.goalDoc.goals.find((g) => g.id === process.env.RUN), cx); inbox.render(cx); }
-  if (process.env.TASK) { inbox.resetRun(process.env.TASK); inbox.render(cx); }
+  if (process.env.TASK) { inbox.resetRun(process.env.TASK); inbox.render(cx); await flush(); inbox.render(cx); }
   if (process.env.COMPARE) { inbox.openCompare(inbox.workflowTasks.find((x) => x.id === process.env.COMPARE)); inbox.render(cx); }
   if (process.env.PICK) { inbox.runPicked = process.env.PICK.split(","); inbox.render(cx); }
   return { el: inbox.render(cx), width: 400, height: 760 };
