@@ -20,6 +20,18 @@ const NOTES = "relevo.review.notes";
 const SEEN = "relevo.review.seen";
 // Files marked viewed, by checkout or PR: path -> the content's hash then, so a change unmarks it.
 const VIEWED = "relevo.review.viewed";
+// Reviews whose marks are kept, the newest ones: every other review's marks go when one is written.
+const MARKS_KEPT = 40;
+const keepLatest = (all, key, mine) => {
+  const { [key]: _, ...others } = all ?? {};
+  return { ...Object.fromEntries(Object.entries(others).slice(-(MARKS_KEPT - 1))), [key]: mine };
+};
+// A short sign of a diff, so the text itself isn't kept between reads.
+const signOf = (text) => {
+  let h = 0;
+  for (let i = 0; i < text.length; i += 1) h = (h * 31 + text.charCodeAt(i)) | 0;
+  return `${text.length}:${h}`;
+};
 // The working tree as a git tree, untracked files in and ignored ones out, built in a scratch index. cp -p keeps
 // the index's time, which git needs to notice a same-size edit made in the second the index was written.
 const SNAPSHOT = 'i=$(mktemp) || exit 1; cp -p "$(git rev-parse --git-path index)" "$i" 2>/dev/null || rm -f "$i"; '
@@ -210,23 +222,30 @@ export class ReviewDiff {
       cx.notify();
     }
     const open = files.find((f) => f.path === this.open?.path) ?? files[0];
-    if (open) await this.pick(open, cx);
-    else Object.assign(this, { rows: [], open: null, diffSign: null });
+    // The open file's diff is read again only when its content or the range moved.
+    const key = open ? JSON.stringify([this.from, this.to, open.path, this.hashes.get(open.path) ?? null]) : null;
+    if (open && (key !== this.openKey || [undefined, "-"].includes(this.hashes.get(open.path)))) await this.pick(open, cx, key);
+    else if (!open) Object.assign(this, { rows: [], open: null, diffSign: null, openKey: null });
   }
 
-  async pick(file, cx) {
+  async pick(file, cx, key = null) {
     if (this.open?.path !== file.path) {
       this.editing = null;
       this.anchor = null;
       this.diffSign = null;
     }
     this.open = file;
+    const picked = this.picked = (this.picked ?? 0) + 1;
     const args = file.untracked
       ? ["diff", "--no-index", "--no-color", "--no-ext-diff", "--", "/dev/null", file.path]
       : ["diff", this.from ?? "HEAD", ...(this.to ? [this.to] : []), "--no-color", "--no-ext-diff", "--", file.path];
     const out = (await exec("git", [...READ, ...args], { cwd: this.root })).stdout;
-    if (out === this.diffSign) return;
-    this.diffSign = out;
+    // A later pick (another file, or the next read) owns the pane now; this diff is no longer the open file's.
+    if (picked !== this.picked) return;
+    this.openKey = key;
+    const sign = signOf(out);
+    if (sign === this.diffSign) return;
+    this.diffSign = sign;
     this.anchor = null;
     this.rows = diffRows(out.split("\n")).slice(0, MAX_ROWS);
     cx.notify();
@@ -345,7 +364,7 @@ export class ReviewDiff {
     }
     const result = await exec("git", ["update-ref", seenRef(this.key), tree], { cwd: this.root });
     if (result.code !== 0) { this.note = "Could not save a review checkpoint"; return cx.notify(); }
-    setShared(SEEN, { ...(shared(SEEN) ?? {}), [this.key]: { tree, at: Math.round(Date.now() / 1000) } });
+    setShared(SEEN, keepLatest(shared(SEEN), this.key, { tree, at: Math.round(Date.now() / 1000) }));
     cx.notify();
   }
 
@@ -356,19 +375,18 @@ export class ReviewDiff {
 
   toggleViewed(path, cx) {
     if (!this.hashes.get(path)) return;
-    const all = { ...(shared(VIEWED) ?? {}) }, mine = { ...(all[this.key] ?? {}) };
+    const all = shared(VIEWED) ?? {}, mine = { ...(all[this.key] ?? {}) };
     if (this.viewed(path)) delete mine[path];
     else mine[path] = this.hashes.get(path);
     // Only files still in the review keep their mark, so the list doesn't grow.
     const listed = new Set(this.files.map((f) => f.path));
-    all[this.key] = Object.fromEntries(Object.entries(mine).filter(([p]) => listed.has(p)));
-    setShared(VIEWED, all);
+    setShared(VIEWED, keepLatest(all, this.key, Object.fromEntries(Object.entries(mine).filter(([p]) => listed.has(p)))));
     cx.notify();
   }
 
   markAllViewed(cx) {
     const mine = Object.fromEntries(this.files.flatMap(({ path }) => this.hashes.get(path) ? [[path, this.hashes.get(path)]] : []));
-    setShared(VIEWED, { ...(shared(VIEWED) ?? {}), [this.key]: mine });
+    setShared(VIEWED, keepLatest(shared(VIEWED), this.key, mine));
     cx.notify();
   }
 

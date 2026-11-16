@@ -278,7 +278,8 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   `history.jsonl` (prefiltered with `grep`, read at most once an hour).
 - **Review pane**: a click on a line opens a comment field, a shift-click extends it to a range, **Comment on file**
   comments on the whole file (Enter saves, Esc cancels); comments survive refreshes
-  (every 10 s while you are not typing), closing the pane and restarting Herdr. A click on a saved comment's box opens it again (a
+  (every 10 s while you are not typing; the open file's diff is read again only when its hash or the range moved, and a
+  diff that arrives after another file was picked is dropped), closing the pane and restarting Herdr. A click on a saved comment's box opens it again (a
   range as a range); its × in the list above the footer deletes that comment alone and saves the rest. **Send to agent** pastes the
   numbered comments into the agent's terminal with `hc send`; `⌘↵` in the pane does the same under the same
   conditions, and in an open comment field it saves the comment instead. **Clear** asks once more. Review on the same
@@ -307,7 +308,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   `-activate dev.herdr.app` and `-execute` running the toast's own action through `herdr-app do`, or `osascript`.
   An agent turning blocked or done gets one too, grouped by terminal and removed when it stops asking.
 - **Land**: `gh pr merge <n> --<method> --match-head-commit <oid>` (the repo's `viewerDefaultMergeMethod`, else the
-  first it allows; `--auto` for Land when ready); every 20 s `gh pr view` until merged, then `gh run list --commit
+  first it allows; `--auto` for Land when ready); every 20 s `gh pr view` until merged (a queued auto-merge older than 5 minutes every 2 minutes), then `gh run list --commit
   <merge>`; no runs after 3 minutes counts as landed. Cleanup finds the PR branch's worktree, keeps it unless its
   HEAD is the PR's head and it passes Remove's checks (the day-of-use rule aside), closes resting agents' panes from
   other spaces, closes its space, removes it and deletes the branch with `-D` only when its tip is that head.
@@ -391,7 +392,9 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   (`~/.config/herdr-space-folders.json` and shared `space-folders`, the format the space-folders mod used, so its
   folders carry over); `git.js` reads branch, ahead/behind and `git status --porcelain` with optional locks off;
   `model.js` builds the groups and the order the spaces move to. Git is read again when a place is new, when a
-  command or an agent's turn ends, when the repo's git folder changes and once a minute while the window is in front.
+  command or an agent's turn ends, when the repo's git folder changes and once a minute while the window is in front (every 5 minutes for a quiet
+  space), two places per tick, oldest first, and at most four places at once. A place no space is in any more is
+  forgotten, and a git folder no space shows cancels its watch.
   Every space, the folders, the quiet line and the "no space" rows start open; a chevron closes one and localStorage
   `closed` remembers it. An open space lists its terminals that run, listen or failed (not a resting shell) and outside
   servers from `aliveBySpace` (servers by folder, the deepest space's repo; terminals by space); agents and Claude

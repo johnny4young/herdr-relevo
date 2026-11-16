@@ -9,6 +9,16 @@ const TRANSCRIPTS = 'h=$1; shift; for id in "$@"; do for f in "$h"/.claude*/proj
 const TAIL_BYTES = 131072;
 
 export const openDesktop = (id) => exec("open", [desktopLink(id)]);
+// What desktopSession reads of a session file; the rest (MCP configs and the like) can weigh hundreds of KB each.
+export function slim(d) {
+  if (!d || typeof d !== "object") return null;
+  const s = d.postTurnSummary ?? {};
+  return {
+    isArchived: d.isArchived, sessionId: d.sessionId, cliSessionId: d.cliSessionId, title: d.title, cwd: d.cwd, originCwd: d.originCwd,
+    latestUserFrameAt: d.latestUserFrameAt, lastTurnEdgeAt: d.lastTurnEdgeAt, lastActivityAt: d.lastActivityAt,
+    postTurnSummary: { status_category: s.status_category, needs_action: s.needs_action, status_detail: s.status_detail },
+  };
+}
 
 // Reads the tail of each listed transcript whose time changed; `cache` keeps path -> { mtime, activity }. Read only.
 export async function readTails(cache, listed) {
@@ -44,7 +54,7 @@ export class DesktopWatch {
       try {
         // cat past readTextFile's 1 MiB: a long session's file can grow beyond it.
         const text = await readTextFile(path).catch(() => null) ?? (await exec("cat", [path])).stdout;
-        file = JSON.parse(text || "null");
+        file = slim(JSON.parse(text || "null"));
       } catch {
         file = null;
       }
