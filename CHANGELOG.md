@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 · 2026-11-16
 
 - **A run's Claude writer stops asking for each command.** Its Bash already runs in the OS sandbox with no way out (`allowUnsandboxedCommands: false`), so `autoAllowBashIfSandboxed` is on for it: `npm test`, `ls` and the like run without a prompt, and anything the sandbox blocks still fails. Your own Claude settings don't change.
 - **Runs say it right.** A run whose tasks were all cancelled reads "cancelled" instead of "needs a plan before agents start". A second opinion's cost line counts its review ("1 review") instead of "0 attempts". The review pane opened on a run's change no longer offers to send comments to an agent that isn't there.
