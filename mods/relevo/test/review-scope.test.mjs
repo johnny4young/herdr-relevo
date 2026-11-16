@@ -96,3 +96,11 @@ test("a run's range shows its two revisions only: no scope to pick, no checkpoin
   await settled();
   assert.equal(fake.execs.filter((l) => l.includes("--numstat")).length, fake.execs.slice(0, reads).filter((l) => l.includes("--numstat")).length);
 });
+
+test("a run's range has no agent to send comments to, so it shows no send bar", async () => {
+  fake.exec = (cmd, args) => (cmd === "git" && args.includes("--numstat") ? { stdout: "1\t0\tREADME.md\n" } : null);
+  const { v, cx } = await open({ range: { from: "b".repeat(40), to: "c".repeat(40), label: "Run · as accepted" } });
+  assert.doesNotMatch(text(v.render(cx)), /No agent in this folder|Send to agent/);
+  const plain = await open();
+  assert.match(text(plain.v.render(plain.cx)), /No agent in this folder/);
+});

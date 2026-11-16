@@ -18,6 +18,8 @@ export function runCostLine(goal, bucket, cost, prs = 0) {
   const meter = (used, cap, words, unit) => ({ used, cap: cap ?? null, pct: cap ? Math.round((used / cap) * 100) : null, over: Boolean(cap) && used >= cap,
     text: `${cap ? `${words(used)} of ${words(cap)}` : words(used)} ${unit}` });
   const attempts = bucket.all.reduce((n, task) => n + (task.attempts ?? []).filter((attempt) => attempt.role !== "reviewer").length, 0);
+  // A second opinion has no writer: what it spent is reviews.
+  const reviews = bucket.all.reduce((n, task) => n + (task.reviewOnly ? (task.attempts ?? []).filter((attempt) => attempt.role === "reviewer").length : 0), 0);
   let passed = 0, total = 0;
   for (const task of bucket.all) {
     const results = task.checksResult ?? [];
@@ -26,7 +28,7 @@ export function runCostLine(goal, bucket, cost, prs = 0) {
   }
   return { minutes: meter(cost.minutes, goal.maxAgentMinutes, (n) => String(Math.round(n)), "agent min"),
     tokens: cost.total > 0 || goal.maxTokens ? meter(cost.total, goal.maxTokens, compact, "tokens") : null,
-    rest: [count(attempts, "attempt"), total ? `${passed} of ${checks(total)} passed` : null, prs ? `${count(prs, "PR")} shipped` : null].filter(Boolean) };
+    rest: [!attempts && reviews ? count(reviews, "review") : count(attempts, "attempt"), total ? `${passed} of ${checks(total)} passed` : null, prs ? `${count(prs, "PR")} shipped` : null].filter(Boolean) };
 }
 
 // Paused work that was under way: what Resume automation resumes. Planned and stuck tasks stay as they are.

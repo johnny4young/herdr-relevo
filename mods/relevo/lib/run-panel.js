@@ -126,6 +126,7 @@ export function runRow(goal, bucket, { engine = null, error = null, decision = f
   }
   if (c.open) return { group: "open", turn: "open", now: c.open === 1 ? "1 task planned, not started" : `${c.open} tasks planned, not started`, action: open };
   if (bucket.done.some((task) => task.state === "accepted")) return { group: "ready", turn: "ready", now: "finished, everything accepted", action: open };
+  if (bucket.done.length) return { group: "ready", turn: "old", now: bucket.done.length === 1 ? "cancelled" : "all its tasks cancelled", action: open };
   if (decision && goal.decision?.trim()) return { group: "me", turn: "me", hot: true, now: `your decision: ${firstLine(goal.decision, 120)}`, action: { kind: "decide", label: "Decide" } };
   if (goal.state === "completed") return { group: "ready", turn: "old", now: "closed", action: open };
   if (reviewCount) return { group: "open", turn: "open", now: `${count(reviewCount, "linked change")} to review`, action: { kind: "changes", label: "Review" } };
