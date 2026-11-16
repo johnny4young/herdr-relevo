@@ -87,7 +87,7 @@ test('task words: turn, short state, summary line, who did what and why it is st
   assert.equal(`${summary.head} ${summary.parts.map((part) => part.text).join(' · ')}`, '9 tasks: 3 need you · 1 stuck · 1 in flight · 1 not started · 3 done');
   assert.deepEqual(summary.parts.map((part) => part.hot), [true, true, false, false, false]);
   assert.deepEqual(taskLegs(ready('a', { worktree: { branch: 'run/a' } })).map((leg) => `${leg.state} ${leg.who} ${leg.what}`), [
-    'ok Codex Luna wrote it in its own worktree', 'ok Tests 1 of 1 passed', 'ok Team Haiku reviewed it: approved, no findings', 'you You accept it, or say what to change']);
+    'ok Codex Luna wrote it in its own worktree', 'ok Tests npm test passed', 'ok Team Haiku reviewed it: approved, no findings', 'you You accept it, or say what to change']);
   assert.deepEqual(taskLegs(writing('e')).map((leg) => leg.state), ['run', 'wait', 'wait', 'wait']);
   assert.equal(taskLegs(stuck('d')).at(-2).what, 'reviewed it: asked for changes, 1 finding');
   assert.deepEqual(stuckFindings(stuck('d')), ['The nav row still overflows.', '[major] ui.js: row is cut']);
@@ -195,7 +195,7 @@ test('a task opens with the summary, who did what and the decision; Accept is A 
   assert.equal(text(find(tree, 'task-back')), '‹ Tasks'); assert.equal(text(find(tree, 'task-title')), 'Task a');
   assert.equal(text(find(tree, 'task-summary')), 'Ready results sort ahead of failed ones.');
   assert.deepEqual(['writer', 'tests', 'reviewer', 'you'].map((id) => text(find(tree, `task-leg-${id}`)).replace(/ \d+[mhd]$/, '')), [
-    'Codex Luna wrote it in its own worktree', 'Tests 1 of 1 passed', 'Team Haiku reviewed it: approved, no findings', 'You accept it, or say what to change now']);
+    'Codex Luna wrote it in its own worktree', 'Tests npm test passed', 'Team Haiku reviewed it: approved, no findings', 'You accept it, or say what to change now']);
   assert.equal(find(tree, 'task-leg-you').fill, `${t.blocked}12`, "the person's turn is tinted");
   assert.equal(text(find(tree, 'task-accept')), 'a Accept'); assert.equal(find(tree, 'task-accept').fill, t.accent);
   assert.equal(text(find(tree, 'task-changes')), 'r Ask for changes'); assert.equal(text(find(tree, 'task-diff')), 'd See the diff');

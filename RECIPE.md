@@ -241,7 +241,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   summary ("9 tasks: 3 need you · 1 stuck · 1 in flight · 1 not started · 3 done") and task rows under NEEDS ME, STUCK and
   IN FLIGHT with "N not started · N done" folded. Under the summary, the cost line (11px): a 44px band of agent minutes
   against `maxAgentMinutes` when the run has that cap (accent, `blocked` from 100%), "37 of 60 agent min", "9.1M of 10.0M
-  tokens" (`maxTokens`; left out with no cap and no tokens read), "N attempts", "tests k of n passed", "N PRs shipped" and
+  tokens" (`maxTokens`; left out with no cap and no tokens read), "N attempts", "k of n checks passed", "N PRs shipped" and
   **Pause automation** (`stop`) or, with the engine off, **Resume automation** (`resume` for this run's paused tasks that were
   ready, running or in review). Tokens come from `report.runs`, read with `cat` and again only when `relevo.usage` says the
   scanner wrote a newer report. A task row is lane glyph, relay glyph, title, short state ("reviewer

@@ -64,11 +64,11 @@ test('the cost line: agent minutes and tokens against their caps, attempts, test
   assert.deepEqual([cost.minutes, cost.total], [37, 9100000]);
   const free = runCostLine(goal, bucket, cost, 2);
   assert.deepEqual([free.minutes.text, free.minutes.cap, free.minutes.over, free.tokens.text], ['37 agent min', null, false, '9.1M tokens']);
-  assert.deepEqual(free.rest, ['3 attempts', 'tests 2 of 3 passed', '2 PRs shipped']);
+  assert.deepEqual(free.rest, ['3 attempts', '2 of 3 checks passed', '2 PRs shipped']);
   const capped = runCostLine({ ...goal, maxAgentMinutes: 60, maxTokens: 10000000 }, bucket, cost);
   assert.deepEqual([capped.minutes.text, capped.minutes.pct, capped.minutes.over], ['37 of 60 agent min', 62, false]);
   assert.deepEqual([capped.tokens.text, capped.tokens.pct, capped.tokens.over], ['9.1M of 10.0M tokens', 91, false]);
-  assert.deepEqual(capped.rest, ['3 attempts', 'tests 2 of 3 passed']);
+  assert.deepEqual(capped.rest, ['3 attempts', '2 of 3 checks passed']);
   const over = runCostLine({ ...goal, maxAgentMinutes: 37, maxTokens: 5000000 }, bucket, cost);
   assert.deepEqual([over.minutes.over, over.minutes.pct, over.tokens.over], [true, 100, true], 'at the cap counts as over');
   const none = runCostLine(goal, runBucket([task('p', 'planned')], 'g'), goalCost(goal, [], []));
@@ -82,7 +82,7 @@ test('an open run shows its cost under the summary; over the cap the band and th
   fake.stored[MERGED] = { [pr]: true };
   const { v, cx } = await opened([twice()], [{ ...newGoal('g', 'Capped', [`pr:${pr}`]), maxAgentMinutes: 20, maxTokens: 10000000 }]);
   let tree = v.render(cx);
-  assert.equal(text(find(tree, 'run-cost')), '27 of 20 agent min · 9.1M of 10.0M tokens · 2 attempts · tests 1 of 1 passed · 1 PR shipped Pause automation');
+  assert.equal(text(find(tree, 'run-cost')), '27 of 20 agent min · 9.1M of 10.0M tokens · 2 attempts · 1 of 1 check passed · 1 PR shipped Pause automation');
   assert.equal(find(tree, 'run-cost-band').items[0].items[1].fill, t.blocked);
   assert.equal(find(tree, 'run-cost-minutes').ink, t.blocked); assert.equal(find(tree, 'run-cost-tokens').ink, null);
   for (let i = 0; i < 3; i++) v.render(cx);
@@ -100,12 +100,12 @@ test('under the cap the band is the accent; with no cap there is no band, and a 
   let tree = v.render(cx);
   assert.equal(find(tree, 'run-cost-band').items[0].items[1].fill, t.accent);
   assert.equal(find(tree, 'run-cost-minutes').ink, null);
-  assert.equal(text(find(tree, 'run-cost')), '27 of 60 agent min · 2 attempts · tests 1 of 1 passed Pause automation');
+  assert.equal(text(find(tree, 'run-cost')), '27 of 60 agent min · 2 attempts · 1 of 1 check passed Pause automation');
   resetFake();
   ({ v, cx } = await opened([twice()]));
   tree = v.render(cx);
   assert.equal(find(tree, 'run-cost-band'), null);
-  assert.equal(text(find(tree, 'run-cost')), '27 agent min · 2 attempts · tests 1 of 1 passed Pause automation');
+  assert.equal(text(find(tree, 'run-cost')), '27 agent min · 2 attempts · 1 of 1 check passed Pause automation');
   assert.equal(calls(/cli\.mjs/).length, 0, 'reading the cost sends nothing');
 });
 
@@ -160,14 +160,14 @@ test('the compare table: what the reviewer said, tests, change, time, cost and y
   assert.equal(table.took, 'took 2 attempts');
   assert.deepEqual(table.columns, [{ n: 1, label: 'Attempt 1' }, { n: 2, label: 'Attempt 2' }]);
   assert.deepEqual(table.rows.map((row) => [row.label, ...row.cells.map((cell) => cell.text)]), [
-    ['Reviewer said', 'asked for changes: nav row is cut', 'approved'], ['Tests', '2 of 3 passed', '3 of 3 passed'], ['Change', '5 files', '4 files'],
+    ['Reviewer said', 'asked for changes: nav row is cut', 'approved'], ['Tests', '2 of 3 checks passed', '3 of 3 checks passed'], ['Change', '5 files', '4 files'],
     ['Took', '18 min', '9 min'], ['Cost', '6.2M tokens', '2.9M tokens'], ['Your note', 'Keep it on one line', 'none']]);
   assert.deepEqual(table.rows[0].cells.map((cell) => cell.ok), [false, true]);
   assert.deepEqual(table.rows[2].cells.map((cell) => [cell.added, cell.removed]), [[74, 31], [52, 12]]);
   assert.deepEqual(table.diff, { from: 'w-1', to: 'w-2' });
   const bare = twice('t', { worktree: undefined, attempts: twice().attempts.map(({ tests: _tests, change: _change, ...attempt }) => attempt) });
   assert.deepEqual(compareAttempts(bare, sessions).rows.slice(1, 5).map((row) => row.cells.map((cell) => cell.text)),
-    [['not kept', '1 of 1 passed'], ['not kept', 'not kept'], ['18 min', '9 min'], ['not counted', 'not counted']], 'older records say what was not kept');
+    [['not kept', 'npm test passed'], ['not kept', 'not kept'], ['18 min', '9 min'], ['not counted', 'not counted']], 'older records say what was not kept');
   const five = twice('t', { attempts: [1, 2, 3, 4, 5].map((n) => ({ id: `w-${n}`, role: 'executor', state: 'reported', at: at(`1${n}:00`), endedAt: at(`1${n}:05`), report: { status: 'completed' } })) });
   assert.deepEqual(compareAttempts(five).columns.map((column) => column.n), [3, 4, 5], 'the last three');
   assert.equal(compareAttempts(five).took, 'took 5 attempts'); assert.deepEqual(compareAttempts(five).diff, { from: 'w-4', to: 'w-5' });
@@ -185,7 +185,7 @@ test('c opens the comparison of a task written more than once; See what changed 
   assert.equal(text(find(tree, 'compare-back')), '‹ Tasks'); assert.equal(text(find(tree, 'compare-title')), 'Task t'); assert.equal(text(find(tree, 'compare-attempts')), 'took 2 attempts');
   assert.equal(text(find(tree, 'compare-head')), 'ATTEMPT 1 ATTEMPT 2');
   assert.deepEqual(['said', 'tests', 'change', 'took', 'cost', 'note'].map((key) => text(find(tree, `compare-${key}`))), [
-    'Reviewer said asked for changes: nav row is cut approved', 'Tests 2 of 3 passed 3 of 3 passed', 'Change 5 files +74 −31 4 files +52 −12',
+    'Reviewer said asked for changes: nav row is cut approved', 'Tests 2 of 3 checks passed 3 of 3 checks passed', 'Change 5 files +74 −31 4 files +52 −12',
     'Took 18 min 9 min', 'Cost 6.2M tokens 2.9M tokens', 'Your note Keep it on one line none']);
   assert.equal(find(tree, 'compare-said-1').items[1].ink, t.blocked); assert.equal(find(tree, 'compare-said-2').items[1].ink, t.done);
   assert.deepEqual(v.nav, [], 'the list keys rest while it is open');

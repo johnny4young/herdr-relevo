@@ -20,6 +20,25 @@ export const decidePayload = (task, outcome, text = "") => ({ action: "decide", 
 export const armAccept = (task) => ({ id: task.id, revision: task.revision });
 export const acceptArmed = (intent, task) => intent?.id === task.id && intent.revision === task.revision;
 
+const checkName = (check) => {
+  const name = Array.isArray(check?.argv) ? check.argv.join(" ") : "";
+  return name.length > 32 ? `${name.slice(0, 31)}…` : name;
+};
+// The tests a check ran, from the summary line of common runners (node --test, Jest, Vitest, Mocha, pytest); else null.
+export function testCount(output) {
+  const text = String(output ?? "");
+  const n = /^[ℹ#] tests (\d+)$/m.exec(text)?.[1] ?? /Tests:?\s+(\d+) passed/.exec(text)?.[1] ?? /(\d+) passing\b/.exec(text)?.[1]
+    ?? /=+ (\d+) passed\b/.exec(text)?.[1];
+  return n == null ? null : Number(n);
+}
+const tests = (n) => (n == null ? "" : ` · ${n} ${n === 1 ? "test" : "tests"}`);
+export const checks = (n) => `${n} ${n === 1 ? "check" : "checks"}`;
+
+// A run's checks in a line: what ran and how it went, or "tests not configured" and the like.
+const checkWords = (task) => { const c = workflowCheckSummary(task); return ["normal", "failure"].includes(c.tone) ? c.label : `tests ${c.label.toLowerCase()}`; };
+
+// Says which command ran and, when its runner prints it, how many tests: "npm test passed · 3 tests". Several
+// commands are counted as checks, since one command can run any number of tests.
 export function workflowCheckSummary(task) {
   const results = Array.isArray(task.checksResult) ? task.checksResult : [];
   const latest = Array.isArray(task.attempts) ? task.attempts.at(-1) : null;
@@ -40,12 +59,22 @@ export function workflowCheckSummary(task) {
     return (Number.isFinite(code) && code !== 0) ||
       (typeof code === 'string' && code.trim() !== '' && !['0', 'cancelled'].includes(code));
   }).length;
-  if (failures) return { label: `${failures} failed · ${passed} of ${total} passed`, tone: 'failure' };
+  const failed = (result) => (Number.isFinite(result?.code) && result.code !== 0) ||
+    (typeof result?.code === 'string' && result.code.trim() !== '' && !['0', 'cancelled'].includes(result.code));
+  // Older records keep the command only in the task's checks.
+  const nameAt = (i) => checkName(results[i]) || checkName({ argv: task.checks?.[i] });
+  const one = total === 1 && results.length === 1 && nameAt(0);
+  if (failures) {
+    if (one) return { label: `${one} failed`, tone: 'failure' };
+    const first = nameAt(results.findIndex(failed));
+    return { label: `${failures} of ${checks(total)} failed${first ? `: ${first}` : ''}`, tone: 'failure' };
+  }
 
   const complete = results.length >= configured && results.every((result) => Number.isFinite(result?.code));
-  return complete
-    ? { label: `${passed} of ${total} passed`, tone: 'normal' }
-    : { label: `${passed} of ${total} passed · incomplete`, tone: 'muted' };
+  if (!complete) return { label: `${passed} of ${checks(total)} passed · incomplete`, tone: 'muted' };
+  if (one) return { label: `${one} passed${tests(testCount(results[0].stdout))}`, tone: 'normal' };
+  const counts = results.map((result) => testCount(result.stdout));
+  return { label: `${checks(total)} passed${counts.every((n) => n != null) ? tests(counts.reduce((a, b) => a + b, 0)) : ''}`, tone: 'normal' };
 }
 
 export function acceptanceEffect(task, tasks, engine) {
@@ -82,6 +111,6 @@ export function resultMeta(task, now = Date.now()) {
   const review = lastReview(task);
   const agents = [task.executor?.label ?? task.executor?.address, task.reviewer?.label ?? task.reviewer?.address].filter(Boolean).join(' → ');
   const at = Date.parse(review?.at ?? task.attempts?.at(-1)?.at ?? '');
-  return [agents, attemptLabel(task.round, task.maxRounds), `tests ${workflowCheckSummary(task).label.toLowerCase()}`,
+  return [agents, attemptLabel(task.round, task.maxRounds), checkWords(task),
     review ? verdictLine(review.report.status).toLowerCase() : null, Number.isFinite(at) ? since(at, now) : null].filter(Boolean).join(' · ');
 }

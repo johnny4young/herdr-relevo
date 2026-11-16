@@ -43,7 +43,7 @@ The panel has two views. **Reviews** is the Inbox described below. **Runs** is f
 
 **A run opens in the panel.** Enter or a click shows its tasks under Needs me, Stuck and In flight, with the ones not started or done folded. A stuck task, selected, says **Why** in the reviewer's words and offers **Prepare a follow-up**. Enter on a task shows the summary, each step with its check (who wrote it, the tests, who reviewed it, then you) and the decision, with one line on what accepting does. Esc goes back a level.
 
-**What a run cost.** Under the summary of an open run, one line: agent minutes and tokens, each against the run's cap when it has one (a band that turns red at the cap; a cap never stops anything), attempts used, tests passed and pull requests shipped, with **Pause automation** or **Resume automation** at the edge. Tokens are counted for worktree runs, from the same report as the Tokens dialog.
+**What a run cost.** Under the summary of an open run, one line: agent minutes and tokens, each against the run's cap when it has one (a band that turns red at the cap; a cap never stops anything), attempts used, checks passed and pull requests shipped, with **Pause automation** or **Resume automation** at the edge. Tokens are counted for worktree runs, from the same report as the Tokens dialog.
 
 **Attempts, side by side.** A selected task lists its attempts: who wrote it, who reviewed it, how long it took and how it ended. When a task was written more than once, **C** compares the attempts (the last three): what the reviewer said, tests, files changed, time, tokens and your note. **See what changed between them** lists the files that differ between the last two attempts.
 

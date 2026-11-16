@@ -1,6 +1,6 @@
 // What the Runs panel says about a run's cost, a task's attempts and a selection of results; pure, so the tests can run it under Node.
 import { count, role, VERDICT } from "./run-words.js";
-import { lastReview, workflowCheckSummary } from "./workflow-navigation.js";
+import { checks, lastReview, workflowCheckSummary } from "./workflow-navigation.js";
 import { batchScope } from "./workflow-preferences.js";
 import { attemptTokens, attemptWindow } from "./run-cost.js";
 import { compact } from "./usage.js";
@@ -26,7 +26,7 @@ export function runCostLine(goal, bucket, cost, prs = 0) {
   }
   return { minutes: meter(cost.minutes, goal.maxAgentMinutes, (n) => String(Math.round(n)), "agent min"),
     tokens: cost.total > 0 || goal.maxTokens ? meter(cost.total, goal.maxTokens, compact, "tokens") : null,
-    rest: [count(attempts, "attempt"), total ? `tests ${passed} of ${total} passed` : null, prs ? `${count(prs, "PR")} shipped` : null].filter(Boolean) };
+    rest: [count(attempts, "attempt"), total ? `${passed} of ${checks(total)} passed` : null, prs ? `${count(prs, "PR")} shipped` : null].filter(Boolean) };
 }
 
 // Paused work that was under way: what Resume automation resumes. Planned and stuck tasks stay as they are.
@@ -86,7 +86,7 @@ export function compareAttempts(task, sessions = [], now = Date.now()) {
       const finding = verdict.ok === false && report ? firstLine(report.findings?.[0]?.issue ?? report.summary, 60) : "";
       return { text: finding ? `${verdict.word}: ${finding}` : verdict.word, ok: verdict.ok };
     },
-    tests: (round) => (round.writer.tests ? { text: `${round.writer.tests.passed} of ${round.writer.tests.total} passed`, ok: round.writer.tests.passed === round.writer.tests.total }
+    tests: (round) => (round.writer.tests ? { text: `${round.writer.tests.passed} of ${checks(round.writer.tests.total)} passed`, ok: round.writer.tests.passed === round.writer.tests.total }
       : round.writer.report && round.writer.report.status !== "completed" ? { text: "not run", quiet: true }
       : round.n === all.length && task.checks?.length ? { text: workflowCheckSummary(task).label.toLowerCase() } : task.checks?.length ? NOT_KEPT : { text: "not configured", quiet: true }),
     change: ({ writer }) => (writer.change ? { text: count(writer.change.files, "file"), added: writer.change.added, removed: writer.change.removed } : NOT_KEPT),
