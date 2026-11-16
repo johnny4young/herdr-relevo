@@ -44,7 +44,8 @@ export function runAgentArgs(key, role, home) {
   const deny = ["*.*", "relevo-workflow/*.*", ...["mods", "data", "layouts", "themes", "icons", "frame", "telemetry", "relevo-workflow/artifacts", "relevo-workflow/archive"].map((dir) => `${dir}/**`)]
     .map((glob) => `Edit(/${home}/${glob})`);
   // Its status and report files are written without asking; nothing else is granted.
-  const settings = { sandbox: { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true },
+  // Bash runs in the OS sandbox and can't leave it, so a run's writer doesn't stop to ask for each command it runs there.
+  const settings = { sandbox: { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true, autoAllowBashIfSandboxed: true },
     // A Claude reviewer starts without the person's hooks: one that asks for something else pulls it off the review.
     permissions: { allow: [`Edit(/${reports}/*.json)`], deny }, ...(role === "reviewer" ? { disableAllHooks: true } : {}) };
   return ["--add-dir", reports, "--permission-mode", "acceptEdits", "--settings", JSON.stringify(settings), ...(role === "reviewer" ? ["--tools", "Read,Write,Grep,Glob"] : [])];

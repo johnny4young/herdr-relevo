@@ -63,7 +63,7 @@ The separate run window is for planning (prompt, repository, agents, plan) and f
 
 **Files a worktree needs.** A new worktree has only tracked files. List the ignored files a run needs, such as `.env`, in a `.worktreeinclude` at the repository root, in `.gitignore` syntax; they are copied into each run's worktree.
 
-**What a run agent can touch.** Its worktree and its own report, nothing else. Codex runs with `workspace-write`; set `RUN_CODEX_MODEL` in `config.js` to choose its model. Claude runs Bash in the system sandbox, and its file tools cannot edit Relevo's state, mods or settings; writing its progress and report never asks. A Claude reviewer has no shell at all and starts without your hooks; a Codex reviewer never stops to ask, so what your hooks or instructions start outside its sandbox just fails.
+**What a run agent can touch.** Its worktree and its own report, nothing else. Codex runs with `workspace-write`; set `RUN_CODEX_MODEL` in `config.js` to choose its model. Claude runs Bash in the system sandbox, which it can't leave, so its commands there run without asking; its file tools cannot edit Relevo's state, mods or settings, and writing its progress and report never asks. A Claude reviewer has no shell at all and starts without your hooks; a Codex reviewer never stops to ask, so what your hooks or instructions start outside its sandbox just fails.
 
 **Starting a run.** A new worktree makes Claude and Codex ask whether to trust it. Runs shows that under Needs me with **Trust and continue**, which answers yes in the agent's tab; nothing is trusted without that click.
 
