@@ -1,4 +1,4 @@
-// The left bar as main draws it: Spaces above the Agents queue, each half its height. Demo data only.
+// The left bar as main draws it: Spaces above the Agents list, each half its height. Demo data only.
 import spaces from "./spaces.mjs";
 import agents from "./agents-today.mjs";
 

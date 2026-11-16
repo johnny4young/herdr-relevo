@@ -148,12 +148,12 @@ task to another account.
   then what it is doing or needs in muted text (the waiting reason in `blocked`, its tab, "writing #43", "finished #40"), the age when it rests
   and the account chip. The focused agent has a full 1 px `accent` outline over `selected` and a second line: PR tag
   with CI and size, `Opus 5.5`, a context band and `273k`, `· cache 48m` (`ansi3` under 10 minutes, "cache gone"
-  after), machine and folder. Priority is a queue: **NEEDS ME** (asking), **CAME BACK** (a result not seen yet), each
-  row there with one 11px line under it (its branch when not main, its PR tag, `ctx 86%` in `ansi3` from 80%), then one
-  line "2 working · billing · api" that opens to list them, and "3 resting in their spaces" that opens the idle ones.
-  Claude Desktop sessions (marked "Desktop") and Claude Code in terminals outside Herdr (Terminal, iTerm, VS Code,
-  Ghostty…, noted by the hook, with the app's name) join the queue by their turn. With agents but nothing waiting it says
-  "Nothing needs you". A ✓ on hover settles an idle or done agent under a folded **SETTLED** group. Each reads like an agent: what it is doing now ("editing ui.js"),
+  after), machine and folder. Priority has one section per Herdr state, all open: **NEEDS YOU** (`blocked`), **DONE**
+  (`done`, a result not seen yet), **WORKING** (`working`) and **IDLE**, each header in its state's color with its count;
+  a click on a header folds it. Rows in Needs you and Done carry one 11px line under them (the branch when not main, the
+  PR tag, `ctx 86%` in `ansi3` from 80%). Claude Desktop sessions (marked "Desktop") and Claude Code in terminals
+  outside Herdr (Terminal, iTerm, VS Code, Ghostty…, noted by the hook, with the app's name) join the section of their
+  state. A ✓ on hover settles an idle or done agent under a **SETTLED** group, last and open. Each reads like an agent: what it is doing now ("editing ui.js"),
   what it asks, or its last words, from the end of its local transcript. A click opens its last message in place, with
   **Open in Claude Desktop** or **Show <app>**.
 - **Settings dialog** (800×700, the gear beside ACCOUNTS): accounts (chip preview, label, letter, launcher, Claude
@@ -389,9 +389,9 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   folders carry over); `git.js` reads branch, ahead/behind and `git status --porcelain` with optional locks off;
   `model.js` builds the groups and the order the spaces move to. Git is read again when a place is new, when a
   command or an agent's turn ends, when the repo's git folder changes and once a minute while the window is in front.
-  The open space (the one you are in, unless closed; others by their chevron) lists `aliveBySpace`: agents by space,
-  Claude Desktop and other terminals' sessions and outside servers by folder (the deepest space's repo), live terminals
-  by space, from shared `relevo.alive`, which the Relevo mod's `AliveWatch` (`alive.js`) writes every 10 s while the
+  The open space (the one you are in, unless closed; others by their chevron) lists its live terminals and outside
+  servers from `aliveBySpace` (servers by folder, the deepest space's repo; terminals by space); agents and Claude
+  sessions are placed too, but only to keep a space from going quiet, and are drawn in Agents alone. The data comes from shared `relevo.alive`, which the Relevo mod's `AliveWatch` (`alive.js`) writes every 10 s while the
   window is in front (terminal rows with ports, and `outsideServers`: listening processes no Herdr terminal owns, run from
   home, with the `.app` they came from). Terminal actions go back as `relevo.term-<open|peek|restart|stop|close>-<address>`.
   A row's PR chip reads shared `relevo.repoPRs` (the Inbox's Now PR rows by repo name: open, and how many need me); a

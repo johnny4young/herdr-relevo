@@ -1,4 +1,4 @@
-// Everything alive under its repo in Spaces: agents, sessions, terminals with their ports, and servers from other apps.
+// What runs under its repo in Spaces: terminals with their ports, and servers from other apps. Agents and their sessions stay in Agents.
 import "./fake/register.mjs";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
@@ -97,7 +97,7 @@ test("the space you are in shows what runs in it; another shows its port until o
   });
   fake.stored["relevo.reasons"] = { t1: "Run: npm test" };
   const shown = ui();
-  assert.match(text(find(shown, "ag-api-t1")), /Claude Run: npm test/);
+  assert.doesNotMatch(text(shown), /Run: npm test/, "agents are listed in Agents, not here");
   assert.match(text(find(shown, "tm-api-t9")), /npm run dev :3000/);
   assert.equal(find(shown, "tm-web-t7"), null);
   assert.match(text(find(shown, "space-web")), /:4100/);
@@ -130,14 +130,14 @@ test("a repo with a server but no space shows as a row with no space, in the fol
   assert.deepEqual(fake.runs.at(-1), ["space.new", { folder: "/home/test/code/billing" }]);
 });
 
-test("a Claude Desktop session sits under its repo and opens in Desktop", async () => {
-  const { cx, ui } = await open([space("api", "api", "/home/test/code/api", { active: true })], {
-    desktop: [{ id: "local_1", title: "Rate limits", project: "api", cwd: "/home/test/code/api", state: "blocked", needs: "Approve the plan" }],
+test("Claude Desktop sessions stay in Agents: none under a space, and none makes a row with no space", async () => {
+  const { ui } = await open([space("api", "api", "/home/test/code/api", { active: true })], {
+    desktop: [{ id: "local_1", title: "Rate limits", project: "api", cwd: "/home/test/code/api", state: "blocked", needs: "Approve the plan" },
+      { id: "local_2", title: "Blog", project: "blog", cwd: "/home/test/code/blog", state: "working" }],
   });
-  const s = find(ui(), "ss-api-local_1");
-  assert.match(text(s), /Rate limits Approve the plan Desktop/);
-  s.handlers.on_click({}, cx);
-  assert.ok(fake.execs.some((l) => l.startsWith("open claude://code/continue?session=local_1")));
+  const drawn = text(ui());
+  assert.doesNotMatch(drawn, /Rate limits|Approve the plan|Blog/);
+  assert.equal(find(ui(), "ghost-blog"), null);
 });
 
 test("the watch publishes terminals with their ports and outside servers, only while the window is in front and when they change", async () => {
