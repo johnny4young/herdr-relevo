@@ -916,3 +916,26 @@ test('a run account out of quota is not kept from last time, and a run worktree 
   assert.equal(await repoOf('/home/test/.herdr/worktrees/app/fix-search-0a1b2c'), '/work/app');
   assert.equal(await repoOf('/work/other'), '/work/other');
 });
+
+test('a run asked to fix a pull request starts on a copy of its branch and its task remembers where to push', async () => {
+  const { v, cx } = await setup();
+  const fixPR = { url: 'https://github.com/me/app/pull/7', number: 7, headRef: 'fix/search', root: '/work/app', prompt: 'Fix pull request #7' };
+  v.applyRequest({ fixPR, at: Date.now() + 5 }, cx);
+  assert.deepEqual([v.form.root.value(), v.form.criteria.value(), fake.stored['relevo.runs.mode']], ['/work/app', 'Fix pull request #7', 'worktree']);
+  v.form.title.set_value('Fix #7');
+  assert.match(text(find(v.render(), 'workflow-task-setup')), /app · fixes #7 · /);
+  const payloads = [];
+  fake.exec = async (cmd, args) => {
+    if (!/cli\.mjs$/.test(args?.[0] ?? '')) return null;
+    const p = JSON.parse(args.at(-1)); payloads.push(p);
+    return { code: 0, stdout: JSON.stringify(p.action === 'prepare-worktree' ? { result: { path: '/wt/fix-7-abc123', branch: 'run/fix-7-abc123', base: '/work/app', baseCommit: 'c'.repeat(40), baseBranch: 'fix/search', prHead: 'fix/search' } } : { result: { taskId: 't' } }) };
+  };
+  v.launchWorktreeRun({ goalId: 'g', title: 'Fix #7', root: '/work/app', criteria: 'Fix pull request #7', checks: [], dependsOn: [], maxRounds: 2, maxMinutes: 20 }, cx);
+  await flush();
+  assert.deepEqual(payloads[0].pr, { headRef: 'fix/search' });
+  fake.agents = [{ address: 'w1', tab_name: v.launch.tabs.executor, status: 'idle' }, { address: 'r1', tab_name: v.launch.tabs.reviewer, status: 'idle' }];
+  v.launch.stage = 'waiting'; v.launchTick(cx); await flush();
+  const created = payloads.find((p) => p.action === 'create').task;
+  assert.deepEqual([created.worktree.prHead, created.worktree.prUrl], ['fix/search', fixPR.url]);
+  v.close();
+});

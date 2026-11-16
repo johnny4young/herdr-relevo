@@ -76,18 +76,21 @@ export function copyListed(root, dest, rels) {
   return copied;
 }
 
-export async function prepareWorktree({ root, title, home }) {
+// `pr` { headRef }: the run starts from that pull request's branch on origin, to fix it, instead of from HEAD.
+export async function prepareWorktree({ root, title, home, pr = null }) {
   if (!path.isAbsolute(root ?? '')) throw Error('Choose a repository');
   const top = (await git(root, ['rev-parse', '--show-toplevel'])).stdout.trim();
   if (fs.realpathSync(top) !== fs.realpathSync(root)) throw Error('Choose the repository root');
   const slug = runSlug(title), branch = `run/${slug}`, dest = worktreePath(top, slug, home);
   if (fs.existsSync(dest)) throw Error('A worktree already exists for this run');
   fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
-  const baseCommit = (await git(top, ['rev-parse', 'HEAD'])).stdout.trim();
-  const current = (await git(top, ['branch', '--show-current'])).stdout.trim(), baseBranch = BASE_BRANCH.test(current) ? current : '';
-  await git(top, ['worktree', 'add', '-b', branch, dest, 'HEAD']);
+  if (pr && (!BASE_BRANCH.test(pr.headRef ?? '') || pr.headRef.includes('..'))) throw Error("This pull request's branch can't be used");
+  if (pr) await git(top, [...QUIET, 'fetch', '--no-tags', 'origin', `refs/heads/${pr.headRef}`]);
+  const baseCommit = (await git(top, ['rev-parse', pr ? 'FETCH_HEAD' : 'HEAD'])).stdout.trim();
+  const current = (await git(top, ['branch', '--show-current'])).stdout.trim(), baseBranch = pr ? pr.headRef : BASE_BRANCH.test(current) ? current : '';
+  await git(top, ['worktree', 'add', '-b', branch, dest, baseCommit]);
   const copied = await copyIncluded(top, dest);
-  return { path: fs.realpathSync(dest), branch, base: top, baseCommit, baseBranch, copied };
+  return { path: fs.realpathSync(dest), branch, base: top, baseCommit, baseBranch, copied, ...(pr ? { prHead: pr.headRef } : {}) };
 }
 
 const ahead = async (wt) => wt.baseCommit ? Number((await wtGit(wt, ['rev-list', '--count', `${wt.baseCommit}..HEAD`])).stdout.trim()) : null;
@@ -226,6 +229,17 @@ export async function openPullRequest(wt, title, body, run = execFile) {
   const { stdout } = await run('gh', ['pr', 'create', '--draft', '--head', wt.branch, ...(BASE_BRANCH.test(wt.baseBranch ?? '') ? ['--base', wt.baseBranch] : []), '--title', title, '--body', body || title],
     { cwd: wt.path, encoding: 'utf8', timeout: 60000 });
   return stdout.trim().split('\n').at(-1);
+}
+
+// The accepted commits go onto the pull request's branch. Never forced: a branch that moved on GitHub refuses it.
+export async function pushToPullRequest(wt) {
+  const status = await worktreeStatus(wt);
+  if (!status.exists || status.dirty) throw Error('Commit the worktree before pushing');
+  if (status.ahead === 0) throw Error('The run branch has nothing to push');
+  if (!BASE_BRANCH.test(wt.prHead ?? '') || wt.prHead.includes('..')) throw Error('This run fixes no pull request');
+  try { await wtGit(wt, ['push', 'origin', `HEAD:refs/heads/${wt.prHead}`]); }
+  catch (e) { throw Error(/rejected|non-fast-forward|fetch first/.test(String(e.stderr ?? e.message)) ? `${wt.prHead} moved on GitHub since the run started; nothing was pushed` : String(e.stderr || e.message).trim().slice(0, 300)); }
+  return (await wtGit(wt, ['rev-parse', 'HEAD'])).stdout.trim();
 }
 
 // Uncommitted work is never removed; a branch with no commits of its own goes with its worktree.

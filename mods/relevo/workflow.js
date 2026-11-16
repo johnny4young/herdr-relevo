@@ -114,9 +114,9 @@ export class Workflow extends WorkflowDetail {
 
   // What the panel asked for: a task on one of its tabs, a follow-up form, the saved setups, or a new task from one.
   // All but the task are one-time asks: a pane that reloads with the same stamp only selects the task.
-  applyRequest({ taskId, tab, followUp, text, setups, setup, at }, cx = null) {
+  applyRequest({ taskId, tab, followUp, text, setups, setup, fixPR, at }, cx = null) {
     const task = this.tasks?.find((item) => item.id === taskId);
-    const once = Boolean(tab || followUp || setups || setup) && takeAsk(at);
+    const once = Boolean(tab || followUp || setups || setup || fixPR) && takeAsk(at);
     if (task) { this.selected = task.id; this.filter = workflowBucket(task); this.explicitNew = false; this.tab = once && TABS.includes(tab) ? tab : "Overview"; }
     if (!once) return;
     if (task && followUp === "blocked" && followUpAvailable(task)) this.prepareBlockedFollowUp(task, cx);
@@ -127,6 +127,13 @@ export class Workflow extends WorkflowDetail {
       this.form.decision.set_value(""); this.prepareFollowUp(task, cx);
     }
     if (setups) { this.selected = null; this.explicitNew = true; this.tab = "Overview"; this.taskSetupOpen = true; this.setupsOpen = true; }
+    // A run that fixes a pull request: its own worktree on a copy of the PR's branch, the prompt written from GitHub.
+    if (fixPR?.root && fixPR.headRef) {
+      this.selected = null; this.explicitNew = true; this.tab = "Overview"; this.prTarget = fixPR;
+      setShared(RUN_MODE, "worktree");
+      this.form.root.set_value(fixPR.root); this.checksFor = null;
+      if (fixPR.prompt) this.form.criteria.set_value(fixPR.prompt);
+    }
     const saved = setup ? savedSetups().find((item) => item.id === setup) : null;
     if (saved) {
       this.selected = null; this.explicitNew = true; this.tab = "Overview";
@@ -496,7 +503,7 @@ export class Workflow extends WorkflowDetail {
     const agentName = (address) => { const agent = agents().find((item) => item.address === address); return agent ? agentLabel(agent) : null; };
     const rootName = this.form.root.value().trim().split("/").filter(Boolean).at(-1);
     const isolated = this.runMode() === "worktree", accounts = this.runAccounts(), checks = this.checksNow();
-    const setupLabel = isolated ? [rootName, "own worktree", `${accountOf(accounts.executor).label} → ${accountOf(accounts.reviewer).label}`, checks ? checksLabel(checks) : "custom tests"].filter(Boolean).join(" · ") : chosen === 2 ? [rootName, `${agentName(this.executor)} → ${agentName(this.reviewer)}`].filter(Boolean).join(" · ") : `Repository & agents · ${chosen}/2 selected`;
+    const setupLabel = isolated ? [rootName, this.prTarget ? `fixes #${this.prTarget.number}` : "own worktree", `${accountOf(accounts.executor).label} → ${accountOf(accounts.reviewer).label}`, checks ? checksLabel(checks) : "custom tests"].filter(Boolean).join(" · ") : chosen === 2 ? [rootName, `${agentName(this.executor)} → ${agentName(this.reviewer)}`].filter(Boolean).join(" · ") : `Repository & agents · ${chosen}/2 selected`;
     return v_flex().w_full().min_w(0).gap(12)
       .child(div().font_semibold().child(fromPrompt ? "Start run" : "New task"))
       .when(fromPrompt && !this.editRunPrompt, (el) => el.child(h_flex().gap(8).items_center()

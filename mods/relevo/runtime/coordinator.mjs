@@ -3,7 +3,7 @@ import path from 'node:path';
 import { run } from './process.mjs';
 import { fingerprint, runChecks, attachArtifact, verifyArtifact, removeArtifact } from './evidence.mjs';
 import { readState, transaction, taskById, event, uid, stateDir, privateDir } from './store.mjs';
-import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, snapshotAttempt, dropAttemptRef, dropAttemptRefs, diffCounts, attemptDiff, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH, taskDiff } from './worktree.mjs';
+import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, snapshotAttempt, dropAttemptRef, dropAttemptRefs, diffCounts, attemptDiff, openPullRequest, pushToPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH, taskDiff } from './worktree.mjs';
 import { createHash } from 'node:crypto';
 import { archivable, stageArchive, publishArchive, MAX_TASKS } from './archive.mjs';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
@@ -106,7 +106,9 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       ...(input.reviewOnly === true && !input.worktree ? { reviewOnly: true } : {}),
       ...(input.worktree ? { worktree: { path: fs.realpathSync(input.root), branch: String(input.worktree.branch ?? ''), base: fs.realpathSync(input.worktree.base),
         ...(/^[0-9a-f]{40}$/.test(input.worktree.baseCommit ?? '') ? { baseCommit: input.worktree.baseCommit } : {}),
-        ...(BASE_BRANCH.test(input.worktree.baseBranch ?? '') ? { baseBranch: input.worktree.baseBranch } : {}) } } : {}),
+        ...(BASE_BRANCH.test(input.worktree.baseBranch ?? '') ? { baseBranch: input.worktree.baseBranch } : {}),
+        ...(BASE_BRANCH.test(input.worktree.prHead ?? '') && !input.worktree.prHead.includes('..') ? { prHead: input.worktree.prHead } : {}),
+        ...(/^https:\/\/github\.com\/[^\s]+\/pull\/\d+$/.test(input.worktree.prUrl ?? '') ? { prUrl: input.worktree.prUrl } : {}) } } : {}),
       attempts: [], messages: [], evidence: [], decisions: [], checksResult: [], revision: '', createdAt: new Date(clock()).toISOString(), error: null };
   }
   function planScopeIssue(task, doc) {
@@ -167,7 +169,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (payload.goalId !== undefined && !text(payload.goalId, 100)) throw Error('Choose a run to archive');
       return archiveFinished({ days, goalId: payload.goalId, preview: payload.preview === true });
     }
-    if (action === 'prepare-worktree') return { result: await prepareWorktree({ root: payload.root, title: payload.title }) };
+    if (action === 'prepare-worktree') return { result: await prepareWorktree({ root: payload.root, title: payload.title, pr: payload.pr ?? null }) };
     if (action === 'create') {
       const task = validateTask(payload.task, readState(home));
       await fp(task);
@@ -399,6 +401,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       const saved = update((doc) => logCommit(doc, taskById(doc, before.id), result));
       if (result.failure) throw Error(result.failure);
       return saved;
+    }
+    if (action === 'worktree-push') {
+      if (!before.worktree?.prHead || before.state !== 'accepted') throw Error('Only an accepted run that fixes a pull request can push to it');
+      const sha = await pushToPullRequest(before.worktree);
+      return update((doc) => { const task = taskById(doc, before.id); task.worktree.pushed = sha; log(doc, task, 'Pushed to the pull request', `${task.worktree.prHead} · ${sha.slice(0, 7)}`, 'Human'); });
     }
     if (action === 'worktree-pr' || action === 'worktree-remove') {
       // A cancelled run has nothing to propose; its worktree can only be discarded, with whatever it left uncommitted.

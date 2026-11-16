@@ -463,3 +463,21 @@ test('a run that is starting says in Runs what it waits on, and Trust and contin
   fake.stored[RUN_LAUNCH] = { ...fake.stored[RUN_LAUNCH], at: Date.now() - 600000 };
   assert.match(text(v.render(cx)), /needs a plan before agents start/, 'a launch left behind stops showing');
 });
+
+test('an accepted run that fixes a pull request offers Push to its branch, and says when GitHub refuses it', async () => {
+  const wt = { path: '/wt/fix-7', base: '/work/app', baseCommit: 'b'.repeat(40), branch: 'run/fix-7', prHead: 'fix/search', prUrl: 'https://github.com/me/app/pull/7', commit: 'c'.repeat(40) };
+  const asks = [];
+  let refuse = false;
+  fake.exec = (cmd, args) => {
+    if (!/cli\.mjs$/.test(args?.[0] ?? '')) return null;
+    const p = JSON.parse(args.at(-1)); asks.push(p.action);
+    if (p.action === 'worktree-push' && refuse) return { code: 1, stdout: JSON.stringify({ error: 'fix/search moved on GitHub since the run started; nothing was pushed' }) };
+    return p.action === 'task-diff' ? { code: 0, stdout: JSON.stringify({ result: { root: '/work/app', fromCommit: wt.baseCommit, toCommit: wt.commit, files: 0, list: [] } }) } : null;
+  };
+  const { v, cx } = await runs([task('a', 'accepted', { worktree: wt, attempts: [wrote(), reviewed()] })]);
+  v.expanded['more-run-rest'] = true; v.openRun(goal, cx, 'a'); v.render(cx); v.navKey({ key: 'enter' }, cx); v.render(cx); await flush();
+  refuse = true;
+  click(find(v.render(cx), 'task-push'), cx); await flush();
+  assert.match(text(v.render(cx)), /Not pushed: fix\/search moved on GitHub/);
+  assert.equal(asks.filter((a) => a === 'worktree-push').length, 1);
+});

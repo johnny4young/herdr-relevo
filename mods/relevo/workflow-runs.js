@@ -85,11 +85,12 @@ export class WorkflowRuns extends WorkflowDraftView {
     this.busy = true; this.error = null; this.launch = { stage: "preparing", fields, accounts, at: Date.now() }; cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const result = await runtimeCommand({ action: "prepare-worktree", root: fields.root, title: fields.title });
+        const pr = this.prTarget?.root === fields.root ? this.prTarget : null;
+        const result = await runtimeCommand({ action: "prepare-worktree", root: fields.root, title: fields.title, ...(pr ? { pr: { headRef: pr.headRef } } : {}) });
         const response = JSON.parse(result.stdout || "{}");
         if (response.error || result.code !== 0) throw Error(response.error || result.stderr || "Could not create the worktree");
         const slug = response.result.branch.replace(/^run\//, "");
-        this.launch = { ...this.launch, stage: "opening", worktree: response.result, tabs: { executor: `${slug} · build`, reviewer: `${slug} · review` } };
+        this.launch = { ...this.launch, stage: "opening", worktree: response.result, prUrl: pr?.url ?? null, tabs: { executor: `${slug} · build`, reviewer: `${slug} · review` } };
         openInFolder({ name: fields.root.split("/").pop(), folder: response.result.path, tab: this.launch.tabs.executor, argv: launchArgv(accounts.executor, null, runAgentArgs(accounts.executor, "executor", appHome())) });
         this.launch.openedAt = Date.now();
       } catch (error) {
@@ -152,14 +153,17 @@ export class WorkflowRuns extends WorkflowDraftView {
   worktreePanel(t, task) {
     const wt = task.worktree, read = this.worktreeInfo?.[task.id], info = read?.failed ? null : read;
     const gone = wt.removed || info?.exists === false, cancelled = task.state === "cancelled";
-    const state = gone ? "worktree removed" : read?.failed ? "could not read its state" : !info ? "checking…" : info.dirty ? "uncommitted changes" : wt.commit ? `committed ${wt.commit.slice(0, 7)}` : info.ahead ? `${info.ahead} commits` : "no changes";
+    const state = wt.pushed ? `pushed to ${wt.prHead} · ${wt.pushed.slice(0, 7)}` : gone ? "worktree removed" : read?.failed ? "could not read its state" : !info ? "checking…" : info.dirty ? "uncommitted changes" : wt.commit ? `committed ${wt.commit.slice(0, 7)}` : info.ahead ? `${info.ahead} commits` : "no changes";
     const canCommit = !cancelled && !gone && Boolean(info?.dirty) && !wt.commit;
-    const canPropose = !cancelled && !gone && info && !info.dirty && info.ahead !== 0 && info.origin !== false && !wt.pr;
+    const canPropose = !cancelled && !gone && info && !info.dirty && info.ahead !== 0 && info.origin !== false && !wt.pr && !wt.prHead;
+    const canPush = !cancelled && !gone && info && !info.dirty && info.ahead !== 0 && Boolean(wt.prHead) && !wt.pushed;
     return v_flex().id("workflow-worktree").w_full().min_w(0).gap(6).p(10).rounded(8).bg(t.raised)
       .child(div().text_size(11).text_color(t.muted).truncate().child(`${wt.branch} · ${state}`))
       .child(h_flex().gap(6).flex_wrap()
         .when(Boolean(read?.failed), (el) => el.child(button(t, "workflow-worktree-reread", "Read again", (cx) => { delete this.worktreeInfo[task.id]; cx.notify(); })))
         .when(Boolean(wt.pr), (el) => el.child(button(t, "workflow-worktree-open-pr", "Open PR", () => exec("open", [wt.pr]), { kind: "solid", tip: wt.pr })))
+        .when(canPush, (el) => el.child(button(t, "workflow-worktree-push", `Push to ${wt.prHead}`, (cx) => this.worktreeAction(task, "worktree-push", cx),
+          { kind: "solid", disabled: this.busy, tip: `Adds the accepted commit to the pull request's branch on GitHub; never forced, so a branch that moved refuses it` })))
         .when(canPropose, (el) => el.child(button(t, "workflow-worktree-pr", "Open draft PR", (cx) => this.worktreeAction(task, "worktree-pr", cx), { kind: "solid", disabled: this.busy, tip: "Pushes the run branch and opens a draft PR" })))
         .when(canCommit, (el) => el.child(button(t, "workflow-worktree-commit", "Commit accepted changes", (cx) => this.worktreeAction(task, "worktree-commit", cx),
           { kind: "solid", disabled: this.busy, tip: "The acceptance was saved but its commit did not land; this commits the accepted revision" })))
@@ -242,7 +246,8 @@ export class WorkflowRuns extends WorkflowDraftView {
     const label = (role) => accountOf(launch.accounts[role]).label;
     this.command({ action: "create", start: true, task: { ...launch.fields, root: launch.worktree.path,
       executor: { address: found.executor.address, label: label("executor") }, reviewer: { address: found.reviewer.address, label: label("reviewer") },
-      worktree: { branch: launch.worktree.branch, base: launch.worktree.base, baseCommit: launch.worktree.baseCommit, baseBranch: launch.worktree.baseBranch } } }, cx, (response) => {
+      worktree: { branch: launch.worktree.branch, base: launch.worktree.base, baseCommit: launch.worktree.baseCommit, baseBranch: launch.worktree.baseBranch,
+        ...(launch.worktree.prHead ? { prHead: launch.worktree.prHead, prUrl: launch.prUrl } : {}) } } }, cx, (response) => {
       this.explicitNew = false; this.selected = response.result?.taskId ?? null; this.filter = "In progress";
     });
   }
