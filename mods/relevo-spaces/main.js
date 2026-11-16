@@ -27,6 +27,8 @@ const FALLBACK_MS = 60000;
 // git doesn't run at the same moment; at most this many places are read at once.
 const QUIET_FALLBACK_MS = 300000, FALLBACK_PER_TICK = 2, AT_ONCE = 4;
 const RAIL_CELL = 32;
+// How long "close N" waits for its confirming second click.
+const ARM_MS = 4000;
 // The Relevo mod's lane glyphs: a mod can't import from another mod's folder.
 export function laneGlyph(t, turn) {
   if (turn === "flight") return svg("mods/relevo/spinner.svg").size(12).flex_none().text_color(t.working).spin(900);
@@ -441,6 +443,8 @@ export default class Spaces extends View {
           .on_click(() => run("space.new")).child(svg(CHROME("plus")).size(14))))
       .child(v_flex().id("spaces-list").flex_1().min_h(0).px(collapsed ? 0 : 8).pb(14).overflow_y_scrollbar().mode("always")
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; this.over = null; cx.notify(); })
+        // A button let go outside the list never reaches it: leaving the list ends the drag.
+        .on_hover((on, cx) => { if (!on && this.pressed !== null) { this.pressed = null; this.over = null; cx.notify(); } })
         .children(body));
   }
 
@@ -455,7 +459,7 @@ export default class Spaces extends View {
     const rows = g.rows.filter((r) => r.quiet);
     if (!rows.length) return [];
     const id = `quiet-${g.id}`, open = this.isOpen(id), ids = rows.filter((r) => !r.tree).map((r) => r.w.id);
-    const armed = this.armed === id;
+    const armed = this.armed === id && Date.now() - (this.armedAt ?? 0) < ARM_MS && JSON.stringify(this.armedIds) === JSON.stringify(ids);
     return [h_flex().id(id).h(26).px(6).gap(7).flex_none().items_center().rounded(6).cursor_pointer().text_size(11).text_color(t.dim)
       .hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => { this.toggle(id); cx.notify(); })
@@ -466,7 +470,12 @@ export default class Spaces extends View {
         .tooltip(armed ? `Click again to close ${ids.length} space${ids.length === 1 ? "" : "s"} and their terminals` : "Close these spaces")
         .on_click((_e, cx) => {
           cx.stop_propagation();
-          if (!armed) { this.armed = id; cx.notify(); return; }
+          if (!armed) {
+            Object.assign(this, { armed: id, armedAt: Date.now(), armedIds: ids });
+            cx.timer.after(ARM_MS + 50, (cx) => cx.notify());
+            cx.notify();
+            return;
+          }
           this.armed = null;
           for (const sid of rows.map((r) => r.w.id)) run("space.close", { id: sid, confirmed: true });
           cx.notify();

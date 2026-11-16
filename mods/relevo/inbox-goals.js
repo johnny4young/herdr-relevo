@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { shared, setShared, readTextFile, appHome } from "herdr";
-import { runtimeCommand } from "./runtime-cli.js";
+import { readRunState, runtimeCommand } from "./runtime-cli.js";
 import { accountFor, inFocus } from "./context.js";
 import { button } from "./ui.js";
 import { openGoal } from "./goals-editor.js";
@@ -59,7 +59,7 @@ export class GoalViews {
         if (quiet && rev != null && this.goalPolls % 10 !== 0) { this.workflowAt = Date.now() / 1000; this.rememberMerged(); this.goalsLoading = false; return; }
         this.goalDoc = goals.doc;
         try {
-          const raw = await readTextFile(`${appHome()}/relevo-workflow/state.json`);
+          const raw = await readRunState(rev);
           if (quiet && raw === this.workflowRaw) { this.workflowAt = Date.now() / 1000; this.rememberMerged(); this.goalsLoading = false; return; }
           this.workflowRaw = raw;
           const workflow = raw ? JSON.parse(raw) : { tasks: [], engine: { enabled: false } };

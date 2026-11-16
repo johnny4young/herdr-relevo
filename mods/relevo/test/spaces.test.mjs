@@ -174,3 +174,13 @@ test("a new folder goes before the default one, and a context's folder can't be 
   fake.props = { folderMenu: list[1].id };
   assert.ok(find(menu.render(cx), "folder-delete"));
 });
+
+test("a drag let go outside the list ends when the pointer leaves it", async () => {
+  const { mod, cx, ui } = await open([space("a", "blog", "/home/test/code/blog"), space("b", "acme-api", "/home/test/code/acme-api")]);
+  Object.assign(mod, { pressed: "a", over: "x" });
+  find(ui(), "spaces-list").handlers.on_hover(false, cx);
+  assert.deepEqual([mod.pressed, mod.over], [null, null]);
+  mod.pressed = null;
+  find(ui(), "spaces-list").handlers.on_hover(false, cx);
+  assert.equal(mod.pressed, null, "leaving without a drag changes nothing");
+});

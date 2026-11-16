@@ -23,11 +23,14 @@ const tokenHash = (token) => createHash('sha256').update(String(token)).digest('
 const statusOf = (actor) => typeof actor.status === 'string' ? actor.status : actor.status?.state;
 // An unreported attempt keeps its checkout and agents until it reports or a human reconciles it.
 const holdsCheckout = (task) => task.attempts.at(-1)?.state === 'running';
-function checkoutBusy(doc, task, actor) {
+// A cancelled task's unreconciled attempt still holds its checkout and agents, but not one of the run slots.
+export function checkoutBusy(doc, task, actor) {
   const active = doc.tasks.filter((other) => other.id !== task.id && holdsCheckout(other));
-  return active.length >= doc.engine.maxConcurrent ||
+  return active.filter((other) => !terminalStates.has(other.state)).length >= doc.engine.maxConcurrent ||
     active.some((other) => other.root === task.root || [other.executor.address, other.reviewer.address].includes(actor.address));
 }
+// When an attempt's limit falls: its start plus the time the machine slept (`pausedMs`), which no agent works through.
+export const attemptDue = (attempt, maxMinutes) => Date.parse(attempt.at) + (attempt.pausedMs ?? 0) + maxMinutes * 60000;
 const roomFor = (doc, count) => { if (doc.tasks.length + count > MAX_TASKS) throw Error(`The queue holds ${MAX_TASKS} tasks; archive finished ones before adding more`); };
 const MAX_FEEDBACK = 8000, MAX_STORED_PROMPT = 12000, REPORTED_PROMPT = 2000;
 const failedChecks = (checks) => `Checks failed: ${JSON.stringify(checks.filter((check) => check.code !== 0).map((check) => ({
@@ -37,10 +40,11 @@ const CHECK_GRACE_MS = 500;
 // What a reviewer is shown of the change: it has no shell to read the diff itself. A submodule shows by the commit it
 // points to, read from files: git starts nothing inside it.
 const MAX_DIFF = 24000;
-async function changeOf(root, base, env) {
+export async function changeOf(root, base, env) {
   const git = (...args) => run(['git', '-C', root, '--no-optional-locks', ...QUIET, ...args], { timeout: 30000, limit: MAX_DIFF * 2, env: env ? { ...process.env, ...env } : undefined });
   const [diff, untracked] = await Promise.all([git('diff', '--no-color', '--no-ext-diff', '--no-textconv', '--ignore-submodules=dirty', base, '--'), git('ls-files', '--others', '--exclude-standard')]);
-  if (diff.code !== 0) return `Could not read the diff: ${String(diff.stderr).trim().slice(0, 300)}`;
+  // A diff past the read limit comes back cut, not failed: the reviewer gets its start and the note below.
+  if (diff.code !== 0 && !diff.truncated) return `Could not read the diff: ${String(diff.stderr).trim().slice(0, 300)}`;
   const added = untracked.stdout.split('\n').filter(Boolean);
   const text = [diff.stdout.trim() || 'No changes to tracked files.', added.length ? `New files, not in the diff:\n${added.slice(0, 50).join('\n')}` : ''].filter(Boolean).join('\n\n');
   return text.length > MAX_DIFF ? `${text.slice(0, MAX_DIFF)}\n… the diff goes on; read the files it names.` : text;
@@ -420,8 +424,14 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       const active = before.attempts.at(-1);
       if (!active || !['uncertain', 'sending'].includes(active.delivery)) throw Error('No uncertain attempt to reconcile');
       if (payload.attemptId !== active.id || payload.confirmStopped !== true) throw Error('Inspect the agent, then explicitly confirm this attempt stopped');
-      const observed = await getActor({ address: active.address }, before.root);
-      if (!['idle', 'done'].includes(observed.status)) throw Error('The agent is still working');
+      // Stopped: its terminal is gone or finished, or the agent rests; where it is now doesn't matter.
+      const seen = await hc(['get', '--json', active.address]);
+      const gone = seen.code !== 0 && /"kind":\s*"not_found"/.test(`${seen.stdout}${seen.stderr}`);
+      if (seen.code !== 0 && !gone) throw Error(`Could not read agent ${active.address}; try again`);
+      if (!gone) {
+        const observed = JSON.parse(seen.stdout);
+        if (observed.state === 'live' && !['idle', 'done'].includes(statusOf(observed))) throw Error('The agent is still working');
+      }
       return update((doc) => { const task = taskById(doc, before.id), attempt = task.attempts.at(-1);
         if (attempt?.id !== active.id) throw Error('Attempt changed');
         attempt.state = 'abandoned'; attempt.delivery = 'reconciled'; task.paused = true; attempt.endedAt ??= new Date(clock()).toISOString();
@@ -555,7 +565,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     }
     if (checkoutBusy(doc, task, actor)) return;
     let observed;
-    try { observed = await getActor(actor, task.root); } catch (e) { block(task.id, e.message); return; }
+    try { observed = await getActor(actor, task.root); } catch (e) {
+      // A reviewer on a prompt or busy elsewhere is waited for: blocking would cost the checked implementation its review.
+      if (role === 'reviewer' && /is not ready/.test(e.message)) return;
+      block(task.id, e.message); return;
+    }
     if (!['idle', 'done'].includes(observed.status)) return;
     const revision = await fp(task);
     if (role === 'reviewer' && task.revision !== revision) { block(task.id, 'Checkout changed after checks. Start a fresh attempt.'); return; }
@@ -693,7 +707,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       fs.rmSync(statusFile(attempt.id), { force: true });
       return;
     }
-    if (!attempt.timedOut && clock() - Date.parse(attempt.at) > task.maxMinutes * 60000) {
+    if (!attempt.timedOut && clock() > attemptDue(attempt, task.maxMinutes)) {
       if (attempt.delivery === 'acknowledged') await interruptAttempt(task, attempt);
       update((doc) => { const t = taskById(doc, task.id), a = t.attempts.at(-1); if (a?.id !== attempt.id) return;
         a.timedOut = true; a.endedAt = new Date(clock()).toISOString(); a.delivery = 'uncertain'; t.state = 'blocked'; t.error = 'Attempt time limit reached; inspect and reconcile the agent before continuing'; log(doc, t, 'Attempt timed out', t.error); });

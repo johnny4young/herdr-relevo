@@ -106,3 +106,20 @@ test("Reviews publishes open PRs by repo, and a request to show one repo fills t
   assert.equal(inbox.q, "acme-api");
   await flush();
 });
+
+test("close N disarms after a few seconds, and when the quiet spaces change", async () => {
+  const old = Date.now() - 2 * DAY_MS;
+  const { mod, cx, ui } = await open([space("a", "api", "/home/test/code/api", { active: true }), space("b", "blog", "/home/test/code/blog"), space("c", "notes", "/home/test/code/notes")],
+    { touched: { a: old, b: old, c: old } });
+  const closes = () => fake.runs.filter(([n]) => n === "space.close").length;
+  find(ui(), "quiet-p-close").handlers.on_click({}, cx);
+  mod.armedAt -= 5000;
+  assert.match(text(find(ui(), "quiet-p-close")), /^close 2$/, "a late second click finds it disarmed");
+  find(ui(), "quiet-p-close").handlers.on_click({}, cx);
+  assert.equal(closes(), 0);
+  mod.armedIds = ["b"];
+  find(ui(), "quiet-p-close").handlers.on_click({}, cx);
+  assert.equal(closes(), 0, "armed on other spaces, so this click arms again");
+  find(ui(), "quiet-p-close").handlers.on_click({}, cx);
+  assert.equal(closes(), 2);
+});
