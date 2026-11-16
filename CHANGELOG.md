@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **A run's Claude writer stops asking for each command.** Its Bash already runs in the OS sandbox with no way out (`allowUnsandboxedCommands: false`), so `autoAllowBashIfSandboxed` is on for it: `npm test`, `ls` and the like run without a prompt, and anything the sandbox blocks still fails. Your own Claude settings don't change.
 - **Runs say it right.** A run whose tasks were all cancelled reads "cancelled" instead of "needs a plan before agents start". A second opinion's cost line counts its review ("1 review") instead of "0 attempts". The review pane opened on a run's change no longer offers to send comments to an agent that isn't there.
 - **Planning stays out of the way.** A run's Edit dialog shows its Brief; Outcomes and Ownership (steps, owner, priority, lead) appear behind **Planning…**, or straight away for a run that uses them. The run window shows saved setups and "Wait for earlier tasks" only when there is one to use, and offers the previous setup only after you move away from it. Relevo counts on this machine how often each part of Runs is opened, to keep what is used and drop what is not.
 - **Accepting a run opens its draft pull request.** In a run of its own worktree, **Accept and open draft PR** commits, pushes the run branch and opens a draft PR described by the run: the expected outcome, what changed, the checks, the review and what nobody verified. Without an origin, or if `gh` fails, the commit stays and the reason shows. `RUN_DRAFT_PR = false` in `config.js` keeps it to the commit.

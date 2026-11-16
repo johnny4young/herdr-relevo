@@ -688,7 +688,8 @@ test('run agents start with their model, sandbox and access to the report folder
   assert.deepEqual(reviewer.slice(-2), ['--tools', 'Read,Write,Grep,Glob']);
   assert.equal(executor.includes('--tools'), false);
   const settings = JSON.parse(executor[executor.indexOf('--settings') + 1]);
-  assert.deepEqual(settings.sandbox, { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true }, 'Bash cannot leave the sandbox');
+  assert.deepEqual(settings.sandbox, { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true, autoAllowBashIfSandboxed: true },
+    'Bash cannot leave the sandbox, and inside it runs without asking');
   assert.ok(settings.permissions.deny.includes('Edit(//h/relevo-workflow/*.*)'), 'state and locks are not editable');
   assert.ok(!settings.permissions.deny.some((rule) => rule.includes('reports')), 'reports stay writable');
   assert.deepEqual(executor.slice(0, 4), ['--add-dir', reports, '--permission-mode', 'acceptEdits']);
