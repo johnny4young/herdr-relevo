@@ -23,12 +23,20 @@ const tokenHash = (token) => createHash('sha256').update(String(token)).digest('
 const statusOf = (actor) => typeof actor.status === 'string' ? actor.status : actor.status?.state;
 // An unreported attempt keeps its checkout and agents until it reports or a human reconciles it.
 const holdsCheckout = (task) => task.attempts.at(-1)?.state === 'running';
-// A cancelled task's unreconciled attempt still holds its checkout and agents, but not one of the run slots.
-export function checkoutBusy(doc, task, actor) {
+const agentName = (actor) => actor.label || actor.address;
+// Why a task that could start must wait, or null. A cancelled task's unreconciled attempt still holds its checkout
+// and agents, but not one of the run slots.
+export function slotWait(doc, task, actor) {
   const active = doc.tasks.filter((other) => other.id !== task.id && holdsCheckout(other));
-  return active.filter((other) => !terminalStates.has(other.state)).length >= doc.engine.maxConcurrent ||
-    active.some((other) => other.root === task.root || [other.executor.address, other.reviewer.address].includes(actor.address));
+  const same = active.find((other) => other.root === task.root);
+  if (same) return `Waits for “${same.title}”, which works in the same checkout.`;
+  const busy = active.find((other) => [other.executor.address, other.reviewer.address].includes(actor.address));
+  if (busy) return `Waits for ${agentName(actor)}, which works on “${busy.title}”.`;
+  const max = doc.engine.maxConcurrent;
+  if (active.filter((other) => !terminalStates.has(other.state)).length < max) return null;
+  return `Waits for a free slot: ${max} ${max === 1 ? 'task runs' : 'tasks run'} at once.`;
 }
+export const checkoutBusy = (doc, task, actor) => Boolean(slotWait(doc, task, actor));
 // When an attempt's limit falls: its start plus the time the machine slept (`pausedMs`), which no agent works through.
 export const attemptDue = (attempt, maxMinutes) => Date.parse(attempt.at) + (attempt.pausedMs ?? 0) + maxMinutes * 60000;
 const roomFor = (doc, count) => { if (doc.tasks.length + count > MAX_TASKS) throw Error(`The queue holds ${MAX_TASKS} tasks; archive finished ones before adding more`); };
@@ -563,14 +571,21 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         if (current.state === 'ready' && !current.paused && !dependencyWaitReason(current, next)) current.waitingReason = null;
       });
     }
-    if (checkoutBusy(doc, task, actor)) return;
-    let observed;
-    try { observed = await getActor(actor, task.root); } catch (e) {
-      // A reviewer on a prompt or busy elsewhere is waited for: blocking would cost the checked implementation its review.
-      if (role === 'reviewer' && /is not ready/.test(e.message)) return;
-      block(task.id, e.message); return;
+    let waits = slotWait(doc, task, actor), observed;
+    if (!waits) {
+      try { observed = await getActor(actor, task.root); } catch (e) {
+        // A reviewer on a prompt or busy elsewhere is waited for: blocking would cost the checked implementation its review.
+        if (role !== 'reviewer' || !/is not ready/.test(e.message)) { block(task.id, e.message); return; }
+      }
+      if (!['idle', 'done'].includes(observed?.status)) waits = `Waits for ${agentName(actor)} to be free.`;
     }
-    if (!['idle', 'done'].includes(observed.status)) return;
+    waits = waits?.slice(0, 500) ?? null;
+    // Written only when it changes: a tick runs on every event of a watched agent.
+    if ((task.waitsFor ?? null) !== waits) update((next) => {
+      const t = taskById(next, task.id);
+      if (['ready', 'needs_review'].includes(t.state) && !t.paused) t.waitsFor = waits;
+    });
+    if (waits) return;
     const revision = await fp(task);
     if (role === 'reviewer' && task.revision !== revision) { block(task.id, 'Checkout changed after checks. Start a fresh attempt.'); return; }
     const token = uid();
@@ -596,7 +611,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       }
       if (checkoutBusy(next, t, actor)) return { waiting: true };
       if (role === 'executor') { if (t.round >= t.maxRounds) throw Error('Attempt budget exhausted'); t.round++; }
-      t.state = 'running'; t.waitingReason = null; t.attempts.push(attempt); t.error = null;
+      t.state = 'running'; t.waitingReason = null; t.waitsFor = null; t.attempts.push(attempt); t.error = null;
       log(next, t, 'Task assigned', `${role} → ${actor.label || actor.address}; attempt ${attempt.id}`);
     });
     if (taskById(readState(home), task.id).attempts.at(-1)?.id !== attempt.id) return;

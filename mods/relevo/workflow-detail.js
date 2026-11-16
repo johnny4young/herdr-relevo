@@ -157,9 +157,9 @@ export class WorkflowDetail extends WorkflowRuns {
     }
     if (task.paused) return "This task is paused.";
     if (task.state === "planned" && task.planId) return "This task belongs to a saved plan. Open Goal plan and choose Start plan once for the whole sequence.";
-    if (task.state === "ready" && this.engine?.enabled) return "Queued. Starts when its agent is free.";
+    if (task.state === "ready" && this.engine?.enabled) return task.waitsFor ?? "Queued. Starts when its agent is free.";
     if (task.state === "planned" || task.state === "ready") return "Choose Start to assign this task.";
-    if (task.state === "needs_review") return "Review in progress.";
+    if (task.state === "needs_review") return task.waitsFor ?? "Review in progress.";
     return "In progress. Tests and review follow.";
   }
 

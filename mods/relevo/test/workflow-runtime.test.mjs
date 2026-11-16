@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { attemptDue, changeOf, checkoutBusy, createRuntime } from "../runtime/coordinator.mjs";
+import { attemptDue, changeOf, checkoutBusy, createRuntime, slotWait } from "../runtime/coordinator.mjs";
 import { creditSleep } from "../runtime/cli.mjs";
 import { linkedDecision } from "../lib/goal-workflow.js";
 import { transaction } from "../runtime/store.mjs";
@@ -871,6 +871,16 @@ test("a cancelled task's attempt keeps its checkout and agents but not a run slo
   assert.equal(checkoutBusy(doc, next, { address: "e3" }), true, "two live attempts fill the slots");
 });
 
+test("a task that can't start says what it waits for", () => {
+  const holder = (id, title, root, executor) => ({ id, title, state: "running", root, executor: { address: executor }, reviewer: { address: `${executor}-r` }, attempts: [{ state: "running" }] });
+  const doc = { engine: { maxConcurrent: 2 }, tasks: [holder("a", "Fix search", "/r1", "e1")] };
+  assert.equal(slotWait(doc, { id: "c", root: "/r1" }, { address: "e3" }), "Waits for “Fix search”, which works in the same checkout.");
+  assert.equal(slotWait(doc, { id: "c", root: "/r3" }, { address: "e1", label: "Luna" }), "Waits for Luna, which works on “Fix search”.");
+  assert.equal(slotWait(doc, { id: "c", root: "/r3" }, { address: "e3" }), null);
+  doc.tasks.push(holder("b", "Docs", "/r2", "e2"));
+  assert.equal(slotWait(doc, { id: "c", root: "/r3" }, { address: "e3" }), "Waits for a free slot: 2 tasks run at once.");
+});
+
 test("a reviewer on a prompt is waited for, and the checked implementation keeps its review", async (t) => {
   const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
   await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
@@ -880,10 +890,15 @@ test("a reviewer on a prompt is waited for, and the checked implementation keeps
   let task = f.runtime.read().tasks[0];
   assert.notEqual(task.state, "blocked");
   assert.equal(task.attempts.at(-1).role, "executor");
+  assert.equal(task.waitsFor, "Waits for Reviewer to be free.");
+  const revision = f.runtime.read().revision;
+  await f.runtime.tick(); await f.runtime.tick();
+  assert.equal(f.runtime.read().revision, revision, "a wait that doesn't change is not written again");
   f.setActorStatus("review-agent", "idle");
   await f.runtime.tick();
   task = f.runtime.read().tasks[0];
   assert.equal(task.attempts.at(-1).role, "reviewer");
+  assert.equal(task.waitsFor, null);
   assert.equal(task.round, 1, "no implementation round was spent");
 });
 

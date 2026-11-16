@@ -16,6 +16,9 @@ const rejections = (task) => (task.attempts ?? []).filter((attempt) => attempt.r
   && ["changes_requested", "blocked"].includes(attempt.report?.status)).length;
 const attemptsLeft = (task) => (task.round ?? 0) < (task.maxRounds ?? 2);
 const person = (task, key) => task[key]?.label ?? task[key]?.address ?? role(key).name;
+// What a queued task waits for, as the coordinator last saw it: a slot, its checkout or its agent.
+const waitsFor = (task) => (!task.paused && ["ready", "needs_review"].includes(task.state) && task.waitsFor
+  ? firstLine(task.waitsFor.replace(/\.$/, "").replace(/^W/, "w"), 60) : null);
 
 // Whose turn a task is: me, stuck, flight, open (not started) or done.
 export function taskTurn(task) {
@@ -74,9 +77,9 @@ export function taskReason(task) {
   if (turn === "flight") {
     const attempt = live(task);
     if (attempt) return `${person(task, attempt.role === "reviewer" ? "reviewer" : "executor")} is ${attempt.role === "reviewer" ? "reviewing" : "writing"} it`;
-    return task.paused ? "paused" : task.state === "needs_review" ? "waits for its reviewer" : "waits for its agent";
+    return task.paused ? "paused" : waitsFor(task) ?? (task.state === "needs_review" ? "waits for its reviewer" : "waits for its agent");
   }
-  return turn === "open" ? "not started" : task.state;
+  return turn === "open" ? waitsFor(task) ?? "not started" : task.state;
 }
 
 // When a task last moved, in seconds, or null.
