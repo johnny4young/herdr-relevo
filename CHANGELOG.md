@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **History no longer fills up.** A full Runs queue (200 tasks) archives finished tasks idle for a week before it takes a new one, as **Archive older than 7 days** does by hand, instead of refusing. The goals file keeps its newest thousand saves instead of refusing every save once it had a thousand. An install keeps the ten newest backups of what it replaced; it had kept every one.
 - **The Runs coordinator rests when idle.** With nothing to do for ten minutes it exits and its terminal goes with it; a command that leaves it work, or the Inbox's once-a-minute check while a run is open, starts it again. A watch on an agent's events that ends (the terminal restarted) is opened again instead of leaving the coordinator deaf to that agent. Installing an update of the runs code stops an idle coordinator so the next run uses the new version, and leaves a busy one to finish.
 - **Runs say why a task waits.** A queued task no longer just reads "not started" or "waits for its agent": its row and its window say "waits for a free slot: 2 tasks run at once", "waits for “Fix search”, which works in the same checkout", "waits for Luna, which works on “Fix search”" or "waits for Luna to be free".
 - **Tokens holds less in memory.** Between reads the token scanner keeps only the saved list of each day's message ids, not a set of every id from the last 31 days (about 8 MB here); a read builds the set of a day only when a message from that day comes in.
