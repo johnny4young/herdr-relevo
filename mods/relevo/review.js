@@ -693,6 +693,7 @@ export class ReviewDiff {
       .child(this.diff(t, font))
       .when(mine.length > 0, (el) => el.child(this.savedStrip(t, font, mine)))
       .when(this.editing !== null, (el) => el.child(this.commentEditor(t, font)))
-      .child(this.footer(t, agent, n, ready));
+      // A run's change has no agent to send comments to.
+      .when(!this.range, (el) => el.child(this.footer(t, agent, n, ready)));
   }
 }

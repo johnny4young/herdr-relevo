@@ -501,3 +501,14 @@ test('a draft pull request opens as a run from scratch is accepted, says why whe
   assert.equal(decided().at(-1).openPR, true);
   assert.match(v.runNotice, /Accepted and committed; the draft pull request didn't open: no origin remote/);
 });
+
+test('a run whose tasks were all cancelled says so, not that it needs a plan, and a second opinion counts its review', async () => {
+  const { runCostLine } = await import('../lib/run-compare.js');
+  const row = (tasks) => runRow(goal, runBucket(tasks, 'g'), { engine: { enabled: true } });
+  assert.deepEqual(row([task('x', 'cancelled')]), { group: 'ready', turn: 'old', now: 'cancelled', action: { kind: 'open', label: 'Open' } });
+  assert.equal(row([task('x', 'cancelled'), task('y', 'cancelled')]).now, 'all its tasks cancelled');
+  assert.equal(row([task('x', 'accepted'), task('y', 'cancelled')]).now, 'finished, everything accepted');
+  const opinion = task('o', 'needs_you', { reviewOnly: true, attempts: [reviewed()], checks: [['npm', 'test']], checksResult: [{ code: 1 }] });
+  assert.deepEqual(runCostLine(goal, runBucket([opinion], 'g'), { minutes: 2, total: 0 }).rest, ['1 review', '0 of 1 check passed']);
+  assert.deepEqual(runCostLine(goal, runBucket([writing('e')], 'g'), { minutes: 2, total: 0 }).rest, ['1 attempt']);
+});
