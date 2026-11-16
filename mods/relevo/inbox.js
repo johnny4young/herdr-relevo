@@ -244,9 +244,11 @@ export class Inbox {
           const pane = byPane.get(a.pane);
           if (a.address.includes("/") || !pane?.cwd) continue;
           if (!this.tops.has(pane.cwd)) {
-            this.tops.set(pane.cwd, (await exec("git", ["rev-parse", "--show-toplevel"], { cwd: pane.cwd })).stdout.trim());
+            // A folder that is gone (a removed worktree) rejects: that agent goes without a repo, the scan goes on.
+            const r = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: pane.cwd }).catch(() => null);
+            if (r) this.tops.set(pane.cwd, r.stdout.trim());
           }
-          const top = this.tops.get(pane.cwd);
+          const top = this.tops.get(pane.cwd) ?? "";
           // A worktree's folder isn't named after its repo, so origin says which it is.
           if (top && !this.origins.has(top)) {
             this.origins.set(top, githubRepo(withoutLogin((await exec("git", ["-C", top, "remote", "get-url", "origin"])).stdout)));
@@ -264,7 +266,7 @@ export class Inbox {
           if (a.address.includes("/") || a.status === "working") continue;
           const pane = byPane.get(a.pane);
           if (!pane?.cwd) continue;
-          const top = this.tops.get(pane.cwd);
+          const top = this.tops.get(pane.cwd) ?? "";
           const repo = top.split("/").pop() || a.space_name;
           if (a.status === "blocked") {
             const at = since[`${a.address}:blocked`];
@@ -281,12 +283,18 @@ export class Inbox {
           // The diff of a resting agent only changes when its status does; re-read it at most once a minute otherwise.
           let cached = this.stats.get(top);
           if (!cached || this.dirty.delete(top) || cached.status !== a.status || Date.now() - cached.at > STATS_FOR) {
-            const stat = (await exec("git", [...GIT_READ, "diff", "HEAD", "--shortstat"], { cwd: top })).stdout;
-            const untracked = (await exec("git", [...GIT_READ, "ls-files", "--others", "--exclude-standard"], { cwd: top }))
-              .stdout.split("\n").filter(Boolean).length;
-            // What the agent said last, so the card tells whether to review or to answer it.
-            const said = lastMessage((await hc(["read", a.address, "--lines", "20"])).stdout);
-            this.stats.set(top, cached = { status: a.status, at: Date.now(), stat, untracked, said });
+            try {
+              const stat = (await exec("git", [...GIT_READ, "diff", "HEAD", "--shortstat"], { cwd: top })).stdout;
+              const untracked = (await exec("git", [...GIT_READ, "ls-files", "--others", "--exclude-standard"], { cwd: top }))
+                .stdout.split("\n").filter(Boolean).length;
+              // What the agent said last, so the card tells whether to review or to answer it.
+              const said = lastMessage((await hc(["read", a.address, "--lines", "20"])).stdout);
+              this.stats.set(top, cached = { status: a.status, at: Date.now(), stat, untracked, said });
+            } catch {
+              // Its checkout went away since it was found: forget it and leave that card out.
+              this.tops.delete(pane.cwd); this.stats.delete(top);
+              continue;
+            }
           }
           const { stat, untracked, said } = cached;
           const files = Number(/(\d+) files? changed/.exec(stat)?.[1] ?? 0) + untracked;
@@ -306,6 +314,8 @@ export class Inbox {
           this.today,
         ]);
         this.local = local;
+        // A reply whose question went away (answered in the terminal) would keep holding the keyboard.
+        if (this.replying && !local.some((i) => i.kind === "blocked" && i.agent.address === this.replying)) { this.replying = null; this.replyKey = null; }
         this.publishReasons();
         this.publishAgentPRs();
         await this.watchRepos(seen, cx);

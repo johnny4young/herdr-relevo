@@ -1066,3 +1066,28 @@ test("Now navigation holds recent PRs; older ones are navigated in Maintenance",
   fake.stored["relevo.inbox.view"] = "maintenance";
   assert.deepEqual(inbox.navItems(v).map((entry) => entry.id), ["pr-r1", "pr-m2"]);
 });
+
+test("an agent whose folder is gone leaves its card out and the other agents' cards stay", async () => {
+  fake.exec = (cmd, args, options) => {
+    if (options?.cwd === "/gone") throw Error("cwd does not exist");
+    return cmd === "hc" && args[0] === "read" ? { stdout: DB } : repoOutput(cmd, args);
+  };
+  fake.agents = [agent("t1", "blocked"), agent("t2", "idle")];
+  fake.panes = [pane("t1"), pane("t2", "/gone")];
+  fake.terminals = [term("t1"), term("t2")];
+  const { ui, inbox } = await open();
+  assert.equal(inbox.localError ?? null, null);
+  assert.match(text(ui()), /Which database/);
+});
+
+test("a reply whose question went away lets go of the keyboard", async () => {
+  const FREE = " Why?\n › 1. Because\n   2. Type something.\n";
+  const { ui, inbox, cx } = await waiting(FREE);
+  click(find(ui(), "answer-t1-2"), cx);
+  await flush();
+  assert.equal(inbox.replying, "t1");
+  setAgents(["t1", "idle"]);
+  inbox.scanLocal(cx);
+  await flush();
+  assert.equal(inbox.replying, null);
+});

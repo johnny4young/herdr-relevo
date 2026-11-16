@@ -31,3 +31,13 @@ test("work needs the coordinator while an attempt is out or work waits to start"
   assert.equal(needsEngine([{ state: "planned", messages: [{ status: "queued" }] }]), true);
   assert.equal(needsEngine([]), false);
 });
+
+test("the run state is read whole past readTextFile's 1 MiB, and nothing runs when there is no state", async () => {
+  const { readRunState } = await import("../runtime-cli.js");
+  fake.read = () => { throw Error("over 1 MiB"); };
+  fake.exec = (cmd) => (cmd === "cat" ? { code: 0, stdout: '{"tasks":[]}' } : null);
+  assert.equal(await readRunState("12"), '{"tasks":[]}');
+  fake.read = () => null; fake.execs = [];
+  assert.equal(await readRunState(null), null);
+  assert.deepEqual(fake.execs, []);
+});

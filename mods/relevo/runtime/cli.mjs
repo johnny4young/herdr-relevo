@@ -4,7 +4,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { run } from './process.mjs';
-import { createRuntime } from './coordinator.mjs';
+import { attemptDue, createRuntime } from './coordinator.mjs';
 import { acquireOwned, alive, privateDir, releaseOwned, stateDir, transaction } from './store.mjs';
 import { needsEngine } from '../lib/engine.js';
 
@@ -108,6 +108,13 @@ export async function waitForStop(home, { timeoutMs = 20000, fsImpl = fs, timers
   });
 }
 
+export function creditSleep(doc, slept) {
+  for (const task of doc.tasks) {
+    const attempt = task.attempts?.at(-1);
+    if (attempt?.state === 'running' && !attempt.timedOut) attempt.pausedMs = (attempt.pausedMs ?? 0) + slept;
+  }
+}
+
 // `hc kill` hangs up first: without SIGHUP the coordinator would die holding its lock.
 const SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP'];
 
@@ -174,14 +181,21 @@ export async function serve(home, { runtimeFactory = createRuntime, fsImpl = fs,
     wakeWatcher = fsImpl.watch(stateDir(home), onWake); wakeWatcher.on?.('error', () => {});
     for (const signal of SIGNALS) processRef.on?.(signal, stop);
     refreshAgentWatch();
+    let beat = Date.now();
     timer = timers.setInterval(() => {
+      // A machine that slept (the gap between beats) ran no agent: that time is added to running attempts' limits.
+      const slept = Date.now() - beat - intervalMs;
+      beat = Date.now();
+      if (slept > intervalMs * 2) {
+        try { transaction(home, (doc) => creditSleep(doc, slept)); } catch { /* the deadline then runs from wall time */ }
+      }
       let doc;
       try { doc = runtime.read(); } catch { return; }
       if (!doc.engine.enabled) { stop(); return; }
       // Periodic work is reserved for attempt deadlines; normal progress comes from terminal and report events.
       const now = Date.now();
       if (doc.tasks.some((task) => ['running', 'blocked'].includes(task.state) && task.attempts.at(-1)?.state === 'running' && !task.attempts.at(-1).timedOut &&
-        now - Date.parse(task.attempts.at(-1).at) >= task.maxMinutes * 60000)) void tick();
+        now >= attemptDue(task.attempts.at(-1), task.maxMinutes))) void tick();
     }, intervalMs);
     let enabled = false;
     try { enabled = runtime.read().engine.enabled; } catch { /* surfaced by the next tick/read */ }

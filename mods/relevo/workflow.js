@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { agents, panes, props, theme, appHome, readTextFile, run, focused, shared, setShared, closeOverlay } from "herdr";
-import { runtimeCommand } from "./runtime-cli.js";
+import { readRunState, runtimeCommand } from "./runtime-cli.js";
 import { button, onSubmitChord, tabButton, checkbox } from "./ui.js";
 import { focusedCwd } from "./panelbar.js";
 import { workflowBucket, workflowItems, queueSummary, armAccept, acceptArmed } from "./lib/workflow-navigation.js";
@@ -143,7 +143,7 @@ export class Workflow extends WorkflowDetail {
         if (this.closed || request !== this.loadVersion) return;
         this.polls = (this.polls ?? 0) + 1;
         const fresh = this.loadedOnce && rev != null && rev === this.lastRev && this.polls % 10 !== 0;
-        const raw = fresh ? this.lastLoadedRaw : await readTextFile(`${appHome()}/relevo-workflow/state.json`);
+        const raw = fresh ? this.lastLoadedRaw : await readRunState(rev);
         if (this.closed || request !== this.loadVersion) return;
         this.lastRev = rev;
         const goalRaw = goalResult.raw ?? goalResult.error;

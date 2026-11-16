@@ -5,7 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { createRuntime } from "../runtime/coordinator.mjs";
+import { attemptDue, changeOf, checkoutBusy, createRuntime } from "../runtime/coordinator.mjs";
+import { creditSleep } from "../runtime/cli.mjs";
 import { linkedDecision } from "../lib/goal-workflow.js";
 import { transaction } from "../runtime/store.mjs";
 import { runChecks } from "../runtime/evidence.mjs";
@@ -23,6 +24,7 @@ async function fixture({ sendCode = 0, checkCode = 0, maxRounds = 3, checksImpl:
   const sends = [], interrupts = [];
   const actorStatuses = new Map();
   const runCommand = async ([, ...args]) => {
+    if (args[0] === "get" && actorStatuses.get(args[2]) === "gone") return { code: 3, stdout: JSON.stringify({ error: { kind: "not_found", message: "no terminal" } }) };
     if (args[0] === "get") return { code: 0, stdout: JSON.stringify({ state: "live", status: { app: "codex", state: actorStatuses.get(args[2]) ?? "idle" }, cwd: root, turn: 1 }) };
     if (args[0] === "send") { sends.push(args); await onSend?.(args); return { code: sendCode, stdout: "", stderr: sendCode ? "offline" : "" }; }
     if (args[0] === "interrupt") { interrupts.push(args[1]); return { code: 0, stdout: "" }; }
@@ -846,4 +848,59 @@ test("the reviewer sees a submodule's pointer move, and nothing inside the submo
   f.report("executor", "completed", "Done"); await f.runtime.tick(); await f.runtime.tick();
   assert.match(f.sends.at(-1).at(-1), /diff --git a\/lib b\/lib[\s\S]*-Subproject commit [0-9a-f]{40}\n\+Subproject commit [0-9a-f]{40}/);
   assert.equal(fs.existsSync(marker), false);
+});
+
+test("a stopped attempt whose agent's terminal is gone can be reconciled", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  const attempt = f.runtime.read().tasks[0].attempts.at(-1);
+  await f.runtime.command({ action: "cancel", taskId: f.taskId });
+  f.setActorStatus("exec-agent", "gone");
+  await f.runtime.command({ action: "reconcile", taskId: f.taskId, attemptId: attempt.id, confirmStopped: true });
+  assert.equal(f.runtime.read().tasks[0].attempts.at(-1).state, "abandoned");
+});
+
+test("a cancelled task's attempt keeps its checkout and agents but not a run slot", () => {
+  const holder = (id, state, root, executor) => ({ id, state, root, executor: { address: executor }, reviewer: { address: `${executor}-r` }, attempts: [{ state: "running" }] });
+  const doc = { engine: { maxConcurrent: 2 }, tasks: [holder("a", "cancelled", "/r1", "e1"), holder("b", "cancelled", "/r2", "e2")] };
+  const next = { id: "c", root: "/r3" };
+  assert.equal(checkoutBusy(doc, next, { address: "e3" }), false, "two cancelled attempts leave both slots free");
+  assert.equal(checkoutBusy(doc, { id: "c", root: "/r1" }, { address: "e3" }), true, "but their checkout stays held");
+  assert.equal(checkoutBusy(doc, next, { address: "e1" }), true, "and so do their agents");
+  doc.tasks = [holder("a", "running", "/r1", "e1"), holder("b", "blocked", "/r2", "e2")];
+  assert.equal(checkoutBusy(doc, next, { address: "e3" }), true, "two live attempts fill the slots");
+});
+
+test("a reviewer on a prompt is waited for, and the checked implementation keeps its review", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  f.setActorStatus("review-agent", "blocked");
+  f.report("executor", "completed", "Implementation complete"); await f.runtime.tick();
+  await f.runtime.tick(); await f.runtime.tick();
+  let task = f.runtime.read().tasks[0];
+  assert.notEqual(task.state, "blocked");
+  assert.equal(task.attempts.at(-1).role, "executor");
+  f.setActorStatus("review-agent", "idle");
+  await f.runtime.tick();
+  task = f.runtime.read().tasks[0];
+  assert.equal(task.attempts.at(-1).role, "reviewer");
+  assert.equal(task.round, 1, "no implementation round was spent");
+});
+
+test("a diff past the read limit reaches the reviewer cut, not as an error", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(f.root, "README.md"), Array.from({ length: 4000 }, (_, i) => `line ${i} of a long change`).join("\n"));
+  const text = await changeOf(f.root, "HEAD");
+  assert.doesNotMatch(text, /Could not read the diff/);
+  assert.match(text, /the diff goes on/);
+  assert.ok(text.length < 30000);
+});
+
+test("the time a machine slept doesn't count against a running attempt", () => {
+  const at = "2026-01-02T03:00:00Z", attempt = { state: "running", at };
+  const doc = { tasks: [{ attempts: [attempt] }, { attempts: [{ state: "abandoned", at }] }, { attempts: [] }] };
+  creditSleep(doc, 3 * 3600_000);
+  assert.equal(attempt.pausedMs, 3 * 3600_000);
+  assert.equal(doc.tasks[1].attempts[0].pausedMs, undefined);
+  assert.equal(attemptDue(attempt, 20), Date.parse(at) + 3 * 3600_000 + 20 * 60_000);
 });

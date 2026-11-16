@@ -2,7 +2,7 @@ import './fake/register.mjs';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { fake, resetFake } from './fake/herdr.mjs';
-import { fakeCx, flush, find, click } from './fake/ui.mjs';
+import { fakeCx, flush, find, click, text } from './fake/ui.mjs';
 const { Workflow } = await import('../workflow.js');
 beforeEach(() => { resetFake(); fake.stored['relevo.runs.mode'] = 'sessions'; });
 
@@ -124,5 +124,28 @@ test('an accepted run with uncommitted changes and no commit offers to commit th
   assert.equal(find(view.render(), 'workflow-worktree-remove'), null);
   click(find(view.render(), 'workflow-worktree-commit'), cx); await flush();
   assert.deepEqual(payloads.find((payload) => payload.action === 'worktree-commit'), { action: 'worktree-commit', taskId: 'late' });
+  view.close();
+});
+
+test('a worktree status that fails to read says so and can be read again, without holding the window busy', async () => {
+  fake.props = { goalId: 'g', overlay: 'o' };
+  fake.files['/home/test/.config/herdr-app/relevo-workflow/state.json'] = JSON.stringify({ tasks: [
+    { id: 'done', goalId: 'g', title: 'Finished', root: '/wt', state: 'accepted', revision: 'r1', worktree: { path: '/wt', branch: 'run/finished-1', base: '/repo' } },
+  ] });
+  let fail = true;
+  fake.exec = async (_cmd, args) => { const payload = JSON.parse(args.at(-1));
+    if (payload.action !== 'worktree-status') return null;
+    return fail ? { code: 1, stdout: '{"error":"hc unavailable"}' } : { stdout: '{"result":{"exists":true,"dirty":false,"ahead":1}}' }; };
+  const view = new Workflow(), cx = fakeCx(); view.init({}, cx); await flush();
+  click(find(view.render(), 'workflow-filter-Completed'), cx); await flush();
+  cx.fire(1000); await flush();
+  let tree = view.render();
+  assert.match(text(find(tree, 'workflow-worktree')), /could not read its state/);
+  assert.equal(view.busy, false);
+  assert.equal(find(tree, 'workflow-worktree-pr'), null, 'nothing is offered on an unknown state');
+  fail = false;
+  click(find(tree, 'workflow-worktree-reread'), cx); cx.fire(1000); await flush();
+  tree = view.render();
+  assert.match(text(find(tree, 'workflow-worktree')), /1 commits/);
   view.close();
 });
