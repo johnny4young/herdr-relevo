@@ -3,7 +3,7 @@ const never = new Promise(() => {});
 const blank = () => ({
   agents: [], terminals: [], panes: [], spaces: [], layout: { id: "root", children: [] }, focused: null, props: {},
   window: { platform: "macos", titlebar: "none", active: true }, stored: {}, files: {},
-  read: null, write: null, exec: () => null, execs: [], runs: [], notices: [], overlays: [], closedOverlays: [], orders: [], folderChanges: new Map(), folderWaits: new Map(), cancelledWatches: [],
+  read: null, write: null, exec: () => null, execs: [], runs: [], notices: [], overlays: [], closedOverlays: [], orders: [], folderChanges: new Map(), folderWaits: new Map(), cancelledWatches: [], sharedWrites: [], sharedReads: {},
   reads: { panes: 0, terminals: 0 },
 });
 
@@ -34,8 +34,8 @@ export const theme = () => palette;
 export const settings = () => ({ zoom: 1 });
 export const home = () => "/home/test";
 export const appHome = () => "/home/test/.config/herdr-app";
-export const shared = (key) => fake.stored[key];
-export const setShared = (key, value) => { fake.stored[key] = value; return null; };
+export const shared = (key) => { fake.sharedReads[key] = (fake.sharedReads[key] ?? 0) + 1; return fake.stored[key]; };
+export const setShared = (key, value) => { fake.stored[key] = value; fake.sharedWrites.push(key); return null; };
 export const run = (name, args) => { fake.runs.push([name, args]); };
 export const notify = (notice) => { fake.notices.push(notice); };
 export const openOverlay = (overlay) => { fake.overlays.push(overlay); };

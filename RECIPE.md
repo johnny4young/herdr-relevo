@@ -385,7 +385,8 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   the file pane edit through `editor.js`: `writeTextFile` with the text that was read as `expected`, so a file
   changed on disk is never overwritten silently; files of 1 MiB or more, binaries and truncated previews stay
   read-only. Trash is `/usr/bin/trash`; the tree follows renames and new files through shared
-  `relevo-files.event`.
+  `relevo-files.event`. The tree is a `uniform_list` (28px rows) drawn only as rows scroll in; clicks and right-clicks
+  come by key through `on_item_click` and `on_item_secondary_click`, since a virtual list's rows take no handlers.
 - **mods/relevo-tabs**: Herdr's tabs 0.1.13 without its memory of the side panel per space, so the panel stays
   open or shut whichever space you go to.
 - **mods/relevo-spaces**: Herdr's spaces 0.1.10 grouped by folder. `folders.js` reads and writes the folders

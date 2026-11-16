@@ -423,3 +423,15 @@ test("deleting matches a comment by what it is on, and says deleted only when on
   assert.deepEqual(fake.stored[NOTES][v.key], [other]);
   v.close();
 });
+
+test("a huge review lists its first 200 files and counts the rest, reading the viewed marks once per draw", () => {
+  const { v } = review();
+  v.files = Array.from({ length: 450 }, (_, i) => ({ path: `src/f${i}.ts`, add: 1, del: 0 }));
+  v.hashes = new Map(v.files.map((f) => [f.path, `h${f.path}`]));
+  fake.sharedReads = {};
+  const drawn = v.render();
+  assert.equal(fake.sharedReads["relevo.review.viewed"], 1);
+  assert.ok(find(drawn, "rv-file-src/f199.ts"));
+  assert.equal(find(drawn, "rv-file-src/f200.ts"), null);
+  assert.equal(text(find(drawn, "rv-files-more")), "250 more files");
+});

@@ -79,7 +79,7 @@ export class Workflow extends WorkflowDetail {
     cx.timer.every(3000, (cx) => this.load(cx));
     this.loadQuotas(cx);
     cx.timer.every(60000, (cx) => this.loadQuotas(cx));
-    cx.timer.every(1000, (cx) => this.launchTick(cx));
+    cx.timer.every(1000, (cx) => { this.launchTick(cx); if (this.draftWaiting) this.persistDraft({ now: true }); });
     cx.timer.after(30, (cx) => {
       if (this.closed) return;
       this.h.focus();
@@ -89,7 +89,7 @@ export class Workflow extends WorkflowDetail {
 
   close() {
     if (this.closed) return;
-    this.persistDraft();
+    this.persistDraft({ now: true });
     this.closed = true;
     this.shortcutHelp?.close();
     this.h.release();
@@ -263,6 +263,7 @@ export class Workflow extends WorkflowDetail {
   create(cx, { start = false } = {}) {
     if (this.launch?.stage === "stalled") { Object.assign(this.launch, { stage: "waiting", at: Date.now() }); this.busy = true; this.error = null; cx.notify(); return; }
     if (this.pendingDraft) { this.error = "Resume or discard the saved draft before creating another task."; cx.notify(); return; }
+    this.persistDraft({ now: true });
     const submittedFields = JSON.stringify(this.taskDraftSnapshot());
     const title = this.form.title.value().trim();
     const root = this.form.root.value().trim();
@@ -302,6 +303,7 @@ export class Workflow extends WorkflowDetail {
     }, ...(start ? { start: true } : {}) }, cx, (response) => {
       if (JSON.stringify(this.taskDraftSnapshot()) !== submittedFields) {
         this.explicitNew = true; this.selected = null;
+        this.persistDraft({ now: true });
         this.notice = "Task created. Your newer draft edits are still here.";
         return;
       }

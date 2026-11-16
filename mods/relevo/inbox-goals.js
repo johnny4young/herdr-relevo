@@ -54,7 +54,7 @@ export class GoalViews {
         const [goals, rev] = await Promise.all([readGoals(), readTextFile(`${appHome()}/relevo-workflow/state.rev`).catch(() => null)]);
         this.goalPolls = (this.goalPolls ?? 0) + 1;
         const key = `${rev}\0${goals.raw}`;
-        const quiet = key === this.goalsKey && !this.goalsError && !this.workflowError && this.goalChange === shared(GOALS_CHANGED);
+        const quiet = key === this.goalsKey && !this.goalsError && !this.workflowError && this.goalChange === shared(GOALS_CHANGED)?.at;
         // A merge can land while nothing else moves, so it is remembered on quiet polls too.
         if (quiet && rev != null && this.goalPolls % 10 !== 0) { this.workflowAt = Date.now() / 1000; this.rememberMerged(); this.goalsLoading = false; return; }
         this.goalDoc = goals.doc;
@@ -75,14 +75,14 @@ export class GoalViews {
           runResultAlerts(this.workflowTasks);
         }
       } catch (e) { this.goalsError = `Runs: ${e.message ?? e}. Reviews is still available.`; }
-      this.goalChange = shared(GOALS_CHANGED);
+      this.goalChange = shared(GOALS_CHANGED)?.at;
       this.goalsLoading = false;
       cx.notify();
     });
   }
 
   refreshGoals(cx) {
-    if (this.goalChange !== shared(GOALS_CHANGED)) this.loadGoals(cx);
+    if (this.goalChange !== shared(GOALS_CHANGED)?.at) this.loadGoals(cx);
   }
 
   goalSources(v) {
@@ -226,8 +226,17 @@ export class GoalViews {
     });
   }
 
+  // Every row asks for its source: they are found once per draw, not once per row.
+  sourceByKey() {
+    if (this.snap?.sources) return this.snap.sources;
+    const map = new Map();
+    for (const source of this.goalSources(this.shown())) if (!map.has(source.key)) map.set(source.key, source);
+    if (this.snap) this.snap.sources = map;
+    return map;
+  }
+
   sourceContextAction(key) {
-    const source = this.goalSources(this.shown()).find((source) => source.key === key);
+    const source = this.sourceByKey().get(key);
     if (!source) return null;
     const goal = this.goalDoc?.goals.find((goal) => goal.sources.includes(key));
     return { id: `source-link-${key}`, label: goal ? "Open run" : "Link run", run: () => openGoal(goal?.id ?? null, source), size: "sm" };

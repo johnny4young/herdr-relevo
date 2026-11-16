@@ -323,7 +323,8 @@ export class PrViews {
     const actions = reviewed ? [openPR] : [];
     if (agent) actions.push({ id: `agent-${pr.url}`, label: "Agent", run: () => run("agent.focus", { terminal: agent.address }) });
     if (this.clones[pr.repo] && !(seen && agent) && !busy) {
-      pr.skills.forEach((s) => actions.push({ el: this.skillButton(t, pr, s, !seen && !requested && (s === "conflicts" || (pr.hot && s === "fix"))) }));
+      // Built only when drawn: a row that isn't open shows its first action alone.
+      pr.skills.forEach((s) => actions.push({ el: () => this.skillButton(t, pr, s, !seen && !requested && (s === "conflicts" || (pr.hot && s === "fix"))) }));
     }
     if (!requested && this.clones[pr.repo]) {
       actions.push({ id: `review-pr-${pr.url}`, key: "r", label: "Review", run: () => this.reviewPR(pr), tip: withKey("The whole PR against its base, line by line", "relevo.review") });

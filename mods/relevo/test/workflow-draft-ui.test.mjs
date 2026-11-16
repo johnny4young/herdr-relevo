@@ -62,3 +62,18 @@ test('failed creation keeps the draft and later success preserves edits made whi
   assert.equal(createWorkflowDrafts().load('g').title, 'Newer unsent change');
   assert.match(v.notice, /newer draft edits/); v.close();
 });
+
+test('typing saves the draft at most once a second, and the run window\'s tick saves the rest', async () => {
+  const { v, cx } = await setup();
+  const saves = () => fake.sharedWrites.filter((k) => k.startsWith('relevo.workflow.draft')).length;
+  v.form.root.type('/work/app', cx);
+  for (const word of ['U', 'Un', 'Uns', 'Unse', 'Unsen', 'Unsent']) v.form.title.type(word, cx);
+  assert.equal(saves(), 1, 'the first change saves, the next ones wait');
+  v.render(); v.render();
+  assert.equal(saves(), 1, 'drawing saves nothing new');
+  v.draftAt -= 1000; cx.fire(1000);
+  assert.equal(saves(), 2);
+  assert.equal(createWorkflowDrafts().load('g').title, 'Unsent');
+  v.form.criteria.type('Keep it', cx); v.close();
+  assert.equal(createWorkflowDrafts().load('g').criteria, 'Keep it', 'closing saves what waits');
+});

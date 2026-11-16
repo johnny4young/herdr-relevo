@@ -1,7 +1,7 @@
 // A lazy file browser for the focused pane's folder, with file actions and editable previews.
 // Derived from the `files` mod that ships with Herdr (Apache-2.0).
-import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
+import { View, div, svg, uniform_list } from "gpui-kit";
+import { v_flex, h_flex, Scrollbar } from "gpui-base";
 import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, props, shared, window } from "herdr";
 import { FileEditor } from "./editor.js";
 import { FileMenu, NameDialog, openMenu } from "./actions.js";
@@ -166,21 +166,46 @@ export class Files {
     this.refresh(cx);
   }
 
-  rows(prefix, depth, out, t) {
+  // Every entry shown, open folders in place: data only, so a long tree costs nothing until its rows scroll in.
+  shownEntries(prefix = "", depth = 0, out = []) {
     if (out.length >= TOTAL || depth > 40) return out;
     for (const entry of this.entries.get(prefix) ?? []) {
       if (out.length >= TOTAL) break;
-      const path = prefix ? `${prefix}/${entry.name}` : entry.name, open = this.folders.has(path), mark = this.marks[`${this.root}/${path}`];
-      out.push(h_flex().id(`file-${path}`).h(28).flex_none().pl(8 + depth * 18).pr(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t.hover))
-        .on_click((_e, cx) => entry.dir ? this.toggle(path, cx) : this.show(path, cx))
-        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openMenu({ root: this.root, path, dir: entry.dir, local: !this.on }); })
-        .child(entry.dir ? svg(`mods/relevo-files/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t.dim) : div().w(12).flex_none())
-        .child(svg(`mods/relevo-files/${entry.dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(t.muted))
-        .child(div().flex_1().min_w(0).truncate().child(entry.name))
-        .when(Boolean(mark), el => el.child(div().text_size(11).text_color(mark === "A" ? t.ansi2 : mark === "D" || mark === "U" ? t.ansi1 : t.blocked).child(mark))));
-      if (entry.dir && open) this.rows(path, depth + 1, out, t);
+      const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+      out.push({ path, depth, entry });
+      if (entry.dir && this.folders.has(path)) this.shownEntries(path, depth + 1, out);
     }
     return out;
+  }
+
+  row(t, { path, depth, entry }) {
+    const open = this.folders.has(path), mark = this.marks[`${this.root}/${path}`];
+    return h_flex().id(`file-${path}`).h(28).flex_none().pl(8 + depth * 18).pr(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t.hover))
+      .child(entry.dir ? svg(`mods/relevo-files/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t.dim) : div().w(12).flex_none())
+      .child(svg(`mods/relevo-files/${entry.dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(t.muted))
+      .child(div().flex_1().min_w(0).truncate().child(entry.name))
+      .when(Boolean(mark), el => el.child(div().text_size(11).text_color(mark === "A" ? t.ansi2 : mark === "D" || mark === "U" ? t.ansi1 : t.blocked).child(mark)));
+  }
+
+  // The rows only as they scroll into view; a virtual list's rows take no handlers, so clicks come by key.
+  tree(t) {
+    const shown = this.shownEntries(), at = new Map(shown.map((x) => [x.path, x]));
+    const of = (key) => at.get(key.slice("file-".length));
+    return v_flex().id("files-tree").relative().flex_1().min_h(0).p(6)
+      .on_mouse_down("right", () => { if (this.root) openMenu({ root: this.root, path: "", dir: true, local: !this.on }); })
+      .when(shown.length > 0, el => el
+        .child(uniform_list("files-rows", shown.length, (i) => `file-${shown[i].path}`, (range) => shown.slice(range.start, range.end).map((x) => this.row(t, x)))
+          .size_full()
+          .on_item_click((key, cx) => { const x = of(key); if (x) x.entry.dir ? this.toggle(x.path, cx) : this.show(x.path, cx); })
+          .on_item_secondary_click((key, _e, cx) => {
+            const x = of(key);
+            if (!x) return;
+            cx.stop_propagation();
+            openMenu({ root: this.root, path: x.path, dir: x.entry.dir, local: !this.on });
+          }))
+        .child(Scrollbar.vertical("files-rows").absolute().inset_0()))
+      .when(Boolean(this.error) || !this.entries.get("")?.length, el => el.child(div().p(8).text_size(13).text_color(t.dim).child(this.error || (this.loading ? "Loading files…" : this.root ? "No files" : "No folder"))))
+      .when(this.limited, el => el.child(div().p(8).text_size(11).text_color(t.dim).child("File list limited to 500 entries per folder and 5,000 total")));
   }
 
   close() {
@@ -203,10 +228,7 @@ export class Files {
           .on_click((_e, cx) => { this.show(null); cx.notify(); }).child("Discard"))
         .child(div().id("files-save").px(8).h(22).flex().items_center().rounded(5).cursor_pointer().bg(t.solid ?? t.accent).text_color(t.solid_foreground ?? t.accent_foreground)
           .on_click((_e, cx) => cx.spawn(async cx => { await ed.save(cx); if (!ed.dirty) { this.show(null); cx.notify(); } })).child("Save"))))
-      .when(!this.file, el => el.child(v_flex().id("files-tree").flex_1().min_h(0).overflow_y_scrollbar().p(6).children(this.rows("", 0, [], t))
-        .on_mouse_down("right", () => { if (this.root) openMenu({ root: this.root, path: "", dir: true, local: !this.on }); })
-        .when(Boolean(this.error) || !this.entries.get("")?.length, el => el.child(div().p(8).text_size(13).text_color(t.dim).child(this.error || (this.loading ? "Loading files…" : this.root ? "No files" : "No folder"))))
-        .when(this.limited, el => el.child(div().p(8).text_size(11).text_color(t.dim).child("File list limited to 500 entries per folder and 5,000 total")))))
+      .when(!this.file, el => el.child(this.tree(t)))
       .when(Boolean(ed), el => el.child(ed.body(t)));
   }
 }

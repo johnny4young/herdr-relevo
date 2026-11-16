@@ -6,6 +6,8 @@ import { WorkflowSetup } from "./workflow-setups.js";
 import { count } from "./lib/run-words.js";
 
 const FIELDS = ["title", "root", "criteria", "checks", "maxRounds", "maxMinutes"];
+// Each save is a shared write, which redraws every mod: while typing, the draft is saved at most this often.
+const DRAFT_EVERY_MS = 1000;
 export class WorkflowDraftView extends WorkflowSetup {
   initDrafts() {
     this.drafts = createWorkflowDrafts();
@@ -19,12 +21,16 @@ export class WorkflowDraftView extends WorkflowSetup {
       executor: this.executor ?? "", reviewer: this.reviewer ?? "", dependsOn: [...(this.dependsOn ?? [])] };
   }
 
-  persistDraft() {
+  // `now`: close, create and the run window's 1 s tick write what is waiting; anything else waits its turn.
+  persistDraft({ now = false } = {}) {
     if (!this.drafts || !this.goalId || this.pendingDraft) return;
     const draft = this.taskDraftSnapshot(), serialized = JSON.stringify(draft);
-    if (serialized === this.draftSnapshot) return;
+    if (serialized === this.draftSnapshot) { this.draftWaiting = false; return; }
     // A plan's shared setup by itself is not an unsent task brief.
-    if (!draft.title.trim() && !draft.criteria.trim() && !this.draftSaved) return;
+    if (!draft.title.trim() && !draft.criteria.trim() && !this.draftSaved) { this.draftWaiting = false; return; }
+    if (!now && Date.now() - (this.draftAt ?? 0) < DRAFT_EVERY_MS) { this.draftWaiting = true; return; }
+    this.draftWaiting = false;
+    this.draftAt = Date.now();
     const result = this.drafts.save(this.goalId, draft);
     if (result.ok) { this.draftSnapshot = serialized; this.draftError = null; this.draftSaved = true; }
     else this.draftError = result.reason;

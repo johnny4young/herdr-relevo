@@ -105,3 +105,21 @@ test("a watched local folder isn't read on a timer; a new folder, or an unwatche
   files.tick(cx);
   assert.equal(reads.length, 2);
 });
+
+test("the tree is a virtual list: clicks arrive by key, and its rows carry no handlers", async () => {
+  fake.spaces = [{ id: "sp1", active: true, folder: ROOT }];
+  const files = new Files(), cx = fakeCx();
+  files.init({}, cx);
+  await flush();
+  files.root = ROOT;
+  files.entries = new Map([["", [{ name: "src", dir: true }, { name: "a.txt", dir: false }]], ["src", [{ name: "b.txt", dir: false }]]]);
+  const find = (node, id) => (node?.key === id ? node : (node?.items ?? []).map((x) => find(x, id)).find(Boolean) ?? null);
+  let list = find(files.render(cx), "files-rows");
+  assert.deepEqual(list.keys, ["file-src", "file-a.txt"]);
+  assert.ok(list.items.every((row) => !Object.keys(row.handlers ?? {}).length), "a row inside a virtual list may not register handlers");
+  list.handlers.on_item_click("file-src", cx);
+  list = find(files.render(cx), "files-rows");
+  assert.deepEqual(list.keys, ["file-src", "file-src/b.txt", "file-a.txt"]);
+  list.handlers.on_item_secondary_click("file-a.txt", {}, { ...cx, stop_propagation() {} });
+  assert.equal(fake.overlays.at(-1)?.props?.path, "a.txt");
+});

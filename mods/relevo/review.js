@@ -58,6 +58,8 @@ export function parseHashes(out, ref) {
   return map;
 }
 const MAX_HASHED = 300;
+// A review of a huge branch lists this many files; the rest are named by count, and ] and [ still reach them.
+const FILES_SHOWN = 200;
 // A ref keeps the seen tree from git's garbage collection.
 const seenRef = (key) => {
   let h = 5381;
@@ -368,9 +370,10 @@ export class ReviewDiff {
     cx.notify();
   }
 
+  // A draw asks this for every file: it reads the marks once (`marksNow`, set while render runs).
   viewed(path) {
     const hash = this.hashes.get(path);
-    return Boolean(hash) && shared(VIEWED)?.[this.key]?.[path] === hash;
+    return Boolean(hash) && (this.marksNow ?? shared(VIEWED)?.[this.key] ?? {})[path] === hash;
   }
 
   toggleViewed(path, cx) {
@@ -581,7 +584,7 @@ export class ReviewDiff {
     for (const c of this.comments) counts.set(c.file, (counts.get(c.file) ?? 0) + 1);
     return v_flex().id("rv-files").flex_none().h(Math.min(150, Math.max(40, this.files.length * 24 + 9))).overflow_y_scrollbar().p(4).border_b(1).border_color(t.border)
       .when(!this.files.length, (el) => el.child(div().p(8).text_color(t.dim).child(this.pr ? "No changes" : this.empty())))
-      .children(this.files.map((f) => {
+      .children(this.files.slice(0, FILES_SHOWN).map((f) => {
         const count = counts.get(f.path) ?? 0;
         const seen = this.viewed(f.path), cut = f.path.lastIndexOf("/") + 1;
         return h_flex().id(`rv-file-${f.path}`).h(24).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer()
@@ -602,7 +605,9 @@ export class ReviewDiff {
             .when(f.add > 0 || !f.del, (n) => n.child(div().text_size(11).text_color(t.ansi2).child(`+${f.add}`)))
             .when(f.del > 0, (n) => n.child(div().text_size(11).text_color(t.ansi1).child(`−${f.del}`)))
             .child(diffRatio(t, f.add, f.del)));
-      }));
+      }))
+      .when(this.files.length > FILES_SHOWN, (el) => el.child(div().id("rv-files-more").h(24).px(8).flex().items_center().text_size(11).text_color(t.dim)
+        .tooltip("] and [ go to the next and previous file").child(`${this.files.length - FILES_SHOWN} more files`)));
   }
 
   // What the diff list draws, rebuilt only when the rows, the comments or the open file change: typing redraws too.
@@ -660,6 +665,15 @@ export class ReviewDiff {
   }
 
   render() {
+    this.marksNow = shared(VIEWED)?.[this.key] ?? {};
+    try {
+      return this.draw();
+    } finally {
+      this.marksNow = null;
+    }
+  }
+
+  draw() {
     const t = theme(), agent = this.target(), n = this.comments.length, ready = this.ready(agent);
     const font = settings().ui_font_family ?? "Inter", mine = this.comments.filter((c) => c.file === this.open?.path);
     return v_flex().id("relevo-review").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
