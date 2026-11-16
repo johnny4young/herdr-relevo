@@ -4,7 +4,7 @@ import { agents, appHome, exec, home, readTextFile, writeTextFile, setShared, te
 import { ACCOUNTS } from "./accounts.js";
 import {
   AWK, CLAUDE_SCAN, CODEX_SCAN, CONTEXT_SCAN, LIST, addClaude, addCodex, contextOf, cutDay, emptyState, parseList,
-  parseScan, plan, projectFromPath, prune, reportOf, runFolders, seenSet,
+  parseScan, plan, projectFromPath, prune, reportOf, runFolders, SeenIds,
 } from "./lib/usage-scan.js";
 
 const DIR = ".local/state/relevo/usage";
@@ -76,7 +76,7 @@ export class UsageScanner {
       this.state = emptyState();
     }
     await this.files.report.read();
-    this.seen = seenSet(this.state);
+    this.seen = new SeenIds(this.state);
   }
 
   project(cwd) {
@@ -165,6 +165,7 @@ export class UsageScanner {
       // Nothing read and nothing aged out: the saved report is still right, and a write would redraw every mod.
       if (prune(this.state, cut, complete ? new Set(listed.keys()) : null) || batches.length || !this.files.report.text || this.legacy) await this.save(true);
     } finally {
+      this.seen?.forget();
       this.busy = false;
     }
   }

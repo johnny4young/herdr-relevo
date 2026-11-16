@@ -1,7 +1,7 @@
 // Which transcript tokens an attempt and a goal are charged, from what the scanner keeps per run folder.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RUN_BUCKET_MS, addClaude, addCodex, cutDay, emptyState, prune, reportOf, runFolders } from "../lib/usage-scan.js";
+import { RUN_BUCKET_MS, SeenIds, addClaude, addCodex, cutDay, emptyState, prune, reportOf, runFolders } from "../lib/usage-scan.js";
 import { runFolder } from "../lib/run-folder.js";
 import { runSlug, worktreePath } from "../runtime/worktree.mjs";
 import { attemptTokens, attemptWindow, goalCost } from "../lib/run-cost.js";
@@ -14,7 +14,7 @@ let n = 0;
 const msg = (ts, { sid = "s-exec", cwd = WT, input = 1, write = 100, read = 1000, output = 10, entrypoint = "cli" } = {}) =>
   ({ id: `msg_${String(++n).padStart(14, "0")}`, ts, model: "claude-x", entrypoint, input, write, read, output, h1: write, m5: 0, sid, cwd });
 const claude = (state, msgs, path = "/h/.claude/projects/p/t.jsonl") =>
-  addClaude(state, new Set(), { path, size: 1, msgs, titles: [] }, { account: "personal", kind: "main", project: () => "app", cut: cutDay() });
+  addClaude(state, new SeenIds(state), { path, size: 1, msgs, titles: [] }, { account: "personal", kind: "main", project: () => "app", cut: cutDay() });
 const codex = (state, path, cwd, events) =>
   addCodex(state, { path, size: 1, cwd, events: events.flatMap(([ts, total]) => [{ timestamp: ts }, { total_token_usage: total }]) }, { project: () => "app", cut: cutDay() });
 
