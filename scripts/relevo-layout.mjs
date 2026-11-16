@@ -5,8 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { atomic, digest } from './live-relevo.mjs';
 
-// Room for the Reviews, Runs and Terminals tabs with a two-digit count on Reviews.
-const NAV_PX = 244;
+// Room for the Reviews and Runs tabs with a two-digit count on Reviews.
+const NAV_PX = 184;
 
 export function simplifyLayout(input) {
   const tree = JSON.parse(JSON.stringify(input)), nodes = new Map();
