@@ -11,6 +11,8 @@ import { icon } from "./ui.js";
 
 export const LANDING = "relevo.landing";
 const TICK_MS = 20000;
+// A queued auto-merge can wait on a review for hours: past its first minutes, GitHub is asked every two minutes.
+const QUEUED_FAST = 300, QUEUED_EVERY = 120;
 // Done or failed cards stay this long, then go.
 const KEPT = 86400;
 const first = (r) => (r?.stderr ?? "").trim().split("\n")[0];
@@ -81,6 +83,8 @@ export class LandViews {
   async landTick(cx) {
     if (this.landBusy || !Object.keys(this.landing()).length) return;
     this.landBusy = true;
+    const before = JSON.stringify(shared(LANDING) ?? {});
+    this.landAsked ??= {};
     try {
       const now = Date.now() / 1000;
       for (const [url, e] of Object.entries(this.landing())) {
@@ -88,12 +92,15 @@ export class LandViews {
           if (now - (e.done ?? e.at) > KEPT) this.setLanding(url, null);
           continue;
         }
+        if (e.phase === "queued" && now - e.at > QUEUED_FAST && now - (this.landAsked[url] ?? 0) < QUEUED_EVERY) continue;
+        this.landAsked[url] = now;
         if (e.phase === "queued" || e.phase === "merging") await this.checkMerge(url, e, cx);
         else if (e.phase === "ci") await this.checkRuns(url, e, now);
       }
+      for (const url of Object.keys(this.landAsked)) if (!this.landing()[url]) delete this.landAsked[url];
     } finally {
       this.landBusy = false;
-      cx.notify();
+      if (JSON.stringify(shared(LANDING) ?? {}) !== before) cx.notify();
     }
   }
 

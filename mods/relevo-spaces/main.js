@@ -23,6 +23,9 @@ const ICON = (name) => `mods/relevo/icons/${name}.svg`;
 const CHROME = (name) => `mods/workspace-chrome/${name}.svg`;
 // Changes made outside Herdr (an editor's save, a commit elsewhere): looked for this often while the window is in front.
 const FALLBACK_MS = 60000;
+// A space quiet for over a day is looked at less often, and the fallback takes a few places per tick so every repo's
+// git doesn't run at the same moment; at most this many places are read at once.
+const QUIET_FALLBACK_MS = 300000, FALLBACK_PER_TICK = 2, AT_ONCE = 4;
 const RAIL_CELL = 32;
 // The Relevo mod's lane glyphs: a mod can't import from another mod's folder.
 export function laneGlyph(t, turn) {
@@ -59,7 +62,8 @@ export default class Spaces extends View {
     this.pending = new Set();
     this.busy = {};
     this.at = {};
-    this.watching = new Set();
+    // git folder -> its pending watch
+    this.watching = new Map();
     // Spaces made while this runs wait a moment for their git, so a worktree appears under its repo instead of jumping there.
     this.shown = new Set(spaces().map((s) => s.id));
     this.born = {};
@@ -87,6 +91,11 @@ export default class Spaces extends View {
     const at = {};
     for (const s of sp) at[s.id] = where(s, ps);
     const keys = new Set(Object.values(at).filter((k) => JSON.parse(k)[1]));
+    // A place no space is in any more (a closed space, a terminal that moved on) is forgotten, so the list stays the spaces'.
+    if (sp.length) for (const k of Object.keys(this.git)) if (!keys.has(k)) { delete this.git[k]; delete this.checked[k]; this.unsure.delete(k); }
+    const ids = new Set(sp.map((s) => s.id));
+    if (sp.length) for (const id of Object.keys(this.born)) if (!ids.has(id)) delete this.born[id];
+    if (sp.length) for (const id of this.shown) if (!ids.has(id)) this.shown.delete(id);
     const due = new Set([...keys].filter((k) => !(k in this.git)));
     for (const [id, k] of Object.entries(at)) if (this.at[id] && this.at[id] !== k && keys.has(k)) due.add(k);
     this.at = at;
@@ -100,7 +109,10 @@ export default class Spaces extends View {
     }
     this.busy = busy;
     if (window().active) {
-      for (const k of keys) if ((this.git[k] || this.unsure.has(k)) && now - (this.checked[k] ?? 0) > FALLBACK_MS) due.add(k);
+      const quietAt = new Set(sp.filter((s) => this.quiet?.has(s.id)).map((s) => at[s.id]));
+      const late = [...keys].filter((k) => (this.git[k] || this.unsure.has(k)) && !due.has(k)
+        && now - (this.checked[k] ?? 0) > (quietAt.has(k) ? QUIET_FALLBACK_MS : FALLBACK_MS));
+      late.sort((a, b) => (this.checked[a] ?? 0) - (this.checked[b] ?? 0)).slice(0, FALLBACK_PER_TICK).forEach((k) => due.add(k));
     }
     return due;
   }
@@ -117,12 +129,12 @@ export default class Spaces extends View {
     this.refreshing = true;
     cx.spawn(async (cx) => {
       while (this.pending.size) {
-        const batch = [...this.pending];
-        this.pending.clear();
+        const batch = [...this.pending].slice(0, AT_ONCE);
+        batch.forEach((key) => this.pending.delete(key));
         await Promise.all(batch.map((key) => this.check(key, cx)));
       }
       const used = new Set(Object.values(this.git).filter((g) => g && !JSON.parse(g.repo)[0]).map((g) => g.gitDir));
-      for (const dir of this.watching) if (!used.has(dir)) this.watching.delete(dir);
+      for (const dir of [...this.watching.keys()]) if (!used.has(dir)) this.unwatch(dir);
       this.refreshing = false;
       cx.notify();
     });
@@ -143,18 +155,26 @@ export default class Spaces extends View {
     }
   }
 
-  // A commit, checkout or fetch in a local repo changes its git folder.
+  // A commit, checkout or fetch in a local repo changes its git folder. Herdr holds 64 watches for every mod together,
+  // so a repo no space shows gives its watch back.
   watch(dir, cx) {
     if (this.watching.has(dir)) return;
-    this.watching.add(dir);
+    this.watching.set(dir, null);
     cx.spawn(async (cx) => {
       try {
         while (this.watching.has(dir)) {
-          await watchFolder(dir);
+          const pending = watchFolder(dir);
+          this.watching.set(dir, pending);
+          await pending;
           if (this.watching.has(dir)) this.refreshGit(Object.keys(this.git).filter((k) => this.git[k]?.gitDir === dir), cx);
         }
       } catch { this.watching.delete(dir); }
     });
+  }
+
+  unwatch(dir) {
+    this.watching.get(dir)?.cancel?.();
+    this.watching.delete(dir);
   }
 
   orderingDue(now) {
@@ -173,7 +193,10 @@ export default class Spaces extends View {
     const { quiet, changed } = quietSpaces(base.groups.flatMap((g) => g.rows), life.by, {
       touched: this.touched, prs: shared(REPO_PRS) ?? {}, firstSeen: (id) => this.firstSeen(id),
     });
+    // A closed space's mark goes with it.
+    if (sp.length) for (const id of Object.keys(this.touched)) if (!sp.some((w) => w.id === id)) { delete this.touched[id]; changed.push(id); }
     if (changed.length) localStorage.setItem("touched", JSON.stringify(this.touched));
+    this.quiet = quiet;
     const m = buildModel({ spaces: sp, panes: ps, git: this.git, folders: folderData(), quiet });
     m.life = life;
     const current = sp.map((w) => w.id), key = JSON.stringify([current, m.order]);

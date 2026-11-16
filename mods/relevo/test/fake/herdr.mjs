@@ -3,7 +3,7 @@ const never = new Promise(() => {});
 const blank = () => ({
   agents: [], terminals: [], panes: [], spaces: [], layout: { id: "root", children: [] }, focused: null, props: {},
   window: { platform: "macos", titlebar: "none", active: true }, stored: {}, files: {},
-  read: null, write: null, exec: () => null, execs: [], runs: [], notices: [], overlays: [], closedOverlays: [], orders: [], folderChanges: new Map(), folderWaits: new Map(),
+  read: null, write: null, exec: () => null, execs: [], runs: [], notices: [], overlays: [], closedOverlays: [], orders: [], folderChanges: new Map(), folderWaits: new Map(), cancelledWatches: [],
   reads: { panes: 0, terminals: 0 },
 });
 
@@ -61,5 +61,9 @@ export const watchFolder = (path) => {
     fake.folderChanges.delete(path);
     return Promise.resolve(ready);
   }
-  return new Promise((resolve) => fake.folderWaits.set(path, resolve));
+  let done;
+  const pending = new Promise((resolve) => { done = resolve; fake.folderWaits.set(path, resolve); });
+  // As Herdr: cancel() resolves with [] and gives the watch back.
+  pending.cancel = () => { fake.cancelledWatches.push(path); if (fake.folderWaits.get(path) === done) fake.folderWaits.delete(path); done([]); };
+  return pending;
 };
