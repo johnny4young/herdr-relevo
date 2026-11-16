@@ -202,8 +202,8 @@ node scripts/relevo.mjs doctor
 
 Mods reload by themselves. An update replaces only the files it installed and you left alone. A file you changed stays,
 with the new one beside it as `<file>.new`; your `config.js` and your own icons are never touched. Whatever it replaces
-goes to `~/.config/herdr-app/relevo-install/backups/`. The first run over files you copied by hand replaces them, with
-that backup. `node scripts/relevo.mjs uninstall` removes what it installed and you didn't change.
+goes to `~/.config/herdr-app/relevo-install/backups/`, which keeps the ten newest installs. The first run over files
+you copied by hand replaces them, with that backup. `node scripts/relevo.mjs uninstall` removes what it installed and you didn't change.
 
 Relevo's keys live in a `layout:relevo` section; if yours are under `global`, move them so they only act while Relevo
 shows.

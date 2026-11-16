@@ -82,7 +82,7 @@ Round, concurrency and per-attempt time limits bound the work. Remote checkouts,
 
 ### Archive
 
-The queue holds up to 200 tasks. **Archive older than 7 days**, in a run's **History**, moves that run's finished tasks that have been idle for a week to `relevo-workflow/archive/<month>.jsonl`, with their events, and removes their evidence and reports from disk. A task stays in the queue while:
+The queue holds up to 200 tasks and 200 plans. When a new task or plan would pass that, the same archive runs first on its own, for every run, and the event log says so; only if nothing can go does the queue refuse. **Archive older than 7 days**, in a run's **History**, moves that run's finished tasks that have been idle for a week to `relevo-workflow/archive/<month>.jsonl`, with their events, and removes their evidence and reports from disk. A task stays in the queue while:
 
 - its run is open and still reads it: an accepted task linked to a plan step, or the task a decision is linked to;
 - another task that is not being archived depends on it, or its plan has unfinished tasks;
