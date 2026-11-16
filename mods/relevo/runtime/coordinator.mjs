@@ -9,6 +9,7 @@ import { archivable, stageArchive, publishArchive, MAX_TASKS } from './archive.m
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
 import * as config from '../config.js';
 import { renderRole } from './roles.mjs';
+import { draftBody } from '../lib/workflow-navigation.js';
 import { LEVELS, DEFAULT_MAX_MINUTES, cleanReport, reviewStatus, feedbackOf, cleanProgress } from '../lib/run-report.js';
 
 // Older config.js files lack the newer names; a missing named import would stop the coordinator.
@@ -379,7 +380,17 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       const decided = update((doc) => decide(doc, taskById(doc, before.id), payload, current));
       if (payload.outcome !== 'accept' || !before.worktree) return decided;
       const result = await commitAccepted(before, payload.revision);
-      return update((doc) => logCommit(doc, taskById(doc, before.id), result));
+      const committed = update((doc) => logCommit(doc, taskById(doc, before.id), result));
+      // Asked for and not turned off: the draft pull request opens now. If it can't, the acceptance and commit stand.
+      if (!payload.openPR || !result.sha || config.RUN_DRAFT_PR === false || before.worktree.prHead || before.worktree.pr) return committed;
+      const task = taskById(readState(home), before.id);
+      try {
+        const url = await openPullRequest(task.worktree, task.title, draftBody(task));
+        return update((doc) => { const t = taskById(doc, before.id); t.worktree.pr = url.slice(0, 500); log(doc, t, 'Draft PR opened', url, 'Human'); return { pr: t.worktree.pr }; });
+      } catch (e) {
+        const why = String(e.stderr || e.message).trim().slice(0, 300);
+        return update((doc) => { log(doc, taskById(doc, before.id), 'Draft PR not opened', why, 'Human'); return { prError: why }; });
+      }
     }
     if (action === 'attempt-diff') {
       const wt = before.worktree, snapshotOf = (id) => before.attempts.find((a) => a.id === id)?.snapshot;

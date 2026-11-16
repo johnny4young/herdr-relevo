@@ -197,9 +197,9 @@ test('a task opens with the summary, who did what and the decision; Accept is A 
   assert.deepEqual(['writer', 'tests', 'reviewer', 'you'].map((id) => text(find(tree, `task-leg-${id}`)).replace(/ \d+[mhd]$/, '')), [
     'Codex Luna wrote it in its own worktree', 'Tests npm test passed', 'Team Haiku reviewed it: approved, no findings', 'You accept it, or say what to change now']);
   assert.equal(find(tree, 'task-leg-you').fill, `${t.blocked}12`, "the person's turn is tinted");
-  assert.equal(text(find(tree, 'task-accept')), 'a Accept'); assert.equal(find(tree, 'task-accept').fill, t.accent);
+  assert.equal(text(find(tree, 'task-accept')), 'a Accept and open draft PR'); assert.equal(find(tree, 'task-accept').fill, t.accent);
   assert.equal(text(find(tree, 'task-changes')), 'r Ask for changes'); assert.equal(text(find(tree, 'task-diff')), 'd See the diff');
-  assert.equal(text(find(tree, 'task-effect')), 'Accepting keeps the worktree and commits to its run branch; More offers the draft pull request. Accepting finishes this task. No follow-up task is defined.');
+  assert.equal(text(find(tree, 'task-effect')), 'Accepting commits to the run branch, pushes it and opens a draft pull request on GitHub. Accepting finishes this task. No follow-up task is defined.');
   assert.equal(text(find(tree, 'list-keys')), 'a accept r changes d diff esc tasks ? keys');
 
   v.navKey({ key: 'enter' }, cx); await flush();
@@ -220,7 +220,7 @@ test('a task opens with the summary, who did what and the decision; Accept is A 
 
   answers([{ ...v.workflowTasks[0], state: 'accepted' }, v.workflowTasks[1]]);
   v.navKey({ key: 'a' }, cx); v.navKey({ key: 'enter' }, cx); await flush();
-  assert.deepEqual(decided(), [{ action: 'decide', taskId: 'a', outcome: 'accept', text: '', revision: 'rev-new' }]);
+  assert.deepEqual(decided(), [{ action: 'decide', taskId: 'a', outcome: 'accept', text: '', revision: 'rev-new', openPR: true }]);
   tree = v.render(cx);
   assert.equal(v.runTask, 'a', 'a worktree task stays in view: its draft pull request is next');
   assert.match(text(find(tree, 'run-notice')), /Accepted and committed to its run branch/);
@@ -480,4 +480,24 @@ test('an accepted run that fixes a pull request offers Push to its branch, and s
   click(find(v.render(cx), 'task-push'), cx); await flush();
   assert.match(text(v.render(cx)), /Not pushed: fix\/search moved on GitHub/);
   assert.equal(asks.filter((a) => a === 'worktree-push').length, 1);
+});
+
+test('a draft pull request opens as a run from scratch is accepted, says why when it can not, and is described by the run', async () => {
+  const { draftBody, draftOnAccept, decidePayload } = await import('../lib/workflow-navigation.js');
+  const own = { worktree: { branch: 'run/a' } };
+  assert.deepEqual([draftOnAccept(own), draftOnAccept({ worktree: { branch: 'run/a', prHead: 'fix/x' } }), draftOnAccept({ worktree: { branch: 'run/a', pr: 'https://x' } }), draftOnAccept({}), draftOnAccept(own, false)],
+    [true, false, false, false, false]);
+  assert.equal(decidePayload({ id: 'a', revision: 'r', ...own }, 'changes', 'x').openPR, undefined);
+  const body = draftBody(ready('a', { criteria: 'Ready results first', checksResult: [{ argv: ['npm', 'test'], code: 0 }],
+    attempts: [{ ...wrote(), report: { status: 'completed', summary: 'Sorted ready first', details: ['list.js reorders'], notProven: ['Large lists'] } },
+      reviewed('completed', { summary: 'Looks right', findings: [{ level: 'minor', where: 'list.js:3', issue: 'Name it' }] })] }));
+  assert.match(body, /^Ready results first\n\n## What changed\nSorted ready first\n- list\.js reorders\n\nChecks: npm test passed\.\n\n## Independent review\nLooks right\n- \[minor\] list\.js:3: Name it\n\n## Not verified\n- Large lists$/);
+  answers([{ ...ready('a', own), state: 'accepted' }]);
+  fake.exec = ((answer) => (cmd, args) => { const out = answer(cmd, args); if (!out) return out;
+    const p = JSON.parse(args.at(-1)); return p.action === 'decide' ? { stdout: JSON.stringify({ ...JSON.parse(out.stdout), result: { prError: 'no origin remote' } }) } : out; })(fake.exec);
+  const { v, cx } = await runs([ready('a', own)]);
+  v.navKey({ key: 'j' }, cx); v.navKey({ key: 'enter' }, cx); v.render(cx); v.navKey({ key: 'enter' }, cx); v.render(cx);
+  v.navKey({ key: 'a' }, cx); v.navKey({ key: 'enter' }, cx); await flush();
+  assert.equal(decided().at(-1).openPR, true);
+  assert.match(v.runNotice, /Accepted and committed; the draft pull request didn't open: no origin remote/);
 });

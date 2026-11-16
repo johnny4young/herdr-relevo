@@ -244,3 +244,17 @@ test('a run\'s change reads from where it started to what the reviewer saw, then
   const plain = await f.create({ worktree: undefined, root: f.root, executor: { address: 'exec-2' }, reviewer: { address: 'review-2' } });
   assert.match((await cli({ action: 'task-diff', taskId: plain })).output.error, /own worktree/);
 });
+
+test('accepting with openPR commits, then says why the draft pull request did not open, and the acceptance stands', async (t) => {
+  const f = await run(t), id = await f.create();
+  await f.runtime.tick();
+  fs.writeFileSync(path.join(f.wt.path, 'NOTE.md'), 'note\n');
+  await f.report(id, 'executor', 'completed');
+  await f.report(id, 'reviewer', 'completed', 'Fine');
+  const saved = await f.runtime.command({ action: 'decide', taskId: id, outcome: 'accept', revision: f.task(id).revision, openPR: true });
+  assert.equal(f.task(id).state, 'accepted');
+  assert.match(f.task(id).worktree.commit, /^[0-9a-f]{40}$/);
+  assert.match(saved.result.prError, /no origin remote/);
+  assert.equal(f.task(id).worktree.pr, undefined);
+  assert.ok(f.runtime.read().events.some((e) => e.type === 'Draft PR not opened'));
+});
