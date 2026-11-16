@@ -389,7 +389,8 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   folders carry over); `git.js` reads branch, ahead/behind and `git status --porcelain` with optional locks off;
   `model.js` builds the groups and the order the spaces move to. Git is read again when a place is new, when a
   command or an agent's turn ends, when the repo's git folder changes and once a minute while the window is in front.
-  The open space (the one you are in, unless closed; others by their chevron) lists its live terminals and outside
+  Every space, the folders, the quiet line and the "no space" rows start open; a chevron closes one and localStorage
+  `closed` remembers it. An open space lists its live terminals and outside
   servers from `aliveBySpace` (servers by folder, the deepest space's repo; terminals by space); agents and Claude
   sessions are placed too, but only to keep a space from going quiet, and are drawn in Agents alone. The data comes from shared `relevo.alive`, which the Relevo mod's `AliveWatch` (`alive.js`) writes every 10 s while the
   window is in front (terminal rows with ports, and `outsideServers`: listening processes no Herdr terminal owns, run from
@@ -397,7 +398,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   A row's PR chip reads shared `relevo.repoPRs` (the Inbox's Now PR rows by repo name: open, and how many need me); a
   click sends `relevo.reviews-for-<repo>`, which lands on Now with the filter set to it. `quietSpaces` keeps when each
   space was last busy (active, an agent not idle, changed files, a session, a port, a running terminal or a PR that needs
-  me) in localStorage, starting from its newest terminal; past a day it folds into the folder's quiet line, last in the
+  me) in localStorage, starting from its newest terminal; past a day it goes under the folder's quiet line, last in the
   order, and **close N** sends `space.close {confirmed: true}` only on a second click.
 - **Community mods**: issues (jankeesvw).
 - **herdr**: `agents`, `panes`, `spaces`, `terminals`, `focused`, `layout`, `shared`/`setShared`, `exec`, `run`,

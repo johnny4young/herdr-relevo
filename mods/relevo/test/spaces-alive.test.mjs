@@ -90,7 +90,7 @@ const ALIVE_NOW = {
   outside: [{ pid: 520, title: "vite", cwd: "/home/test/code/billing", ports: [5173], app: "Ghostty" }],
 };
 
-test("the space you are in shows what runs in it; another shows its port until opened", async () => {
+test("every space shows what runs in it, and stays closed once you close it", async () => {
   const { cx, ui } = await open([space("api", "api", "/home/test/code/api", { active: true }), space("web", "web", "/home/test/code/web")], {
     alive: { terminals: [...ALIVE_NOW.terminals, { address: "t7", title: "zsh", state: "idle", live: true, spaceId: "web", ports: [4100] }], outside: [] },
     agents: [{ address: "t1", space: "api", status: "blocked", title: "Claude", pane: "p1" }],
@@ -99,12 +99,13 @@ test("the space you are in shows what runs in it; another shows its port until o
   const shown = ui();
   assert.doesNotMatch(text(shown), /Run: npm test/, "agents are listed in Agents, not here");
   assert.match(text(find(shown, "tm-api-t9")), /npm run dev :3000/);
-  assert.equal(find(shown, "tm-web-t7"), null);
-  assert.match(text(find(shown, "space-web")), /:4100/);
+  assert.ok(find(shown, "tm-web-t7"), "a space you are not in is open too");
   find(shown, "open-web").handlers.on_click({}, cx);
-  assert.ok(find(ui(), "tm-web-t7"));
+  assert.equal(find(ui(), "tm-web-t7"), null);
+  assert.match(text(find(ui(), "space-web")), /:4100/, "closed, its port shows on its row");
   find(ui(), "open-api").handlers.on_click({}, cx);
   assert.equal(find(ui(), "tm-api-t9"), null, "the space you are in closes when you say so");
+  assert.deepEqual(JSON.parse(localStorage.getItem("closed")).sort(), ["api", "web"]);
 });
 
 test("a port opens in the browser; a terminal's actions go to the Relevo mod, closing only on a second click", async () => {
@@ -124,8 +125,9 @@ test("a repo with a server but no space shows as a row with no space, in the fol
   const { cx, ui } = await open([space("api", "api", "/home/test/code/api", { active: true })], { alive: ALIVE_NOW });
   const ghost = find(ui(), "ghost-billing");
   assert.match(text(ghost), /billing :5173 no space/);
-  ghost.handlers.on_click({}, cx);
   assert.match(text(find(ui(), "sv-ghost-billing-520")), /vite in Ghostty :5173/);
+  ghost.handlers.on_click({}, cx);
+  assert.equal(find(ui(), "sv-ghost-billing-520"), null);
   find(ui(), "ghost-billing-new").handlers.on_click({ }, cx);
   assert.deepEqual(fake.runs.at(-1), ["space.new", { folder: "/home/test/code/billing" }]);
 });

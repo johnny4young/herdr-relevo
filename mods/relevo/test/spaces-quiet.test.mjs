@@ -77,13 +77,15 @@ test("a repo's open PRs show on its row, red when one needs you, and a click ope
   assert.deepEqual(fake.runs.at(-1), ["relevo.reviews-for-acme-api", undefined]);
 });
 
-test("quiet spaces fold into one line, and close only on a second click", async () => {
+test("quiet spaces go last under one line, shown until you fold it, and close only on a second click", async () => {
   const old = Date.now() - 2 * DAY_MS;
   const { cx, ui } = await open([space("a", "api", "/home/test/code/api", { active: true }), space("b", "blog", "/home/test/code/blog"), space("c", "notes", "/home/test/code/notes")],
     { touched: { a: old, b: old, c: old } });
   assert.match(text(find(ui(), "quiet-p")), /2 quiet for over a day close 2/);
-  assert.equal(find(ui(), "space-b"), null);
+  assert.ok(find(ui(), "space-b"), "quiet spaces are shown");
   assert.ok(find(ui(), "space-a"), "the space you are in is never quiet");
+  find(ui(), "quiet-p").handlers.on_click({}, cx);
+  assert.equal(find(ui(), "space-b"), null);
   find(ui(), "quiet-p").handlers.on_click({}, cx);
   assert.ok(find(ui(), "space-b"));
   find(ui(), "quiet-p-close").handlers.on_click({}, cx);
