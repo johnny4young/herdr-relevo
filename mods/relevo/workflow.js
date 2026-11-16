@@ -17,6 +17,7 @@ import { checksLabel } from "./lib/run-checks.js";
 import { repoOf } from "./workflow-runs.js";
 import { WorkflowDetail } from "./workflow-detail.js";
 import { row, taskState, caption, agentLabel, role, count } from "./workflow-labels.js";
+import { noteUse } from "./run-usage.js";
 
 const RUN_MODE = "relevo.runs.mode";
 export { openWorkflow } from "./workflow-window.js";
@@ -305,6 +306,7 @@ export class Workflow extends WorkflowDetail {
       cx.notify();
       return;
     }
+    if (start) noteUse(this.prTarget ? "start-fix" : "start");
     if (isolated) { this.launchWorktreeRun({ goalId: this.goalId, title, root, criteria, checks, dependsOn, maxRounds, maxMinutes }, cx); return; }
     this.command({ action: "create", task: {
       goalId: this.goalId, title, root, criteria,
@@ -497,6 +499,7 @@ export class Workflow extends WorkflowDetail {
     const chosen = [this.executor, this.reviewer].filter(Boolean).length;
     const fromPrompt = Boolean(this.goal && !this.goal.steps?.length && !this.tasks?.length && this.form.criteria.value().trim());
     const previousSetup = this.previousSuccessfulSetup();
+    const earlier = (this.tasks ?? []).filter((task) => task.goalId === this.goalId && !["cancelled", "failed"].includes(task.state));
     const previousChecks = previousSetup?.checks ?? [];
     const previousCheckLabel = !previousChecks.length ? "No tests"
       : previousChecks.length === 1 && previousChecks[0]?.length === 2 && previousChecks[0][0] === "npm" && previousChecks[0][1] === "test" ? "npm test" : "Custom tests";
@@ -517,7 +520,8 @@ export class Workflow extends WorkflowDetail {
         .child(row(t, "Draft saved on this device"))
         .child(button(t, "workflow-discard-draft", "Discard draft", (context) => this.discardDraft(context), { size: "sm", disabled: this.busy, tip: "Clear this unsent task draft without changing existing work" }))))
       .when(Boolean(this.draftError), (el) => el.child(div().role("alert").text_color(t.blocked).child(`Draft not saved: ${this.draftError}`)))
-      .when(Boolean(previousSetup), (el) => el.child(v_flex().gap(4).id("workflow-previous-setup")
+      // A new task already starts from the last setup; offering it again matters only once the form moved away from it.
+      .when(Boolean(previousSetup) && this.form.root.value().trim() !== previousSetup?.root, (el) => el.child(v_flex().gap(4).id("workflow-previous-setup")
         .child(row(t, `Previous setup · ${previousRootName} · ${previousSetup.executor?.label ?? previousSetup.executor?.address ?? `${role("executor").name} unavailable`} + ${previousSetup.reviewer?.label ?? previousSetup.reviewer?.address ?? `${role("reviewer").name} unavailable`}`))
         .child(button(t, "workflow-use-previous-setup", "Use previous setup", (context) => this.usePreviousSetup(context),
           { disabled: this.busy, tip: `Copy setup from ${previousSetup.title} in this run: ${previousSetup.root}; ${count(previousSetup.maxRounds ?? 2, "attempt")}; ${previousSetup.maxMinutes ?? 20} minutes; ${previousCheckLabel} (${JSON.stringify(previousChecks)}). Title and outcome stay as drafted; nothing starts.` }))))
@@ -545,9 +549,10 @@ export class Workflow extends WorkflowDetail {
           (context) => { this.checkPreset = value; this.checksPicked = true; context.notify(); }, { selected: this.checkPreset === value, tip: value === "custom" ? "Enter custom test commands as JSON argv lists" : `Use ${label}` })))
         .when(this.checkPreset === "custom", (el) => el.child(row(t, "Advanced: enter JSON argument lists, for example [[\"npm\",\"test\"]]."))
           .child(this.field(t, "checks", "Custom test commands (JSON)")))
-        .child(div().font_semibold().child("Wait for earlier tasks"))
-        .child(row(t, "Only selected prerequisites must be accepted before this task can start."))
-        .children((this.tasks ?? []).filter((task) => task.goalId === this.goalId && !["cancelled", "failed"].includes(task.state))
+        // Prerequisites appear once the run has a task to wait for.
+        .when(earlier.length > 0, (el) => el.child(div().font_semibold().child("Wait for earlier tasks"))
+          .child(row(t, "Only selected prerequisites must be accepted before this task can start.")))
+        .children(earlier
           .map((task) => button(t, `workflow-dependency-${task.id}`, [checkbox(t, isPicked(this.dependsOn, task)), caption(task.title, 50)],
             (context) => { this.dependsOn ??= []; this.dependsOn = this.dependsOn.includes(task.id) ? this.dependsOn.filter((id) => id !== task.id) : [...this.dependsOn, task.id]; context.notify(); },
             { selected: isPicked(this.dependsOn, task), accessibleLabel: `${pickLabel(this.dependsOn, task)}. Wait for its acceptance`, tip: `Wait for acceptance of ${task.title}` })))))

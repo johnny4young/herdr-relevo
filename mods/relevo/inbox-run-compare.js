@@ -14,6 +14,7 @@ import { shippedPRs } from "./lib/run-panel.js";
 import { decideGuard } from "./lib/workflow-navigation.js";
 import { plusMinus } from "./ui.js";
 import { runCostLine, resumable, attemptHistory, canCompare, compareAttempts, diffFiles, batchSummary, sameRepository, thenWords } from "./lib/run-compare.js";
+import { noteUse } from "./run-usage.js";
 
 const SETUPS = "runs-setups";
 const quiet = (t, id, words) => div().id(id).px(8).text_size(11).text_color(t.muted).child(words);
@@ -75,6 +76,7 @@ export class RunCompareViews {
   }
 
   openCompare(task) {
+    noteUse("compare");
     if (!canCompare(task)) return;
     this.runCompare = task.id; this.compareDiff = null; this.acceptIntent = null;
   }
@@ -136,6 +138,7 @@ export class RunCompareViews {
   }
 
   togglePick(task) {
+    if (!this.runPicked.length) noteUse("batch");
     if (task.state !== "needs_you" || this.runBusy) return;
     this.runPicked = this.runPicked.includes(task.id) ? this.runPicked.filter((id) => id !== task.id) : [...this.runPicked, task.id];
   }

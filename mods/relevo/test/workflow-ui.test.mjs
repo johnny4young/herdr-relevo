@@ -939,3 +939,20 @@ test('a run asked to fix a pull request starts on a copy of its branch and its t
   assert.deepEqual([created.worktree.prHead, created.worktree.prUrl], ['fix/search', fixPR.url]);
   v.close();
 });
+
+test('a new task shows saved setups and prerequisites only when there are some, and counts what is opened', async () => {
+  const { RUN_USES, noteUse } = await import('../run-usage.js');
+  const { v, cx } = await setup();
+  v.explicitNew = true; v.taskSetupOpen = true; v.taskAdvancedOpen = true; v.form.root.set_value('/work/app');
+  let tree = v.render();
+  assert.equal(find(tree, 'workflow-saved-setups'), null, 'nothing saved for this repository');
+  assert.doesNotMatch(text(tree), /Wait for earlier tasks/, 'no task to wait for yet');
+  v.applyState({ tasks: [{ id: 'p', goalId: 'g', title: 'First', state: 'needs_you', attempts: [], checks: [], checksResult: [], evidence: [] }], events: [], preferences: [], engine: { enabled: true } });
+  v.explicitNew = true; v.selected = null;
+  assert.match(text(v.render()), /Wait for earlier tasks/);
+  noteUse('plan'); noteUse('plan');
+  assert.equal(fake.stored[RUN_USES].plan.n, 2);
+  assert.ok(fake.stored[RUN_USES].plan.first <= fake.stored[RUN_USES].plan.last);
+  v.close();
+  void cx;
+});

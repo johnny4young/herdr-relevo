@@ -7,6 +7,7 @@ import { readGoals, writeGoal } from "./goals-store.js";
 import { linkedDecision } from "./lib/goal-workflow.js";
 import { projectGoalPlan } from "./lib/goal-plan.js";
 import { openWorkflow } from "./workflow.js";
+import { noteUse } from "./run-usage.js";
 
 async function workflowTasks() {
   const raw = await readTextFile(`${appHome()}/relevo-workflow/state.json`);
@@ -258,6 +259,11 @@ export class GoalEditor {
     });
   }
 
+  // A run that has planning in it, or a person who asked for it, shows Outcomes and Ownership.
+  planning(goal) {
+    return Boolean(this.planningOpen || this.panel !== "decision" || this.steps?.length || goal?.steps?.length || goal?.owner || this.fields?.owner?.value?.() || goal?.lead || (goal && goal.priority !== 2));
+  }
+
   render() {
     const t = theme(), p = props(), goal = this.goal;
     const projected = this.projectedSteps();
@@ -277,9 +283,13 @@ export class GoalEditor {
       .w_full().h(overlayHeight(isNewRun ? 320 : p?.goalId ? 620 : 440)).max_h_full().min_h(0).p(14).gap(10).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
       .child(h_flex().gap(8).items_center().child(div().flex_1().font_semibold().child(isNewRun ? "New run" : "Run details"))
         .child(button(t, "goal-cancel", "Close", () => closeOverlay(p?.overlay), { tip: this.busy && !this.loading ? "Close this editor. A save already started may still complete." : "Close without saving these edits" })))
-      .when(!isNewRun, (el) => el.child(h_flex().gap(6).children([["decision", "Brief"], ["plan", "Outcomes"], ["ownership", "Ownership"]].map(([panel, label]) =>
-        choice(`goal-panel-${panel}`, label, this.panel === panel, (cx) => { this.planFocusRequest++; this.panel = panel; cx.notify(); },
-          panel === "decision" ? "Prompt, evidence and your feedback" : panel === "plan" ? "Acceptance criteria, progress and completion" : "Human owner, priority and an existing lead agent")))))
+      // Steps, owner, priority and lead stay out of the way until a run uses them or the person asks.
+      .when(!isNewRun, (el) => el.child(h_flex().gap(6)
+        .children([["decision", "Brief"], ...(this.planning(goal) ? [["plan", "Outcomes"], ["ownership", "Ownership"]] : [])].map(([panel, label]) =>
+          choice(`goal-panel-${panel}`, label, this.panel === panel, (cx) => { this.planFocusRequest++; this.panel = panel; cx.notify(); },
+            panel === "decision" ? "Prompt, evidence and your feedback" : panel === "plan" ? "Acceptance criteria, progress and completion" : "Human owner, priority and an existing lead agent")))
+        .when(!this.planning(goal), (row) => row.child(choice("goal-planning", "Planning…", false, (cx) => { this.planningOpen = true; noteUse("planning"); cx.notify(); },
+          "Steps to validate, an owner, a priority and a lead agent")))))
       .child(v_flex().id(`goal-editor-scroll-${this.panel}`).flex_1().min_h(0).overflow_y_scrollbar().gap(10)
         .when(this.loading, (el) => el.child(row("Loading goal context…", t).id("goal-loading").role("status")))
         .when(Boolean(this.error), (el) => el.child(div().id("goal-save-error").role("alert").text_color(t.blocked).child(this.error)))

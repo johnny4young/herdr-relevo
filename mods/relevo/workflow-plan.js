@@ -5,12 +5,14 @@ import { button, checkbox } from "./ui.js";
 import { projectGoalPlan, defaultPlanStepIds } from "./lib/goal-plan.js";
 import { workflowBucket } from "./lib/workflow-navigation.js";
 import { STATES, role, count } from "./lib/run-words.js";
+import { noteUse } from "./run-usage.js";
 
 const labels = { ...STATES, todo: "Not started", working: "In progress", needs_review: "In review", review: "Needs review", accepted: "Accepted", done: "Validated" };
 const row = (t, value) => div().w_full().min_w(0).text_size(13).text_color(t.muted).child(value);
 
 export class WorkflowPlan {
   openPlan(cx, reset = false) {
+    noteUse("plan");
     this.tab = "Plan"; this.explicitNew = false;
     this.planMoreOpen = false;
     if (this.goal && (!this.planDraftGoal || reset)) {

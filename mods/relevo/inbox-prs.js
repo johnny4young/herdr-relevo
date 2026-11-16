@@ -22,6 +22,7 @@ import { newGoal } from "./lib/goals.js";
 import { readGoals, writeGoal } from "./goals-store.js";
 import { openWorkflow } from "./workflow-window.js";
 import { desktopKey } from "./lib/desktop.js";
+import { noteUse } from "./run-usage.js";
 
 const ADDRESSED = ".local/state/relevo/addressed.json";
 
@@ -324,6 +325,7 @@ export class PrViews {
   // already linked to the PR is opened again rather than made twice.
   fixWithRun(pr, cx) {
     if (this.fixing) return;
+    noteUse("fix");
     this.fixing = pr.url; cx.notify();
     cx.spawn(async (cx) => {
       try {

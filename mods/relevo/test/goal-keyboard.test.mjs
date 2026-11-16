@@ -70,6 +70,8 @@ test('editor sections retain all edits; long text wraps; Command-S saves without
   assert.equal(find(tree, 'goal-field-owner'), null);
   click(find(tree, 'goal-review-notes-toggle'), cx); tree = e.render();
   assert.equal(find(tree, 'goal-field-decision').kind, 'textarea');
+  assert.equal(find(tree, 'goal-panel-ownership'), null, 'planning waits until asked for');
+  click(find(tree, 'goal-planning'), cx); tree = e.render();
   click(find(tree, 'goal-panel-ownership'), cx); e.fields.owner.set_value('Johnny');
   tree = e.render(); assert.equal(find(tree, 'goal-field-owner').accessibleLabel, 'Human owner');
   assert.equal(find(tree, 'goal-field-group-owner').accessibleLabel, 'Human owner');
@@ -82,7 +84,7 @@ test('editor sections retain all edits; long text wraps; Command-S saves without
 test('new run leads with its title and acceptance criteria while saved decisions remain editable', async () => {
   const fresh = new GoalEditor(), freshCx = fakeCx(); fresh.init({}, freshCx); await flush();
   let tree = fresh.render();
-  assert.match(text(tree), /Brief/); assert.match(text(tree), /Outcomes/);
+  assert.match(text(tree), /Brief/); assert.doesNotMatch(text(tree), /Outcomes/); assert.match(text(tree), /Planning…/);
   assert.ok(find(tree, 'goal-field-title')); assert.ok(find(tree, 'goal-field-criteria'));
   assert.equal(find(tree, 'goal-field-decision'), null); assert.equal(find(tree, 'goal-field-recommendation'), null);
   assert.equal(find(tree, 'goal-resolve-decision'), null); assert.equal(find(tree, 'goal-review-steps'), null);

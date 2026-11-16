@@ -4,6 +4,7 @@ import { agents, shared, setShared } from "herdr";
 import { button, chevron } from "./ui.js";
 import { WorkflowPlan } from "./workflow-plan.js";
 import { count } from "./lib/run-words.js";
+import { noteUse } from "./run-usage.js";
 
 export const SETUPS_KEY = "relevo.workflow.setups.v1";
 const LIMIT = 20;
@@ -68,9 +69,11 @@ export class WorkflowSetup extends WorkflowPlan {
   setupLibrary(t) {
     const root = this.form.root.value().trim();
     const items = savedSetups().filter((item) => !root || item.root === root);
+    // Nothing saved for this repository: the fold would only say so.
+    if (!items.length && !this.setupsOpen) return v_flex();
     return v_flex().w_full().min_w(0).gap(6)
       .child(button(t, "workflow-saved-setups", [chevron(this.setupsOpen), `Saved setups${items.length ? ` · ${items.length}` : ""}`], (cx) => {
-        this.setupsOpen = !this.setupsOpen; this.setupError = null; cx.notify();
+        this.setupsOpen = !this.setupsOpen; this.setupError = null; if (this.setupsOpen) noteUse("setups"); cx.notify();
       }, { size: "sm", selected: Boolean(this.setupsOpen), tip: "Reuse repository, agent and test choices. Selecting a setup never starts work." }).w_full().justify_start())
       .when(this.setupsOpen, (el) => el.child(v_flex().w_full().min_w(0).gap(8)
         .when(!items.length, (list) => list.child(row(t, "No saved setups for this repository.")))

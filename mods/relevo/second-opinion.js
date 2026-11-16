@@ -7,6 +7,7 @@ import { newGoal } from "./lib/goals.js";
 import { writeGoal } from "./goals-store.js";
 import { runtimeCommand } from "./runtime-cli.js";
 import { runAgentArgs } from "./workflow-runs.js";
+import { noteUse } from "./run-usage.js";
 
 const WAIT_MS = 180000;
 const READY = ["idle", "done", "working"];
@@ -25,6 +26,7 @@ const tabOf = (address) => {
 
 // `agent` is the one whose work is reviewed; `cwd` its folder. Returns the task id, or throws with what went wrong.
 export async function askSecondOpinion(agent, cwd, cx) {
+  noteUse("opinion");
   const writer = terminals().find((k) => k.address === agent.address)?.labels?.["agent.account"] ?? null;
   const reviewer = opinionAccount(writer, await loadClaudeQuotas().catch(() => ({})));
   if (!reviewer) throw Error("Every other account is out of quota");
