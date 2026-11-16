@@ -107,7 +107,7 @@
               "id": "inbox-button",
               "type": "block",
               "size": {
-                "px": 244
+                "px": 184
               },
               "window_drag": true,
               "content": {
@@ -218,16 +218,6 @@
                         "mod": "relevo",
                         "props": {
                           "role": "inbox"
-                        }
-                      }
-                    },
-                    {
-                      "id": "terminals",
-                      "type": "block",
-                      "content": {
-                        "mod": "relevo",
-                        "props": {
-                          "role": "terminals"
                         }
                       }
                     },

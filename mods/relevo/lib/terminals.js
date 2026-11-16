@@ -43,30 +43,6 @@ export function terminalRow(k, { agents = new Set(), panes = [], now = Date.now(
   };
 }
 
-const RANK = { failed: 0, running: 1, idle: 2 };
-// Groups in screen order: one per space (failed, running, idle), then in the background, idle over a day, finished.
-export function terminalGroups(rows) {
-  const spaces = new Map(), background = [], old = [], done = [];
-  for (const r of rows) {
-    if (r.state === "done") done.push(r);
-    else if (r.state === "old") old.push(r);
-    else if (r.background) background.push(r);
-    else spaces.set(r.space, [...(spaces.get(r.space) ?? []), r]);
-  }
-  const groups = [...spaces].sort(([a], [b]) => a.localeCompare(b))
-    .map(([space, list]) => ({ id: `space-${space}`, label: space, rows: list.sort((x, y) => RANK[x.state] - RANK[y.state] || y.at - x.at) }));
-  if (background.length) groups.push({ id: "background", label: "In the background", rows: background });
-  if (old.length) groups.push({ id: "old", label: "Idle over a day", rows: old });
-  if (done.length) groups.push({ id: "done", label: "Finished", rows: done.sort((x, y) => y.at - x.at), folded: true });
-  return groups;
-}
-
-export const terminalCounts = (rows) => ({
-  running: rows.filter((r) => r.state === "running").length,
-  idle: rows.filter((r) => r.state === "idle" || r.state === "old").length,
-  failed: rows.filter((r) => r.state === "failed").length,
-});
-
 // `lsof -nP -iTCP -sTCP:LISTEN -Fpn` → [{ pid, port }].
 export function parseListening(text) {
   const out = [];
@@ -77,16 +53,6 @@ export function parseListening(text) {
       const port = Number(/:(\d+)$/.exec(line)?.[1]);
       if (port && !out.some((x) => x.pid === pid && x.port === port)) out.push({ pid, port });
     }
-  }
-  return out;
-}
-
-// `ps -ax -o pid=,ppid=` → Map pid → parent pid.
-export function parseParents(text) {
-  const out = new Map();
-  for (const line of String(text ?? "").split("\n")) {
-    const m = /^\s*(\d+)\s+(\d+)/.exec(line);
-    if (m) out.set(Number(m[1]), Number(m[2]));
   }
   return out;
 }
@@ -103,11 +69,6 @@ export function portsOf(rows, listening, parents) {
     if (address) out.set(address, [...new Set([...(out.get(address) ?? []), port])].sort((a, b) => a - b));
   }
   return out;
-}
-
-// Terminal output with its colour codes and blank tail taken out: the last lines worth reading.
-export function lastLines(text, n = 2) {
-  return String(text ?? "").replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").split("\n").map((l) => l.trimEnd()).filter((l) => l.trim()).slice(-n);
 }
 
 const HOUR_MS = 3600e3;

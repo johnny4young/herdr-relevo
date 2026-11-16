@@ -16,7 +16,7 @@ test('migration preserves unrelated configuration, removes sidebar accounts, and
   assert.equal(result.theme, 'custom');
   assert.deepEqual(result.children.at(-1), original.children.at(-1));
   assert.deepEqual(result.children[0].children.map(n => n.id), ['agents']);
-  assert.equal(result.children[1].size.px, 244);
+  assert.equal(result.children[1].size.px, 184);
   assert.equal(result.children[2].children[0].content.props.custom, true);
   assert.equal(result.children[2].children[1].content.props.role, 'account-status');
   assert.equal(result.children[3].hidden, true);
@@ -48,5 +48,5 @@ test('navigation migration expands only insufficient widths and preserves custom
   assert.equal(simplifyLayout(layout).children[1].size.px, 300);
   layout.children[1].size = { weight: 2 };
   const migrated = simplifyLayout(layout).children[1];
-  assert.deepEqual(migrated.size, { weight: 2 }); assert.equal(migrated.min, 244);
+  assert.deepEqual(migrated.size, { weight: 2 }); assert.equal(migrated.min, 184);
 });

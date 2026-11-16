@@ -25,12 +25,6 @@ const find = (node, id) => {
   return null;
 };
 
-// Whether the panel is open on `child` of its stack.
-export function panelShows(child) {
-  const panel = find(layout(), "panel"), body = find(layout(), "panel-body");
-  return Boolean(panel && !panel.hidden && body?.active === child);
-}
-
 export function showPanel(child) {
   run("layout.select", { stack: "panel-body", child });
   run("layout.show", { id: "panel" });
@@ -49,8 +43,7 @@ export class InboxButton {
     const panel = find(layout(), "panel"), body = find(layout(), "panel-body");
     const on = panel && !panel.hidden && body?.active === "inbox";
     const runs = shared(GOAL_MODE) === true, reviewsOn = on && !runs;
-    const terms = panel && !panel.hidden && body?.active === "terminals";
-    const bar = find(layout(), "panel-bar"), hideBar = body?.active === "inbox" || body?.active === "terminals";
+    const bar = find(layout(), "panel-bar"), hideBar = body?.active === "inbox";
     // The file controls belong to Files/Changes, not the work queues. This
     // always-mounted navigation also restores them after another panel opens.
     if (bar && Boolean(bar.hidden) !== hideBar) run(hideBar ? "layout.hide" : "layout.show", { id: "panel-bar" });
@@ -72,17 +65,9 @@ export class InboxButton {
           .when(fresh, (b) => b.loop("opacity", { from: 0.45, to: 1, period: 1400 }))
           .child(String(n))));
     };
-    const termsTab = Button.new("terminals-toggle").id("terminals-toggle").h(28).px(8).flex().items_center().rounded(6)
-      .tab_index(0).accessibility_label("Terminals").text_size(13)
-      .text_color(terms ? t.foreground : t.muted).when(terms, (el) => el.bg(t.selected))
-      .hover((s) => s.bg(t.hover)).focus((s) => s.border_2().border_color(t.accent))
-      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-      .tooltip(withKey("Every terminal that is not an agent", "relevo.panel-terminals"))
-      .on_click(() => showPanel("terminals"))
-      .child("Terminals");
     return h_flex().id("inbox-button").size_full().items_center().justify_center()
       .bg(t.chrome).border_b(1).border_color(t.border)
-      .gap(3).child(tab("reviews-toggle", "Reviews", false)).child(tab("runs-toggle", "Runs", true)).child(termsTab);
+      .gap(3).child(tab("reviews-toggle", "Reviews", false)).child(tab("runs-toggle", "Runs", true));
   }
 }
 
