@@ -260,7 +260,7 @@ test('the first screen explains the decision and keeps sessions and messaging se
     checksResult: [{ code: 0 }], attempts: [{ role: 'executor', report: { summary: 'Search implemented' } }] }];
   v.selected = 'result'; let tree = v.render();
   assert.match(text(tree), /Needs me/); assert.match(text(tree), /Search implemented/);
-  assert.match(text(tree), /✓ Tests 1 of 1 passed/);
+  assert.match(text(tree), /✓ Tests 1 check passed/);
   assert.ok(find(tree, 'workflow-decide-accept')); assert.ok(find(tree, 'workflow-tab-Changes'));
   assert.equal(find(tree, 'workflow-inspect-result'), null); assert.equal(find(tree, 'workflow-inspect-evidence'), null);
   assert.ok(find(tree, 'workflow-tab-Evidence'));
@@ -282,9 +282,9 @@ test('check summary distinguishes partial evidence, failure and a fresh implemen
   const task = { id: 'checks', goalId: 'g', title: 'Verify result', state: 'blocked',
     checks: [['node', '--test'], ['npm', 'run', 'lint']], checksResult: [{ code: 0 }], attempts: [] };
   v.tasks = [task]; v.selected = task.id;
-  assert.match(text(v.render()), /Tests · 1 of 2 passed · incomplete/);
+  assert.match(text(v.render()), /Tests · 1 of 2 checks passed · incomplete/);
   task.checksResult.push({ code: 1 });
-  assert.match(text(v.render()), /✗ Tests 1 failed · 1 of 2 passed/);
+  assert.match(text(v.render()), /✗ Tests 1 of 2 checks failed: npm run lint/);
   task.state = 'running'; task.attempts = [{ role: 'executor', state: 'running' }];
   assert.match(text(v.render()), /Tests · awaiting tests/);
   assert.equal(fake.execs.length, 0, 'summarizing evidence never starts work');
