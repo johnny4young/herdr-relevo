@@ -294,7 +294,10 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   8 MB. A message id counts once across files, so resumed and forked sessions don't double. `entrypoint` gives the
   surface (`claude-desktop` Desktop, `cli` terminal, the rest automatic); a write over 20k tokens more than an hour
   after the previous message counts as a pause. State, ids by day and a report live in `~/.local/state/relevo/usage/`,
-  read with `cat` (past `readTextFile`'s 1 MiB) and written with `writeTextFile`. Codex adds what each
+  read with `cat` (past `readTextFile`'s 1 MiB) and written with `writeTextFile`, which writes at most 1 MiB: the
+  files' offsets go in `files-0…7.json` by a hash of the path and each day's ids in `seen-<day>.json`; an older
+  `state.json` with offsets and `seen.json` still load. A failed save shows "Not saved" in Tokens. A listing that
+  fails keeps every offset for that scan. Codex adds what each
   `token_count` event's total grew by.
 - **Claude Desktop**: every 30 s it reads Desktop's `claude-code-sessions/*/*/local_*.json` changed in 7 days, again
   only when one changes. A session is working when its last message is newer than its last turn and something

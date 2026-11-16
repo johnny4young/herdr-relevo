@@ -14,6 +14,13 @@ export const USAGE = "relevo.usage";
 export const AGENT_CONTEXT = "relevo.agentContext";
 const SAVE_EVERY = 5;
 const PROGRESS_EVERY = 1000;
+// Herdr writes a file of at most 1 MiB: the files' read offsets go in this many parts, and each day's ids in its own file.
+const PARTS = 8;
+const partOf = (path) => {
+  let h = 0;
+  for (let i = 0; i < path.length; i += 1) h = (h * 31 + path.charCodeAt(i)) | 0;
+  return Math.abs(h) % PARTS;
+};
 
 // writeTextFile only replaces what it was given, so each file remembers what it last read or wrote.
 class Saved {
@@ -45,12 +52,25 @@ const basename = (p) => (p ?? "").replace(/\/+$/, "").split("/").pop() || "unkno
 
 export class UsageScanner {
   async load() {
-    const dir = `${home()}/${DIR}`;
+    const dir = this.dir = `${home()}/${DIR}`;
     await exec("mkdir", ["-p", dir]);
-    this.files = { state: new Saved(`${dir}/state.json`), seen: new Saved(`${dir}/seen.json`), report: new Saved(`${home()}/${REPORT}`) };
+    this.files = { state: new Saved(`${dir}/state.json`), report: new Saved(`${home()}/${REPORT}`) };
+    this.parts = Array.from({ length: PARTS }, (_, i) => new Saved(`${dir}/files-${i}.json`));
+    this.days = new Map();
     try {
-      this.state = { ...emptyState(), ...JSON.parse(await this.files.state.read() ?? "{}") };
-      this.state.seen = JSON.parse(await this.files.seen.read() ?? "{}");
+      // An older save kept the offsets in state.json and every day's ids in seen.json; both still load.
+      this.state = { ...emptyState(), ...JSON.parse(await this.files.state.read() ?? "{}"), seen: {} };
+      for (const part of this.parts) Object.assign(this.state.files, JSON.parse(await part.read() ?? "{}"));
+      const names = await exec("sh", ["-c", 'cd "$1" && for f in seen-*.json; do [ -f "$f" ] && printf "%s\\n" "$f"; done', "sh", dir]).catch(() => null);
+      for (const name of (names?.stdout ?? "").split("\n").filter(Boolean)) {
+        const saved = new Saved(`${dir}/${name}`);
+        this.days.set(name.slice(5, 15), saved);
+        this.state.seen[name.slice(5, 15)] = await saved.read() ?? "";
+      }
+      if (!this.days.size) {
+        const old = await new Saved(`${dir}/seen.json`).read();
+        if (old) { this.state.seen = JSON.parse(old); this.legacy = true; }
+      }
     } catch {
       // A broken save starts over; the ids it held go with it.
       this.state = emptyState();
@@ -85,15 +105,18 @@ export class UsageScanner {
     }
   }
 
+  // `complete`: false when a listing failed, so the files it missed are not taken for deleted.
   async list() {
     const listed = new Map();
+    let complete = true;
     const add = async (account, dirs) => {
       const r = await exec("sh", ["-c", LIST, "sh", ...dirs]).catch(() => null);
+      if (r?.code !== 0) complete = false;
       for (const [path, size] of parseList(r?.stdout ?? "")) listed.set(path, { size, account });
     };
     for (const a of ACCOUNTS.filter((x) => x.claudeDir)) await add(a.key, [`${home()}/${a.claudeDir}/projects`]);
     await add("codex", [`${home()}/.codex/sessions`, `${home()}/.codex/archived_sessions`]);
-    return listed;
+    return { listed, complete };
   }
 
   async scan() {
@@ -101,7 +124,7 @@ export class UsageScanner {
     this.busy = true;
     try {
       if (!this.state) await this.load();
-      const cut = cutDay(), listed = await this.list(), account = new Map();
+      const cut = cutDay(), { listed, complete } = await this.list(), account = new Map();
       const changed = [];
       for (const [path, { size, account: key }] of listed) {
         const f = this.state.files[path];
@@ -140,7 +163,7 @@ export class UsageScanner {
         if ((i + 1) % SAVE_EVERY === 0) await this.save();
       }
       // Nothing read and nothing aged out: the saved report is still right, and a write would redraw every mod.
-      if (prune(this.state, cut, new Set(listed.keys())) || batches.length || !this.files.report.text) await this.save(true);
+      if (prune(this.state, cut, complete ? new Set(listed.keys()) : null) || batches.length || !this.files.report.text || this.legacy) await this.save(true);
     } finally {
       this.busy = false;
     }
@@ -161,12 +184,31 @@ export class UsageScanner {
     return keep;
   }
 
+  // The offsets and ids go first and state.json last, so an older save is only dropped once its parts are written.
+  // A failed save says so in Tokens instead of failing every scan in silence.
   async save(finished = false) {
-    const { seen, ...rest } = this.state, now = Math.round(Date.now() / 1000);
-    await this.files.seen.write(JSON.stringify(seen));
-    await this.files.state.write(JSON.stringify(rest));
-    await this.files.report.write(JSON.stringify(reportOf(this.state, now, await this.keptRuns())));
-    setShared(USAGE, finished ? { updated: now } : { ...(shared(USAGE) ?? {}), updated: now });
+    const { seen, files, ...rest } = this.state, now = Math.round(Date.now() / 1000);
+    try {
+      const parts = Array.from({ length: PARTS }, () => ({}));
+      for (const [path, file] of Object.entries(files)) parts[partOf(path)][path] = file;
+      for (const [i, part] of parts.entries()) await this.parts[i].write(JSON.stringify(part));
+      for (const [day, ids] of Object.entries(seen)) {
+        if (!this.days.has(day)) this.days.set(day, new Saved(`${this.dir}/seen-${day}.json`));
+        await this.days.get(day).write(ids);
+      }
+      const gone = [...this.days.keys()].filter((day) => !(day in seen));
+      if (gone.length || this.legacy) {
+        await exec("rm", ["-f", ...gone.map((day) => this.days.get(day).path), ...(this.legacy ? [`${this.dir}/seen.json`] : [])]);
+        for (const day of gone) this.days.delete(day);
+        this.legacy = false;
+      }
+      await this.files.state.write(JSON.stringify(rest));
+      await this.files.report.write(JSON.stringify(reportOf(this.state, now, await this.keptRuns())));
+    } catch (e) {
+      setShared(USAGE, { ...(shared(USAGE) ?? {}), done: 0, total: 0, error: `Token usage could not be saved: ${e?.message ?? e}` });
+      return;
+    }
+    setShared(USAGE, finished ? { updated: now } : { ...(shared(USAGE) ?? {}), updated: now, error: null });
   }
 }
 

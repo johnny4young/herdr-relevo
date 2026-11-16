@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { run } from './process.mjs';
 import { createRuntime } from './coordinator.mjs';
 import { acquireOwned, alive, privateDir, releaseOwned, stateDir, transaction } from './store.mjs';
+import { needsEngine } from '../lib/engine.js';
 
 const cliPath = fileURLToPath(import.meta.url);
 const liveTerminal = (value) => ['live', 'idle', 'working'].includes(value?.state) || ['live', 'idle', 'working'].includes(value?.status);
@@ -26,10 +27,22 @@ export function parseArgs(argv) {
   return { home: path.resolve(home), action, payload };
 }
 
+// A pid is this home's coordinator only while its command line says so: after a crash the number can go to another process.
+export function isEngine(pid, home, { cli = cliPath, spawnImpl = spawnSync } = {}) {
+  if (!alive(pid)) return false;
+  const ps = spawnImpl('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 });
+  const command = String(ps.stdout ?? '');
+  return command.includes(cli) && command.includes(`--home ${path.resolve(home)} serve`);
+}
+const ownerPid = (home) => {
+  try { return JSON.parse(fs.readFileSync(path.join(stateDir(home), 'engine.lock', 'owner.json'), 'utf8')).pid; } catch { return null; }
+};
+export const engineRunning = (home, check = isEngine) => { const pid = ownerPid(home); return pid != null && check(pid, home); };
+
 const ENGINE_ERRORS = { guard: 'Coordinator startup is already being resolved', unsafe: 'Coordinator lock path is unsafe',
   incomplete: 'Coordinator lock is incomplete; refusing to start a second engine', held: 'Coordinator is already running' };
 
-export async function ensureEngine(home, { runCommand = run, cli = cliPath, node = process.execPath } = {}) {
+export async function ensureEngine(home, { runCommand = run, cli = cliPath, node = process.execPath, check = isEngine } = {}) {
   home = path.resolve(home); cli = path.resolve(cli);
   const name = engineName(home), expected = [node, cli, '--home', home, 'serve'];
   const lock = path.join(stateDir(home), 'engine.lock', 'owner.json');
@@ -42,7 +55,7 @@ export async function ensureEngine(home, { runCommand = run, cli = cliPath, node
     } catch { return false; }
   };
   try {
-    if (alive(JSON.parse(fs.readFileSync(lock, 'utf8')).pid)) {
+    if (check(JSON.parse(fs.readFileSync(lock, 'utf8')).pid, home, { cli })) {
       if (await currentForHome()) { wakeEngine(home); return { code: 0, alreadyRunning: true }; }
       throw Error('Coordinator lock exists, but its named terminal command could not be verified');
     }
@@ -77,7 +90,8 @@ function wakeEngine(home) {
   } catch { /* The command can complete while the coordinator is starting. */ }
 }
 
-export async function waitForStop(home, { timeoutMs = 20000, fsImpl = fs, timers = globalThis } = {}) {
+// Done when the lock goes, or when no live coordinator holds it any more (one killed without its cleanup).
+export async function waitForStop(home, { timeoutMs = 20000, fsImpl = fs, timers = globalThis, check = isEngine } = {}) {
   const dir = stateDir(home), lock = path.join(dir, 'engine.lock');
   if (!fsImpl.existsSync(lock)) return;
   await new Promise((resolve, reject) => {
@@ -86,17 +100,20 @@ export async function waitForStop(home, { timeoutMs = 20000, fsImpl = fs, timers
       if (settled) return; settled = true;
       timers.clearTimeout(timer); watcher.close(); error ? reject(error) : resolve();
     };
-    const check = () => { if (!fsImpl.existsSync(lock)) finish(); };
-    watcher = fsImpl.watch(dir, check);
+    const gone = () => { if (!fsImpl.existsSync(lock) || !engineRunning(home, check)) finish(); };
+    watcher = fsImpl.watch(dir, gone);
     watcher.on?.('error', () => {});
     timer = timers.setTimeout(() => finish(Error(`Coordinator did not stop within ${Math.ceil(timeoutMs / 1000)} seconds`)), timeoutMs);
-    check();
+    gone();
   });
 }
 
+// `hc kill` hangs up first: without SIGHUP the coordinator would die holding its lock.
+const SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP'];
+
 export async function serve(home, { runtimeFactory = createRuntime, fsImpl = fs, timers = globalThis, pid = process.pid, processRef = process,
-  spawnImpl = spawn, eventWatch = watchAgents, intervalMs = 3000, debounceMs = 150 } = {}) {
-  const lock = acquireOwned(privateDir(stateDir(home)), 'engine', { pid, errors: ENGINE_ERRORS });
+  spawnImpl = spawn, eventWatch = watchAgents, intervalMs = 3000, debounceMs = 150, check = isEngine } = {}) {
+  const lock = acquireOwned(privateDir(stateDir(home)), 'engine', { pid, errors: ENGINE_ERRORS, owns: (owner) => check(owner, home) });
   let runtime, stopped = false, released = false, running = false, queued = false, timer, debounce, watcher, wakeWatcher, agentWatcher, settle;
   let watchedAddresses = '';
   const reports = path.join(stateDir(home), 'reports');
@@ -108,9 +125,7 @@ export async function serve(home, { runtimeFactory = createRuntime, fsImpl = fs,
   };
   const refreshAgentWatch = () => {
     const doc = runtime.read();
-    const addresses = doc.tasks.filter((task) => !['accepted', 'cancelled'].includes(task.state) &&
-      (task.attempts?.at(-1)?.state === 'running' || task.state === 'running' || (!task.paused &&
-        (['ready', 'needs_review'].includes(task.state) || task.messages?.some((message) => message.status === 'queued')))))
+    const addresses = doc.tasks.filter((task) => needsEngine([task]))
       .flatMap((task) => [task.executor?.address, task.reviewer?.address].filter(Boolean));
     const key = [...new Set(addresses)].sort().join('\0');
     if (key === watchedAddresses) return;
@@ -136,7 +151,7 @@ export async function serve(home, { runtimeFactory = createRuntime, fsImpl = fs,
     if (!stopped || released || running) return;
     released = true;
     watcher?.close(); wakeWatcher?.close(); agentWatcher?.close();
-    processRef.removeListener?.('SIGTERM', stop); processRef.removeListener?.('SIGINT', stop);
+    for (const signal of SIGNALS) processRef.removeListener?.(signal, stop);
     releaseOwned(lock); settle();
   };
   const stop = () => {
@@ -157,7 +172,7 @@ export async function serve(home, { runtimeFactory = createRuntime, fsImpl = fs,
     if (runtime.read().engine.error) transaction(home, (doc) => { delete doc.engine.error; });
     watcher = fsImpl.watch(reports, schedule); watcher.on?.('error', () => {});
     wakeWatcher = fsImpl.watch(stateDir(home), onWake); wakeWatcher.on?.('error', () => {});
-    processRef.on?.('SIGTERM', stop); processRef.on?.('SIGINT', stop);
+    for (const signal of SIGNALS) processRef.on?.(signal, stop);
     refreshAgentWatch();
     timer = timers.setInterval(() => {
       let doc;
@@ -185,6 +200,13 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
       return { code: 0, output: { ok: true } };
     }
     const runtime = (deps.runtimeFactory ?? createRuntime)({ home: parsed.home });
+    // The app asks now and then while runs are open: a coordinator that died with work left is started again.
+    if (parsed.payload.action === 'wake') {
+      const doc = runtime.read();
+      const stalled = doc.engine?.enabled && needsEngine(doc.tasks) && !(deps.engineRunning ?? engineRunning)(parsed.home);
+      if (stalled) await (deps.ensureEngine ?? ensureEngine)(parsed.home, deps.engineOptions);
+      return { code: 0, output: { ok: true, started: Boolean(stalled) } };
+    }
     const result = await runtime.command(parsed.payload);
     const doc = result?.doc ?? runtime.read();
     const action = parsed.payload.action;
