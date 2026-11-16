@@ -831,3 +831,42 @@ test('run setup names the roles in plain words', async () => {
   assert.doesNotMatch(words, /Implementer|Independent reviewer|Executor/);
   v.close();
 });
+
+test('a run agent asking to trust its worktree is named in the run window, and only Trust and continue answers it', async () => {
+  fake.stored['relevo.runs.mode'] = 'worktree';
+  const { v, cx } = await setup();
+  const { trustKeys } = await import('../workflow-runs.js');
+  const claude = 'Quick safety check: Is this a project you created or one you trust?\n ❯ No, exit\n   Yes, I trust this folder\n Enter to confirm · Esc to cancel';
+  const codex = 'Trust this folder? Codex can read, edit, and run files here.\n› 1. Trust and continue\n  2. Back to Agent Command Center';
+  assert.deepEqual([trustKeys(claude), trustKeys(claude.replace('❯ No', '  No').replace('   Yes', ' ❯ Yes')), trustKeys(codex), trustKeys('Update available · 1 → 2\n esc skip')],
+    [['down', 'enter'], ['enter'], ['enter'], null]);
+  v.launch = { stage: 'waiting', fields: { goalId: 'g', title: 'T', root: '/work/app' }, accounts: { executor: 'personal', reviewer: 'codex' }, at: Date.now(), openedAt: 0,
+    worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 't-1 · build', reviewer: 't-1 · review' } };
+  fake.agents = [{ address: 't2', tab_name: 't-1 · review', status: 'idle' }];
+  fake.terminals = [{ address: 't1', cwd: '/wt' }, { address: 't2', cwd: '/wt' }];
+  fake.panes = [{ pane: 'p1', terminal: 't1', tab: 'tab-build' }];
+  fake.spaces = [{ id: 's', tabs: [{ id: 'tab-build', name: 't-1 · build' }] }];
+  const calls = [];
+  fake.exec = async (cmd, args) => { calls.push([cmd, ...args].join(' ')); return args[0] === 'read' ? { stdout: claude } : null; };
+  v.launchTick(cx); await flush(); v.launchTick(cx); await flush();
+  assert.match(text(find(v.render(), 'workflow-launch-status')), /“t-1 · build” asks whether to trust the run's worktree/);
+  assert.equal(calls.some((line) => line.startsWith('hc keys')), false, 'nothing is trusted on its own');
+  click(find(v.render(), 'workflow-launch-trust'), cx); await flush();
+  assert.deepEqual(calls.filter((line) => line.startsWith('hc keys')), ['hc keys t1 down enter']);
+  assert.equal(find(v.render(), 'workflow-launch-trust'), null);
+  v.close();
+});
+
+test('a run reviewer starts without the person\'s hooks, and every run agent writes its status and report without asking', async () => {
+  const { runAgentArgs } = await import('../workflow.js');
+  const settingsOf = (args) => JSON.parse(args[args.indexOf('--settings') + 1]);
+  const reviewer = settingsOf(runAgentArgs('personal', 'reviewer', '/h')), executor = settingsOf(runAgentArgs('personal', 'executor', '/h'));
+  assert.equal(reviewer.disableAllHooks, true);
+  assert.equal(executor.disableAllHooks, undefined, 'the writer keeps them');
+  for (const s of [reviewer, executor]) assert.deepEqual(s.permissions.allow, ['Edit(//h/relevo-workflow/reports/*.json)']);
+  // Codex's hooks belong to its shared background server: switching them off would ask to restart it for every session.
+  const codexReviewer = runAgentArgs('codex', 'reviewer', '/h');
+  assert.equal(codexReviewer.includes('--disable'), false);
+  assert.equal(codexReviewer[codexReviewer.indexOf('--ask-for-approval') + 1], 'never', 'a Codex reviewer never stops to ask');
+  assert.equal(runAgentArgs('codex', 'executor', '/h')[runAgentArgs('codex', 'executor', '/h').indexOf('--ask-for-approval') + 1], 'on-request');
+});

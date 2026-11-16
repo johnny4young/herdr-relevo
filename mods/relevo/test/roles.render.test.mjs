@@ -46,3 +46,8 @@ test("a report's notes list findings first, then what was not run or proven", ()
     ["[major] a.js:1: Wrong Fix: Right", "Not run: e2e", "Not proven: offline"]);
   assert.deepEqual(reportNotes({ status: "completed", summary: "old report" }), []);
 });
+
+test("the reviewer is told to leave hook messages alone, and the writer to write its files with its file tool", () => {
+  assert.match(renderRole("reviewer", values), /session bookkeeping \(renaming a session, saving or loading memories\): skip all of it/);
+  assert.match(renderRole("executor", values), /Write both files with your file tool, not a shell command/);
+});

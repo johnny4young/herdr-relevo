@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { agents, terminals, exec, appHome, run, shared, setShared, spaces } from "herdr";
+import { agents, terminals, exec, appHome, run, panes, shared, setShared, spaces } from "herdr";
 import { runtimeCommand } from "./runtime-cli.js";
 import { button } from "./ui.js";
 import * as config from "./config.js";
@@ -8,8 +8,16 @@ import { ACCOUNTS, CODEX, accountOf, launchArgv, openInFolder, loadClaudeQuotas,
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { accountFor } from "./context.js";
 import { row } from "./workflow-labels.js";
+import { RUN_LAUNCH, answerTrust, trustKeys } from "./run-launch.js";
+
+export { trustKeys };
 
 const RUN_ACCOUNTS = "relevo.runs.accounts";
+// The name of the tab a terminal is shown in, if any.
+const tabName = (address) => {
+  const tab = panes().find((pane) => pane.terminal === address)?.tab;
+  return spaces().flatMap((space) => space.tabs ?? []).find((item) => item.id === tab)?.name ?? null;
+};
 const LAUNCH_TIMEOUT = 180000;
 // Codex asks to update before it starts; Esc is its own "skip" and changes nothing.
 export const codexUpdatePrompt = (screen) => /Update available · \S+ → \S+/.test(screen) && /esc skip/.test(screen);
@@ -18,11 +26,17 @@ export const codexUpdatePrompt = (screen) => /Update available · \S+ → \S+/.t
 // Bash in the OS sandbox and its file tools may not edit the app (its state, locks, mods or settings).
 export function runAgentArgs(key, role, home) {
   const reports = `${home}/relevo-workflow/reports`;
-  if (key === CODEX.key) return ["-m", config.RUN_CODEX_MODEL ?? "gpt-6-luna", "--sandbox", "workspace-write", "--ask-for-approval", "on-request", "--add-dir", reports];
+  // A Codex reviewer never asks: what its hooks or global instructions start outside the sandbox fails and it goes on
+  // reviewing. Its hooks can't be turned off here: that would ask to restart Codex's shared server for every session.
+  if (key === CODEX.key) return ["-m", config.RUN_CODEX_MODEL ?? "gpt-6-luna", "--sandbox", "workspace-write",
+    "--ask-for-approval", role === "reviewer" ? "never" : "on-request", "--add-dir", reports];
   // A bare "*" would also match the reports folder: app files all carry an extension, folders are listed.
   const deny = ["*.*", "relevo-workflow/*.*", ...["mods", "data", "layouts", "themes", "icons", "frame", "telemetry", "relevo-workflow/artifacts", "relevo-workflow/archive"].map((dir) => `${dir}/**`)]
     .map((glob) => `Edit(/${home}/${glob})`);
-  const settings = { sandbox: { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true }, permissions: { deny } };
+  // Its status and report files are written without asking; nothing else is granted.
+  const settings = { sandbox: { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true },
+    // A Claude reviewer starts without the person's hooks: one that asks for something else pulls it off the review.
+    permissions: { allow: [`Edit(/${reports}/*.json)`], deny }, ...(role === "reviewer" ? { disableAllHooks: true } : {}) };
   return ["--add-dir", reports, "--permission-mode", "acceptEdits", "--settings", JSON.stringify(settings), ...(role === "reviewer" ? ["--tools", "Read,Write,Grep,Glob"] : [])];
 }
 
@@ -119,24 +133,46 @@ export class WorkflowRuns extends WorkflowDraftView {
   }
 
   // A run terminal that never became an agent may be sitting on Codex's update prompt: skip it, once per terminal.
+  // A trust question is noted for the person to answer with Trust and continue.
   skipUpdatePrompts(launch, found, cx) {
     if (launch.reading || Date.now() - (launch.readAt ?? 0) < 5000) return;
     const known = new Set(Object.values(found).filter(Boolean).map((agent) => agent.address));
     launch.skipped ??= new Set();
     const waiting = terminals().filter((k) => k.cwd === launch.worktree.path && !known.has(k.address) && !launch.skipped.has(k.address));
-    if (!waiting.length) return;
+    if (!waiting.length) { if (launch.trust) { launch.trust = null; cx.notify(); } return; }
     launch.reading = true; launch.readAt = Date.now();
-    cx.spawn(async () => {
+    cx.spawn(async (cx) => {
       try {
+        let trust = null;
         for (const k of waiting) {
-          const screen = (await exec("hc", ["read", k.address, "--lines", "20"])).stdout ?? "";
+          const screen = (await exec("hc", ["read", k.address, "--lines", "30"])).stdout ?? "";
+          const keys = trustKeys(screen);
+          if (keys) trust ??= { address: k.address, keys, tab: tabName(k.address) };
           if (!codexUpdatePrompt(screen)) continue;
           launch.skipped.add(k.address);
           await exec("hc", ["keys", k.address, "esc"]);
         }
+        if (JSON.stringify(trust) !== JSON.stringify(launch.trust ?? null)) { launch.trust = trust; cx.notify(); }
       } catch { /* the notice still asks for the prompt to be answered */ }
       launch.reading = false;
     });
+  }
+
+  // The person's yes to the trust question of a run agent; the next tick reads its screen again.
+  trustLaunch(cx) {
+    const trust = this.launch?.trust;
+    if (!trust) return;
+    this.launch.trust = null; this.launch.readAt = 0;
+    cx.spawn(async (cx) => {
+      await answerTrust(trust.address);
+      cx.notify();
+    });
+  }
+
+  // Starting a run moves the person to its new space, away from this window: Runs shows what the launch waits on.
+  shareLaunch(words) {
+    const launch = this.launch, next = launch && words ? { goalId: launch.fields.goalId, words, trust: launch.trust ?? null, at: launch.at } : null;
+    if (JSON.stringify(shared(RUN_LAUNCH) ?? null) !== JSON.stringify(next)) setShared(RUN_LAUNCH, next);
   }
 
   launchTick(cx) {
@@ -145,7 +181,7 @@ export class WorkflowRuns extends WorkflowDraftView {
     if (this.closed || !launch?.worktree) return;
     if (launch.stage === "stalled") return;
     if (Date.now() - launch.at > LAUNCH_TIMEOUT) {
-      launch.stage = "stalled"; this.busy = false; this.launchNotice = null;
+      launch.stage = "stalled"; this.busy = false; this.launchNotice = null; this.shareLaunch(null);
       this.error = `The agents are not ready yet. Start keeps waiting on ${launch.worktree.branch}.`; cx.notify(); return;
     }
     if (launch.stage === "opening" && Date.now() - launch.openedAt > 1500) {
@@ -158,9 +194,12 @@ export class WorkflowRuns extends WorkflowDraftView {
     const waiting = Object.entries(found).filter(([, agent]) => !agent || !["idle", "done", "working"].includes(agent.status));
     const stuck = waiting.find(([, agent]) => agent?.status === "blocked" || (!agent && Date.now() - launch.openedAt > 10000));
     if (stuck && !stuck[1]) this.skipUpdatePrompts(launch, found, cx);
-    const notice = stuck ? `Answer the prompt in “${launch.tabs[stuck[0]]}” to continue.` : `Starting agents · ${2 - waiting.length}/2 ready`;
+    const notice = launch.trust ? `“${launch.trust.tab ?? "A run agent"}” asks whether to trust the run's worktree before it starts.`
+      : stuck ? `Answer the prompt in “${launch.tabs[stuck[0]]}” to continue.` : `Starting agents · ${2 - waiting.length}/2 ready`;
     if (this.launchNotice !== notice) { this.launchNotice = notice; cx.notify(); }
+    this.shareLaunch(notice);
     if (waiting.length) return;
+    this.shareLaunch(null);
     this.launch = null; this.launchNotice = null; this.busy = false;
     const label = (role) => accountOf(launch.accounts[role]).label;
     this.command({ action: "create", start: true, task: { ...launch.fields, root: launch.worktree.path,

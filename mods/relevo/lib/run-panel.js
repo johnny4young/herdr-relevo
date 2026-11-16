@@ -103,8 +103,12 @@ export function followUpAvailable(task) {
 }
 
 // A run row from its bucket of tasks: its group, lane glyph, what it is doing or wants, and its one action.
-export function runRow(goal, bucket, { engine = null, error = null, decision = false, reviewCount = 0 } = {}) {
+export function runRow(goal, bucket, { engine = null, error = null, decision = false, reviewCount = 0, launch = null } = {}) {
   const open = { kind: "open", label: "Open" };
+  // Between Start and its first task: what the launch waits on, and the yes to a trust question.
+  if (launch?.goalId === goal.id && !bucket.all.length) return launch.trust
+    ? { group: "me", turn: "me", hot: true, now: launch.words, action: { kind: "trust", label: "Trust and continue", address: launch.trust.address } }
+    : { group: "flight", turn: "flight", now: launch.words, action: open };
   if (error) return { group: "me", turn: "stuck", now: "status unavailable", hot: true, action: open };
   const c = { me: bucket.me.length, open: bucket.open.length };
   if (c.me) return { group: "me", turn: "me", hot: true, now: `${count(c.me, "result")} ${c.me === 1 ? "waits" : "wait"} for your review`,
