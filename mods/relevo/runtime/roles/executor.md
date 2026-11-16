@@ -21,6 +21,8 @@ Say how it is going: at the start, at each natural step and at least every 5 min
 Return a structured report by writing this JSON file locally: {{reportFile}}
 {{reportExample}}
 
+Write both files with your file tool, not a shell command: a shell write outside the checkout stops to ask the person.
+
 Use status completed or blocked. Write the report after all changes and checks; it is the handoff to the coordinator. Do not claim human acceptance.
 - `summary`: at most 160 characters of plain words on what the person now sees or can do. No file names, flags or jargon.
 - `details`: a few short lines. What changed first, then how you checked it.

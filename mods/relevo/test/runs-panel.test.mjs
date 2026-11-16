@@ -444,3 +444,22 @@ test('a worktree task lists its changed files, and d or a file opens that change
   v.render(cx); v.render(cx);
   assert.equal(asks.filter((a) => a === 'task-diff').length, 1, 'read once per change it keeps');
 });
+
+test('a run that is starting says in Runs what it waits on, and Trust and continue answers only a question still on screen', async () => {
+  const { RUN_LAUNCH } = await import('../run-launch.js');
+  const claude = ' ❯ No, exit\n   Yes, I trust this folder\n';
+  let screen = claude;
+  const asks = [];
+  fake.exec = (cmd, args) => { if (cmd !== 'hc') return null; asks.push(args.join(' ')); return args[0] === 'read' ? { code: 0, stdout: screen } : { code: 0, stdout: '' }; };
+  fake.stored[RUN_LAUNCH] = { goalId: 'g', words: '“t-1 · build” asks whether to trust the run\'s worktree before it starts.', trust: { address: 't1' }, at: Date.now() };
+  const { v, cx } = await runs([]);
+  const view = v.render(cx);
+  assert.match(text(view), /asks whether to trust the run's worktree/);
+  click(find(view, 'goal-action-g'), cx); await flush();
+  assert.deepEqual(asks, ['read t1 --lines 30', 'keys t1 down enter']);
+  screen = 'Ask Claude anything';
+  click(find(v.render(cx), 'goal-action-g'), cx); await flush();
+  assert.equal(asks.filter((a) => a.startsWith('keys')).length, 1, 'an agent that already started gets no keys');
+  fake.stored[RUN_LAUNCH] = { ...fake.stored[RUN_LAUNCH], at: Date.now() - 600000 };
+  assert.match(text(v.render(cx)), /needs a plan before agents start/, 'a launch left behind stops showing');
+});

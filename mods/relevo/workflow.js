@@ -90,6 +90,7 @@ export class Workflow extends WorkflowDetail {
   close() {
     if (this.closed) return;
     this.persistDraft({ now: true });
+    if (this.launch) this.shareLaunch(null);
     this.closed = true;
     this.shortcutHelp?.close();
     this.h.release();
@@ -544,7 +545,9 @@ export class Workflow extends WorkflowDetail {
           { kind: "solid", disabled: this.busy, tip: "⌘Enter" }))
         .when(!isolated, (bar) => bar.child(button(t, "workflow-create", "Save for later", (context) => this.create(context), { disabled: this.busy })))
         .when(Boolean(this.launch), (bar) => bar.child(div().id("workflow-launch-status").text_size(11).text_color(t.muted)
-          .child(this.launchNotice ?? (this.launch?.stage === "preparing" ? "Creating worktree…" : "Opening agents…")))));
+          .child(this.launchNotice ?? (this.launch?.stage === "preparing" ? "Creating worktree…" : "Opening agents…"))))
+        .when(Boolean(this.launch?.trust), (bar) => bar.child(button(t, "workflow-launch-trust", "Trust and continue", (context) => this.trustLaunch(context),
+          { kind: "solid", tip: `Answers yes in “${this.launch.trust.tab ?? "its tab"}”: the agent may then read, edit and run files in ${this.launch.worktree?.path ?? "the worktree"}` }))));
   }
 
   emptyQueue(t) {

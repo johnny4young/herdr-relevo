@@ -3,6 +3,7 @@ import { h_flex, v_flex, TextareaState, Textarea } from "gpui-base";
 import { shared, setShared } from "herdr";
 import { button, foldRow, legHeader, legend, joined, keyBar, keycap, meTint, plusMinus, row, onSubmitChord } from "./ui.js";
 import { openReview } from "./review.js";
+import { RUN_LAUNCH, answerTrust } from "./run-launch.js";
 import { GOAL_MODE, GOAL_SCOPE, workflowCommand } from "./inbox-goals.js";
 import { openGoal } from "./goals-editor.js";
 import { openWorkflow, RUN_FOLLOW_UP } from "./workflow-window.js";
@@ -18,6 +19,7 @@ import { canCompare, diffFiles, tookWords } from "./lib/run-compare.js";
 export const MERGED = "relevo.runs.merged";
 const REST = "more-run-rest";
 const WHY_LINES = 4, NOTE_LINES = 4, FILE_LINES = 8;
+const LAUNCH_SHOWN_MS = 300000;
 const LEGEND = ["me", "flight", "ready"];
 // What a step of a task is, as the lane glyph of its row.
 const LEG_TURN = { ok: "ready", bad: "stuck", run: "flight", you: "me" };
@@ -72,8 +74,14 @@ export class RunViews {
       const bucket = this.runBucket(goal);
       const decision = Boolean(goal.decision?.trim()) && linkedDecision(goal, bucket.all, this.workflowError).state === "separate";
       return { goal, items, closed: goalState(goal) === "completed", shipped: runShipped(goal, this.runBucket(goal, true), items, merged),
-        ...runRow(goal, bucket, { engine: this.workflowEngine, error: this.workflowError, decision, reviewCount: reviewableWork(items, this.clones).length }) };
+        ...runRow(goal, bucket, { engine: this.workflowEngine, error: this.workflowError, decision, reviewCount: reviewableWork(items, this.clones).length, launch: this.liveLaunch() }) };
     });
+  }
+
+  // A launch the run window left behind (Herdr quit mid-start) stops showing once its wait would have timed out.
+  liveLaunch() {
+    const launch = shared(RUN_LAUNCH);
+    return launch && Date.now() - (launch.at ?? 0) < LAUNCH_SHOWN_MS ? launch : null;
   }
 
   // The open run and task follow the data: one that is gone, or unreadable, closes its view. Returns the runs to draw.
@@ -305,8 +313,10 @@ export class RunViews {
   runAction(t, entry, id) {
     const { goal, action } = entry;
     const act = { review: (cx) => this.openRun(goal, cx), why: (cx) => this.openRun(goal, cx, action.taskId), open: (cx) => this.openRun(goal, cx),
-      decide: () => openGoal(goal.id, null, "decision"), changes: () => this.showRunReviews(goal), plan: () => openWorkflow(goal.id) }[action.kind];
-    return button(t, id, action.label, act, { kind: ["review", "why", "decide"].includes(action.kind) ? "go" : "outline" });
+      decide: () => openGoal(goal.id, null, "decision"), changes: () => this.showRunReviews(goal), plan: () => openWorkflow(goal.id),
+      trust: (cx) => cx.spawn(async () => { await answerTrust(action.address); }) }[action.kind];
+    return button(t, id, action.label, act, { kind: ["review", "why", "decide", "trust"].includes(action.kind) ? "go" : "outline",
+      ...(action.kind === "trust" ? { tip: "Answers yes in the agent's tab: it may then read, edit and run files in the run's worktree" } : {}) });
   }
 
   followUpButton(t, goal, task, id) {
