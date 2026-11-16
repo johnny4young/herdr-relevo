@@ -60,7 +60,8 @@ export async function ensureEngine(home, { runCommand = run, cli = cliPath, node
       throw Error('Coordinator lock exists, but its named terminal command could not be verified');
     }
   } catch (error) { if (error.message.startsWith('Coordinator lock exists')) throw error; /* no owner or stale lock */ }
-  const result = await runCommand(['hc', 'run', '--bg', '--name', name, '--outlive-parent', '--no-notify', '--', ...expected], { timeout: 45000, limit: 32768 });
+  // --rm: a coordinator that rests when idle would otherwise leave a finished terminal each time.
+  const result = await runCommand(['hc', 'run', '--bg', '--name', name, '--outlive-parent', '--no-notify', '--rm', '--', ...expected], { timeout: 45000, limit: 32768 });
   if (result.code !== 0) {
     if (await currentForHome()) { wakeEngine(home); return { code: 0, alreadyRunning: true }; }
     throw Error(result.stderr?.trim() || 'Could not start the Relevo coordinator');
@@ -70,17 +71,18 @@ export async function ensureEngine(home, { runCommand = run, cli = cliPath, node
 
 function watchAgents(addresses, onChange, spawnImpl = spawn) {
   const children = new Map();
-  let closed = false;
+  let closed = false, broken = false;
+  const ended = () => { if (!closed) { broken = true; onChange(); } };
   for (const address of new Set(addresses)) {
     if (!/^[-a-zA-Z0-9_/]{1,80}$/.test(address)) continue;
     const child = spawnImpl('hc', ['events', '--json', '--terminal', address], { stdio: ['ignore', 'pipe', 'ignore'] });
     // Events are wake-ups only. Their payload is discarded and never logged or persisted.
     child.stdout?.on('data', () => onChange());
-    child.on('error', () => { if (!closed) onChange(); });
-    child.on('close', () => { if (!closed) onChange(); });
+    child.on('error', ended);
+    child.on('close', ended);
     children.set(address, child);
   }
-  return { close() { closed = true; for (const child of children.values()) child.kill('SIGTERM'); children.clear(); } };
+  return { get broken() { return broken; }, close() { closed = true; for (const child of children.values()) child.kill('SIGTERM'); children.clear(); } };
 }
 
 function wakeEngine(home) {
@@ -117,12 +119,16 @@ export function creditSleep(doc, slept) {
 
 // `hc kill` hangs up first: without SIGHUP the coordinator would die holding its lock.
 const SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP'];
+// A coordinator with nothing to do for this long exits; a command or the Inbox starts it when a run needs it again.
+export const IDLE_MS = 10 * 60000;
+// A watch that ended (its terminal restarted, hc quit) is opened again, at most this often.
+const REWATCH_MS = 30000;
 
 export async function serve(home, { runtimeFactory = createRuntime, fsImpl = fs, timers = globalThis, pid = process.pid, processRef = process,
-  spawnImpl = spawn, eventWatch = watchAgents, intervalMs = 3000, debounceMs = 150, check = isEngine } = {}) {
+  spawnImpl = spawn, eventWatch = watchAgents, intervalMs = 3000, debounceMs = 150, check = isEngine, idleMs = IDLE_MS, clock = Date.now } = {}) {
   const lock = acquireOwned(privateDir(stateDir(home)), 'engine', { pid, errors: ENGINE_ERRORS, owns: (owner) => check(owner, home) });
   let runtime, stopped = false, released = false, running = false, queued = false, timer, debounce, watcher, wakeWatcher, agentWatcher, settle;
-  let watchedAddresses = '';
+  let watchedAddresses = '', watchedAt = 0;
   const reports = path.join(stateDir(home), 'reports');
   const done = new Promise((resolve) => { settle = resolve; });
   const schedule = () => {
@@ -130,13 +136,12 @@ export async function serve(home, { runtimeFactory = createRuntime, fsImpl = fs,
     timers.clearTimeout(debounce);
     debounce = timers.setTimeout(() => { void tick(); }, debounceMs);
   };
-  const refreshAgentWatch = () => {
-    const doc = runtime.read();
+  const refreshAgentWatch = (doc = runtime.read()) => {
     const addresses = doc.tasks.filter((task) => needsEngine([task]))
       .flatMap((task) => [task.executor?.address, task.reviewer?.address].filter(Boolean));
     const key = [...new Set(addresses)].sort().join('\0');
-    if (key === watchedAddresses) return;
-    agentWatcher?.close(); watchedAddresses = key;
+    if (key === watchedAddresses && !(agentWatcher?.broken && clock() - watchedAt >= REWATCH_MS)) return;
+    agentWatcher?.close(); watchedAddresses = key; watchedAt = clock();
     agentWatcher = eventWatch(addresses, schedule, spawnImpl);
   };
   const tick = async () => {
@@ -181,19 +186,22 @@ export async function serve(home, { runtimeFactory = createRuntime, fsImpl = fs,
     wakeWatcher = fsImpl.watch(stateDir(home), onWake); wakeWatcher.on?.('error', () => {});
     for (const signal of SIGNALS) processRef.on?.(signal, stop);
     refreshAgentWatch();
-    let beat = Date.now();
+    let beat = clock(), idleSince = clock();
     timer = timers.setInterval(() => {
       // A machine that slept (the gap between beats) ran no agent: that time is added to running attempts' limits.
-      const slept = Date.now() - beat - intervalMs;
-      beat = Date.now();
+      const slept = clock() - beat - intervalMs;
+      beat = clock();
       if (slept > intervalMs * 2) {
         try { transaction(home, (doc) => creditSleep(doc, slept)); } catch { /* the deadline then runs from wall time */ }
       }
       let doc;
       try { doc = runtime.read(); } catch { return; }
       if (!doc.engine.enabled) { stop(); return; }
+      const now = clock();
+      if (needsEngine(doc.tasks)) idleSince = now;
+      else if (now - idleSince >= idleMs) { stop(); return; }
+      if (agentWatcher?.broken) refreshAgentWatch(doc);
       // Periodic work is reserved for attempt deadlines; normal progress comes from terminal and report events.
-      const now = Date.now();
       if (doc.tasks.some((task) => ['running', 'blocked'].includes(task.state) && task.attempts.at(-1)?.state === 'running' && !task.attempts.at(-1).timedOut &&
         now >= attemptDue(task.attempts.at(-1), task.maxMinutes))) void tick();
     }, intervalMs);
@@ -236,7 +244,13 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     if (doc?.engine?.enabled && (startsWork || keepsEngineBusy || continuesWork)) {
       try { await (deps.ensureEngine ?? ensureEngine)(parsed.home, deps.engineOptions); }
       catch (error) { return { code: 1, output: { ...response, doc, error: String(error?.message ?? error), saved: true } }; }
-    } else if (!passive && doc?.engine?.enabled) wakeEngine(parsed.home);
+    } else if (!passive && doc?.engine?.enabled) {
+      // One that rested while idle is started again when the command leaves it work.
+      if (needsEngine(doc.tasks) && !(deps.engineRunning ?? engineRunning)(parsed.home)) {
+        try { await (deps.ensureEngine ?? ensureEngine)(parsed.home, deps.engineOptions); }
+        catch (error) { return { code: 1, output: { ...response, doc, error: String(error?.message ?? error), saved: true } }; }
+      } else wakeEngine(parsed.home);
+    }
     else if (action === 'stop') {
       wakeEngine(parsed.home);
       try { await (deps.waitForStop ?? waitForStop)(parsed.home, deps.stopOptions); }

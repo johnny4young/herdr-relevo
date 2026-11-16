@@ -4,8 +4,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { setTimeout as wait } from "node:timers/promises";
 import { install, uninstall, doctor, plan, readManifest, main } from "../relevo.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -31,7 +32,11 @@ beforeEach(() => {
   put(source, "keys.json", JSON.stringify({ "layout:relevo": { "cmd-j": "relevo.next-waiting", "cmd-alt-p": "relevo.launch-personal", "cmd-alt-o": "relevo.launch-work" } }));
   put(source, "CHANGELOG.md", "# Changelog\n\n## 1.2.3 · today\n");
 });
-afterEach(() => fs.rmSync(base, { recursive: true, force: true }));
+const standIns = [];
+afterEach(() => {
+  for (const child of standIns.splice(0)) child.kill();
+  fs.rmSync(base, { recursive: true, force: true });
+});
 
 test("a first install writes the files, config.js and the keys of the accounts there, and records them", () => {
   install({ source, root, log });
@@ -216,4 +221,36 @@ test("doctor says when the node Runs use is gone", () => {
   lines = [];
   assert.equal(doctor({ source, root, filesOnly: true, log }).failed, 1);
   assert.ok(lines.includes("FAIL  Runs use /nowhere/node, which is gone. Run install again."));
+});
+
+// A stand-in coordinator: a process whose command line reads like the installed one serving this folder.
+function coordinator(tasks) {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", path.join(root, "mods/relevo/runtime/cli.mjs"), "--home", root, "serve"], { stdio: "ignore" });
+  standIns.push(child);
+  put(root, "relevo-workflow/engine.lock/owner.json", JSON.stringify({ pid: child.pid, token: "t" }));
+  put(root, "relevo-workflow/state.json", JSON.stringify({ tasks }));
+  return { child, gone: new Promise((resolve) => child.on("exit", (_code, signal) => resolve(signal))) };
+}
+
+test("an update of the runs code stops an idle coordinator and leaves a busy one to finish", { timeout: 10000 }, async () => {
+  install({ source, root, log });
+  const idle = coordinator([{ state: "accepted", attempts: [{ state: "done" }] }]);
+  await wait(200);
+  put(source, "mods/relevo/lib/a.js", "a2\n");
+  install({ source, root, log });
+  assert.equal(await idle.gone, "SIGTERM");
+  assert.ok(lines.some((l) => /stopped the idle Runs coordinator/.test(l)));
+  const busy = coordinator([{ state: "running", attempts: [{ state: "running" }] }]);
+  await wait(200);
+  put(source, "mods/relevo/lib/a.js", "a3\n");
+  install({ source, root, log });
+  await wait(200);
+  assert.equal(busy.child.exitCode, null, "a coordinator with a run open keeps running");
+  assert.ok(lines.some((l) => /keeps the previous version/.test(l)));
+  const other = coordinator([]);
+  await wait(200);
+  put(source, "mods/relevo/main.js", "// relevo v2\n");
+  install({ source, root, log });
+  await wait(200);
+  assert.equal(other.child.exitCode, null, "an update outside the runs code leaves it alone");
 });

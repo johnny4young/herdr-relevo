@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { needsEngine } from '../mods/relevo/lib/engine.js';
 
 const MODS = ['relevo', 'relevo-agents', 'relevo-files', 'relevo-spaces', 'relevo-tabs'];
 const LAYOUTS = ['layouts/relevo.json', 'layouts/relevo.svg'];
@@ -116,7 +117,23 @@ export function missingKeys(source, root) {
   return { file, ours, theirs, section, add, moved, taken };
 }
 
-export function install({ source, root, dry = false, log = () => {} }) {
+// A coordinator that is running keeps the code it started with. An idle one is stopped, so the next run starts
+// the new version; a busy one finishes its runs first and then rests on its own.
+export function stopIdleCoordinator(root, { log = () => {}, kill = process.kill,
+  ps = (pid) => spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).stdout ?? '' } = {}) {
+  const dir = path.join(root, 'relevo-workflow');
+  let pid, tasks = null;
+  try { pid = JSON.parse(fs.readFileSync(path.join(dir, 'engine.lock', 'owner.json'), 'utf8')).pid; } catch { return 'none'; }
+  const command = Number.isSafeInteger(pid) && pid > 0 ? String(ps(pid)) : '';
+  if (!command.includes(path.join(root, 'mods/relevo/runtime/cli.mjs')) || !command.includes(`--home ${root} serve`)) return 'none';
+  try { tasks = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).tasks; } catch { /* unreadable: leave it running */ }
+  if (!Array.isArray(tasks) || needsEngine(tasks)) { log('runs   the Runs coordinator keeps the previous version until its runs are done'); return 'busy'; }
+  try { kill(pid, 'SIGTERM'); } catch { return 'none'; }
+  log('runs   stopped the idle Runs coordinator: the next run starts the new version');
+  return 'stopped';
+}
+
+export function install({ source, root, dry = false, log = () => {}, coordinator = {} }) {
   if (!fs.existsSync(root)) throw Error(`${root} does not exist. Open the Herdr app once, or pass --root.`);
   const steps = plan(source, root), stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const backup = path.join(root, STATE, 'backups', stamp), files = {};
@@ -149,6 +166,7 @@ export function install({ source, root, dry = false, log = () => {} }) {
     writeAtomic(manifestPath(root), `${JSON.stringify({ version: versionOf(source), installedAt: new Date().toISOString(), files, keys: keys.ours }, null, 2)}\n`);
     // The Herdr app's PATH has no node from fnm or nvm: Runs start the node this install ran with.
     writeAtomic(path.join(root, STATE, 'node'), `${process.execPath}\n`);
+    if (steps.some((step) => !['same', 'keep', 'stay'].includes(step.how) && /^mods\/relevo\/(runtime|lib)\//.test(step.rel))) stopIdleCoordinator(root, { log, ...coordinator });
   }
   const summary = [...Object.entries(count).filter(([how]) => how !== 'same' && how !== 'stay').map(([how, n]) => `${n} ${how}`),
     ...(Object.keys(keys.add).length + keys.moved.length ? [`${Object.keys(keys.add).length + keys.moved.length} keys`] : [])].join(', ');
