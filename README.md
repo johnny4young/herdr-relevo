@@ -35,7 +35,7 @@ Spanish for relay: the work passes between you and your agents, and the list alw
 The panel has two views. **Reviews** is the Inbox described below. **Runs** is for work you hand off: one agent writes it, your tests run, a second agent reviews it, and the result waits for your decision.
 
 1. **New run** (`n`) takes a prompt. Its first line names the run.
-2. Pick the repository, the tests (none, `npm test` or your own commands), who writes it and who reviews it. Accounts at 100% are skipped.
+2. Check the repository, the tests, who writes it and who reviews it; they come filled in. The repository is the one you are in (a run's worktree gives the repository it came from), the tests are what it declares (the `test` script of `package.json` with npm, pnpm, yarn or bun, `go test ./...`, `cargo test`, `pytest` or `make test`), and the agents are the ones you used last unless one is out of quota. The line above the setup reads it all, for example "app · own worktree · Team → Codex · npm test".
 3. **Start**. By default the run gets its own worktree, `run/<slug>` under `~/.herdr/worktrees/<repo>/`, and both agents open there in two tabs. **Existing sessions** uses agents you already have open in the repository instead.
 4. The result appears under **Needs me**, in Reviews with its agents, attempt, tests, verdict and age, and in Runs on its run. Open it to read the writer's summary, who did what and the files it changed, then see the diff (**D**, or a click on a file, opens it beside the panel), accept (**A**, then Enter) or ask for changes (**R**). A run the agents could not finish shows as **Stuck**; **See why** opens it on the reviewer's finding.
 

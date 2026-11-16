@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { agents, terminals, exec, appHome, run, panes, shared, setShared, spaces } from "herdr";
+import { agents, terminals, exec, appHome, run, panes, readTextFile, shared, setShared, spaces } from "herdr";
 import { runtimeCommand } from "./runtime-cli.js";
 import { button } from "./ui.js";
 import * as config from "./config.js";
@@ -9,6 +9,19 @@ import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { accountFor } from "./context.js";
 import { row } from "./workflow-labels.js";
 import { RUN_LAUNCH, answerTrust, trustKeys } from "./run-launch.js";
+import { CHECK_FILES, detectChecks } from "./lib/run-checks.js";
+import { runFolder } from "./lib/run-folder.js";
+
+// Files whose text decides the command; for the others being there is enough.
+const READ_CHECK_FILES = new Set(["package.json", "pyproject.toml", "Makefile"]);
+
+// The repository a folder belongs to: a run's own worktree gives the repository it was made from.
+export async function repoOf(cwd) {
+  if (!runFolder(cwd)) return cwd;
+  const r = await exec("git", ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"]).catch(() => null);
+  const common = r?.code === 0 ? r.stdout.trim().replace(/\/+$/, "") : "";
+  return common.endsWith("/.git") ? common.slice(0, -5) : cwd;
+}
 
 export { trustKeys };
 
@@ -52,9 +65,10 @@ export class WorkflowRuns extends WorkflowDraftView {
     const saved = shared(RUN_ACCOUNTS) ?? {};
     const all = [...ACCOUNTS, CODEX].map((account) => account.key);
     const open = (key) => all.includes(key) && !full(this.quotas?.[key]);
-    const executor = all.includes(saved.executor) ? saved.executor : [CODEX.key, ...all].find(open) ?? CODEX.key;
+    // The last choice, unless that account is out of quota now.
+    const executor = open(saved.executor) ? saved.executor : [CODEX.key, ...all].find(open) ?? CODEX.key;
     const repoAccount = accountFor(this.form.root.value().trim());
-    const reviewer = all.includes(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer
+    const reviewer = open(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer
       : [repoAccount, ...all].find((key) => key && key !== executor && open(key)) ?? all.find((key) => key !== executor);
     return { executor, reviewer };
   }
@@ -86,6 +100,36 @@ export class WorkflowRuns extends WorkflowDraftView {
       }
       if (!this.closed) cx.notify();
     });
+  }
+
+  // A new task's tests start as what its repository declares, until the person picks them or a past setup does.
+  detectChecks(cx) {
+    const root = this.form.root.value().trim();
+    if (!root.startsWith("/") || this.checksFor === root || this.checksPicked) return;
+    this.checksFor = root;
+    cx.spawn(async (cx) => {
+      const listed = await exec("sh", ["-c", 'for f; do [ -e "$f" ] && printf "%s\\n" "$f"; done', "sh", ...CHECK_FILES], { cwd: root }).catch(() => null);
+      const there = new Set((listed?.stdout ?? "").split("\n").filter(Boolean)), files = {};
+      for (const name of CHECK_FILES) {
+        files[name] = !there.has(name) ? null : READ_CHECK_FILES.has(name) ? (await readTextFile(`${root}/${name}`).catch(() => "")) ?? "" : "";
+      }
+      if (this.closed || this.checksFor !== root || this.checksPicked) return;
+      this.useChecks(detectChecks(files) ?? []);
+      cx.notify();
+    });
+  }
+
+  useChecks(checks) {
+    const npm = checks.length === 1 && checks[0].length === 2 && checks[0][0] === "npm" && checks[0][1] === "test";
+    this.checkPreset = !checks.length ? "none" : npm ? "npm-test" : "custom";
+    this.form.checks.set_value(this.checkPreset === "custom" ? JSON.stringify(checks) : "");
+  }
+
+  // The checks the form holds now, as the coordinator will get them; null when the custom ones don't parse.
+  checksNow() {
+    if (this.checkPreset === "npm-test") return [["npm", "test"]];
+    if (this.checkPreset !== "custom") return [];
+    try { const checks = JSON.parse(this.form.checks.value() || "[]"); return Array.isArray(checks) ? checks : null; } catch { return null; }
   }
 
   // A finished run's worktree state is read once per task and again after each worktree action.
@@ -177,6 +221,7 @@ export class WorkflowRuns extends WorkflowDraftView {
 
   launchTick(cx) {
     this.refreshWorktreeInfo(cx);
+    if (this.composing()) this.detectChecks(cx);
     const launch = this.launch;
     if (this.closed || !launch?.worktree) return;
     if (launch.stage === "stalled") return;

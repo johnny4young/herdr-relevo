@@ -13,6 +13,8 @@ import { ShortcutHelp } from "./shortcut-help.js";
 import { savedSetups } from "./workflow-setups.js";
 import { RUN_PANES, RUN_REQUEST, RUN_FOLLOW_UP, liveRunPanes, takeAsk } from "./workflow-window.js";
 import { accountOf } from "./accounts.js";
+import { checksLabel } from "./lib/run-checks.js";
+import { repoOf } from "./workflow-runs.js";
 import { WorkflowDetail } from "./workflow-detail.js";
 import { row, taskState, caption, agentLabel, role, count } from "./workflow-labels.js";
 
@@ -161,7 +163,7 @@ export class Workflow extends WorkflowDetail {
           else if (!this.pendingDraft) {
             this.form.title.set_value(this.goal.title);
             this.form.criteria.set_value(this.goal.criteria ?? "");
-            const root = focusedCwd() ?? "";
+            const root = await repoOf(focusedCwd() ?? "");
             this.form.root.set_value(root);
             this.explicitNew = true; this.taskSetupOpen = true; this.tab = "Overview";
             const setup = this.lastSetupFor(root);
@@ -309,7 +311,7 @@ export class Workflow extends WorkflowDetail {
         return;
       }
       for (const key of ["title", "root", "criteria", "checks"]) this.form[key].set_value("");
-      this.checkPreset = "none";
+      this.checkPreset = "none"; this.checksPicked = false; this.checksFor = null;
       this.form.maxRounds.set_value("2"); this.form.maxMinutes.set_value("20"); this.dependsOn = [];
       this.setupReuseNotice = null; this.setupReuseWarning = null;
       this.executor = "";
@@ -371,6 +373,7 @@ export class Workflow extends WorkflowDetail {
     else if (checks.length === 1 && checks[0]?.length === 2 && checks[0][0] === "npm" && checks[0][1] === "test") { this.checkPreset = "npm-test"; this.form.checks.set_value(""); }
     else { this.checkPreset = "custom"; this.form.checks.set_value(JSON.stringify(checks)); }
     this.taskSetupOpen = !quiet || !this.executor || !this.reviewer; this.taskAdvancedOpen = !quiet && this.checkPreset === "custom";
+    this.checksPicked = true;
     this.setupReuseNotice = quiet ? null : "Previous setup applied. Review repository and agents before creating.";
     cx?.notify();
   }
@@ -492,8 +495,8 @@ export class Workflow extends WorkflowDetail {
     const previousRootName = previousSetup?.root?.split("/").filter(Boolean).at(-1) || "Unknown repository";
     const agentName = (address) => { const agent = agents().find((item) => item.address === address); return agent ? agentLabel(agent) : null; };
     const rootName = this.form.root.value().trim().split("/").filter(Boolean).at(-1);
-    const isolated = this.runMode() === "worktree", accounts = this.runAccounts();
-    const setupLabel = isolated ? [rootName, "own worktree", `${accountOf(accounts.executor).label} → ${accountOf(accounts.reviewer).label}`].filter(Boolean).join(" · ") : chosen === 2 ? [rootName, `${agentName(this.executor)} → ${agentName(this.reviewer)}`].filter(Boolean).join(" · ") : `Repository & agents · ${chosen}/2 selected`;
+    const isolated = this.runMode() === "worktree", accounts = this.runAccounts(), checks = this.checksNow();
+    const setupLabel = isolated ? [rootName, "own worktree", `${accountOf(accounts.executor).label} → ${accountOf(accounts.reviewer).label}`, checks ? checksLabel(checks) : "custom tests"].filter(Boolean).join(" · ") : chosen === 2 ? [rootName, `${agentName(this.executor)} → ${agentName(this.reviewer)}`].filter(Boolean).join(" · ") : `Repository & agents · ${chosen}/2 selected`;
     return v_flex().w_full().min_w(0).gap(12)
       .child(div().font_semibold().child(fromPrompt ? "Start run" : "New task"))
       .when(fromPrompt && !this.editRunPrompt, (el) => el.child(h_flex().gap(8).items_center()
@@ -531,7 +534,7 @@ export class Workflow extends WorkflowDetail {
         .child(h_flex().gap(6).child(this.field(t, "maxRounds", "Maximum attempts"))
           .child(this.field(t, "maxMinutes", "Minutes per attempt")))
         .children([["none", "No tests"], ["npm-test", "npm test"], ["custom", "Custom"]].map(([value, label]) => button(t, `workflow-check-preset-${value}`, label,
-          (context) => { this.checkPreset = value; context.notify(); }, { selected: this.checkPreset === value, tip: value === "custom" ? "Enter custom test commands as JSON argv lists" : `Use ${label}` })))
+          (context) => { this.checkPreset = value; this.checksPicked = true; context.notify(); }, { selected: this.checkPreset === value, tip: value === "custom" ? "Enter custom test commands as JSON argv lists" : `Use ${label}` })))
         .when(this.checkPreset === "custom", (el) => el.child(row(t, "Advanced: enter JSON argument lists, for example [[\"npm\",\"test\"]]."))
           .child(this.field(t, "checks", "Custom test commands (JSON)")))
         .child(div().font_semibold().child("Wait for earlier tasks"))

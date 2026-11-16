@@ -186,7 +186,7 @@ export class WorkflowPlan {
             .child(this.field(t, "maxMinutes", "Minutes per attempt")))
           .child(row(t, "Tests run after each attempt. Nothing runs until you start the plan."))
           .children([["none", "No tests"], ["npm-test", "npm test"], ["custom", "Custom"]].map(([value, label]) => button(t, `workflow-plan-check-${value}`, label,
-            (cx) => { this.checkPreset = value; cx.notify(); }, { selected: (this.checkPreset ?? "none") === value,
+            (cx) => { this.checkPreset = value; this.checksPicked = true; cx.notify(); }, { selected: (this.checkPreset ?? "none") === value,
               tip: value === "custom" ? "Enter custom test commands as JSON argv lists" : `Use ${label}` })))
           .when(this.checkPreset === "custom", (el) => el.child(row(t, 'Advanced: JSON argument lists, for example [["npm","test"]].'))
             .child(this.field(t, "checks", "Custom test commands (JSON)")))
