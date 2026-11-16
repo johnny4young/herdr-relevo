@@ -1113,3 +1113,40 @@ test("a second opinion on an agent's work opens a reviewer of another provider b
   assert.equal(fake.stored["relevo.runs.launch"], null);
   assert.deepEqual(fake.notices.filter((n) => n.level === "error"), []);
 });
+
+test("a PR of yours with failing CI or open comments offers Fix with a run, which writes the prompt from GitHub and opens the run on its branch", async () => {
+  const { fixPrompt, unresolvedThreads, fixable } = await import("../lib/fix-prompt.js");
+  const url = "https://github.com/me/app/pull/7";
+  const pr = { url, number: 7, title: "Search", headRefName: "fix/search", isDraft: false, updatedAt: new Date().toISOString(), reviewDecision: null, baseRefName: "main",
+    isCrossRepository: false, repository: { nameWithOwner: "me/app" }, reviews: { nodes: [] }, reviewThreads: { nodes: [{ isResolved: false }] },
+    commits: { nodes: [{ commit: { committedDate: new Date().toISOString(), statusCheckRollup: { state: "FAILURE",
+      contexts: { pageInfo: { hasNextPage: false }, nodes: [{ name: "test", conclusion: "FAILURE" }, { name: "lint", conclusion: "SUCCESS" }] } } } }] } };
+  const threads = { data: { repository: { pullRequest: { reviewThreads: { nodes: [
+    { isResolved: false, path: "src/search.js", line: 12, comments: { nodes: [{ body: "Handle an empty query\nplease", author: { login: "ana" } }] } },
+    { isResolved: true, path: "x.js", line: 1, comments: { nodes: [{ body: "done", author: { login: "bo" } }] } }] } } } } };
+  assert.deepEqual(unresolvedThreads(threads), [{ path: "src/search.js", line: 12, author: "ana", body: "Handle an empty query\nplease" }]);
+  const prompt = fixPrompt({ ...pr, skills: ["fix"] }, unresolvedThreads(threads));
+  assert.match(prompt, /CI fails: test\. Run the same commands here/);
+  assert.match(prompt, /- src\/search\.js:12 \(ana\): Handle an empty query please/);
+  assert.equal(fixPrompt(pr, [], 60).length, 60);
+  assert.deepEqual([fixable({ ...pr, skills: ["fix"] }, "/c"), fixable({ ...pr, skills: [], threads: 0 }, "/c"), fixable({ ...pr, skills: ["fix"], isCrossRepository: true }, "/c"), fixable({ ...pr, skills: ["fix"] }, null)],
+    [true, false, false, false]);
+
+  fake.exec = (cmd, args) => {
+    if (cmd === "git" && args.includes("get-url")) return { code: 0, stdout: "git@github.com:me/app.git\n" };
+    if (cmd !== "gh" || args[1] !== "graphql") return null;
+    if (args.some((a) => a.includes("reviewThreads(first:50){nodes{isResolved path"))) return { code: 0, stdout: JSON.stringify(threads) };
+    return { stdout: JSON.stringify({ data: { viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [pr] } }, search: { nodes: [] } } }) };
+  };
+  const { inbox } = await open();
+  inbox.sel = `pr-${url}`;
+  const cx = fakeCx();
+  click(find(inbox.render(cx), `fix-run-${url}`), cx);
+  for (let i = 0; i < 8; i++) await flush();
+  const asked = fake.runs.findLast(([name]) => name === "pane.split")?.[1].props;
+  assert.equal(asked.role, "workflow");
+  assert.deepEqual([asked.fixPR.url, asked.fixPR.headRef, asked.fixPR.root.endsWith("/app")], [url, "fix/search", true]);
+  assert.match(asked.fixPR.prompt, /Handle an empty query/);
+  const goals = JSON.parse(Object.entries(fake.files).find(([path]) => path.endsWith("relevo-goals.json"))[1]);
+  assert.deepEqual([goals.goals[0].title, goals.goals[0].sources], ["Fix #7 · Search", [`pr:${url}`]]);
+});

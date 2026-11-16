@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { commitReviewedTree, commitWorktree, copyListed, openPullRequest, prepareWorktree, removeRunWorktree, runSlug, snapshotTree, worktreePath, worktreeStatus } from '../runtime/worktree.mjs';
+import { commitReviewedTree, commitWorktree, copyListed, openPullRequest, prepareWorktree, pushToPullRequest, removeRunWorktree, runSlug, snapshotTree, worktreePath, worktreeStatus } from '../runtime/worktree.mjs';
 
 function repo() {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'relevo-wt-'))), root = path.join(base, 'app'), home = path.join(base, 'home');
@@ -173,4 +173,31 @@ test("a nested repository's config never runs from a run's git calls, and stays 
   assert.equal(fs.existsSync(marker), false);
   assert.deepEqual(git(repo, "ls-tree", "--name-only", "-r", sha).trim().split("\n"), ["a.txt"]);
   assert.equal(git(repo, "show", `${sha}:a.txt`), "b\n");
+});
+
+test('a run that fixes a pull request starts from its branch on origin and pushes onto it, never over a branch that moved', async (t) => {
+  const { base, root, home } = repo(); t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const out = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+  const origin = path.join(base, 'origin.git');
+  out(base, 'init', '-q', '--bare', origin);
+  out(root, 'remote', 'add', 'origin', origin); out(root, 'push', '-q', 'origin', 'HEAD:refs/heads/main');
+  // The pull request's branch exists only on origin, one commit ahead.
+  const other = path.join(base, 'other'); out(base, 'clone', '-q', origin, other);
+  out(other, 'config', 'user.email', 't@example.invalid'); out(other, 'config', 'user.name', 'T');
+  out(other, 'checkout', '-q', '-b', 'fix/search'); fs.writeFileSync(path.join(other, 'search.js'), 'v1\n');
+  out(other, 'add', '.'); out(other, 'commit', '-qm', 'pr work'); out(other, 'push', '-q', 'origin', 'fix/search');
+  const prHead = out(other, 'rev-parse', 'HEAD');
+  const wt = await prepareWorktree({ root, title: 'Fix PR 7', home, pr: { headRef: 'fix/search' } });
+  assert.deepEqual([wt.baseCommit, wt.baseBranch, wt.prHead, fs.readFileSync(path.join(wt.path, 'search.js'), 'utf8')], [prHead, 'fix/search', 'fix/search', 'v1\n']);
+  fs.writeFileSync(path.join(wt.path, 'search.js'), 'v2\n');
+  await commitWorktree(wt, 'Fix search', '');
+  const pushed = await pushToPullRequest(wt);
+  assert.equal(out(origin, 'rev-parse', 'refs/heads/fix/search'), pushed);
+  // Someone pushes to the PR meanwhile: the next push is refused, not forced.
+  fs.writeFileSync(path.join(other, 'other.js'), 'x\n'); out(other, 'add', '.'); out(other, 'commit', '-qm', 'more'); out(other, 'pull', '-q', '--rebase', 'origin', 'fix/search'); out(other, 'push', '-q', 'origin', 'fix/search');
+  const moved = out(origin, 'rev-parse', 'refs/heads/fix/search');
+  fs.writeFileSync(path.join(wt.path, 'search.js'), 'v3\n'); await commitWorktree(wt, 'Again', '');
+  await assert.rejects(pushToPullRequest(wt), /fix\/search moved on GitHub since the run started; nothing was pushed/);
+  assert.equal(out(origin, 'rev-parse', 'refs/heads/fix/search'), moved);
+  await assert.rejects(prepareWorktree({ root, title: 'Bad', home, pr: { headRef: '../evil' } }), /can't be used/);
 });

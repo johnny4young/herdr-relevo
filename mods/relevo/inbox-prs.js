@@ -17,6 +17,10 @@ import { mergeFlag, prMoves } from "./lib/land.js";
 import { keepListed } from "./lib/addressed.js";
 import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
 import { DESKTOP } from "./desktop.js";
+import { THREADS_QUERY, fixPrompt, fixable, unresolvedThreads } from "./lib/fix-prompt.js";
+import { newGoal } from "./lib/goals.js";
+import { readGoals, writeGoal } from "./goals-store.js";
+import { openWorkflow } from "./workflow-window.js";
 import { desktopKey } from "./lib/desktop.js";
 
 const ADDRESSED = ".local/state/relevo/addressed.json";
@@ -316,6 +320,32 @@ export class PrViews {
   }
 
   // What a PR row can do, for its buttons, its keys and its keycaps alike: r reviews, o opens, l lands (twice), a marks.
+  // A run that fixes this pull request: its prompt is written from GitHub here, since the agent works offline. A run
+  // already linked to the PR is opened again rather than made twice.
+  fixWithRun(pr, cx) {
+    if (this.fixing) return;
+    this.fixing = pr.url; cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const [owner, name] = pr.repo.split("/"), source = `pr:${pr.url}`;
+        const r = await exec("gh", ["api", "graphql", "-f", `query=${THREADS_QUERY}`, "-F", `owner=${owner}`, "-F", `name=${name}`, "-F", `number=${pr.number}`]).catch(() => null);
+        const threads = r?.code === 0 ? unresolvedThreads(JSON.parse(r.stdout)) : [];
+        const { doc } = await readGoals();
+        let goal = doc.goals.find((g) => g.state !== "completed" && g.sources.includes(source));
+        if (!goal) {
+          // A work item belongs to one run: a closed run that had it leaves the new one unlinked.
+          const taken = doc.goals.some((g) => g.sources.includes(source));
+          goal = { ...newGoal(`goal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, `Fix #${pr.number} · ${pr.title}`.slice(0, 240), taken ? [] : [source]), criteria: fixPrompt(pr, threads) };
+          await writeGoal(goal, 0);
+        }
+        openWorkflow(goal.id, null, { fixPR: { url: pr.url, number: pr.number, headRef: pr.headRefName, root: this.clones[pr.repo], prompt: fixPrompt(pr, threads) } });
+      } catch (error) {
+        notify({ title: "Could not prepare the run", body: String(error?.message ?? error), level: "error" });
+      }
+      this.fixing = null; cx.notify();
+    });
+  }
+
   prActions(t, pr, requested, addressed = false) {
     const l = this.launchedMap()[pr.url], agent = this.prAgents[pr.url], seen = this.seen(pr), busy = Boolean(l) && this.prBusy(pr);
     const reviewed = Boolean(l && seen) && (!agent || agent.status === "idle" || agent.status === "done") && l.skill === "review";
@@ -328,6 +358,10 @@ export class PrViews {
     }
     if (!requested && this.clones[pr.repo]) {
       actions.push({ id: `review-pr-${pr.url}`, key: "r", label: "Review", run: () => this.reviewPR(pr), tip: withKey("The whole PR against its base, line by line", "relevo.review") });
+    }
+    if (!requested && fixable(pr, this.clones[pr.repo])) {
+      actions.push({ id: `fix-run-${pr.url}`, label: this.fixing === pr.url ? "Preparing…" : "Fix with a run", run: (cx) => this.fixWithRun(pr, cx),
+        tip: "Opens a run on a copy of this PR's branch with its failing checks and unresolved comments as the prompt; one agent fixes, another reviews, you push" });
     }
     const moves = requested ? {} : prMoves(pr);
     if ((moves.land || moves.auto) && !this.landing()[pr.url]) {
