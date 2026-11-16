@@ -66,7 +66,6 @@ export default class Spaces extends View {
     this.pressed = null;
     this.over = null;
     // The space you are in opens by itself; any other opens or closes with a click on its chevron.
-    this.opened = new Set(JSON.parse(localStorage.getItem("opened") ?? "[]"));
     this.closed = new Set(JSON.parse(localStorage.getItem("closed") ?? "[]"));
     this.hovered = null;
     this.armed = null;
@@ -244,23 +243,22 @@ export default class Spaces extends View {
         .child("+"))), target, m);
   }
 
-  isOpen(id, active) {
-    return active ? !this.closed.has(id) : this.opened.has(id);
+  // Everything starts open; what you close stays closed.
+  isOpen(id) {
+    return !this.closed.has(id);
   }
 
-  toggle(id, active) {
-    const set = active ? this.closed : this.opened;
-    set.has(id) ? set.delete(id) : set.add(id);
-    localStorage.setItem("opened", JSON.stringify([...this.opened]));
+  toggle(id) {
+    this.closed.has(id) ? this.closed.delete(id) : this.closed.add(id);
     localStorage.setItem("closed", JSON.stringify([...this.closed]));
   }
 
-  chevron(t, id, active, open) {
+  chevron(t, id, open) {
     return div().id(`open-${id}`).size(16).flex().flex_none().items_center().justify_center().rounded(4).text_color(t.dim)
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(open ? "Hide what runs here" : "Show what runs here")
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_mouse_up("left", (_e, cx) => cx.stop_propagation())
-      .on_click((_e, cx) => { cx.stop_propagation(); this.toggle(id, active); cx.notify(); })
+      .on_click((_e, cx) => { cx.stop_propagation(); this.toggle(id); cx.notify(); })
       .child(svg(ICON(`chevron-${open ? "down" : "right"}`)).size(10));
   }
 
@@ -333,11 +331,11 @@ export default class Spaces extends View {
 
   // A repo with terminals or servers but no space, and + to give it a space.
   ghost(t, entry) {
-    const id = `ghost-${entry.project}`, open = this.isOpen(id, false);
+    const id = `ghost-${entry.project}`, open = this.isOpen(id);
     const ports = portsIn(entry);
     return [h_flex().id(id).h(30).px(6).gap(8).flex_none().items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
       .tooltip(entry.cwd ?? entry.project)
-      .on_click((_e, cx) => { this.toggle(id, false); cx.notify(); })
+      .on_click((_e, cx) => { this.toggle(id); cx.notify(); })
       .child(h_flex().size(18).flex_none().rounded(5).border_1().border_color(t.dim).items_center().justify_center()
         .text_size(11).font_bold().text_color(t.dim).child([...entry.project][0]?.toUpperCase() ?? "?"))
       .child(div().flex_shrink(0).max_w(120).truncate().font_medium().text_color(t.muted).child(entry.project))
@@ -356,7 +354,7 @@ export default class Spaces extends View {
     const color = (shared("space.colors") ?? {})[w.id] ?? "ansi6";
     const branch = branchNote(g, w.name), turn = spaceTurn(w.status);
     const lively = Boolean(life) && shows(life);
-    const open = lively && this.isOpen(w.id, w.active), ports = life ? portsIn(life) : [];
+    const open = lively && this.isOpen(w.id), ports = life ? portsIn(life) : [];
     const repo = (g?.name ?? w.name ?? "").toLowerCase(), prs = (shared(REPO_PRS) ?? {})[repo] ?? null;
     const target = { space: w.id };
     const hot = this.pressed !== null && this.pressed !== w.id && this.over === JSON.stringify(target);
@@ -381,7 +379,7 @@ export default class Spaces extends View {
         .when(ports.length > 0 && !open, (el) => el.child(portTag(t, ports[0], `ports-${w.id}`)).when(ports.length > 1, (p) => p.child(div().flex_none().child(`+${ports.length - 1}`))))
         .when(Boolean(prs) && !tree, (el) => el.child(this.prChip(t, w.id, repo, prs))))
       .when(Boolean(turn), (el) => el.child(h_flex().w(14).flex_none().justify_center().child(laneGlyph(t, turn))))
-      .when(lively, (el) => el.child(this.chevron(t, w.id, w.active, open))), target, m);
+      .when(lively, (el) => el.child(this.chevron(t, w.id, open))), target, m);
   }
 
   compact(t, r, i) {
@@ -427,15 +425,15 @@ export default class Spaces extends View {
     return started.length ? Math.max(...started) : Date.now();
   }
 
-  // Spaces quiet for over a day fold into one line per folder; Close N closes them all on a second click. Never on its own.
+  // Spaces quiet for over a day go last in their folder under one line that folds them; Close N closes them all on a second click. Never on its own.
   quietFold(t, g, m, draw) {
     const rows = g.rows.filter((r) => r.quiet);
     if (!rows.length) return [];
-    const id = `quiet-${g.id}`, open = this.opened.has(id), ids = rows.filter((r) => !r.tree).map((r) => r.w.id);
+    const id = `quiet-${g.id}`, open = this.isOpen(id), ids = rows.filter((r) => !r.tree).map((r) => r.w.id);
     const armed = this.armed === id;
     return [h_flex().id(id).h(26).px(6).gap(7).flex_none().items_center().rounded(6).cursor_pointer().text_size(11).text_color(t.dim)
       .hover((s) => s.bg(t.hover))
-      .on_click((_e, cx) => { this.toggle(id, false); cx.notify(); })
+      .on_click((_e, cx) => { this.toggle(id); cx.notify(); })
       .child(h_flex().w(18).flex_none().justify_center().child(svg(ICON(`chevron-${open ? "down" : "right"}`)).size(10)))
       .child(div().flex_1().min_w(0).truncate().child(`${ids.length} quiet for over a day`))
       .child(div().id(`${id}-close`).flex_none().px(5).h(18).flex().items_center().rounded(4)
@@ -464,7 +462,7 @@ export default class Spaces extends View {
     if (ghosts.has("elsewhere")) groups.push({ id: "elsewhere", folder: null, label: "Elsewhere", rows: [] });
     const draw = (r) => {
       const life = by.get(r.w.id), lively = shows(life);
-      const shown = lively && this.isOpen(r.w.id, r.w.active);
+      const shown = lively && this.isOpen(r.w.id);
       return [this.row(t, r, m, life), ...(shown ? this.lifeRows(t, r.w.id, life, Boolean(r.tree)) : [])];
     };
     return groups.flatMap((g) => {

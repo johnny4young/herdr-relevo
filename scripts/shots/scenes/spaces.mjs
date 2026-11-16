@@ -43,7 +43,6 @@ export default async function scene({ fake, cx, load }) {
     "relevo.desktop": [{ id: "d1", state: "working", project: "api-gateway", title: "Rate limits", cwd: `${HOME}/code/api-gateway`, doing: "editing limiter.ts", at: now / 1000 }],
   });
   localStorage.setItem("touched", JSON.stringify(Object.fromEntries(fake.spaces.map((s) => [s.id, s.id.startsWith("q-") ? now - 3 * DAY : now]))));
-  localStorage.removeItem("opened");
   localStorage.removeItem("closed");
 
   const { default: Spaces } = await load("mods/relevo-spaces/main.js");

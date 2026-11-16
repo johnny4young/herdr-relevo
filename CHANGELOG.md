@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Spaces starts open.** Every space shows its terminals and servers, not only the one you are in, and the "N quiet for over a day" line and the "no space" rows start open too. A chevron still folds one, and it stays folded.
 - **Agents by state again, everything shown.** The priority view has one section per Herdr state, **Needs you**, **Done**, **Working** and **Idle**, each with its count and colored like its state. Nothing folds on its own: every working and idle agent is listed, and Settled sits last, open. Claude Desktop sessions and Claude Code in other terminals join the section of their state. Spaces no longer lists agents or Claude sessions; it shows terminals and servers, and a repo gets a "no space" row only for a terminal or a server.
 - **Pictures of the new left bar.** The README shows Spaces by folder beside the Agents queue, and the preview shows the left bar as it is now, Spaces above the queue, both drawn from the mods with demo data.
 - **Terminals live in Spaces now.** The Terminals tab is gone: every terminal, its port and its actions show under its repo in Spaces, and Maintenance still lists the ones to tidy. The panel's tabs are Reviews and Runs again, and Issues is back on `⌥⌘5`. Your `keys.json` keeps the key you had until you change it: set `cmd-alt-5` to `relevo.panel-issues`.
