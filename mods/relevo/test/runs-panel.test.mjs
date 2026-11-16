@@ -418,3 +418,29 @@ test('a notice or an error leaves with the run or task it was said on, whatever 
   say(); v.navKey({ key: 'j' }, cx);
   assert.deepEqual(said(), ['Acceptance saved.', 'Action needs attention: locked'], 'moving the selection is not leaving');
 });
+
+test('a worktree task lists its changed files, and d or a file opens that change in the review pane, not the run window', async () => {
+  const wt = { path: '/wt/app-run', base: '/work/app', baseCommit: 'b'.repeat(40), reviewedTree: 'c'.repeat(40), branch: 'run/a' };
+  const list = [{ path: 'slug.js', added: 6, removed: 1 }, { path: 'img.png', added: 0, removed: 0, binary: true }];
+  const asks = [];
+  fake.exec = (cmd, args) => {
+    if (cmd === 'git' && args.includes('--show-toplevel')) return { code: 0, stdout: '/work/app\n' };
+    if (!/cli\.mjs$/.test(args[0] ?? '')) return null;
+    const payload = JSON.parse(args.at(-1)); asks.push(payload.action);
+    return payload.action === 'task-diff' ? { code: 0, stdout: JSON.stringify({ result: { taskId: 'a', root: '/work/app', fromCommit: wt.baseCommit, toCommit: wt.reviewedTree, files: 2, added: 6, removed: 1, list } }) } : null;
+  };
+  const { v, cx } = await runs([ready('a', { worktree: wt })]);
+  click(find(v.render(cx), 'goal-action-g'), cx); click(find(v.render(cx), 'task-review-a'), cx);
+  v.render(cx); await flush();
+  const view = v.render(cx);
+  assert.match(text(find(view, 'task-files')), /2 files changed.*\+6.*−1.*slug\.js.*\+6.*−1.*img\.png.*binary/);
+  assert.equal(find(view, 'task-diff').fill, t.solid, 'while it waits on you, the diff is a main action beside Accept');
+  v.navKey({ key: 'd' }, cx); await flush();
+  assert.deepEqual(asked(), { role: 'review-diff', root: '/work/app', terminal: null, pr: null,
+    range: { from: wt.baseCommit, to: wt.reviewedTree, label: 'Task a · as reviewed' } });
+  click(find(v.render(cx), 'task-file-0'), cx); await flush();
+  assert.equal(asked().range.file, 'slug.js');
+  assert.equal(windows().filter((w) => w.role === 'workflow').length, 0);
+  v.render(cx); v.render(cx);
+  assert.equal(asks.filter((a) => a === 'task-diff').length, 1, 'read once per change it keeps');
+});

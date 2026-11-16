@@ -12,12 +12,11 @@ import { goalCost } from "./lib/run-cost.js";
 import { count } from "./lib/run-words.js";
 import { shippedPRs } from "./lib/run-panel.js";
 import { decideGuard } from "./lib/workflow-navigation.js";
+import { plusMinus } from "./ui.js";
 import { runCostLine, resumable, attemptHistory, canCompare, compareAttempts, diffFiles, batchSummary, sameRepository, thenWords } from "./lib/run-compare.js";
 
 const SETUPS = "runs-setups";
 const quiet = (t, id, words) => div().id(id).px(8).text_size(11).text_color(t.muted).child(words);
-const plusMinus = (t, added, removed) => [div().flex_none().text_size(11).text_color(t.ansi2).child(`+${added}`),
-  div().flex_none().text_size(11).text_color(t.ansi1).child(`−${removed}`)];
 
 // The open run's cost, a task's attempts side by side, several results accepted at once, and the saved setups. Mixed into Inbox.
 export class RunCompareViews {

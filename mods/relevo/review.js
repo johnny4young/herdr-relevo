@@ -78,16 +78,17 @@ function agentIn(root) {
 
 // Without `pr` it reviews the uncommitted changes; with `pr` ({repo, number, url, base, head, ref}) the whole PR
 // against its base: the checkout's working tree, or the branch `ref` itself when it isn't checked out anywhere.
-export async function openReview(root = focusedCwd(), terminal = null, pr = null, back = null) {
+// `range` { from, to, label, file }: two fixed revisions, as a run's change, instead of the checkout's work.
+export async function openReview(root = focusedCwd(), terminal = null, pr = null, back = null, range = null) {
   if (!root) return;
   const top = (await exec("git", ["rev-parse", "--show-toplevel"], { cwd: root })).stdout.trim();
   if (!top) return notify({ title: "Not a git repository", level: "info" });
-  const pane = shared(OPEN)?.[reviewKey(top, pr)];
+  const pane = shared(OPEN)?.[reviewKey(top, pr, range)];
   if (pane && panes().some((p) => p.pane === pane)) return run("pane.focus", { pane });
-  run("pane.split", { direction: "right", mod: "relevo", props: { role: "review-diff", root: top, terminal, pr, ...(back ? { back } : {}) } });
+  run("pane.split", { direction: "right", mod: "relevo", props: { role: "review-diff", root: top, terminal, pr, ...(back ? { back } : {}), ...(range ? { range } : {}) } });
 }
 
-const reviewKey = (root, pr) => (pr ? `${root}#${pr.number}` : root);
+const reviewKey = (root, pr, range = null) => (range ? `${root}@${range.from}..${range.to}` : pr ? `${root}#${pr.number}` : root);
 
 // Entries whose pane is gone drop out on the next write.
 const live = () => Object.fromEntries(
@@ -122,10 +123,12 @@ export class ReviewDiff {
     this.terminal = p.terminal ?? null;
     this.pr = p.pr ?? null;
     this.back = p.back ?? null;
-    // Open panes and unsent comments are kept per checkout, and per PR when reviewing one.
-    this.key = reviewKey(this.root, this.pr);
+    this.range = p.range ?? null;
+    // Open panes and unsent comments are kept per checkout, and per PR or range when reviewing one.
+    this.key = reviewKey(this.root, this.pr, this.range);
     // Without a PR: "uncommitted", or "all" for the branch's commits too; "pr" with one; "seen" since the mark.
-    this.scope = this.pr ? "pr" : "uncommitted";
+    this.scope = this.range ? "range" : this.pr ? "pr" : "uncommitted";
+    if (this.range?.file) this.open = { path: this.range.file };
     this.hashes = new Map();
     this.files = [];
     this.rows = [];
@@ -139,7 +142,8 @@ export class ReviewDiff {
     // The agent keeps working while you read; pick up its changes unless you are typing.
     // Behind another app nobody reads it, so it waits until the window is back.
     cx.timer.every(10000, (cx) => {
-      if (this.editing === null && !this.loading && window()?.active !== false) this.load(cx);
+      // A range names fixed revisions: there is nothing new to pick up.
+      if (!this.range && this.editing === null && !this.loading && window()?.active !== false) this.load(cx);
     });
     // The split focuses the new pane, which is how this view learns its own id.
     cx.timer.after(300, () => {
@@ -175,6 +179,7 @@ export class ReviewDiff {
 
   // The ref the diff starts from: HEAD for uncommitted work, the merge base with the branch's base otherwise.
   async since(git) {
+    if (this.scope === "range") return this.range.from;
     if (this.scope === "seen") return this.seenMark()?.tree ?? "HEAD";
     if (!this.pr && this.scope !== "all") return "HEAD";
     if (!this.mergeBase) {
@@ -199,7 +204,7 @@ export class ReviewDiff {
     if (scope !== this.scope) return;
     this.from = from;
     // Since the mark, both sides are trees: the seen one and the working tree now, untracked files included.
-    this.to = scope === "seen" ? await this.snapshot() || null : this.pr?.ref ?? null;
+    this.to = scope === "range" ? this.range.to : scope === "seen" ? await this.snapshot() || null : this.pr?.ref ?? null;
     const range = this.to ? [this.from, this.to] : [this.from];
     const stat = (await git(["diff", ...range, "--numstat", "--summary", "--no-renames"])).stdout.split("\n").filter(Boolean);
     // --summary names the files the diff creates, after the counts.
@@ -534,18 +539,19 @@ export class ReviewDiff {
       .when(Boolean(this.back), (el) => el.child(button(t, "rv-back-decision", "← Back to decision", () => openWorkflow(this.back.goalId, this.back.taskId), { size: "sm" })))
       .child(div().font_semibold().child("Review"))
       .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim)
-        .child(this.pr
+        .child(this.range ? this.range.label ?? this.root?.split("/").pop()
+          : this.pr
           ? `${this.pr.repo.split("/")[1]} #${this.pr.number} · against ${this.pr.base}`
           : `${this.root?.split("/").pop() ?? "No folder"}${this.scope === "all" && this.mergeBase ? ` · against ${this.baseName}` : ""}`)))
       .child(h_flex().flex_wrap().gap(8).items_center()
-      .when(!this.pr || Boolean(this.seenMark()), (el) => el.child(this.scopePicker(t)))
+      .when(!this.range && (!this.pr || Boolean(this.seenMark())), (el) => el.child(this.scopePicker(t)))
       .when(this.files.length > 0, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim)
         .child(`${this.files.filter((f) => this.viewed(f.path)).length} of ${this.files.length} viewed`)))
       .child(button(t, "rv-mark-all-viewed", "Mark all viewed", (cx) => this.markAllViewed(cx),
         { size: "sm", disabled: !this.files.some((f) => this.hashes.get(f.path) && !this.viewed(f.path)), tip: "Mark every file in this review as viewed. Changed files become unviewed again." }))
-      .child(button(t, "rv-mark-seen", "Save checkpoint", (cx) => cx.spawn(async (cx) => {
+      .when(!this.range, (el) => el.child(button(t, "rv-mark-seen", "Save checkpoint", (cx) => cx.spawn(async (cx) => {
         await this.markSeen(cx);
-      }), { size: "sm", tip: "Set the baseline for Since I looked. This does not mark files viewed. Sending comments saves a checkpoint too." })));
+      }), { size: "sm", tip: "Set the baseline for Since I looked. This does not mark files viewed. Sending comments saves a checkpoint too." }))));
   }
 
   scopePicker(t) {

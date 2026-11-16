@@ -186,6 +186,15 @@ export async function attemptDiff(wt, from, to) {
   return { fromCommit: start, toCommit: target, ...(await diffStat(wt.base, start, target)) };
 }
 
+// What a run changed: from where it started to the accepted commit, else to the tree the reviewer saw, else to the
+// last attempt's snapshot.
+export async function taskDiff(wt, attempts = []) {
+  const snapshot = [...attempts].reverse().find((attempt) => attempt.snapshot?.commit)?.snapshot;
+  const to = [wt.commit, wt.reviewedTree, snapshot?.commit].find((sha) => SHA.test(sha ?? ''));
+  if (!to || !SHA.test(wt.baseCommit ?? '')) throw Error('No change of this task is kept');
+  return { fromCommit: wt.baseCommit, toCommit: to, ...(await diffStat(wt.base, wt.baseCommit, to)) };
+}
+
 // A commit of a tree made without `git commit`, so no commit hook runs and the worktree's index is not read.
 const commitTree = async (wt, tree, parent, messages, env) =>
   (await wtGit(wt, ['commit-tree', tree, '-p', parent, ...messages.flatMap((message) => ['-m', message])], env)).stdout.trim();
