@@ -86,13 +86,13 @@ repo one row: its branch when it is not main, how far it is ahead or behind, how
 agent there needs you. A worktree sits under its checkout. Drag a space onto a folder to keep it there. The list
 order is the spaces' order, so Herdr's `⌃1`…`⌃9` go to the row you see.
 
-Every space shows what runs in that repo: every terminal with the port it listens on (Restart, Stop
-and Close on hover), and servers started in other apps ("vite in Ghostty :5173"). Agents and Claude sessions are listed in
+Every space shows what runs in that repo: each command that runs, listens on a port or failed (Restart, Stop
+and Close on hover; a resting shell stays out), and servers started in other apps ("vite in Ghostty :5173"). Agents and Claude sessions are listed in
 Agents only. Nothing is folded until you fold it: a space's chevron closes it (its port then shows on its row), and
 it stays closed. A repo with a terminal or server but no space is a "no space" row in its folder, with `+` to give it
 one.
 
-The Agents list has one section per state, **Needs you**, **Done**, **Working** and **Idle**, and shows every agent;
+The Agents list has one section per state, **Needs me**, **Done**, **Working** and **Idle**, and shows every agent;
 a section folds only when you click its header.
 
 ![Spaces by folder with what runs in the open repo, beside the Agents list](screenshots/spaces.png)

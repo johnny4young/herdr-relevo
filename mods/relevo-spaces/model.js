@@ -89,10 +89,11 @@ export function aliveBySpace(rows, { agents = [], desktop = [], elsewhere = [], 
   for (const a of agents) by.get(a.space)?.agents.push(a);
   for (const s of desktop) put(s.cwd, "sessions", { ...s, from: "desktop" }, s.project);
   for (const s of elsewhere) put(s.cwd, "sessions", { ...s, from: "elsewhere" }, s.project);
-  // A finished terminal is Maintenance's to tidy, not something alive here.
-  for (const t of (alive?.terminals ?? []).filter((x) => x.live)) {
-    if (by.has(t.spaceId)) by.get(t.spaceId).terminals.push(t);
-    else put(t.cwd, "terminals", t);
+  // What runs, listens, or failed in its space; a resting shell or a clean finish is Maintenance's to tidy.
+  for (const t of alive?.terminals ?? []) {
+    const running = t.live && (t.state === "running" || (t.ports ?? []).length > 0);
+    if (by.has(t.spaceId) && (running || t.state === "failed")) by.get(t.spaceId).terminals.push(t);
+    else if (running) put(t.cwd, "terminals", t);
   }
   for (const s of alive?.outside ?? []) put(s.cwd, "servers", s);
   return { by, loose: [...loose.values()] };
