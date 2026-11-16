@@ -33,12 +33,10 @@ export function laneGlyph(t, turn) {
 // Folders the Relevo mod keeps in step with its contexts: their rules are its repo lists.
 const REPO_PRS = "relevo.repoPRs";
 const managed = () => new Set((shared("relevo.setup")?.contexts ?? []).map((c) => c.key));
-// Claude Desktop and other terminals' sessions, as the Relevo mod publishes them.
-const SESSION_TURN = { working: "flight", blocked: "me", review: "ready" };
-const sessions = (key) => (shared(key) ?? []).filter((s) => SESSION_TURN[s.state]);
-const AGENT_TURN = { blocked: "me", done: "ready", working: "flight" };
-const desktopLink = (id) => `claude://code/continue?session=${encodeURIComponent(id)}`;
-const firstLine = (s) => String(s ?? "").trim().split("\n")[0].trim();
+// Claude Desktop and other terminals' sessions keep their repo from going quiet; Agents lists them, not Spaces.
+const sessions = (key) => (shared(key) ?? []).filter((s) => ["working", "blocked", "review"].includes(s.state));
+// Spaces shows terminals and servers; agents and their sessions belong to Agents.
+const shows = (life) => life.terminals.length + life.servers.length > 0;
 const portTag = (t, port, key) => div().id(key).h(16).px(5).flex().flex_none().items_center().rounded(4).bg(`${t.working}26`)
   .text_size(11).text_color(t.working).cursor_pointer().hover((s) => s.bg(`${t.working}40`)).tooltip(`Open http://localhost:${port}`)
   .on_click((_e, cx) => { cx.stop_propagation(); exec("open", [`http://localhost:${port}`]); })
@@ -300,28 +298,9 @@ export default class Spaces extends View {
       .child(svg(icon.includes("/") ? icon : ICON(icon)).size(11));
   }
 
-  // What runs in a space: its agents, its sessions in Claude Desktop and other terminals, terminals, and servers.
+  // What runs in a space: its terminals and servers.
   lifeRows(t, id, life, deep = false) {
-    const reasons = shared("relevo.reasons") ?? {}, rows = [];
-    for (const a of life.agents) {
-      const turn = AGENT_TURN[a.status] ?? null;
-      rows.push(this.child(t, `ag-${id}-${a.address}`, {
-        glyph: turn ? laneGlyph(t, turn) : div().size(6).flex_none().rounded_full().border_1().border_color(t.dim),
-        title: a.title || a.program?.name || "agent", deep,
-        what: a.status === "blocked" ? reasons[a.address] ?? "needs an answer" : a.status === "working" ? "working" : a.status === "done" ? "finished" : null,
-        hot: a.status === "blocked", onClick: () => run("pane.focus", { pane: a.pane }),
-      }));
-    }
-    for (const s of life.sessions) {
-      const desktop = s.from === "desktop";
-      rows.push(this.child(t, `ss-${id}-${s.id}`, {
-        glyph: laneGlyph(t, SESSION_TURN[s.state]), title: s.title || s.project, deep, tip: s.cwd,
-        what: s.state === "blocked" ? s.needs || "asks you" : s.state === "working" ? s.doing || "working" : firstLine(s.said) || s.detail || null,
-        hot: s.state === "blocked",
-        edge: [div().flex_none().text_size(11).text_color(t.dim).child(desktop ? "Desktop" : s.app || "terminal")],
-        onClick: () => (desktop ? exec("open", [desktopLink(s.id)]) : s.bundle ? exec("open", ["-b", s.bundle]) : null),
-      }));
-    }
+    const rows = [];
     for (const r of life.terminals) {
       const key = `tm-${id}-${r.address}`, armed = this.armed === r.address;
       rows.push(this.child(t, key, {
@@ -352,10 +331,9 @@ export default class Spaces extends View {
     return rows;
   }
 
-  // A repo with something alive but no space: its sessions and servers, and + to give it a space.
+  // A repo with terminals or servers but no space, and + to give it a space.
   ghost(t, entry) {
-    const id = `ghost-${entry.project}`, open = this.isOpen(id, false), any = entry.sessions.length + entry.terminals.length + entry.servers.length;
-    const turn = spaceTurn(mostUrgent(entry.sessions.map((s) => ({ working: "working", blocked: "blocked", review: "done" })[s.state])));
+    const id = `ghost-${entry.project}`, open = this.isOpen(id, false);
     const ports = portsIn(entry);
     return [h_flex().id(id).h(30).px(6).gap(8).flex_none().items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
       .tooltip(entry.cwd ?? entry.project)
@@ -366,19 +344,18 @@ export default class Spaces extends View {
       .child(h_flex().flex_1().min_w(0).gap(5).justify_end().items_center().text_size(11).text_color(t.dim)
         .when(ports.length > 0, (el) => el.child(portTag(t, ports[0], `${id}-port`)))
         .child(div().flex_none().child("no space")))
-      .when(Boolean(turn), (el) => el.child(h_flex().w(14).flex_none().justify_center().child(laneGlyph(t, turn))))
       .when(Boolean(entry.cwd), (el) => el.child(div().id(`${id}-new`).flex_none().px(4).rounded(4).text_size(13).text_color(t.dim)
         .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(`New space in ${entry.cwd}`)
         .on_click((_e, cx) => { cx.stop_propagation(); run("space.new", { folder: entry.cwd }); })
         .child("+"))),
-    ...(open && any ? this.lifeRows(t, id, entry) : [])];
+    ...(open ? this.lifeRows(t, id, entry) : [])];
   }
 
   row(t, r, m, life = null) {
     const { w, g, tree } = r;
     const color = (shared("space.colors") ?? {})[w.id] ?? "ansi6";
     const branch = branchNote(g, w.name), turn = spaceTurn(w.status);
-    const lively = Boolean(life) && life.agents.length + life.sessions.length + life.terminals.length + life.servers.length > 0;
+    const lively = Boolean(life) && shows(life);
     const open = lively && this.isOpen(w.id, w.active), ports = life ? portsIn(life) : [];
     const repo = (g?.name ?? w.name ?? "").toLowerCase(), prs = (shared(REPO_PRS) ?? {})[repo] ?? null;
     const target = { space: w.id };
@@ -479,14 +456,14 @@ export default class Spaces extends View {
   wide(t, m) {
     const { by, loose } = m.life;
     const ghosts = new Map();
-    for (const entry of loose) {
+    for (const entry of loose.filter(shows)) {
       const gid = folderFor(null, entry.cwd, folderData())?.id ?? "elsewhere";
       ghosts.set(gid, [...(ghosts.get(gid) ?? []), entry]);
     }
     const groups = [...m.groups];
     if (ghosts.has("elsewhere")) groups.push({ id: "elsewhere", folder: null, label: "Elsewhere", rows: [] });
     const draw = (r) => {
-      const life = by.get(r.w.id), lively = life.agents.length + life.sessions.length + life.terminals.length + life.servers.length > 0;
+      const life = by.get(r.w.id), lively = shows(life);
       const shown = lively && this.isOpen(r.w.id, r.w.active);
       return [this.row(t, r, m, life), ...(shown ? this.lifeRows(t, r.w.id, life, Boolean(r.tree)) : [])];
     };

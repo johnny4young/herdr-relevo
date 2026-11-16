@@ -86,12 +86,15 @@ repo one row: its branch when it is not main, how far it is ahead or behind, how
 agent there needs you. A worktree sits under its checkout. Drag a space onto a folder to keep it there. The list
 order is the spaces' order, so Herdr's `⌃1`…`⌃9` go to the row you see.
 
-The space you are in opens to show everything alive in that repo, wherever it runs: its agents, its Claude Desktop
-sessions and Claude Code in other terminals, every terminal with the port it listens on (Restart, Stop and Close on
-hover), and servers started in other apps ("vite in Ghostty :5173"). Any other space shows its port and opens with its
-chevron. A repo with something alive but no space is a "no space" row in its folder, with `+` to give it one.
+The space you are in opens to show what runs in that repo: every terminal with the port it listens on (Restart, Stop
+and Close on hover), and servers started in other apps ("vite in Ghostty :5173"). Agents and Claude sessions are listed in
+Agents only. Any other space shows its port and opens with its chevron. A repo with a terminal or server but no space is a "no
+space" row in its folder, with `+` to give it one.
 
-![Spaces by folder with what runs in the open repo, beside the Agents queue](screenshots/spaces.png)
+The Agents list has one section per state, **Needs you**, **Done**, **Working** and **Idle**, and shows every agent;
+a section folds only when you click its header.
+
+![Spaces by folder with what runs in the open repo, beside the Agents list](screenshots/spaces.png)
 
 A repo's open PRs in Reviews show on its row, red when one needs you; a click opens Reviews showing only that repo.
 Spaces with nothing going on for over a day fold into "3 quiet for over a day" at the end of their folder, with
@@ -136,8 +139,8 @@ project, subagent type and day. It reads the transcripts on your Mac and sends n
 
 ### Claude Desktop and other terminals too
 
-Claude Desktop sessions that ask you something or wait for a review show in Reviews, in the Agents queue and under their
-repo in Spaces, and so does Claude Code started in Terminal, iTerm, VS Code or any terminal outside Herdr. Each says what it is
+Claude Desktop sessions that ask you something or wait for a review show in Reviews and in the Agents section of their state,
+and so does Claude Code started in Terminal, iTerm, VS Code or any terminal outside Herdr. Each says what it is
 doing or asks, and a click opens its last message in place, with **Open in Claude Desktop** or **Show <app>**. With Herdr behind another app, alerts reach macOS; with `terminal-notifier`, a click lands on the agent.
 
 ### Land a PR, and review only what changed
