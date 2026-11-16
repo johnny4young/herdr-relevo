@@ -293,3 +293,7 @@ export function onSubmitChord(state, run) {
     run(cx);
   });
 }
+
+// Lines a change added and removed, in the diff's colors.
+export const plusMinus = (t, added, removed) => [div().flex_none().text_size(11).text_color(t.ansi2).child(`+${added}`),
+  div().flex_none().text_size(11).text_color(t.ansi1).child(`−${removed}`)];

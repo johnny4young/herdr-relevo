@@ -218,3 +218,29 @@ test('a snapshot written for a report the state no longer takes is dropped at on
   assert.equal(f.task(id).attempts.find((a) => a.id === attempt.id).snapshot, undefined);
   assert.deepEqual(refs(f.root), []);
 });
+
+test('a run\'s change reads from where it started to what the reviewer saw, then to the accepted commit', async (t) => {
+  const f = await run(t), id = await f.create();
+  const cli = (payload) => main(['--home', f.home, 'command', JSON.stringify(payload)], { runtimeFactory: () => f.runtime });
+  await f.runtime.tick();
+  fs.writeFileSync(path.join(f.wt.path, 'NOTE.md'), 'note\n');
+  const attempt = await f.report(id, 'executor', 'completed');
+  const early = await cli({ action: 'task-diff', taskId: id });
+  assert.deepEqual([early.output.result.root, early.output.result.fromCommit, early.output.result.toCommit], [f.wt.base, f.wt.baseCommit, attempt.snapshot.commit]);
+  await f.report(id, 'reviewer', 'completed', 'Fine');
+  assert.equal(f.task(id).state, 'needs_you');
+  const reviewed = await cli({ action: 'task-diff', taskId: id });
+  assert.equal(reviewed.output.result.toCommit, f.task(id).worktree.reviewedTree);
+  assert.deepEqual(reviewed.output.result.list, [{ path: 'NOTE.md', added: 1, removed: 0 }]);
+  // Edited after the review: the diff still shows what was reviewed.
+  fs.writeFileSync(path.join(f.wt.path, 'LATE.md'), 'late\n');
+  assert.deepEqual((await cli({ action: 'task-diff', taskId: id })).output.result.list.map((file) => file.path), ['NOTE.md']);
+  fs.rmSync(path.join(f.wt.path, 'LATE.md'));
+  await f.runtime.command({ action: 'decide', taskId: id, outcome: 'accept', revision: f.task(id).revision });
+  const accepted = await cli({ action: 'task-diff', taskId: id });
+  assert.equal(accepted.output.result.toCommit, f.task(id).worktree.commit);
+  assert.equal(accepted.output.result.files, 1);
+  f.cwds.set('exec-2', f.root); f.cwds.set('review-2', f.root);
+  const plain = await f.create({ worktree: undefined, root: f.root, executor: { address: 'exec-2' }, reviewer: { address: 'review-2' } });
+  assert.match((await cli({ action: 'task-diff', taskId: plain })).output.error, /own worktree/);
+});

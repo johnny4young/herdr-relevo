@@ -3,7 +3,7 @@ import path from 'node:path';
 import { run } from './process.mjs';
 import { fingerprint, runChecks, attachArtifact, verifyArtifact, removeArtifact } from './evidence.mjs';
 import { readState, transaction, taskById, event, uid, stateDir, privateDir } from './store.mjs';
-import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, snapshotAttempt, dropAttemptRef, dropAttemptRefs, diffCounts, attemptDiff, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH } from './worktree.mjs';
+import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, snapshotAttempt, dropAttemptRef, dropAttemptRefs, diffCounts, attemptDiff, openPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH, taskDiff } from './worktree.mjs';
 import { createHash } from 'node:crypto';
 import { archivable, stageArchive, publishArchive, MAX_TASKS } from './archive.mjs';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
@@ -382,6 +382,10 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       const to = snapshotOf(payload.to), from = payload.from == null ? null : snapshotOf(payload.from);
       if (!wt || wt.removed || !to || from === undefined) throw Error('No snapshot is kept for this attempt');
       return { result: { taskId: before.id, from: payload.from ?? null, to: payload.to, ...(await attemptDiff(wt, from, to)) } };
+    }
+    if (action === 'task-diff') {
+      if (!before.worktree) throw Error('Only a run in its own worktree keeps its change');
+      return { result: { taskId: before.id, root: before.worktree.base, ...(await taskDiff(before.worktree, before.attempts)) } };
     }
     if (action === 'worktree-status') return { result: await worktreeStatus(before.worktree) };
     // An acceptance whose commit never landed (the process died, or git failed) commits the same accepted revision.

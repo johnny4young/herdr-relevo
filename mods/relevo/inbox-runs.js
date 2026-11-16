@@ -1,7 +1,8 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, TextareaState, Textarea } from "gpui-base";
 import { shared, setShared } from "herdr";
-import { button, foldRow, legHeader, legend, joined, keyBar, keycap, meTint, row, onSubmitChord } from "./ui.js";
+import { button, foldRow, legHeader, legend, joined, keyBar, keycap, meTint, plusMinus, row, onSubmitChord } from "./ui.js";
+import { openReview } from "./review.js";
 import { GOAL_MODE, GOAL_SCOPE, workflowCommand } from "./inbox-goals.js";
 import { openGoal } from "./goals-editor.js";
 import { openWorkflow, RUN_FOLLOW_UP } from "./workflow-window.js";
@@ -11,12 +12,12 @@ import { reviewableWork, linkedDecision, runProgress } from "./lib/goal-workflow
 import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed } from "./lib/workflow-navigation.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
   taskSummary, taskCaveats, isMerged } from "./lib/run-panel.js";
-import { canCompare, tookWords } from "./lib/run-compare.js";
+import { canCompare, diffFiles, tookWords } from "./lib/run-compare.js";
 
 // Linked PR URLs known to have merged, kept after the landing list lets them go.
 export const MERGED = "relevo.runs.merged";
 const REST = "more-run-rest";
-const WHY_LINES = 4, NOTE_LINES = 4;
+const WHY_LINES = 4, NOTE_LINES = 4, FILE_LINES = 8;
 const LEGEND = ["me", "flight", "ready"];
 // What a step of a task is, as the lane glyph of its row.
 const LEG_TURN = { ok: "ready", bad: "stuck", run: "flight", you: "me" };
@@ -84,6 +85,7 @@ export class RunViews {
     if (this.runCompare && !(compared && canCompare(compared))) this.closeCompare();
     if (this.runPicked.length) this.runPicked = this.runPicked.filter((id) => all.some((item) => item.id === id && item.state === "needs_you"));
     if (scope) this.loadRunUsage(cx);
+    if (task) this.loadTaskDiff(task, cx);
     if (this.runChangeFor && this.runChangeFor !== this.runTask) this.runChangeFor = null;
     if (this.acceptIntent && (task?.state !== "needs_you" || !acceptArmed(this.acceptIntent, task))) this.acceptIntent = null;
     // A notice or an error belongs to the run and task it was said on, however the view moved on.
@@ -217,7 +219,43 @@ export class RunViews {
     } else this.decideRun(task, "changes", cx, text);
   }
 
-  seeDiff(task) { openWorkflow(task.goalId, task.id, { tab: "Changes" }); }
+  // The files a worktree run changed, read once per change it keeps: the accepted commit, the reviewed tree or a snapshot.
+  loadTaskDiff(task, cx) {
+    const wt = task.worktree, kept = wt && (wt.commit ?? wt.reviewedTree ?? [...task.attempts].reverse().find((a) => a.snapshot?.commit)?.snapshot.commit);
+    const key = kept ? `${task.id}:${kept}` : null;
+    if (!key || this.taskDiff?.key === key) return;
+    this.taskDiff = { key, taskId: task.id, loading: true };
+    cx.spawn(async (cx) => {
+      let next;
+      try { next = { key, taskId: task.id, result: (await workflowCommand({ action: "task-diff", taskId: task.id })).result }; }
+      catch (e) { next = { key, taskId: task.id, error: String(e.message ?? e) }; }
+      if (this.taskDiff?.key === key) this.taskDiff = next;
+      cx.notify();
+    });
+  }
+
+  // The run's change in the review pane beside the panel, on `file` when given; a run without one opens its window.
+  seeDiff(task, file = null) {
+    const d = this.taskDiff?.taskId === task.id ? this.taskDiff.result : null;
+    if (!d) return openWorkflow(task.goalId, task.id, { tab: "Changes" });
+    openReview(d.root, null, null, null, { from: d.fromCommit, to: d.toCommit, label: `${task.title} · ${task.state === "accepted" ? "as accepted" : "as reviewed"}`, ...(file ? { file } : {}) });
+  }
+
+  // The change itself, each file with its lines; a click opens that file in the diff.
+  taskFiles(t, task) {
+    const d = this.taskDiff?.taskId === task.id ? this.taskDiff : null;
+    if (!d) return [];
+    if (d.loading) return [line("Reading the change…", t)];
+    if (d.error) return [line(d.error, t)];
+    const files = diffFiles(d.result), shown = files.list.slice(0, FILE_LINES), more = files.more + files.list.length - shown.length;
+    return [v_flex().id("task-files").px(8).pt(6).gap(2)
+      .child(h_flex().gap(6).items_center().text_size(11).text_color(t.muted).child(div().child(files.head)).children(plusMinus(t, files.added, files.removed)))
+      .children(shown.map((file, i) => h_flex().id(`task-file-${i}`).gap(6).items_center().cursor_pointer().rounded(4).hover((s) => s.bg(t.hover))
+        .on_click(() => this.seeDiff(task, file.path))
+        .child(div().flex_1().min_w(0).truncate().text_size(13).tooltip(file.path).child(file.path))
+        .children(file.binary ? [div().flex_none().text_size(11).text_color(t.dim).child("binary")] : plusMinus(t, file.added, file.removed))))
+      .when(more > 0, (el) => el.child(div().id("task-files-more").text_size(11).text_color(t.dim).child(`+${more} more in the diff`)))];
+  }
 
   // Keys of the open run or task; true when the key was theirs.
   runKey(e, cx) {
@@ -431,6 +469,7 @@ export class RunViews {
     return [
       ...(summary ? [div().id("task-summary").px(8).pb(4).text_size(13).child(summary)] : []),
       v_flex().id("task-legs").children(joined(t, taskLegs(task).map((leg) => this.legRow(t, leg)))),
+      ...this.taskFiles(t, task),
       ...(notes.length ? [v_flex().id("task-notes").px(8).pt(6).gap(2)
         .child(div().text_size(11).text_color(t.dim).child("Before you accept"))
         .children(notes.slice(0, NOTE_LINES).map((note) => div().min_w(0).text_size(11).text_color(t.muted).child(note)))
@@ -446,7 +485,8 @@ export class RunViews {
     const confirming = acceptArmed(this.acceptIntent, task);
     const keyed = (cap, label) => [keycap(t, cap), label];
     const more = button(t, "task-more", "More", () => openWorkflow(goal.id, task.id), { kind: "ghost", tip: "Full report, evidence and activity in the run window" });
-    const diff = button(t, "task-diff", keyed("d", "See the diff"), () => this.seeDiff(task), { kind: "ghost", tip: "Opens the run window on this task's result and diff" });
+    const diff = button(t, "task-diff", keyed("d", "See the diff"), () => this.seeDiff(task),
+      { kind: waiting ? "solid" : "ghost", tip: task.worktree ? "Opens the change in the review pane beside the panel" : "Opens the run window on this task's result and diff" });
     if (editing) return v_flex().id("task-decision").px(8).pt(8).gap(6)
       .child(Textarea.new(this.runChange).id("task-changes-field").w_full().min_w(0).accessibility_label("What should change?")
         .h(64).px(7).rounded(5).border(1).border_color(t.border).bg(t.background))
@@ -461,12 +501,13 @@ export class RunViews {
         .when(waiting, (bar) => bar
           .child(button(t, "task-accept", confirming ? keyed("enter", "Confirm accept") : keyed("a", "Accept"), (cx) => this.acceptStep(task, cx),
             { kind: "accent", disabled: Boolean(this.runBusy), tip: "A, then Enter" }))
-          .child(button(t, "task-changes", keyed("r", "Ask for changes"), (cx) => this.askRunChanges(task, cx), { disabled: Boolean(this.runBusy) })))
+          .child(button(t, "task-changes", keyed("r", "Ask for changes"), (cx) => this.askRunChanges(task, cx), { disabled: Boolean(this.runBusy) }))
+          .child(diff))
         .when(followUpAvailable(task), (bar) => bar.child(this.followUpButton(t, goal, task, "task-follow-up")))
         .when(["accepted", "cancelled"].includes(task.state), (bar) => bar.child(button(t, "task-rerun", "Re-run with changes…",
           () => openWorkflow(goal.id, task.id, { followUp: "rerun" }), { tip: "Opens a new task with this one's prompt in the run window; nothing is sent until you start it" })))
         .when(canCompare(task), (bar) => bar.child(this.compareButton(t, task, "task-compare")))
-        .child(diff).child(div().flex_1()).child(more))
+        .when(!waiting, (bar) => bar.child(diff)).child(div().flex_1()).child(more))
       .when(waiting, (el) => el.child(div().id("task-effect").min_w(0).text_size(11).text_color(t.muted).child(effect)));
   }
 }
