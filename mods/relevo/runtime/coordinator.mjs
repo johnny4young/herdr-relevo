@@ -103,6 +103,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     return { id: uid(), goalId: input.goalId, title: input.title.trim(), criteria: input.criteria.trim(), root: fs.realpathSync(input.root),
       executor: { address: input.executor.address, label: input.executor.label || input.executor.address }, reviewer: { address: input.reviewer.address, label: input.reviewer.label || input.reviewer.address },
       checks: input.checks ?? [], dependsOn: dependencies, maxRounds, maxMinutes, round: 0, state: 'planned', paused: false,
+      ...(input.reviewOnly === true && !input.worktree ? { reviewOnly: true } : {}),
       ...(input.worktree ? { worktree: { path: fs.realpathSync(input.root), branch: String(input.worktree.branch ?? ''), base: fs.realpathSync(input.worktree.base),
         ...(/^[0-9a-f]{40}$/.test(input.worktree.baseCommit ?? '') ? { baseCommit: input.worktree.baseCommit } : {}),
         ...(BASE_BRANCH.test(input.worktree.baseBranch ?? '') ? { baseBranch: input.worktree.baseBranch } : {}) } } : {}),
@@ -174,7 +175,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       await makeRoom(1);
       return update((doc) => {
         validateTask(payload.task, doc); roomFor(doc, 1); doc.tasks.push(task); log(doc, task, 'Task created', 'Existing agents linked; no message sent', 'Human');
-        if (payload.start === true) { task.state = 'ready'; task.nextRole = 'executor'; doc.engine.enabled = true; log(doc, task, 'Task started', 'Ready work runs when dependencies and agents are available', 'Human'); }
+        // A second opinion starts at the checks: the work to review is already in the checkout.
+        if (payload.start === true) { task.state = 'ready'; task.nextRole = task.reviewOnly ? 'checks' : 'executor'; doc.engine.enabled = true; log(doc, task, 'Task started', 'Ready work runs when dependencies and agents are available', 'Human'); }
         return { taskId: task.id };
       });
     }
@@ -473,7 +475,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       task.paused = false; task.error = null; doc.engine.enabled = true;
       if (['planned', 'blocked', 'failed'].includes(task.state)) {
         if (task.round >= task.maxRounds) throw Error('Attempt budget exhausted. Create a new bounded task.');
-        task.state = 'ready'; task.nextRole = 'executor';
+        // A second opinion nobody asked to change starts again at its checks, never at the agent whose work it is.
+        task.state = 'ready'; task.nextRole = task.reviewOnly && !task.feedback ? 'checks' : 'executor';
       }
       log(doc, task, action === 'start' ? 'Task started' : 'Task resumed', 'Ready work runs when dependencies and agents are available', 'Human');
     });
@@ -568,9 +571,29 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (!progress || (was?.line === progress.line && was.done === progress.done && was.left === progress.left)) return;
     update((doc) => { const a = taskById(doc, task.id).attempts.at(-1); if (a?.id === attempt.id && a.state === 'running') a.progress = { ...progress, at: new Date(clock()).toISOString() }; });
   }
+  // A second opinion's checks run on the work as it is, then the reviewer gets it whatever they say: failures are evidence.
+  async function precheck(task) {
+    const key = `pre-${task.id}`, pending = checkRuns.get(key) ?? startChecks(task, key, await fp(task));
+    if (!pending.done) await Promise.race([pending.promise, new Promise((resolve) => globalThis.setTimeout(resolve, CHECK_GRACE_MS).unref?.())]);
+    if (!pending.done || pending.controller.signal.aborted) return;
+    checkRuns.delete(key);
+    if (pending.error) throw pending.error;
+    const revision = await fp(task);
+    update((doc) => {
+      const t = taskById(doc, task.id);
+      if (t.state !== 'ready' || t.nextRole !== 'checks' || t.paused) return;
+      t.checksResult = pending.checks; t.revision = revision;
+      const broken = pending.checks.find((check) => typeof check.code === 'string' && !['timeout', 'cancelled'].includes(check.code));
+      if (broken) { t.state = 'blocked'; t.error = `The check "${broken.argv.join(' ')}" could not start (${broken.stderr || broken.code}). Fix the command, then resume.`.slice(0, 1000); return; }
+      if (revision !== pending.revision) { t.state = 'blocked'; t.error = 'The work changed while its checks ran. Ask for a second opinion again once the agent stops.'; return; }
+      t.state = 'needs_review'; t.nextRole = 'reviewer';
+      log(doc, t, 'Checks observed', pending.checks.length ? `${pending.checks.filter((check) => check.code === 0).length} of ${pending.checks.length} checks passed` : 'No checks configured');
+    });
+  }
   async function dispatch(taskId) {
     const doc = readState(home), task = taskById(doc, taskId), role = task.nextRole || (task.state === 'needs_review' ? 'reviewer' : 'executor'), actor = task[role];
     if (!doc.engine.enabled || task.paused || !['ready', 'needs_review'].includes(task.state)) return;
+    if (task.reviewOnly && task.state === 'ready' && task.nextRole === 'checks') { await precheck(task); return; }
     const scopeIssue = planScopeIssue(task, doc);
     if (scopeIssue) { block(task.id, scopeIssue); return; }
     const waitingReason = dependencyWaitReason(task, doc);
@@ -720,7 +743,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
           return;
         }
         const failed = checks.some((check) => check.code !== 0);
-        if ((attempt.role === 'reviewer' && status === 'changes_requested') || (attempt.role === 'executor' && (failed || status !== 'completed'))) {
+        // A second opinion's verdict always comes to the person: they decide whether the agent hears it.
+        if ((attempt.role === 'reviewer' && status === 'changes_requested' && !t.reviewOnly) || (attempt.role === 'executor' && (failed || status !== 'completed'))) {
           t.feedback = failed ? failedChecks(checks) : feedbackOf({ summary: report.summary, findings: extra.findings }, MUST_FIX).slice(0, MAX_FEEDBACK);
           t.checksResult = checks; t.revision = afterChecks;
           if (t.round >= t.maxRounds) { t.state = 'blocked'; t.error = 'No attempts left; it needs your direction'; }
