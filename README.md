@@ -59,7 +59,7 @@ The panel has two views. **Reviews** is the Inbox described below. **Runs** is f
 
 The separate run window is for planning (prompt, repository, agents, plan) and for the deep views a task links to: **More** opens its full report, evidence and activity, where you can also defer or add a note.
 
-**What accepting does.** In a worktree run, acceptance commits exactly the tree the reviewer saw to the run branch, without running hooks. Anything changed after the review stays uncommitted. From there the run offers **Open draft PR** (pushes the branch and runs `gh pr create --draft`) and **Remove worktree**, which keeps a branch that has commits. A cancelled run offers **Discard worktree**. Accepting never approves, merges or pushes anything by itself.
+**What accepting does.** In a worktree run, acceptance commits exactly the tree the reviewer saw to the run branch, without running hooks. Anything changed after the review stays uncommitted. The button says **Accept and open draft PR**: it also pushes the run branch and opens a draft pull request whose description is the expected outcome, what the writer changed, the checks, the review and what nobody verified. A repository without an origin, or a failing `gh`, keeps the commit and says why; set `RUN_DRAFT_PR = false` in `config.js` to only commit. A run that fixes a pull request pushes onto it instead. **Remove worktree** keeps a branch that has commits. A cancelled run offers **Discard worktree**. Accepting never approves, merges or pushes anything by itself.
 
 **Files a worktree needs.** A new worktree has only tracked files. List the ignored files a run needs, such as `.env`, in a `.worktreeinclude` at the repository root, in `.gitignore` syntax; they are copied into each run's worktree.
 

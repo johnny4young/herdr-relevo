@@ -15,7 +15,24 @@ export function decideGuard(task, tasks) {
   const current = (tasks ?? []).find((item) => item.id === task.id);
   return task.state === "needs_you" && Boolean(current) && current.revision === task.revision && current.state === "needs_you";
 }
-export const decidePayload = (task, outcome, text = "") => ({ action: "decide", taskId: task.id, outcome, text, revision: task.revision ?? "" });
+// A run from scratch, in its own worktree, opens its draft pull request as it is accepted; one that fixes a PR pushes instead.
+export const draftOnAccept = (task, enabled = true) => enabled && Boolean(task.worktree && !task.worktree.prHead && !task.worktree.pr);
+export const decidePayload = (task, outcome, text = "", { draft = true } = {}) => ({ action: "decide", taskId: task.id, outcome, text, revision: task.revision ?? "",
+  ...(outcome === "accept" && draftOnAccept(task, draft) ? { openPR: true } : {}) });
+
+// The draft pull request's description: the expected outcome, what the writer changed, the checks and the review.
+export function draftBody(task) {
+  const writer = [...(task.attempts ?? [])].reverse().find((a) => a.role === "executor" && a.report)?.report;
+  const review = [...(task.attempts ?? [])].reverse().find((a) => a.role === "reviewer" && a.report)?.report;
+  const checks = task.checksResult ?? [];
+  const lines = [task.criteria ?? ""];
+  if (writer?.summary) lines.push("", "## What changed", writer.summary, ...(writer.details ?? []).map((d) => `- ${d}`));
+  lines.push("", `Checks: ${checks.length ? checks.map((c) => `${(c.argv ?? []).join(" ")} ${c.code === 0 ? "passed" : "failed"}`).join(", ") : "none configured"}.`);
+  if (review?.summary) lines.push("", "## Independent review", review.summary, ...(review.findings ?? []).map((f) => `- [${f.level}] ${f.where ?? ""}: ${f.issue ?? ""}`));
+  const notProven = [...(writer?.notProven ?? []), ...(review?.notProven ?? [])];
+  if (notProven.length) lines.push("", "## Not verified", ...notProven.map((n) => `- ${n}`));
+  return lines.join("\n").trim().slice(0, 6000);
+}
 // A arms the acceptance of one revision; Enter confirms it only while it is still that revision.
 export const armAccept = (task) => ({ id: task.id, revision: task.revision });
 export const acceptArmed = (intent, task) => intent?.id === task.id && intent.revision === task.revision;

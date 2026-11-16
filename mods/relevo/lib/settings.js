@@ -57,6 +57,7 @@ const EDITED = ["ACCOUNTS", "CODEX", "CONTEXTS", "FALLBACK", "REPOS_ROOT", "BACK
 const NOTES = {
   RUN_CODEX_MODEL: "// The model a run's Codex agent uses.",
   RUN_MUST_FIX: "// A run's reviewer sends the work back only for findings at this level or above: \"blocker\", \"major\" or \"minor\".",
+  RUN_DRAFT_PR: "// false: accepting a run in its own worktree only commits to its branch, without opening the draft pull request.",
 };
 
 function others(c) {

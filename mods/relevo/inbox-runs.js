@@ -10,7 +10,8 @@ import { openWorkflow, RUN_FOLLOW_UP } from "./workflow-window.js";
 import { goalState } from "./lib/goals.js";
 import { ago } from "./lib/time.js";
 import { reviewableWork, linkedDecision, runProgress } from "./lib/goal-workflow.js";
-import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed } from "./lib/workflow-navigation.js";
+import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed, draftOnAccept } from "./lib/workflow-navigation.js";
+import * as config from "./config.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
   taskSummary, taskCaveats, isMerged } from "./lib/run-panel.js";
 import { canCompare, diffFiles, tookWords } from "./lib/run-compare.js";
@@ -178,12 +179,15 @@ export class RunViews {
     this.acceptIntent = null; this.runBusy = true; this.runError = null; cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const response = await workflowCommand(decidePayload(task, outcome, text));
+        const response = await workflowCommand(decidePayload(task, outcome, text, { draft: config.RUN_DRAFT_PR !== false }));
         this.takeDoc(response);
         this.runChange.set_value(""); this.runChangeFor = null;
         const kept = outcome === "accept" && Boolean(task.worktree);
         this.runNotice = outcome !== "accept" ? "Feedback saved. The next result will return for your review."
-          : kept ? (task.worktree.prHead ? `Accepted and committed. Push to ${task.worktree.prHead} adds it to the pull request.` : "Accepted and committed to its run branch. More offers the draft pull request.") : "Acceptance saved.";
+          : !kept ? "Acceptance saved."
+          : task.worktree.prHead ? `Accepted and committed. Push to ${task.worktree.prHead} adds it to the pull request.`
+          : response.result?.pr ? `Accepted, and the draft pull request is open: ${response.result.pr}`
+          : response.result?.prError ? `Accepted and committed; the draft pull request didn't open: ${response.result.prError}` : "Accepted and committed to its run branch.";
         if (!kept && this.runTask === task.id) {
           this.runTask = null; this.runAt = this.runPlace();
           const next = this.orderedTasks({ id: task.goalId }, false).find((item) => item.id !== task.id);
@@ -519,12 +523,13 @@ export class RunViews {
           { kind: "solid", disabled: Boolean(this.runBusy) || !this.runChange.value().trim(), tip: "⌘Enter" }))
         .child(button(t, "task-changes-cancel", "Cancel", (cx) => { this.cancelRunChanges(); cx.notify(); }, { kind: "ghost", disabled: Boolean(this.runBusy) })));
     const effect = `${task.worktree?.prHead ? `Accepting commits to the run branch; then Push to ${task.worktree.prHead} adds it to the pull request. `
-      : task.worktree ? "Accepting keeps the worktree and commits to its run branch; More offers the draft pull request. " : ""}${acceptanceEffect(task, tasks, this.workflowEngine)}`;
+      : draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accepting commits to the run branch, pushes it and opens a draft pull request on GitHub. "
+      : task.worktree ? "Accepting keeps the worktree and commits to its run branch. " : ""}${acceptanceEffect(task, tasks, this.workflowEngine)}`;
     const push = task.state === "accepted" && task.worktree?.prHead && !task.worktree.pushed && !task.worktree.removed;
     return v_flex().id("task-decision").px(8).pt(8).gap(6)
       .child(h_flex().flex_wrap().gap(6).items_center()
         .when(waiting, (bar) => bar
-          .child(button(t, "task-accept", confirming ? keyed("enter", "Confirm accept") : keyed("a", "Accept"), (cx) => this.acceptStep(task, cx),
+          .child(button(t, "task-accept", confirming ? keyed("enter", "Confirm accept") : keyed("a", draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accept and open draft PR" : "Accept"), (cx) => this.acceptStep(task, cx),
             { kind: "accent", disabled: Boolean(this.runBusy), tip: "A, then Enter" }))
           .child(button(t, "task-changes", keyed("r", "Ask for changes"), (cx) => this.askRunChanges(task, cx), { disabled: Boolean(this.runBusy) }))
           .child(diff))

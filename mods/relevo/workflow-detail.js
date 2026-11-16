@@ -4,7 +4,7 @@ import { agents, exec, run } from "herdr";
 import { button, pill } from "./ui.js";
 import { openReview } from "./review.js";
 import * as config from "./config.js";
-import { acceptanceEffect, workflowCheckSummary, decideGuard, decidePayload, acceptArmed } from "./lib/workflow-navigation.js";
+import { acceptanceEffect, workflowCheckSummary, decideGuard, decidePayload, acceptArmed, draftOnAccept } from "./lib/workflow-navigation.js";
 import { linkedDecision } from "./lib/goal-workflow.js";
 import { followUpAvailable, taskCaveats, changesPlan } from "./lib/run-panel.js";
 import { agentMarkdown } from "./lib/agent-markdown.js";
@@ -88,7 +88,7 @@ export class WorkflowDetail extends WorkflowRuns {
     const editing = this.decisionNoteFor === task.id;
     if (outcome === "changes" && (!editing || !this.form.decision.value().trim())) return;
     this.acceptIntent = null;
-    this.command(decidePayload(task, outcome, editing ? this.form.decision.value() : ""), cx, () => {
+    this.command(decidePayload(task, outcome, editing ? this.form.decision.value() : "", { draft: config.RUN_DRAFT_PR !== false }), cx, () => {
       if (this.decisionDrafts) delete this.decisionDrafts[task.id];
       this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null;
     });
@@ -113,7 +113,7 @@ export class WorkflowDetail extends WorkflowRuns {
         .when(changes, (panel) => panel.child(row(t, plan.hint))))
       .child(h_flex().w_full().min_w(0).gap(6).items_center().flex_wrap()
         .when(!editing, (bar) => bar
-          .child(button(t, "workflow-decide-accept", confirming ? "Confirm ↵" : "Accept", (cx) => submit("accept", cx),
+          .child(button(t, "workflow-decide-accept", confirming ? "Confirm ↵" : draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accept and open draft PR" : "Accept", (cx) => submit("accept", cx),
             { kind: "solid", disabled: this.busy || changes, tip: "A, then Enter" })
             .when(!this.busy && !changes, (el) => el.bg(t.accent).text_color(t.accent_foreground)))
           .child(button(t, "workflow-decide-changes", "Ask for changes", (cx) => this.editDecisionNote(task, true, cx), { disabled: this.busy, tip: "R" }))

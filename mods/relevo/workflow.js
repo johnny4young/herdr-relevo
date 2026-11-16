@@ -252,7 +252,8 @@ export class Workflow extends WorkflowDetail {
       // A worktree run stays in view after acceptance: its branch has a commit to propose or remove.
       if (accepted && payload.action === "decide" && this.tasks?.find((task) => task.id === payload.taskId)?.worktree) {
         this.selected = payload.taskId; this.filter = "Completed"; delete this.worktreeInfo?.[payload.taskId];
-        this.notice = "Accepted and committed to its run branch.";
+        this.notice = response.result?.pr ? `Accepted, and the draft pull request is open: ${response.result.pr}`
+          : response.result?.prError ? `Accepted and committed; the draft pull request didn't open: ${response.result.prError}` : "Accepted and committed to its run branch.";
       }
       afterSuccess?.(response, cx);
       if (response.suggestions) this.suggestions = response.suggestions;
