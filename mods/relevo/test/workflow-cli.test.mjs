@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { ensureEngine, main, parseArgs, serve } from '../runtime/cli.mjs';
+import { ensureEngine, isEngine, main, parseArgs, serve, waitForStop } from '../runtime/cli.mjs';
 
 async function fixture(fn) {
   const home = await fs.promises.realpath(await mkdtemp(join(tmpdir(), 'relevo-cli-')));
@@ -59,7 +59,7 @@ test('engine launch uses hc background name and does not duplicate a live lock o
     if (argv[1] === 'get') return { code: 0, stdout: JSON.stringify({ state: 'idle', argv: ['/abs/node', '/abs/cli.mjs', '--home', home, 'serve'] }) };
     return { code: 0, stdout: '', stderr: '' };
   };
-  const options = { runCommand, cli: '/abs/cli.mjs', node: '/abs/node' };
+  const options = { runCommand, cli: '/abs/cli.mjs', node: '/abs/node', check: () => true };
   await ensureEngine(home, options);
   assert.deepEqual(calls[0].slice(0, 9), ['hc', 'run', '--bg', '--name', calls[0][4], '--outlive-parent', '--no-notify', '--', '/abs/node']);
   assert.deepEqual(calls[0].slice(9), ['/abs/cli.mjs', '--home', home, 'serve']);
@@ -128,7 +128,7 @@ test('a live coordinator lock blocks a second daemon without recovery', async ()
   const dir = join(home, 'relevo-workflow', 'engine.lock'); await mkdir(dir, { recursive: true });
   await writeFile(join(dir, 'owner.json'), JSON.stringify({ pid: process.pid, token: 'owner' }));
   let recovered = 0;
-  await assert.rejects(serve(home, { runtimeFactory: () => ({ recover() { recovered++; }, read: () => ({ engine: { enabled: false }, tasks: [] }) }), pid: 525252 }), /already running/);
+  await assert.rejects(serve(home, { runtimeFactory: () => ({ recover() { recovered++; }, read: () => ({ engine: { enabled: false }, tasks: [] }) }), pid: 525252, check: () => true }), /already running/);
   assert.equal(recovered, 0);
 }));
 
@@ -155,4 +155,56 @@ test('shutdown retains the lock until an in-flight coordinator tick finishes', a
   assert.equal(fs.existsSync(join(home, 'relevo-workflow', 'engine.lock')), true);
   releaseTick(); await serving;
   assert.equal(fs.existsSync(join(home, 'relevo-workflow', 'engine.lock')), false);
+}));
+
+test('a live pid is the coordinator only while its command line is this home\'s serve', async () => fixture(async (home) => {
+  const ps = (command) => () => ({ stdout: `${command}\n` });
+  assert.equal(isEngine(process.pid, home, { cli: '/abs/cli.mjs', spawnImpl: ps(`/abs/node /abs/cli.mjs --home ${home} serve`) }), true);
+  assert.equal(isEngine(process.pid, home, { cli: '/abs/cli.mjs', spawnImpl: ps('/usr/bin/vim notes.txt') }), false, 'a reused pid');
+  assert.equal(isEngine(process.pid, home, { cli: '/abs/cli.mjs', spawnImpl: ps('/abs/node /abs/cli.mjs --home /other serve') }), false, 'another home');
+  assert.equal(isEngine(0, home), false);
+}));
+
+test('a lock whose pid now belongs to another program is reclaimed', async () => fixture(async (home) => {
+  const dir = join(home, 'relevo-workflow'), lock = join(dir, 'engine.lock');
+  await mkdir(join(dir, 'reports'), { recursive: true }); await mkdir(lock);
+  await writeFile(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, token: 'reused' }));
+  let recoveries = 0;
+  await serve(home, { runtimeFactory: () => ({ recover() { recoveries++; }, read: () => ({ engine: { enabled: false }, tasks: [] }) }),
+    processRef: new EventEmitter(), eventWatch: () => ({ close() {} }) });
+  assert.equal(recoveries, 1); assert.equal(fs.existsSync(lock), false);
+}));
+
+test('pausing does not wait on a lock no live coordinator holds', async () => fixture(async (home) => {
+  const lock = join(home, 'relevo-workflow', 'engine.lock'); await mkdir(lock, { recursive: true });
+  await writeFile(join(lock, 'owner.json'), JSON.stringify({ pid: 0, token: 'dead' }));
+  const started = Date.now();
+  await waitForStop(home, { timeoutMs: 5000 });
+  assert.ok(Date.now() - started < 1000);
+}));
+
+test('a hang-up stops the coordinator and releases its lock', async () => fixture(async (home) => {
+  await mkdir(join(home, 'relevo-workflow', 'reports'), { recursive: true });
+  const processRef = new EventEmitter();
+  const timers = { setTimeout() { return 1; }, clearTimeout() {}, setInterval() { return 1; }, clearInterval() {} };
+  const doc = { engine: { enabled: true }, tasks: [] };
+  const fsImpl = Object.create(fs); fsImpl.watch = () => ({ close() {} });
+  const serving = serve(home, { runtimeFactory: () => ({ recover() {}, read: () => doc, tick: async () => {} }), fsImpl, timers, processRef,
+    eventWatch: () => ({ close() {} }), pid: 727272 });
+  await new Promise((resolve) => immediate(resolve));
+  assert.equal(fs.existsSync(join(home, 'relevo-workflow', 'engine.lock')), true);
+  processRef.emit('SIGHUP'); await serving;
+  assert.equal(fs.existsSync(join(home, 'relevo-workflow', 'engine.lock')), false);
+}));
+
+test('wake starts a coordinator only when one is missing and runs still need it', async () => fixture(async (home) => {
+  let launches = 0, running = false;
+  const doc = { engine: { enabled: true }, tasks: [{ id: 'a', state: 'running', attempts: [{ state: 'running' }] }] };
+  const deps = { runtimeFactory: () => ({ read: () => doc, command: async () => assert.fail('wake is not a runtime command') }),
+    ensureEngine: async () => { launches++; }, engineRunning: () => running };
+  const wake = ['--home', home, 'command', '{"action":"wake"}'];
+  assert.deepEqual((await main(wake, deps)).output, { ok: true, started: true });
+  running = true; await main(wake, deps); assert.equal(launches, 1, 'a live coordinator is left alone');
+  running = false; doc.tasks[0].state = 'accepted'; await main(wake, deps); assert.equal(launches, 1, 'nothing left to do');
+  doc.tasks[0].state = 'running'; doc.engine.enabled = false; await main(wake, deps); assert.equal(launches, 1, 'paused stays paused');
 }));

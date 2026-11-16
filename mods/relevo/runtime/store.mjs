@@ -68,7 +68,8 @@ let holding = false;
 
 // A lock directory owned by one live pid. The guard serializes reclamation, so a second
 // process never removes a new owner's lock. `errors` names each refusal for the caller.
-export function acquireOwned(dir, name, { pid = process.pid, reclaimAbandoned = false, errors }) {
+// `owns(pid)`: whether a live pid is still the lock's owner and not another process that got its number.
+export function acquireOwned(dir, name, { pid = process.pid, reclaimAbandoned = false, errors, owns = () => true }) {
   const lock = path.join(dir, `${name}.lock`), guard = path.join(dir, `${name}.acquire`);
   try { fs.mkdirSync(guard, { mode: 0o700 }); }
   catch (e) {
@@ -87,7 +88,7 @@ export function acquireOwned(dir, name, { pid = process.pid, reclaimAbandoned = 
       let owner = null;
       try { if (!fs.lstatSync(ownerFile).isFile()) throw Error(); owner = JSON.parse(fs.readFileSync(ownerFile, 'utf8')); }
       catch { if (!reclaimAbandoned || fs.existsSync(ownerFile) || !abandoned(lock)) throw Error(errors.incomplete); }
-      if (owner && alive(owner.pid)) throw Error(errors.held);
+      if (owner && alive(owner.pid) && owns(owner.pid)) throw Error(errors.held);
       if (owner) fs.unlinkSync(ownerFile);
       fs.rmdirSync(lock); fs.mkdirSync(lock, { mode: 0o700 });
     }

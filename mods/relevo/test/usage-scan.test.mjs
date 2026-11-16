@@ -3,7 +3,7 @@ import "./fake/register.mjs";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fake, resetFake } from "./fake/herdr.mjs";
@@ -273,4 +273,63 @@ test("the report lists run sessions only for worktrees still on disk or still in
   const report = JSON.parse(fake.read("/home/test/.local/state/relevo/usage/report.json"));
   assert.deepEqual(report.runs.map((s) => s.folder).sort(), [queued, there].sort());
   assert.deepEqual(report.runs[0].spans[0].slice(1), [106, 10]);
+});
+
+// Herdr writes at most 1 MiB per file.
+const MIB = 1024 * 1024;
+const usageDir = (home) => join(home, ".local", "state", "relevo", "usage");
+const scans = () => fake.execs.filter((l) => l.startsWith("sh -c") && l.includes("dd if=")).length;
+
+test("a save keeps every file under 1 MiB, and a save in the older two-file layout carries over", async () => {
+  const { home, projects } = realHome();
+  const f = join(projects, "a.jsonl"), out = usageDir(home);
+  writeFileSync(f, line(1, stamp()));
+  await new UsageScanner().scan();
+  // Turn that save into the older layout: offsets inside state.json, every day's ids in seen.json.
+  const parts = readdirSync(out).filter((n) => n.startsWith("files-")), days = readdirSync(out).filter((n) => n.startsWith("seen-"));
+  const files = Object.assign({}, ...parts.map((n) => JSON.parse(readFileSync(join(out, n), "utf8"))));
+  const seen = Object.fromEntries(days.map((n) => [n.slice(5, 15), readFileSync(join(out, n), "utf8")]));
+  writeFileSync(join(out, "state.json"), JSON.stringify({ ...JSON.parse(readFileSync(join(out, "state.json"), "utf8")), files }));
+  writeFileSync(join(out, "seen.json"), JSON.stringify(seen));
+  for (const n of [...parts, ...days]) rmSync(join(out, n));
+  const day = Object.keys(seen)[0];
+  const realWrite = fake.write;
+  fake.write = (path, body, expected) => {
+    if (Buffer.byteLength(body) > MIB) throw Error("over 1 MiB");
+    return realWrite(path, body, expected);
+  };
+  appendFileSync(f, line(2, stamp()));
+  await new UsageScanner().scan();
+  const read = (name) => { try { return readFileSync(join(out, name), "utf8"); } catch { return null; } };
+  assert.equal(read("seen.json"), null, "the older ids file goes once its days are saved");
+  assert.equal(read(`seen-${day}.json`).split(" ").length, 2);
+  assert.equal(JSON.parse(read("state.json")).files, undefined);
+  const offsets = Object.assign({}, ...Array.from({ length: 8 }, (_, i) => JSON.parse(read(`files-${i}.json`) ?? "{}")));
+  assert.equal(offsets[f].size, readFileSync(f).length);
+  const before = scans();
+  await new UsageScanner().scan();
+  assert.equal(scans(), before, "a new scanner starts from the saved offsets");
+  assert.equal(sum(JSON.parse(read("report.json")).rows, "write"), 200, "the message seen before is not counted twice");
+});
+
+test("a save that fails says so in Tokens", async () => {
+  const { projects } = realHome();
+  writeFileSync(join(projects, "a.jsonl"), line(1, stamp()));
+  fake.write = () => { throw Error("over 1 MiB"); };
+  await new UsageScanner().scan();
+  assert.match(fake.stored["relevo.usage"].error, /could not be saved: over 1 MiB/);
+});
+
+test("a listing that fails keeps that account's offsets instead of reading it all again", async () => {
+  const { projects } = realHome();
+  writeFileSync(join(projects, "a.jsonl"), line(1, stamp()));
+  const scanner = new UsageScanner();
+  await scanner.scan();
+  const real = fake.exec;
+  fake.exec = (cmd, args) => (cmd === "sh" && args[1]?.includes("wc -c") ? { code: 1, stdout: "" } : real(cmd, args));
+  await scanner.scan();
+  fake.exec = real;
+  const before = scans();
+  await scanner.scan();
+  assert.equal(scans(), before);
 });

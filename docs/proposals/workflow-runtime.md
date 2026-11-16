@@ -62,7 +62,7 @@ These limits apply to agents Relevo starts for a worktree run. An existing sessi
 
 ## Local state and evidence
 
-State lives under the app home in `relevo-workflow/`, separate from the repository. Writes are locked and atomic; the coordinator and the writers share one lock implementation. The coordinator keeps running when the run window closes. Terminal events and report files drive progress; a timer only checks deadlines. A restart reconciles unfinished deliveries without sending anything twice.
+State lives under the app home in `relevo-workflow/`, separate from the repository. Writes are locked and atomic; the coordinator and the writers share one lock implementation. The coordinator keeps running when the run window closes. Terminal events and report files drive progress; a timer only checks deadlines. A restart reconciles unfinished deliveries without sending anything twice. The coordinator stops cleanly on SIGTERM, SIGINT and SIGHUP (`hc kill`). Its lock counts as held only while the pid in it still runs this home's `cli.mjs … serve`, so a dead or reused pid is reclaimed, and pausing does not wait on it. While tasks need it, the Inbox asks the CLI once a minute (`{"action":"wake"}`) to start a coordinator if none is alive.
 
 Each write also updates `state.rev`, a few bytes holding the state's revision. The run window and the Inbox poll that file and read the full state only when it changes.
 

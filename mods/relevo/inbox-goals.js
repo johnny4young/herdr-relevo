@@ -14,9 +14,12 @@ import { openReview } from "./review.js";
 import { reviewableWork, scopeGoals, linkedDecision } from "./lib/goal-workflow.js";
 import { openWorkflow } from "./workflow.js";
 import { resultMeta } from "./lib/workflow-navigation.js";
+import { needsEngine } from "./lib/engine.js";
 
 export const GOAL_MODE = "relevo.goals.mode";
 export const GOAL_SCOPE = "relevo.goals.scope";
+// How often, while runs are open, the coordinator is asked to come back if it died.
+const WAKE_MS = 60000;
 // A mark hides a review until its task returns a new revision or the question changes.
 const textKey = (s) => [...s].reduce((h, c) => (h * 31 + c.codePointAt(0)) >>> 0, 7).toString(36);
 export const workflowCommand = async (payload) => {
@@ -32,7 +35,14 @@ export class GoalViews {
     this.goalDoc = emptyGoals();
     this.loadGoals(cx);
     // A bounded local metadata read also catches edits by an external lead agent.
-    cx.timer.every(5000, (cx) => { this.loadGoals(cx); });
+    cx.timer.every(5000, (cx) => { this.loadGoals(cx); this.wakeEngine(cx); });
+  }
+
+  // The CLI starts a coordinator only when none is alive, so a killed one or a reboot does not leave runs waiting.
+  wakeEngine(cx) {
+    if (!this.workflowEngine?.enabled || !needsEngine(this.workflowTasks) || Date.now() - (this.wokeAt ?? 0) < WAKE_MS) return;
+    this.wokeAt = Date.now();
+    cx.spawn(async () => { await runtimeCommand({ action: "wake" }).catch(() => null); });
   }
 
   loadGoals(cx) {

@@ -273,7 +273,8 @@ export function prune(state, cut, listed) {
   };
   for (const key of Object.keys(state.rows)) if (key.slice(0, 10) < cut) drop(state.rows, key);
   for (const day of Object.keys(state.seen)) if (day < cut) drop(state.seen, day);
-  for (const path of Object.keys(state.files)) if (!listed.has(path)) drop(state.files, path);
+  // Without a listing (one failed), every file keeps its offset rather than being read again from the start.
+  if (listed) for (const path of Object.keys(state.files)) if (!listed.has(path)) drop(state.files, path);
   for (const [id, s] of Object.entries(state.sessions)) if (!s.last || s.last.slice(0, 10) < cut) drop(state.sessions, id);
   for (const [key, s] of Object.entries(state.runs ?? {})) if (dayKey(new Date(s.last)) < cut) drop(state.runs, key);
   return gone;
