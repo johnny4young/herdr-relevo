@@ -595,6 +595,18 @@ test("a full queue refuses new tasks with a pointer to archiving", async (t) => 
     executor: { address: "exec-agent" }, reviewer: { address: "review-agent" } } }), /archive finished ones/);
 });
 
+test("a full queue first archives finished tasks idle for a week, then takes the new one", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  transaction(f.home, (doc) => { const base = doc.tasks[0]; base.state = "accepted"; for (let i = 1; i < 200; i++) doc.tasks.push({ ...base, id: `filler-${i}` }); });
+  f.setNow(Date.now() + 8 * 86400000);
+  const made = await f.runtime.command({ action: "create", task: { goalId: "g1", title: "One more", criteria: "c", root: f.root,
+    executor: { address: "exec-agent" }, reviewer: { address: "review-agent" } } });
+  const doc = f.runtime.read();
+  assert.deepEqual(doc.tasks.map((task) => task.id), [made.result.taskId]);
+  assert.ok(doc.events.some((e) => e.type === "Tasks archived" && e.actor === "Relevo" && e.detail === "200 finished tasks moved to the archive to make room in the queue"));
+  assert.equal(fs.readdirSync(path.join(f.home, "relevo-workflow", "archive")).filter((n) => n.endsWith(".jsonl")).length, 1);
+});
+
 const agedTask = async (f, title, extra = {}) => (await f.runtime.command({ action: "create", task: { goalId: extra.goalId ?? "g1", title, criteria: "Done", root: f.root,
   executor: { address: "exec-agent" }, reviewer: { address: "review-agent" }, ...extra } })).result.taskId;
 

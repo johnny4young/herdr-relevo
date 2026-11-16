@@ -473,3 +473,11 @@ test('a run command goes to the node the installer recorded, not the Herdr app P
   await runtimeCommand({ action: 'read' });
   assert.deepEqual(seen, ['/opt/fnm/node-versions/v26/bin/node', '{"action":"read"}']);
 });
+
+test('a goal file whose log is full keeps saving, with the newest thousand saves', () => {
+  const doc = commit();
+  doc.history = Array.from({ length: 1000 }, (_, i) => ({ goal: 'g1', version: 1, at: String(i), action: 'updated', state: 'active' }));
+  const next = saveGoal(doc, { ...doc.goals[0], owner: 'Lead' }, 1, 'now');
+  assert.equal(next.history.length, 1000);
+  assert.deepEqual([next.history[0].at, next.history.at(-1).at], ['1', 'now']);
+});

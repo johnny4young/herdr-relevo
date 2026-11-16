@@ -39,6 +39,7 @@ export function slotWait(doc, task, actor) {
 export const checkoutBusy = (doc, task, actor) => Boolean(slotWait(doc, task, actor));
 // When an attempt's limit falls: its start plus the time the machine slept (`pausedMs`), which no agent works through.
 export const attemptDue = (attempt, maxMinutes) => Date.parse(attempt.at) + (attempt.pausedMs ?? 0) + maxMinutes * 60000;
+const MAX_PLANS = 200;
 const roomFor = (doc, count) => { if (doc.tasks.length + count > MAX_TASKS) throw Error(`The queue holds ${MAX_TASKS} tasks; archive finished ones before adding more`); };
 const MAX_FEEDBACK = 8000, MAX_STORED_PROMPT = 12000, REPORTED_PROMPT = 2000;
 const failedChecks = (checks) => `Checks failed: ${JSON.stringify(checks.filter((check) => check.code !== 0).map((check) => ({
@@ -133,6 +134,28 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     const more = pending.length > 3 ? ` and ${pending.length - 3} more` : '';
     return `Waiting for human acceptance of ${titles.join(', ')}${more}.`.slice(0, 1000);
   }
+  async function archiveFinished({ days, goalId, preview = false, by = 'Human', note = '' }) {
+    // An unreadable goals file archives nothing: open runs still read their tasks.
+    let goals = null;
+    try { goals = JSON.parse(fs.readFileSync(path.join(home, 'relevo-goals.json'), 'utf8')).goals ?? []; } catch { /* keep everything */ }
+    const select = (doc) => archivable(doc, { days, now: clock(), goals, goalId });
+    if (preview) return { doc: readState(home), result: select(readState(home)) };
+    let staged = null;
+    try {
+      const saved = update((doc) => { staged = stageArchive(doc, dir, select(doc), clock());
+        if (staged) log(doc, null, 'Tasks archived', `${staged.count} finished tasks moved to the archive${note}`, by);
+        return { archived: staged?.count ?? 0 }; });
+      if (staged) publishArchive(dir, staged);
+      for (const { taskId, base } of staged?.snapshots ?? []) await dropAttemptRefs(base, taskId).catch(() => {});
+      return saved;
+    } catch (error) { if (staged) fs.rmSync(staged.pending, { force: true }); throw error; }
+  }
+  // A full queue makes room first, as Archive older than 7 days does by hand; what is younger or still needed stays.
+  async function makeRoom(tasks, plans = 0) {
+    const doc = readState(home);
+    if (doc.tasks.length + tasks <= MAX_TASKS && (doc.plans ?? []).length + plans <= MAX_PLANS) return;
+    await archiveFinished({ days: 7, by: 'Relevo', note: ' to make room in the queue' });
+  }
   async function command(payload) {
     if (!payload || typeof payload !== 'object') throw Error('Command required');
     const action = payload.action;
@@ -141,26 +164,14 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       const days = payload.olderThanDays ?? 7;
       if (!Number.isInteger(days) || days < 0 || days > 365) throw Error('Choose an age between 0 and 365 days');
       if (payload.goalId !== undefined && !text(payload.goalId, 100)) throw Error('Choose a run to archive');
-      // An unreadable goals file archives nothing: open runs still read their tasks.
-      let goals = null;
-      try { goals = JSON.parse(fs.readFileSync(path.join(home, 'relevo-goals.json'), 'utf8')).goals ?? []; } catch { /* keep everything */ }
-      const select = (doc) => archivable(doc, { days, now: clock(), goals, goalId: payload.goalId });
-      if (payload.preview === true) return { doc: readState(home), result: select(readState(home)) };
-      let staged = null;
-      try {
-        const saved = update((doc) => { staged = stageArchive(doc, dir, select(doc), clock());
-          if (staged) log(doc, null, 'Tasks archived', `${staged.count} finished tasks moved to the archive`, 'Human');
-          return { archived: staged?.count ?? 0 }; });
-        if (staged) publishArchive(dir, staged);
-        for (const { taskId, base } of staged?.snapshots ?? []) await dropAttemptRefs(base, taskId).catch(() => {});
-        return saved;
-      } catch (error) { if (staged) fs.rmSync(staged.pending, { force: true }); throw error; }
+      return archiveFinished({ days, goalId: payload.goalId, preview: payload.preview === true });
     }
     if (action === 'prepare-worktree') return { result: await prepareWorktree({ root: payload.root, title: payload.title }) };
     if (action === 'create') {
       const task = validateTask(payload.task, readState(home));
       await fp(task);
       await getActor(task.executor, task.root); await getActor(task.reviewer, task.root);
+      await makeRoom(1);
       return update((doc) => {
         validateTask(payload.task, doc); roomFor(doc, 1); doc.tasks.push(task); log(doc, task, 'Task created', 'Existing agents linked; no message sent', 'Human');
         if (payload.start === true) { task.state = 'ready'; task.nextRole = 'executor'; doc.engine.enabled = true; log(doc, task, 'Task started', 'Ready work runs when dependencies and agents are available', 'Human'); }
@@ -205,7 +216,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         return { goal, steps: ordered };
       };
       const { goal, steps } = readGoal();
-      if (before.tasks.length + steps.length > 200) throw Error('Workflow task limit reached; archive tasks before creating this plan');
+      await makeRoom(steps.length, 1);
+      if (readState(home).tasks.length + steps.length > MAX_TASKS) throw Error('Workflow task limit reached; archive tasks before creating this plan');
       const requestedOrder = steps.map((step) => step.id);
       const ids = steps.map(() => uid());
       const planTasks = [];
@@ -230,11 +242,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         }
         const current = readGoal();
         if (current.goal.version !== goal.version || JSON.stringify(current.goal) !== JSON.stringify(goal)) throw Error('The goal changed while this plan was being created');
-        if (doc.tasks.length + planTasks.length > 200) throw Error('Workflow task limit reached; archive tasks before creating this plan');
+        if (doc.tasks.length + planTasks.length > MAX_TASKS) throw Error('Workflow task limit reached; archive tasks before creating this plan');
         for (const step of steps) if (doc.tasks.some((task) => task.goalId === payload.goalId && task.goalStep?.id === step.id && task.state !== 'cancelled')) {
           throw Error(`Goal step already has a noncancelled task: ${step.title}`);
         }
-        if ((doc.plans ?? []).length >= 200) throw Error('Workflow plan limit reached; archive plans before continuing');
+        if ((doc.plans ?? []).length >= MAX_PLANS) throw Error('Workflow plan limit reached; archive plans before continuing');
         // Revalidate against the committed document and current goal before adding any task.
         let previous = null;
         for (const task of planTasks) {
