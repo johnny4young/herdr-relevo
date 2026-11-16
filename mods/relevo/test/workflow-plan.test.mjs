@@ -179,7 +179,7 @@ test('CLI does not ensure the engine again for an already-started plan', async (
   await f.runtime.command({ action: 'start-plan', planId: 'stable-plan-1' });
   let launches = 0;
   const result = await main(['--home', f.home, 'command', JSON.stringify({ action: 'start-plan', planId: 'stable-plan-1' })], {
-    runtimeFactory: () => f.runtime, ensureEngine: async () => { launches++; },
+    runtimeFactory: () => f.runtime, ensureEngine: async () => { launches++; }, engineRunning: () => true,
   });
   assert.equal(result.code, 0);
   assert.equal(launches, 0);

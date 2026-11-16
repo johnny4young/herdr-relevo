@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { ensureEngine, isEngine, main, parseArgs, serve, waitForStop } from '../runtime/cli.mjs';
+import { IDLE_MS, ensureEngine, isEngine, main, parseArgs, serve, waitForStop } from '../runtime/cli.mjs';
 
 async function fixture(fn) {
   const home = await fs.promises.realpath(await mkdtemp(join(tmpdir(), 'relevo-cli-')));
@@ -61,8 +61,8 @@ test('engine launch uses hc background name and does not duplicate a live lock o
   };
   const options = { runCommand, cli: '/abs/cli.mjs', node: '/abs/node', check: () => true };
   await ensureEngine(home, options);
-  assert.deepEqual(calls[0].slice(0, 9), ['hc', 'run', '--bg', '--name', calls[0][4], '--outlive-parent', '--no-notify', '--', '/abs/node']);
-  assert.deepEqual(calls[0].slice(9), ['/abs/cli.mjs', '--home', home, 'serve']);
+  assert.deepEqual(calls[0].slice(0, 10), ['hc', 'run', '--bg', '--name', calls[0][4], '--outlive-parent', '--no-notify', '--rm', '--', '/abs/node']);
+  assert.deepEqual(calls[0].slice(10), ['/abs/cli.mjs', '--home', home, 'serve']);
   const lock = join(home, 'relevo-workflow', 'engine.lock'); await mkdir(lock, { recursive: true });
   await writeFile(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, token: 'active' }));
   await ensureEngine(home, options); assert.equal(calls.length, 2); assert.equal(calls[1][1], 'get');
@@ -207,4 +207,54 @@ test('wake starts a coordinator only when one is missing and runs still need it'
   running = true; await main(wake, deps); assert.equal(launches, 1, 'a live coordinator is left alone');
   running = false; doc.tasks[0].state = 'accepted'; await main(wake, deps); assert.equal(launches, 1, 'nothing left to do');
   doc.tasks[0].state = 'running'; doc.engine.enabled = false; await main(wake, deps); assert.equal(launches, 1, 'paused stays paused');
+}));
+
+// serve() with timers and a clock the test moves; `watches` counts the event watches it opened.
+async function serving(home, doc) {
+  await mkdir(join(home, 'relevo-workflow', 'reports'), { recursive: true });
+  const intervals = [], watches = [], at = { now: 1000 };
+  const timers = { setTimeout() { return 1; }, clearTimeout() {}, setInterval(fn) { intervals.push(fn); return 1; }, clearInterval() {} };
+  const fsImpl = Object.create(fs); fsImpl.watch = () => ({ close() {} });
+  const eventWatch = () => { const w = { broken: false, close() {} }; watches.push(w); return w; };
+  let done = false;
+  const run = serve(home, { runtimeFactory: () => ({ recover() {}, read: () => doc, tick: async () => {} }), fsImpl, timers,
+    processRef: new EventEmitter(), eventWatch, clock: () => at.now, pid: 828282 }).then(() => { done = true; });
+  await new Promise((resolve) => immediate(resolve));
+  return { beat: async (ms) => { at.now += ms; intervals[0](); await new Promise((resolve) => immediate(resolve)); }, watches, get done() { return done; }, run };
+}
+
+test('a coordinator with nothing to do rests, and one with a run open stays', async () => fixture(async (home) => {
+  const doc = { engine: { enabled: true }, tasks: [{ id: 'a', state: 'running', attempts: [{ state: 'running' }], executor: { address: 't1' }, reviewer: { address: 't2' } }] };
+  const c = await serving(home, doc);
+  await c.beat(IDLE_MS * 2);
+  assert.equal(c.done, false, 'a running attempt keeps it');
+  doc.tasks[0].state = 'accepted'; doc.tasks[0].attempts[0].state = 'done';
+  await c.beat(IDLE_MS - 1000);
+  assert.equal(c.done, false, 'idle, but not for long');
+  await c.beat(1000); await c.run;
+  assert.equal(fs.existsSync(join(home, 'relevo-workflow', 'engine.lock')), false);
+}));
+
+test('an agent watch that ended is opened again, at most every 30 seconds', async () => fixture(async (home) => {
+  const doc = { engine: { enabled: true }, tasks: [{ id: 'a', state: 'running', attempts: [{ state: 'running' }], executor: { address: 't1' }, reviewer: { address: 't2' } }] };
+  const c = await serving(home, doc);
+  assert.equal(c.watches.length, 1);
+  c.watches[0].broken = true;
+  await c.beat(10000);
+  assert.equal(c.watches.length, 1);
+  await c.beat(20000);
+  assert.equal(c.watches.length, 2);
+  await c.beat(30000);
+  assert.equal(c.watches.length, 2, 'a watch that holds is kept');
+  doc.engine.enabled = false; await c.beat(0); await c.run;
+}));
+
+test('a command that leaves work starts a coordinator that rested', async () => fixture(async (home) => {
+  let launches = 0, running = false;
+  const doc = { engine: { enabled: true }, tasks: [{ id: 'a', state: 'ready', paused: false, attempts: [] }] };
+  const deps = { runtimeFactory: () => ({ read: () => doc, command: async () => ({ doc }) }), ensureEngine: async () => { launches++; }, engineRunning: () => running };
+  const command = ['--home', home, 'command', '{"action":"pause","taskId":"b"}'];
+  await main(command, deps); assert.equal(launches, 1);
+  running = true; await main(command, deps); assert.equal(launches, 1, 'a running one is only woken');
+  running = false; doc.tasks[0].paused = true; await main(command, deps); assert.equal(launches, 1, 'nothing left for it');
 }));
