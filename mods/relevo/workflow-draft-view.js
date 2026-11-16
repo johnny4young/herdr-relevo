@@ -59,7 +59,7 @@ export class WorkflowDraftView extends WorkflowSetup {
     this.drafts.clear(this.goalId); this.pendingDraft = null;
     for (const key of ["title", "root", "criteria", "checks"]) this.form[key].set_value("");
     this.form.maxRounds.set_value("2"); this.form.maxMinutes.set_value("20");
-    this.executor = ""; this.reviewer = ""; this.checkPreset = "none"; this.dependsOn = [];
+    this.executor = ""; this.reviewer = ""; this.checkPreset = "none"; this.checksPicked = false; this.checksFor = null; this.dependsOn = [];
     this.draftSnapshot = JSON.stringify(this.taskDraftSnapshot()); this.draftSaved = false; this.draftError = null;
     this.setupReuseNotice = null; this.setupReuseWarning = null; cx.notify();
   }

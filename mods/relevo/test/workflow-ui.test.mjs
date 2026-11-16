@@ -870,3 +870,49 @@ test('a run reviewer starts without the person\'s hooks, and every run agent wri
   assert.equal(codexReviewer[codexReviewer.indexOf('--ask-for-approval') + 1], 'never', 'a Codex reviewer never stops to ask');
   assert.equal(runAgentArgs('codex', 'executor', '/h')[runAgentArgs('codex', 'executor', '/h').indexOf('--ask-for-approval') + 1], 'on-request');
 });
+
+test('the tests a repository declares are read from its files', async () => {
+  const { detectChecks, checksLabel } = await import('../lib/run-checks.js');
+  const pkg = (test) => JSON.stringify({ scripts: { test } });
+  assert.deepEqual([
+    detectChecks({ 'package.json': pkg('node --test') }),
+    detectChecks({ 'package.json': pkg('vitest run'), 'pnpm-lock.yaml': '' }),
+    detectChecks({ 'package.json': pkg('echo "Error: no test specified" && exit 1'), 'go.mod': '' }),
+    detectChecks({ 'Cargo.toml': '' }),
+    detectChecks({ 'pyproject.toml': '[tool.pytest.ini_options]\n' }),
+    detectChecks({ Makefile: 'build:\n\tgo build\ntest:\n\tgo test\n' }),
+    detectChecks({ 'pyproject.toml': '[project]\n', 'package.json': '{' }),
+  ], [[['npm', 'test']], [['pnpm', 'test']], [['go', 'test', './...']], [['cargo', 'test']], [['pytest']], [['make', 'test']], null]);
+  assert.deepEqual([checksLabel([]), checksLabel([['go', 'test', './...']]), checksLabel([['a'], ['b']])], ['no tests', 'go test ./...', '2 checks']);
+});
+
+test('a new task starts with the tests its repository declares, and a pick of the person is kept', async () => {
+  fake.stored['relevo.runs.mode'] = 'worktree';
+  const { v, cx } = await setup();
+  const root = '/work/app';
+  fake.exec = async (cmd, args, opts) => (cmd === 'sh' && opts?.cwd === root ? { code: 0, stdout: 'package.json\nyarn.lock\n' } : null);
+  fake.files[`${root}/package.json`] = JSON.stringify({ scripts: { test: 'jest' } });
+  v.explicitNew = true; v.form.root.set_value(root); v.form.criteria.set_value('Do it');
+  v.launchTick(cx); await flush();
+  assert.deepEqual(v.checksNow(), [['yarn', 'test']]);
+  assert.match(text(find(v.render(), 'workflow-task-setup')), /app · own worktree · .* · yarn test/);
+  click(find(v.render(), 'workflow-task-advanced'), cx);
+  click(find(v.render(), 'workflow-check-preset-none'), cx);
+  v.checksFor = null; v.launchTick(cx); await flush();
+  assert.deepEqual(v.checksNow(), [], 'what the person picked stays');
+  v.close();
+});
+
+test('a run account out of quota is not kept from last time, and a run worktree opens on its own repository', async () => {
+  const { v } = await setup();
+  fake.stored['relevo.runs.accounts'] = { executor: 'work', reviewer: 'codex' };
+  v.quotas = { work: { h5: { pct: 100 }, d7: null } };
+  assert.notEqual(v.runAccounts().executor, 'work');
+  v.quotas = {};
+  assert.deepEqual(v.runAccounts(), { executor: 'work', reviewer: 'codex' });
+  v.close();
+  const { repoOf } = await import('../workflow-runs.js');
+  fake.exec = async (cmd, args) => (cmd === 'git' && args.includes('--git-common-dir') ? { code: 0, stdout: '/work/app/.git\n' } : null);
+  assert.equal(await repoOf('/home/test/.herdr/worktrees/app/fix-search-0a1b2c'), '/work/app');
+  assert.equal(await repoOf('/work/other'), '/work/other');
+});
