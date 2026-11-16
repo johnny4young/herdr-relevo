@@ -292,7 +292,8 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   assistant lines with usage and for titles, and one `awk` per batch that pulls each message's id, time, model,
   entrypoint, four token counts, cache lifetime, session and folder with `index()` lookups (regexes over lines of
   several MB took minutes). Batches stay under 100 MB and 400 files; a file over that goes in ranges overlapping by
-  8 MB. A message id counts once across files, so resumed and forked sessions don't double. `entrypoint` gives the
+  8 MB. A message id counts once across files, so resumed and forked sessions don't double: a copy keeps its
+  time, so only its own day is checked, and that day's ids are held as a set only while a read runs. `entrypoint` gives the
   surface (`claude-desktop` Desktop, `cli` terminal, the rest automatic); a write over 20k tokens more than an hour
   after the previous message counts as a pause. State, ids by day and a report live in `~/.local/state/relevo/usage/`,
   read with `cat` (past `readTextFile`'s 1 MiB) and written with `writeTextFile`, which writes at most 1 MiB: the

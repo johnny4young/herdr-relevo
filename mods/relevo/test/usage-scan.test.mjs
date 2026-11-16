@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { fake, resetFake } from "./fake/herdr.mjs";
 import {
   AWK, CLAUDE_SCAN, CODEX_SCAN, CONTEXT_SCAN, addClaude, addCodex, contextOf, cutDay, emptyState, parseList, parseScan,
-  plan, prune, reportOf, seenSet,
+  plan, prune, reportOf, SeenIds,
 } from "../lib/usage-scan.js";
 
 const { UsageScanner, AGENT_CONTEXT, ContextWatch } = await import("../usage-scan.js");
@@ -43,7 +43,7 @@ function read(path, start = 0, end = readFileSync(path).length, prev = "") {
   return parseScan(sh(CLAUDE_SCAN, AWK, `${path}|${start}|${end}|${prev}`));
 }
 
-function add(files, state = emptyState(), seen = new Set(), kind = "main") {
+function add(files, state = emptyState(), seen = new SeenIds(state), kind = "main") {
   for (const f of files) addClaude(state, seen, f, { account: "personal", kind, project: (cwd) => cwd.split("/").pop(), cut: CUT });
   return { state, seen, rows: reportOf(state, 0).rows };
 }
@@ -149,8 +149,13 @@ test("days past the window, gone files and old sessions are dropped", () => {
   assert.deepEqual([state.rows, state.files, state.sessions, state.seen], [{}, {}, {}, {}]);
 });
 
-test("the saved ids come back as a set", () => {
-  assert.deepEqual([...seenSet({ seen: { "2026-11-01": "a b", "2026-11-02": "c" } })], ["a", "b", "c"]);
+test("an id counts once on its day, and the saved list answers after the sets are dropped", () => {
+  const state = { seen: { "2026-11-01": "a b" } }, seen = new SeenIds(state);
+  assert.deepEqual([seen.add("2026-11-01", "a"), seen.add("2026-11-01", "c"), seen.add("2026-11-01", "c"), seen.add("2026-11-02", "d")], [false, true, false, true]);
+  assert.deepEqual(state.seen, { "2026-11-01": "a b c", "2026-11-02": "d" });
+  seen.forget();
+  assert.equal(seen.days.size, 0);
+  assert.deepEqual([seen.add("2026-11-01", "c"), seen.add("2026-11-02", "e")], [false, true]);
 });
 
 test("wc's list keeps sizes and drops its totals", () => {
@@ -310,6 +315,19 @@ test("a save keeps every file under 1 MiB, and a save in the older two-file layo
   await new UsageScanner().scan();
   assert.equal(scans(), before, "a new scanner starts from the saved offsets");
   assert.equal(sum(JSON.parse(read("report.json")).rows, "write"), 200, "the message seen before is not counted twice");
+});
+
+test("between reads the scanner keeps only the saved lists, and a copied message still counts once", async () => {
+  const { projects } = realHome();
+  writeFileSync(join(projects, "a.jsonl"), line(1, stamp()));
+  const scanner = new UsageScanner();
+  await scanner.scan();
+  assert.equal(scanner.seen.days.size, 0);
+  // A resumed session copies the earlier message into its own transcript.
+  writeFileSync(join(projects, "b.jsonl"), line(1, stamp()) + line(2, stamp()));
+  await scanner.scan();
+  assert.equal(scanner.seen.days.size, 0);
+  assert.equal(sum(JSON.parse(fake.read("/home/test/.local/state/relevo/usage/report.json")).rows, "write"), 200);
 });
 
 test("a save that fails says so in Tokens", async () => {

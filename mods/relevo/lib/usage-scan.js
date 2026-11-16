@@ -194,11 +194,27 @@ export const cutDay = (now = new Date()) => dayKey(new Date(now.getTime() - KEEP
 const surfaceOf = (entrypoint) => SURFACES[entrypoint || "cli"] ?? "automatic";
 const shortId = (id) => id.slice(-ID_LENGTH);
 
-// The ids already counted, by day; filled from the saved state.
-export function seenSet(state) {
-  const out = new Set();
-  for (const ids of Object.values(state.seen)) for (const id of ids.split(" ")) out.add(id);
-  return out;
+// The ids already counted. A copy of a message keeps its time, so only its own day is asked: that day's set is
+// built from the saved list when first needed, and `forget` drops the sets once a read ends.
+export class SeenIds {
+  constructor(state) {
+    this.state = state;
+    this.days = new Map();
+  }
+
+  // False when the id was counted before.
+  add(day, id) {
+    let ids = this.days.get(day);
+    if (!ids) this.days.set(day, ids = new Set(this.state.seen[day]?.split(" ") ?? []));
+    if (ids.has(id)) return false;
+    ids.add(id);
+    this.state.seen[day] = this.state.seen[day] ? `${this.state.seen[day]} ${id}` : id;
+    return true;
+  }
+
+  forget() {
+    this.days.clear();
+  }
 }
 
 function addRow(state, key, add) {
@@ -215,9 +231,7 @@ export function addClaude(state, seen, file, { account, kind, project, cut }) {
     f.last = at;
     f.prev = m.id;
     const day = dayKey(new Date(m.ts)), id = shortId(m.id);
-    if (day < cut || seen.has(id)) continue;
-    seen.add(id);
-    state.seen[day] = state.seen[day] ? `${state.seen[day]} ${id}` : id;
+    if (day < cut || !seen.add(day, id)) continue;
     const surface = surfaceOf(m.entrypoint), own = surface === "automatic" ? "automatic" : kind;
     const where = project(m.cwd);
     const paused = own === "main" && gap > PAUSE_SECONDS && m.write > PAUSE_MIN_WRITE;
