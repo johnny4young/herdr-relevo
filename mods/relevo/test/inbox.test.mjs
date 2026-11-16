@@ -1091,3 +1091,25 @@ test("a reply whose question went away lets go of the keyboard", async () => {
   await flush();
   assert.equal(inbox.replying, null);
 });
+
+test("a second opinion on an agent's work opens a reviewer of another provider beside it and starts a review-only task", async () => {
+  const { opinionAccount } = await import("../second-opinion.js");
+  assert.deepEqual([opinionAccount("personal", {}), opinionAccount("codex", {}), opinionAccount("personal", { codex: { h5: { pct: 100 } } }), opinionAccount("personal", { codex: { h5: { pct: 100 } }, work: { h5: { pct: 100 } } })],
+    ["codex", "personal", "work", null]);
+  setAgents(["t1", "done", 3, { "agent.account": "personal" }]);
+  const { ui, cx } = await open();
+  click(find(ui(), "in-t1"), cx);
+  const sent = [];
+  fake.exec = (cmd, args) => {
+    if (/cli\.mjs$/.test(args?.[0] ?? "")) { sent.push(JSON.parse(args.at(-1))); return { code: 0, stdout: JSON.stringify({ result: { taskId: "task-1" } }) }; }
+    return repoOutput(cmd, args);
+  };
+  fake.agents = [...fake.agents, { ...agent("t9", "idle"), tab_name: "app · second opinion" }];
+  click(find(ui(), "opinion-t1"), cx);
+  for (let i = 0; i < 10; i++) await flush();
+  assert.equal(fake.runs.some(([name, args]) => ["tab.new", "space.new"].includes(name) && /codex/.test(JSON.stringify(args.argv))), true, "Codex reviews Claude's work");
+  const task = sent.find((p) => p.action === "create")?.task;
+  assert.deepEqual([task.reviewOnly, task.root, task.executor.address, task.reviewer.address], [true, TOP, "t1", "t9"]);
+  assert.equal(fake.stored["relevo.runs.launch"], null);
+  assert.deepEqual(fake.notices.filter((n) => n.level === "error"), []);
+});

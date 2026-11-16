@@ -931,3 +931,25 @@ test("the time a machine slept doesn't count against a running attempt", () => {
   assert.equal(doc.tasks[1].attempts[0].pausedMs, undefined);
   assert.equal(attemptDue(attempt, 20), Date.parse(at) + 3 * 3600_000 + 20 * 60_000);
 });
+
+test("a second opinion checks the work as it is, sends it only to the reviewer, and brings the verdict to the person", async (t) => {
+  const f = await fixture({ checkCode: 1 }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const created = await f.runtime.command({ action: "create", start: true, task: { goalId: "g1", title: "Second opinion", criteria: "Is it right?", root: f.root,
+    executor: { address: "exec-agent", label: "Writer" }, reviewer: { address: "review-agent", label: "Reviewer" }, checks: [["npm", "test"]], reviewOnly: true } });
+  const id = created.result.taskId, task = () => f.runtime.read().tasks.find((x) => x.id === id);
+  assert.deepEqual([task().reviewOnly, task().nextRole], [true, "checks"]);
+  await f.runtime.tick();
+  assert.equal(task().state, "needs_review", "a failing check is evidence for the reviewer, not a round for the writer");
+  assert.equal(task().checksResult[0].code, 1);
+  await f.runtime.tick();
+  assert.deepEqual(f.sends.map((args) => args.at(-2)), ["review-agent"], "the agent whose work it is gets nothing");
+  assert.match(f.sends[0].at(-1), /role reviewer/);
+  f.report("reviewer", "changes_requested", "The tests fail", task().attempts.at(-1), { findings: [{ level: "major", where: "a.js:1", issue: "Broken", fix: "Fix it" }] });
+  await f.runtime.tick();
+  assert.equal(task().state, "needs_you", "the verdict waits for the person instead of going back to the writer");
+  assert.equal(task().round, 0);
+  await f.runtime.command({ action: "decide", taskId: id, outcome: "changes", text: "Please fix the tests", revision: task().revision });
+  await f.runtime.tick();
+  assert.equal(f.sends.at(-1).at(-2), "exec-agent", "asked to, the person's changes go to the agent whose work it was");
+  assert.match(f.sends.at(-1).at(-1), /Please fix the tests/);
+});

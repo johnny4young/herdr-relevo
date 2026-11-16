@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { agents, terminals, exec, appHome, run, panes, readTextFile, shared, setShared, spaces } from "herdr";
+import { agents, terminals, exec, appHome, run, panes, shared, setShared, spaces } from "herdr";
 import { runtimeCommand } from "./runtime-cli.js";
 import { button } from "./ui.js";
 import * as config from "./config.js";
@@ -8,12 +8,9 @@ import { ACCOUNTS, CODEX, accountOf, launchArgv, openInFolder, loadClaudeQuotas,
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { accountFor } from "./context.js";
 import { row } from "./workflow-labels.js";
-import { RUN_LAUNCH, answerTrust, trustKeys } from "./run-launch.js";
-import { CHECK_FILES, detectChecks } from "./lib/run-checks.js";
+import { RUN_LAUNCH, answerTrust, repoChecks, trustKeys } from "./run-launch.js";
 import { runFolder } from "./lib/run-folder.js";
 
-// Files whose text decides the command; for the others being there is enough.
-const READ_CHECK_FILES = new Set(["package.json", "pyproject.toml", "Makefile"]);
 
 // The repository a folder belongs to: a run's own worktree gives the repository it was made from.
 export async function repoOf(cwd) {
@@ -108,13 +105,9 @@ export class WorkflowRuns extends WorkflowDraftView {
     if (!root.startsWith("/") || this.checksFor === root || this.checksPicked) return;
     this.checksFor = root;
     cx.spawn(async (cx) => {
-      const listed = await exec("sh", ["-c", 'for f; do [ -e "$f" ] && printf "%s\\n" "$f"; done', "sh", ...CHECK_FILES], { cwd: root }).catch(() => null);
-      const there = new Set((listed?.stdout ?? "").split("\n").filter(Boolean)), files = {};
-      for (const name of CHECK_FILES) {
-        files[name] = !there.has(name) ? null : READ_CHECK_FILES.has(name) ? (await readTextFile(`${root}/${name}`).catch(() => "")) ?? "" : "";
-      }
+      const checks = await repoChecks(root);
       if (this.closed || this.checksFor !== root || this.checksPicked) return;
-      this.useChecks(detectChecks(files) ?? []);
+      this.useChecks(checks);
       cx.notify();
     });
   }

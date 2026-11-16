@@ -9,6 +9,7 @@ import { accountFor, contextOfPath, inFocus } from "./context.js";
 import { ago, nextSince } from "./lib/time.js";
 import { today, duration } from "./ledger.js";
 import { openReview, REVIEW_SHORTCUT_ACTIONS } from "./review.js";
+import { askSecondOpinion, secondOpinionNotice } from "./second-opinion.js";
 import { openHandoff } from "./handoff.js";
 import { openReplies } from "./replies.js";
 import { button, spinner, withKey, foldRow, FOLDS, shortcutBindings, icon, checkbox, keycap, row, diffRatio, tabButton, keyBar, actionButton } from "./ui.js";
@@ -665,6 +666,7 @@ export class Inbox {
       main: { id: `review-${a.address}`, key: "r", label: "Review", run: () => openReview(item.top, a.address), kind: "go", tip: withKey("Comment on the diff line by line", "relevo.review") },
       actions: [
         goAgent,
+        this.opinionAction(item),
         this.sourceContextAction(`local:${item.top || a.address}`),
         { id: `diff-${a.address}`, label: "View diff", run: () => {
           run("pane.focus", { pane: a.pane });
@@ -678,6 +680,21 @@ export class Inbox {
       ],
       mark: this.markAction(a.address, addressed, (on, cx) => this.setLocalAddressed(a, on, cx), "Addressed: hide until its agent works again"),
     };
+  }
+
+  // Another model reviews this uncommitted work; the verdict comes back in Runs.
+  opinionAction(item) {
+    const a = item.agent, asking = this.opinionFor === a.address;
+    return { id: `opinion-${a.address}`, label: asking ? "Asking…" : "Second opinion", tip: "Another model runs the tests and reviews this uncommitted work; its verdict comes back in Runs",
+      run: (cx) => {
+        if (this.opinionFor) return;
+        const cwd = panes().find((p) => p.pane === a.pane)?.cwd ?? a.cwd ?? item.top;
+        this.opinionFor = a.address; cx.notify();
+        cx.spawn(async (cx) => {
+          try { await askSecondOpinion(a, cwd, cx); } catch (error) { secondOpinionNotice(error); }
+          this.opinionFor = null; cx.notify();
+        });
+      } };
   }
 
   localCard(t, item, addressed = false) {
