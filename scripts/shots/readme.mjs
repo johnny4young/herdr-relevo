@@ -11,14 +11,15 @@ const CHROME = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/M
 
 // Panels: name, scene, size, environment.
 export const PANELS = [
-  ["now850", "inbox-sel", "380x850"], ["now510", "inbox-sel", "380x510"], ["agents850", "agents-today", "268x850"],
+  ["now850", "inbox-sel", "380x850"], ["now510", "inbox-sel", "380x510"], ["leftbar850", "leftbar", "268x850", { HEIGHT: "850" }],
   ["away", "states", "380x558", { STATE: "away" }], ["review", "review", "700x598"], ["accounts", "accounts", "420x478"],
   ["maintenance", "maintenance", "380x638"], ["checks", "inbox-checks", "380x638", { SEL: "pr-https://github.com/acme/web/pull/318" }],
+  ["spaces", "spaces", "268x638"], ["agents638", "agents-today", "268x638"],
   ["runs-run", "runs", "400x638", { RUN: "g1" }], ["runs-task", "runs", "400x638", { RUN: "g1", TASK: "t1", TWICE: "1" }],
 ];
 // Pictures: file in the repo, page size, frames (a panel at its size, or a drawn terminal).
 export const PICTURES = [
-  ["preview.png", "1440x900", ["agents850:268x852", "term:work:700x852", "now850:380x852"]],
+  ["preview.png", "1440x900", ["leftbar850:268x852", "term:work:700x852", "now850:380x852"]],
   ["screenshots/answer.png", "1100x560", ["term:answer:640x512", "now510:380x512"]],
   ["screenshots/away.png", "428x608", ["away:380x560"]],
   ["screenshots/review.png", "748x648", ["review:700x600"]],
@@ -26,6 +27,7 @@ export const PICTURES = [
   ["screenshots/worktrees.png", "428x688", ["maintenance:380x640"]],
   ["screenshots/land.png", "428x688", ["checks:380x640"]],
   ["screenshots/runs.png", "888x688", ["runs-run:400x640", "runs-task:400x640"]],
+  ["screenshots/spaces.png", "624x688", ["spaces:268x640", "agents638:268x640"]],
 ];
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
