@@ -10,6 +10,7 @@ import { baseBranch } from "./worktrees.js";
 import { openWorkflow } from "./workflow-window.js";
 import { GIT_READ as READ } from "./lib/git.js";
 import { diffRows, lineKey, selectRange, lineComment, fileComment, commentId, commentLabel, rangeRows, reviewMessage } from "./lib/diff.js";
+import { highlightRows, languageFor } from "./lib/highlight.js";
 
 const MAX_ROWS = 4000;
 // Open review panes by checkout, so a second Review focuses the first.
@@ -105,6 +106,11 @@ export const REVIEW_SHORTCUT_ACTIONS = [
   { id: "review.next", label: "Next file", section: "Review pane", fixedShortcut: "]" },
   { id: "review.send", label: "Send the comments to the agent", section: "Review pane", fixedShortcut: "cmd-enter" },
 ];
+
+// The Files editor's syntax colors.
+const SYNTAX = { keyword: "ansi5", string: "ansi2", comment: "dim", function: "ansi4", type: "ansi3", number: "ansi1", constant: "ansi6" };
+const code = (t, tokens) => h_flex().flex_1().min_w(0).overflow_hidden().whitespace_nowrap()
+  .children(tokens.map(([kind, text]) => div().flex_none().when(Boolean(kind), (el) => el.text_color(t[SYNTAX[kind]])).child(text)));
 
 // A comment's label and text; `oneLine` cuts the text instead of wrapping it.
 const noteLine = (t, c, oneLine = false) => h_flex().min_w(0).gap(8).items_center()
@@ -262,7 +268,7 @@ export class ReviewDiff {
     if (sign === this.diffSign) return;
     this.diffSign = sign;
     this.anchor = null;
-    this.rows = diffRows(out.split("\n")).slice(0, MAX_ROWS);
+    this.rows = highlightRows(diffRows(out.split("\n")).slice(0, MAX_ROWS), languageFor(file.path));
     cx.notify();
   }
 
@@ -498,7 +504,7 @@ export class ReviewDiff {
       .when(marked, (el) => el.bg(t.selected))
       .child(div().w(30).flex_none().text_right().text_color(noted ? t.accent : t.dim).child(String(r.number)))
       .child(h_flex().w(12).flex_none().when(noted, (el) => el.child(icon("comment", t.accent))))
-      .child(div().flex_1().min_w(0).truncate().child(r.text));
+      .child(r.tokens ? code(t, r.tokens) : div().flex_1().min_w(0).truncate().child(r.text));
   }
 
   // Also a row of the virtual list, so it only opens the comment; deleting is in the strip above the footer.
