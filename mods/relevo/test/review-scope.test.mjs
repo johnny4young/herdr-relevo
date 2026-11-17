@@ -104,3 +104,21 @@ test("a run's range has no agent to send comments to, so it shows no send bar", 
   const plain = await open();
   assert.match(text(plain.v.render(plain.cx)), /No agent in this folder/);
 });
+
+test("opened with nothing uncommitted, it shows the branch's changes", async () => {
+  fake.exec = (cmd, args) => {
+    if (cmd !== "git") return null;
+    if (args.includes("symbolic-ref")) return { stdout: "origin/main\n" };
+    if (args.includes("merge-base")) return { stdout: "abc123\n" };
+    if (args.includes("--numstat")) return { stdout: args.includes("abc123") ? "1\t0\tcommitted.txt\n" : "" };
+    return null;
+  };
+  const { v, cx } = await open();
+  assert.equal(v.scope, "all");
+  assert.deepEqual(v.files.map((f) => f.path), ["committed.txt"]);
+  // Uncommitted chosen by hand stays, even when empty.
+  v.setScope("uncommitted", cx);
+  await settled();
+  assert.equal(v.scope, "uncommitted");
+  assert.equal(v.empty(), "No uncommitted changes");
+});
