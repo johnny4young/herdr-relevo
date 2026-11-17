@@ -1160,3 +1160,12 @@ test("Review reads the checkout again, so a card whose work was committed goes",
   for (let i = 0; i < 6; i++) await flush();
   assert.equal(find(ui(), "review-t1"), null);
 });
+
+test("a PR you were asked to review offers Review too, once its repo is cloned here", async () => {
+  const { inbox } = await open();
+  const pr = { url: "https://github.com/o/r/pull/7", number: 7, repo: "o/r", skills: [], reasons: [], updatedAt: new Date().toISOString() };
+  const ids = () => [inbox.prActions(theme(), pr, true).main, ...inbox.prActions(theme(), pr, true).actions].filter(Boolean).map((a) => a.id);
+  assert.equal(ids().includes(`review-pr-${pr.url}`), false, "no clone, nothing to diff");
+  inbox.clones["o/r"] = "/code/r";
+  assert.ok(ids().includes(`review-pr-${pr.url}`));
+});
