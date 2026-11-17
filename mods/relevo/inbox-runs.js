@@ -242,7 +242,7 @@ export class RunViews {
 
   // Its findings are handled (posted, handed to a fix run, or done with): no reviewer part stays open, and its
   // worktrees go.
-  closeReview(task, cx, notice) {
+  closeReview(task, cx, notice, then = null) {
     if (this.runBusy) return;
     const reviews = this.reviewsOf(task).filter((x) => !["accepted", "cancelled"].includes(x.state));
     this.runBusy = true; this.runError = null; cx.notify();
@@ -256,6 +256,7 @@ export class RunViews {
         this.runTask = null; this.runAt = this.runPlace(); this.sel = null;
       } catch (e) { this.runError = `Action needs attention: ${e.message ?? e}`; }
       this.runBusy = false; cx.notify();
+      then?.();
     });
   }
 
@@ -674,7 +675,7 @@ export class RunViews {
       .child(h_flex().flex_wrap().gap(6).items_center()
         .child(button(t, "task-post-review", this.posting === goal.id ? "Posting…" : "Post as draft review", (cx) => this.postReview(goal, reviews, cx),
           { kind: "accent", disabled: busy || !found.length, tip: "A pending review on the PR, with a comment on each line found; you edit and send it on GitHub" }))
-        .child(button(t, "task-fix-findings", "Fix with a run", (cx) => fixFindings(reviews).then(() => this.closeReview(task, cx, "Handed to a fix run."), (e) => deepReviewNotice("Could not prepare the run", e)),
+        .child(button(t, "task-fix-findings", "Fix with a run", (cx) => this.closeReview(task, cx, "Handed to a fix run.", () => fixFindings(reviews).catch((e) => deepReviewNotice("Could not prepare the run", e))),
           { disabled: busy || !must, tip: "A run on a copy of the PR's branch, asked to fix every blocker and major" }))
         .child(button(t, "task-accept", confirming ? keyed("enter", "Confirm done") : keyed("a", "Done"), (cx) => this.acceptStep(task, cx),
           { disabled: busy, tip: "Closes the whole deep review; nothing is merged or posted" }))

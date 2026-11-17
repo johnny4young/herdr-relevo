@@ -133,7 +133,7 @@ export class WorkflowDetail extends WorkflowRuns {
           return bar
             .child(button(t, "workflow-post-review", this.posting ? "Posting…" : "Post as draft review", (cx) => this.postReview(task, cx),
               { kind: "solid", disabled: this.busy || this.posting || !found.length }))
-            .child(button(t, "workflow-fix-findings", "Fix with a run", (cx) => fixFindings(this.prReviews(task)).then(() => this.finishReviews(task, cx, "Handed to a fix run."), (e) => deepReviewNotice("Could not prepare the run", e)),
+            .child(button(t, "workflow-fix-findings", "Fix with a run", (cx) => { const reviews = this.prReviews(task); this.finishReviews(task, cx, "Handed to a fix run.", () => fixFindings(reviews).catch((e) => deepReviewNotice("Could not prepare the run", e))); },
               { disabled: this.busy || !must }))
             .child(button(t, "workflow-decide-accept", "Done", (cx) => this.finishReviews(task, cx), { kind: "ghost", disabled: this.busy, tip: "Closes the whole deep review; nothing is merged or posted" }));
         })
@@ -228,7 +228,8 @@ export class WorkflowDetail extends WorkflowRuns {
   }
 
   // Done closes the whole deep review: each verdict is accepted, anything still open cancelled.
-  finishReviews(task, cx, notice = "Deep review closed.") {
+  // `then` runs once the review is closed: opening a fix replaces this window, so it must come last.
+  finishReviews(task, cx, notice = "Deep review closed.", then = null) {
     if (this.busy) return;
     const open = this.prReviews(task).filter((r) => !["accepted", "cancelled"].includes(r.state));
     this.busy = true; this.error = null; cx.notify();
@@ -244,6 +245,7 @@ export class WorkflowDetail extends WorkflowRuns {
         this.notice = notice;
       } catch (e) { this.error = String(e?.message ?? e); }
       this.busy = false; cx.notify();
+      then?.();
     });
   }
 

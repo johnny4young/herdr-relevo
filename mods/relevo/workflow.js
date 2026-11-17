@@ -83,6 +83,7 @@ export class Workflow extends WorkflowDetail {
     this.loadQuotas(cx);
     cx.timer.every(60000, (cx) => this.loadQuotas(cx));
     cx.timer.every(1000, (cx) => { this.launchTick(cx); if (this.draftWaiting) this.persistDraft({ now: true }); });
+    cx.timer.every(100, (cx) => { if (!this.focusSoon || this.closed) return; this.focusSoon = false; this.h.focus(); cx.notify(); });
     cx.timer.after(30, (cx) => {
       if (this.closed) return;
       this.h.focus();
@@ -110,7 +111,8 @@ export class Workflow extends WorkflowDetail {
     if (request?.goalId !== this.goalId || !(request.at > this.lastRequest)) return;
     this.lastRequest = request.at;
     this.applyRequest(request);
-    this.h.focus();
+    // Called from render, where focus can't move: the next tick focuses.
+    this.focusSoon = true;
   }
 
   // What the panel asked for: a task on one of its tabs, a follow-up form, the saved setups, or a new task from one.
