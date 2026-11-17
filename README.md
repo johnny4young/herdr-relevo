@@ -76,7 +76,7 @@ The separate run window is for planning (prompt, repository, agents, plan) and f
 
 **Keys.** In Runs: **j/k** or **↑/↓** select, **Enter** opens the run or the task, **Esc** goes back, **N** starts a run, **G** goes to the next run, **W** opens the run window, **E** opens the run's details, **?** lists every shortcut. On a task: **A** then **Enter** accepts, **R** asks for changes (Command-Enter sends them), **D** opens the diff, **C** compares its attempts. In an open run: **x** and **X** select results, **Enter** accepts the selection, **Esc** cancels it. In the run window: **1–5** switch views, **N** starts a task, **P** opens the plan, and Command-Enter submits the prompt or a change request.
 
-A run can also carry a plan of steps, an owner and a priority, and group the PRs and local changes that belong to it: **Edit**, then **Planning…**, shows them; a run that already has any of them shows them straight away. Saved setups and "Wait for earlier tasks" appear in the run window only once there is a setup or a task to use. Relevo counts on this machine how often each part of Runs is opened (`relevo.runs.uses` in its shared state: new runs, fixes, second opinions, Plan, Compare, batches, setups, planning), to keep what is used. See [how the coordinator works and its limits](docs/proposals/workflow-runtime.md), the [keyboard guide](docs/proposals/goal-ux.md) and [installation and rollback](docs/proposals/decision-inbox.md).
+A run can also carry a plan of steps, an owner and a priority, and group the PRs and local changes that belong to it: **Edit**, then **Planning…**, shows them; a run that already has any of them shows them straight away. Saved setups and "Wait for earlier tasks" appear in the run window only once there is a setup or a task to use. Relevo counts on this machine how often each part of Runs is opened (`relevo.runs.uses` in its shared state: new runs, fixes, second opinions, Plan, Compare, batches, setups, planning), to keep what is used. See [how the coordinator works and its limits](docs/proposals/workflow-runtime.md), the [keyboard guide](docs/proposals/goal-ux.md) and [how to install and update](#update).
 
 ## Native Decision Inbox preview
 
@@ -211,6 +211,10 @@ Mods reload by themselves. An update replaces only the files it installed and yo
 with the new one beside it as `<file>.new`; your `config.js` and your own icons are never touched. Whatever it replaces
 goes to `~/.config/herdr-app/relevo-install/backups/`, which keeps the ten newest installs. The first run over files
 you copied by hand replaces them, with that backup. `node scripts/relevo.mjs uninstall` removes what it installed and you didn't change.
+
+`doctor` also says what is left for you: the hook, when an account's copy is missing or outdated (the warning gives the
+command), and the space-folders mod, which Spaces replaces since 0.8.0 with the same folders. This is the way to update
+any earlier install, including one made with `scripts/live-relevo.mjs`, which installs only `mods/relevo`.
 
 Relevo's keys live in a `layout:relevo` section; if yours are under `global`, move them so they only act while Relevo
 shows.

@@ -243,6 +243,7 @@ export function doctor({ source, root, filesOnly = false, env = process.env, log
   if (filesOnly) return { failed };
 
   for (const mod of COMMUNITY) if (fs.existsSync(path.join(root, 'mods', mod))) ok(`mod ${mod}`); else fail(`mod ${mod} is missing: install it from herdr.dev`);
+  if (fs.existsSync(path.join(root, 'mods/space-folders'))) warn(`the space-folders mod is no longer needed: Spaces keeps the same folders. Remove ${path.join(root, 'mods/space-folders')}`);
   if (source) {
     const keys = missingKeys(source, root);
     if (keys.unreadable) warn('keys.json is not plain JSON: check Relevo\'s keys by hand');
@@ -259,7 +260,7 @@ export function doctor({ source, root, filesOnly = false, env = process.env, log
   if (fs.existsSync(hook) && onPath('jq', env)) {
     const check = spawnSync('bash', [hook, '--check'], { env, encoding: 'utf8' });
     if (check.status === 0) ok('hook installed in every account');
-    else warn(`the optional hook is not installed in every account (account chips, resumed handoffs, whole permission cards): ${(check.stdout ?? '').trim().split('\n').join('; ')}`);
+    else warn(`the optional hook is not installed in every account (account chips, resumed handoffs, whole permission cards): ${(check.stdout ?? '').trim().split('\n').join('; ')}. To set it up: bash ${hook} --install (see hooks/HOOK.md)`);
   }
   return { failed };
 }

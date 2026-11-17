@@ -1,5 +1,7 @@
 # Reviews and Runs: installation and rollback
 
+To install or update Relevo, use `./install.sh` and `node scripts/relevo.mjs doctor`, as in the [README](../../README.md#update). The `live-relevo.mjs` flow below installs only `mods/relevo` and leaves the other mods and the layout behind.
+
 The UI calls a goal a **run**. This document keeps "goal" where it means the stored record, the file or a command name.
 
 ## What is installed
