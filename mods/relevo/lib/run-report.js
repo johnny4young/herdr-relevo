@@ -13,7 +13,21 @@ export function cleanReport(report) {
   const findings = (Array.isArray(report?.findings) ? report.findings : []).map((f) => ({
     level: LEVELS.includes(f?.level) ? f.level : 'major', where: line(f?.where, 200), issue: line(f?.issue), fix: line(f?.fix), ...(line(f?.proof, 800) ? { proof: line(f?.proof, 800) } : {}),
   })).filter((f) => f.issue).slice(0, ITEMS);
-  return { details: list(report?.details), findings, notProven: list(report?.notProven), notRun: list(report?.notRun) };
+  const subject = line(report?.commit?.subject, 100), body = typeof report?.commit?.body === 'string' ? report.commit.body.trim().slice(0, 2000) : '';
+  return { details: list(report?.details), findings, notProven: list(report?.notProven), notRun: list(report?.notRun), ...(subject ? { commit: { subject, body } } : {}) };
+}
+
+export const CONVENTIONAL = /^(feat|fix|docs|refactor|perf|test|build|ci|chore|style|revert)(\([\w./-]+\))?!?: \S/;
+
+// The commit an accepted run lands as. The writer's own message when it gave one; else a subject from its summary,
+// typed when the repository writes conventional commits, and its details as the body. Never the run's prompt.
+export function commitMessage(task, conventional) {
+  const report = [...(task.attempts ?? [])].reverse().find((a) => a.role === 'executor' && a.report)?.report;
+  const typed = (s) => (conventional && !CONVENTIONAL.test(s) ? `${task.worktree?.prHead ? 'fix' : 'feat'}: ${s.charAt(0).toLowerCase()}${s.slice(1)}` : s);
+  const cut = (s) => (s.length > 72 ? `${s.slice(0, 71).replace(/\s+\S*$/, '')}…` : s).replace(/[.\s]+$/, '');
+  if (report?.commit?.subject) return { subject: cut(typed(report.commit.subject)), body: report.commit.body ?? '' };
+  const summary = line(report?.summary, 200) || task.title;
+  return { subject: cut(typed(summary)), body: (report?.details ?? []).map((d) => `- ${d}`).join('\n').slice(0, 2000) };
 }
 
 // A reviewer that lists findings is held to them: changes are requested only for one at or above the bar.

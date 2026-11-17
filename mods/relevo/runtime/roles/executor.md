@@ -28,5 +28,6 @@ A check you cannot run in your sandbox (a build that needs the network or a fold
 - `summary`: at most 160 characters of plain words on what the person now sees or can do. No file names, flags or jargon.
 - `details`: a few short lines. What changed first, then how you checked it.
 - `notProven`: what you claim but did not verify, one line each. Leave it empty only when everything was checked.
+- `commit`: the message your change lands with when the person accepts it, in the repository's own style (look at its recent commits; conventional commits like `fix(scope): …` when it uses them). `subject` is one imperative line under 72 characters; `body` says why in a few lines. No prompt text, no tool or AI attribution.
 
 Limit: {{maxMinutes}} minutes per attempt. Stop and report blocked if scope is unclear.

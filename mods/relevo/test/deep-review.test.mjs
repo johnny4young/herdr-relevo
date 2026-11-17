@@ -366,3 +366,16 @@ test("the fix at a glance: majors handled and left, Ask to fix on what is left, 
   assert.equal(statusWords({ state: "needs_you", checks: [["make", "test"]], checksResult: [{ argv: ["make", "test"], code: 0 }], reviewer: { label: "Codex" },
     attempts: [{ role: "executor", report: { status: "completed" } }, { role: "reviewer", report: { status: "completed" } }] }).text, "Ready to accept · make test passed · Codex approved");
 });
+
+test("an accepted run commits with the writer's message in the repository's style, never the prompt", async () => {
+  const { commitMessage } = await import("../lib/run-report.js");
+  const run = (report, prHead = "feat/x") => ({ title: "Fix #138 · deep review", criteria: "Fix pull request #138 after a deep review…", worktree: { prHead },
+    attempts: [{ role: "executor", report }] });
+  assert.deepEqual(commitMessage(run({ summary: "Done", commit: { subject: "fix(settings): open the practice step on the Dictation tab", body: "Why." } }), true),
+    { subject: "fix(settings): open the practice step on the Dictation tab", body: "Why." });
+  assert.deepEqual(commitMessage(run({ summary: "The guide now closes when System Settings quits.", details: ["Closed the guide", "Added a test"] }), true),
+    { subject: "fix: the guide now closes when System Settings quits", body: "- Closed the guide\n- Added a test" });
+  assert.equal(commitMessage(run({ summary: "Add a slug helper" }, null), false).subject, "Add a slug helper", "a repository without conventional commits keeps its style");
+  assert.equal(commitMessage(run({ summary: "Add a slug helper" }, null), true).subject, "feat: add a slug helper");
+  assert.doesNotMatch(JSON.stringify(commitMessage(run({ summary: "x" }), true)), /deep review…/);
+});

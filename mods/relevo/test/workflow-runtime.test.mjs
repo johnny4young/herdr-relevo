@@ -521,7 +521,7 @@ test("accepting a worktree run commits exactly the reviewed tree to its branch",
   await f.runtime.command({ action: "decide", taskId: id, outcome: "accept", revision: current().revision });
   assert.equal(current().state, "accepted");
   assert.match(current().worktree.commit, /^[0-9a-f]{40}$/);
-  assert.equal(execFileSync("git", ["-C", f.root, "log", "-1", "--format=%s"], { encoding: "utf8" }).trim(), "Add notes");
+  assert.equal(execFileSync("git", ["-C", f.root, "log", "-1", "--format=%s"], { encoding: "utf8" }).trim(), "Done", "the writer's words, not the run title or its prompt");
   const committed = execFileSync("git", ["-C", f.root, "show", "--name-only", "--format=", "HEAD"], { encoding: "utf8" });
   assert.match(committed, /NOTES\.md/); assert.doesNotMatch(committed, /LATE\.md/, "an edit after review stays out");
   assert.equal(execFileSync("git", ["-C", f.root, "status", "--porcelain"], { encoding: "utf8" }), "?? LATE.md\n");

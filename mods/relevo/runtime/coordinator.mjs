@@ -10,7 +10,7 @@ import { proposePreference, updatePreference, deletePreference, preferencesFor, 
 import * as config from '../config.js';
 import { renderRole } from './roles.mjs';
 import { draftBody } from '../lib/workflow-navigation.js';
-import { LEVELS, DEFAULT_MAX_MINUTES, cleanReport, reviewStatus, feedbackOf, cleanProgress } from '../lib/run-report.js';
+import { LEVELS, DEFAULT_MAX_MINUTES, CONVENTIONAL, cleanReport, commitMessage, reviewStatus, feedbackOf, cleanProgress } from '../lib/run-report.js';
 
 // Older config.js files lack the newer names; a missing named import would stop the coordinator.
 const SKILLS = config.SKILLS ?? {};
@@ -513,13 +513,17 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
   // Acceptance commits only the reviewed revision; a failed commit is reported and the acceptance stands.
   async function commitAccepted(task, revision) {
     try {
-      const wt = task.worktree, body = task.criteria.slice(0, 2000);
+      const wt = task.worktree;
+      // The repository's own style: conventional when most of its recent subjects are.
+      const recent = await run(['git', '-C', wt.base, ...QUIET, 'log', '-20', '--format=%s'], { timeout: 15000, limit: 8000 }).catch(() => null);
+      const subjects = String(recent?.stdout ?? '').split('\n').filter(Boolean);
+      const { subject, body } = commitMessage(task, subjects.length > 0 && subjects.filter((s) => CONVENTIONAL.test(s)).length * 2 >= subjects.length);
       if (wt.reviewedTree) {
         if (wt.reviewedRevision !== revision) throw Error('The reviewed tree is not the accepted revision; nothing was committed');
-        return { sha: await commitReviewedTree(wt, wt.reviewedTree, task.title, body) };
+        return { sha: await commitReviewedTree(wt, wt.reviewedTree, subject, body) };
       }
       if (await fp(task) !== revision) throw Error('The checkout changed after review; nothing was committed');
-      return { sha: await commitWorktree(wt, task.title, body) };
+      return { sha: await commitWorktree(wt, subject, body) };
     } catch (e) { return { failure: String(e.stderr || e.message).slice(0, 500) }; }
   }
 
@@ -575,7 +579,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       reportFile: path.join(dir, 'reports', `${attempt.id}.json`),
       reportExample: JSON.stringify(reviewer
         ? { ...proof, status: 'changes_requested', summary: 'Your verdict in plain words', findings: [{ level: 'major', where: 'src/file.js:12', issue: task.pr ? 'One or two sentences: what breaks and for whom' : 'What is wrong, with proof', ...(task.pr ? { proof: 'The code path or evidence, briefly' } : {}), fix: 'What to do instead' }], notRun: [], notProven: [] }
-        : { ...proof, status: 'completed', summary: 'What the person now sees or can do', details: ['What changed', 'How it was checked'], notProven: [] }),
+        : { ...proof, status: 'completed', summary: 'What the person now sees or can do', details: ['What changed', 'How it was checked'], notProven: [],
+          commit: { subject: 'fix(settings): open the practice step on the Dictation tab', body: 'Why the change, in a few plain lines.' } }),
     });
   }
   // Kept for comparing attempts and sizing the change. Failing to keep it is recorded and never holds the run.
