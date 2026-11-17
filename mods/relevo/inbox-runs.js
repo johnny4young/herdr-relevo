@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, TextareaState, Textarea } from "gpui-base";
 import { agents, exec, notify, panes, run, shared, setShared } from "herdr";
-import { button, foldRow, legHeader, legend, joined, keyBar, keycap, meTint, plusMinus, row, onSubmitChord } from "./ui.js";
+import { alertLine, button, foldRow, legHeader, legend, joined, keyBar, keycap, meTint, plusMinus, row, onSubmitChord } from "./ui.js";
 import { openReview } from "./review.js";
 import { RUN_LAUNCH, answerTrust } from "./run-launch.js";
 import { GOAL_MODE, GOAL_SCOPE, workflowCommand } from "./inbox-goals.js";
@@ -31,7 +31,7 @@ const LAUNCH_SHOWN_MS = 300000;
 const LEGEND = ["me", "flight", "ready"];
 // What a step of a task is, as the lane glyph of its row.
 const LEG_TURN = { ok: "ready", bad: "stuck", run: "flight", you: "me" };
-const line = (s, t, attention = false) => div().px(8).text_size(11).text_color(attention ? t.blocked : t.muted).child(s);
+const line = (s, t, attention = false) => (attention ? alertLine(t, `alert-${String(s).length}-${String(s).slice(0, 24)}`, s).px(8).text_size(11) : div().px(8).text_size(11).text_color(t.muted).child(s));
 const labelled = (t, id, label, body, width = 56) => h_flex().id(id).gap(8).items_start().min_w(0)
   .child(div().w(width).flex_none().pt(1).text_size(11).text_color(t.dim).child(label)).child(body);
 

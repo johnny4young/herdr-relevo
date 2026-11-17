@@ -1,10 +1,11 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { agents, shared, setShared } from "herdr";
-import { button, chevron } from "./ui.js";
+import { alertLine, button, chevron } from "./ui.js";
 import { WorkflowPlan } from "./workflow-plan.js";
 import { count } from "./lib/run-words.js";
 import { noteUse } from "./run-usage.js";
+import { checksText } from "./lib/run-checks.js";
 
 export const SETUPS_KEY = "relevo.workflow.setups.v1";
 const LIMIT = 20;
@@ -83,7 +84,7 @@ export class WorkflowSetup extends WorkflowPlan {
           .child(row(t, `${item.root} · ${count(item.maxRounds, "attempt")} · ${item.maxMinutes} min · ${count(item.checks.length, "test")}`))
           .child(h_flex().gap(6).flex_wrap()
             .child(button(t, `workflow-apply-setup-${item.id}`, "Use setup", (cx) => this.applySavedSetup(item.id, cx),
-              { disabled: this.busy, tip: `${item.executor.label ?? item.executor.address} + ${item.reviewer.label ?? item.reviewer.address}. Tests: ${JSON.stringify(item.checks)}. Your title and outcome stay unchanged.` }))
+              { disabled: this.busy, tip: `${item.executor.label ?? item.executor.address} + ${item.reviewer.label ?? item.reviewer.address}. Tests: ${checksText(item.checks) || "none"}. Your title and outcome stay unchanged.` }))
             .child(button(t, `workflow-remove-setup-${item.id}`, "Remove", (cx) => {
               removeSetup(item.id);
               this.setupNotice = "Saved setup removed. Existing tasks are unchanged."; cx.notify();
@@ -95,7 +96,7 @@ export class WorkflowSetup extends WorkflowPlan {
           .child(this.field(t, "setupName", "Setup name"))
           .child(this.field(t, "setupPurpose", "When to use it"))
           .child(button(t, "workflow-save-setup", "Save setup", (cx) => this.saveSetup(cx), { disabled: this.busy, tip: "Save settings locally without creating a task or launching agents" })))
-        .when(Boolean(this.setupError), (status) => status.child(div().role("alert").text_color(t.blocked).child(this.setupError)))
+        .when(Boolean(this.setupError), (status) => status.child(alertLine(t, "workflow-setup-error", this.setupError)))
         .when(Boolean(this.setupNotice), (status) => status.child(div().role("status").child(row(t, this.setupNotice))))));
   }
 }

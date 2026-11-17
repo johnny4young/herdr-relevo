@@ -66,7 +66,7 @@ test('result meta names the agents, round, checks, verdict and age', () => {
     checksResult: [{ argv: ['npm', 'test'], code: 0 }],
     attempts: [{ role: 'executor', state: 'reported', report: { status: 'completed' }, at: '2026-01-01T09:00:00Z' },
       { role: 'reviewer', state: 'reported', report: { status: 'completed' }, at: '2026-01-01T10:00:00Z' }] };
-  assert.equal(resultMeta(task, now), 'Codex → Claude · attempt 1 of 2 · npm test passed · reviewer approved · 2h ago');
+  assert.equal(resultMeta(task, now), 'Codex → Claude · 1st try of 2 · npm test passed · reviewer approved · 2h ago');
   assert.equal(resultMeta({ attempts: [] }, now), 'tests not configured');
 });
 

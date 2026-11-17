@@ -282,3 +282,11 @@ test("before you accept: only the review that saw the latest writing, no note a 
   assert.deepEqual(taskNotes(task), { findings: [{ level: "minor", where: "b.js:2", issue: "New" }], unchecked: ["The UI tests were not run."] });
   assert.deepEqual(taskNotes({ ...task, attempts: [old, wrote] }).findings, [], "a review before the latest writing is stale");
 });
+
+test("test commands read and write as typed: npm test; make lint", async () => {
+  const { checksText, parseChecks } = await import("../lib/run-checks.js");
+  assert.deepEqual(parseChecks('npm test; make "test ui"\nswift test'), [["npm", "test"], ["make", "test ui"], ["swift", "test"]]);
+  assert.equal(checksText([["npm", "test"], ["make", "test ui"]]), 'npm test; make "test ui"');
+  assert.deepEqual(parseChecks('[["npm","test"]]'), [["npm", "test"]], "the older JSON still reads");
+  assert.throws(() => parseChecks('npm "test'), /quote isn't closed/);
+});

@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { agents, panes, props, theme, appHome, readTextFile, run, focused, shared, setShared, closeOverlay } from "herdr";
 import { readRunState, runtimeCommand } from "./runtime-cli.js";
-import { button, onSubmitChord, tabButton, checkbox } from "./ui.js";
+import { alertLine, button, onSubmitChord, tabButton, checkbox } from "./ui.js";
 import { focusedCwd } from "./panelbar.js";
 import { workflowBucket, workflowItems, queueSummary, armAccept, acceptArmed } from "./lib/workflow-navigation.js";
 import { followUpAvailable, changesPlan } from "./lib/run-panel.js";
@@ -13,7 +13,7 @@ import { ShortcutHelp } from "./shortcut-help.js";
 import { savedSetups } from "./workflow-setups.js";
 import { RUN_PANES, RUN_REQUEST, RUN_FOLLOW_UP, liveRunPanes, takeAsk } from "./workflow-window.js";
 import { accountOf } from "./accounts.js";
-import { checksLabel } from "./lib/run-checks.js";
+import { checksLabel, checksText, parseChecks } from "./lib/run-checks.js";
 import { repoOf } from "./workflow-runs.js";
 import { WorkflowDetail } from "./workflow-detail.js";
 import { row, taskState, caption, agentLabel, role, count } from "./workflow-labels.js";
@@ -298,11 +298,11 @@ export class Workflow extends WorkflowDetail {
     let checks = [];
     try {
       checks = this.checkPreset === "npm-test" ? [["npm", "test"]]
-        : this.checkPreset === "custom" ? (this.form.checks.value().trim() ? JSON.parse(this.form.checks.value()) : []) : [];
+        : this.checkPreset === "custom" ? parseChecks(this.form.checks.value()) : [];
       if (!Array.isArray(checks) || checks.some((args) => !Array.isArray(args) || !args.length || args.some((arg) => typeof arg !== "string"))) throw Error();
     } catch {
       this.taskAdvancedOpen = true;
-      this.error = 'Tests must be JSON argv lists, such as [["npm","test"]]. Leave empty to run no tests.';
+      this.error = 'Write test commands as you would type them, separated by ";": npm test; make lint. Close every quote, or leave it empty to run no tests.';
       cx.notify();
       return;
     }
@@ -381,7 +381,7 @@ export class Workflow extends WorkflowDetail {
     const checks = task.checks ?? [];
     if (!checks.length) { this.checkPreset = "none"; this.form.checks.set_value(""); }
     else if (checks.length === 1 && checks[0]?.length === 2 && checks[0][0] === "npm" && checks[0][1] === "test") { this.checkPreset = "npm-test"; this.form.checks.set_value(""); }
-    else { this.checkPreset = "custom"; this.form.checks.set_value(JSON.stringify(checks)); }
+    else { this.checkPreset = "custom"; this.form.checks.set_value(checksText(checks)); }
     this.taskSetupOpen = !quiet || !this.executor || !this.reviewer; this.taskAdvancedOpen = !quiet && this.checkPreset === "custom";
     this.checksPicked = true;
     this.setupReuseNotice = quiet ? null : "Previous setup applied. Review repository and agents before creating.";
@@ -546,9 +546,9 @@ export class Workflow extends WorkflowDetail {
         .child(h_flex().gap(6).child(this.field(t, "maxRounds", "Maximum attempts"))
           .child(this.field(t, "maxMinutes", "Minutes per attempt")))
         .children([["none", "No tests"], ["npm-test", "npm test"], ["custom", "Custom"]].map(([value, label]) => button(t, `workflow-check-preset-${value}`, label,
-          (context) => { this.checkPreset = value; this.checksPicked = true; context.notify(); }, { selected: this.checkPreset === value, tip: value === "custom" ? "Enter custom test commands as JSON argv lists" : `Use ${label}` })))
-        .when(this.checkPreset === "custom", (el) => el.child(row(t, "Advanced: enter JSON argument lists, for example [[\"npm\",\"test\"]]."))
-          .child(this.field(t, "checks", "Custom test commands (JSON)")))
+          (context) => { this.checkPreset = value; this.checksPicked = true; context.notify(); }, { selected: this.checkPreset === value, tip: value === "custom" ? "Type your test commands, separated by \";\"" : `Use ${label}` })))
+        .when(this.checkPreset === "custom", (el) => el
+          .child(this.field(t, "checks", "Test commands, like npm test; make lint")))
         // Prerequisites appear once the run has a task to wait for.
         .when(earlier.length > 0, (el) => el.child(div().font_semibold().child("Wait for earlier tasks"))
           .child(row(t, "Only selected prerequisites must be accepted before this task can start.")))
@@ -647,7 +647,7 @@ export class Workflow extends WorkflowDetail {
           .child(button(t, "workflow-tab-Preferences", "Preferences", (cx) => { this.tab = "Preferences"; this.h.focus(); cx.notify(); }, { kind: "ghost", size: "sm", tip: "5" }))
           .when(Boolean(this.engine?.enabled), (controls) => controls.child(button(t, "workflow-engine-stop", "Pause automation", (cx) => this.command({ action: "stop" }, cx), { kind: "ghost", size: "sm", disabled: this.busy, tip: "Stops new dispatches; running sessions continue" })))))
         .when(Boolean(this.notice), (el) => el.child(div().role("status").child(row(t, this.notice))))
-        .when(Boolean(this.error), (el) => el.child(div().id("workflow-error").role("alert").text_color(t.blocked).child(this.error)))
+        .when(Boolean(this.error), (el) => el.child(alertLine(t, "workflow-error", this.error)))
         .when(Boolean(this.pendingDraft), (el) => el.child(this.draftRecovery(t)))
         .when(this.showHelp && Boolean(this.shortcutHelp), (el) => el.child(this.shortcutHelp.render(t)))
         .when(this.compact && Boolean(this.tasks?.length || this.goal?.steps?.length), (el) => el.child(button(t, "workflow-queue-toggle", this.compactQueueOpen ? "← Back to work" : `Tasks · ${this.filter === "Completed" ? "History" : this.filter} ${workflowItems(this.tasks ?? [], this.filter).length}`, (cx) => {

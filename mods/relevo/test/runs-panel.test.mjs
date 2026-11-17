@@ -268,7 +268,7 @@ test('Ask for changes is typed in the panel and sent with ⌘↵; with no attemp
   v.navKey({ key: 'r' }, cx);
   let tree = v.render(cx);
   assert.ok(find(tree, 'task-changes-field')); assert.equal(find(tree, 'task-accept'), null);
-  assert.match(text(tree), /Starts attempt 2 of 2: write, then review\./);
+  assert.match(text(tree), /Starts 2nd try \(last\): write, then review\./);
   assert.equal(find(tree, 'task-send-changes').isDisabled, true);
   v.runChange.submit({ secondary: true }, cx); await flush();
   assert.deepEqual(decided(), [], 'empty feedback is not sent');

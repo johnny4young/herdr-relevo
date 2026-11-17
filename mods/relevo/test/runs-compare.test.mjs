@@ -326,7 +326,7 @@ test('an accepted or cancelled task offers Re-run with changes, which the run wi
   const win = new Workflow(), wcx = fakeCx(); win.init({}, wcx); await flush();
   assert.equal(win.form.title.value(), 'Follow up: Task x');
   assert.equal(win.form.criteria.value(), 'Rows fit\nRequested changes: ');
-  assert.deepEqual([win.form.root.value(), win.form.maxRounds.value(), win.form.maxMinutes.value(), win.form.checks.value()], ['/work/app', '3', '30', '[["npm","test"]]']);
+  assert.deepEqual([win.form.root.value(), win.form.maxRounds.value(), win.form.maxMinutes.value(), win.form.checks.value()], ['/work/app', '3', '30', 'npm test']);
   assert.equal(win.explicitNew, true); assert.equal(win.selected, null); assert.equal(calls(/cli\.mjs/).length, 0);
   win.close();
   const again = new Workflow(); again.init({}, fakeCx()); await flush();

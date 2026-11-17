@@ -212,7 +212,7 @@ export class Handoff {
       .when(Boolean(this.h), (el) => el.track_focus(this.h))
       .on_key_down((e, cx) => this.key(e, cx))
       .child(div().id("handoff-title").px(8).pt(4).pb(6).text_size(11).text_color(this.error ? t.blocked : t.dim).truncate()
-        .child(this.error ?? `Continue ${p.tab || p.terminal} with…`))
+        .child(this.error ?? `Continue ${p.tab || "this agent"} with…`))
       .children(this.rows().map((r) => this.row(t, r)));
   }
 }

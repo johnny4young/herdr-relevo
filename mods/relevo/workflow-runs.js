@@ -10,6 +10,7 @@ import { accountFor } from "./context.js";
 import { row } from "./workflow-labels.js";
 import { RUN_LAUNCH, answerTrust, repoChecks, trustKeys } from "./run-launch.js";
 import { runFolder } from "./lib/run-folder.js";
+import { checksText, parseChecks } from "./lib/run-checks.js";
 
 
 // The repository a folder belongs to: a run's own worktree gives the repository it was made from.
@@ -119,14 +120,14 @@ export class WorkflowRuns extends WorkflowDraftView {
   useChecks(checks) {
     const npm = checks.length === 1 && checks[0].length === 2 && checks[0][0] === "npm" && checks[0][1] === "test";
     this.checkPreset = !checks.length ? "none" : npm ? "npm-test" : "custom";
-    this.form.checks.set_value(this.checkPreset === "custom" ? JSON.stringify(checks) : "");
+    this.form.checks.set_value(this.checkPreset === "custom" ? checksText(checks) : "");
   }
 
   // The checks the form holds now, as the coordinator will get them; null when the custom ones don't parse.
   checksNow() {
     if (this.checkPreset === "npm-test") return [["npm", "test"]];
     if (this.checkPreset !== "custom") return [];
-    try { const checks = JSON.parse(this.form.checks.value() || "[]"); return Array.isArray(checks) ? checks : null; } catch { return null; }
+    try { const checks = parseChecks(this.form.checks.value()); return Array.isArray(checks) ? checks : null; } catch { return null; }
   }
 
   // A finished run's worktree state is read once per task and again after each worktree action.

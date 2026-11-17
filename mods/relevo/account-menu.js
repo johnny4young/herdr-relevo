@@ -7,7 +7,7 @@ import { accountFor } from "./context.js";
 import { SKILLS, configuredSkill, launchSkill } from "./skills.js";
 import { skillUses, openPrSession } from "./prsession.js";
 import { rankSkills, localBranch, reviewSkills } from "./lib/prmenu.js";
-import { spinner } from "./ui.js";
+import { alertLine, spinner } from "./ui.js";
 import { openSettings } from "./settings.js";
 import { deepSetup } from "./deep-review.js";
 import { setupLine } from "./lib/deep-setup.js";
@@ -158,6 +158,6 @@ export class AccountMenu {
       .child(row("menu-session", this.busy ? "Creating the worktree…" : `New session in a worktree of ${localBranch(p.pr)}`,
         null, (cx) => this.session(cx), !this.busy && !this.opening && !p.pr.untrusted))
       .when(Boolean(p.pr.untrusted), (el) => el.child(div().px(8).pb(4).text_size(11).text_color(t.dim).child("Someone else's fork: check it out yourself")))
-      .when(Boolean(this.error), (el) => el.child(div().id("menu-launch-error").role("alert").px(8).pb(4).text_size(11).text_color(t.blocked).child(this.error)));
+      .when(Boolean(this.error), (el) => el.child(alertLine(t, "menu-launch-error", this.error).px(8).pb(4).text_size(11)));
   }
 }

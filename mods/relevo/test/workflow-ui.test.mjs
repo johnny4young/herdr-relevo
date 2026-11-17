@@ -84,7 +84,7 @@ test('reuse never silently restores disconnected agents and accepts a reviewed r
   click(find(v.render(), 'workflow-use-previous-setup'), cx);
   assert.equal(v.executor, ''); assert.equal(v.reviewer, 'reviewer');
   assert.match(v.setupReuseWarning, /Old builder.*unavailable/);
-  assert.equal(v.checkPreset, 'custom'); assert.equal(v.form.checks.value(), '[["pnpm","lint"]]');
+  assert.equal(v.checkPreset, 'custom'); assert.equal(v.form.checks.value(), 'pnpm lint');
   assert.equal(v.taskAdvancedOpen, true, 'custom checks open for direct review');
   v.form.root.type('/work/other', cx);
   assert.equal(v.setupReuseNotice, null); assert.equal(v.setupReuseWarning, null);
@@ -194,7 +194,7 @@ test('exhausted blocked work offers a review and a follow-up draft without retry
   assert.equal(v.form.root.value(), '/repo');
   assert.match(v.form.criteria.value(), /Search works/);
   assert.match(v.form.criteria.value(), /Latest reviewer findings: Latest finding: preserve the query/);
-  assert.equal(v.form.checks.value(), '[["npm","test"]]');
+  assert.equal(v.form.checks.value(), 'npm test');
   assert.equal(v.form.maxRounds.value(), '1'); assert.equal(v.form.maxMinutes.value(), '12');
   assert.equal(v.executor, 'builder'); assert.equal(v.reviewer, 'reviewer');
   assert.deepEqual(v.dependsOn, ['prerequisite'], 'preserve prior prerequisites and never make the blocked source its own prerequisite');
@@ -227,7 +227,7 @@ test('preferences stay pending until accepted and show unavailable metrics with 
     { id: 'p1', status: 'pending', scope: 'goal', scopeId: 'g', text: 'Keep changes focused' },
   ] });
   const { v } = await setup(); v.tab = 'Preferences'; const tree = v.render();
-  assert.match(text(tree), /unavailable/); assert.match(text(tree), /pending · goal/); assert.match(text(tree), /Accepted guidance applies/); v.close();
+  assert.match(text(tree), /unavailable/); assert.match(text(tree), /Undecided · Keep changes focused Edit Use Don't use/); assert.match(text(tree), /Accepted guidance applies/); v.close();
 });
 
 test('reopening selects the first goal task, while explicit New task survives refresh polling', async () => {
@@ -296,7 +296,7 @@ test('requesting changes previews the next effect and requires explicit feedback
   v.tasks = [{ id: 'result', goalId: 'g', title: 'Search', state: 'needs_you', round: 1, maxRounds: 2, revision: 'current' }];
   v.selected = 'result'; click(find(v.render(), 'workflow-decide-changes'), cx);
   let tree = v.render(); assert.equal(fake.execs.length, 0);
-  assert.match(text(tree), /Starts attempt 2 of 2: write, then review/);
+  assert.match(text(tree), /Starts 2nd try \(last\): write, then review/);
   assert.equal(find(tree, 'workflow-send-changes').isDisabled, true);
   assert.equal(find(tree, 'workflow-decide-accept'), null, 'the change request replaces the decision buttons');
   v.form.decision.set_value('Handle empty results');
@@ -411,7 +411,7 @@ test('task creation discloses setup only when needed and keeps the draft through
   assert.ok(find(v.render(), 'workflow-root')); assert.equal(v.form.title.value(), 'Add search');
   assert.equal(fake.execs.length, 0);
   fake.agents = [agent('a', 'A'), agent('b', 'B')];
-  v.form.root.set_value('/work'); v.executor = 'a'; v.reviewer = 'b'; v.checkPreset = 'custom'; v.form.checks.set_value('invalid json');
+  v.form.root.set_value('/work'); v.executor = 'a'; v.reviewer = 'b'; v.checkPreset = 'custom'; v.form.checks.set_value('npm "test');
   v.create(cx); assert.ok(find(v.render(), 'workflow-checks'));
   assert.equal(v.form.criteria.value(), 'Find matching items'); assert.equal(fake.execs.length, 0); v.close();
 });
@@ -637,7 +637,7 @@ test('the decision bar sits outside the scrolling content and the summary render
   assert.ok(find(tree, 'workflow-decision-card'));
   assert.equal(find(scroll, 'workflow-decision-card'), null);
   assert.equal(find(tree, 'workflow-summary-x').kind, 'textview');
-  assert.match(text(find(tree, 'workflow-status-chips')), /Codex → Claude · attempt 1 of 2/);
+  assert.match(text(find(tree, 'workflow-status-chips')), /Codex → Claude · 1st try of 2/);
   v.close();
 });
 

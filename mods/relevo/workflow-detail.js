@@ -9,11 +9,21 @@ import { linkedDecision } from "./lib/goal-workflow.js";
 import { followUpAvailable, taskNotes, changesPlan } from "./lib/run-panel.js";
 import { agentMarkdown } from "./lib/agent-markdown.js";
 import { WorkflowRuns } from "./workflow-runs.js";
+import { ago } from "./lib/time.js";
+import { checksText } from "./lib/run-checks.js";
 import { deepReviewView, fixChecklistView, notesView } from "./deep-review-view.js";
 import { deepReviewNotice, dropReviewTrees, fixFindings, postDraftReview } from "./deep-review.js";
 import { fixChecklist, mergedFindings, reviewAdvice, reviewTitle } from "./lib/deep-review.js";
 import { runtimeCommand } from "./runtime-cli.js";
 import { row, taskState, reportState, verdictLine, role, count, attemptLabel, caption, reportNotes, SUMMARY_PREVIEW } from "./workflow-labels.js";
+
+const MESSAGE_STATE = { queued: "Queued", sending: "Sending", delivered: "Delivered", uncertain: "Not sure it arrived" };
+const PREFERENCE_STATE = { pending: "Undecided", accepted: "Used", rejected: "Not used" };
+const PREFERENCE_ACTION = { pending: "Undecided", accepted: "Use", rejected: "Don't use" };
+const PREFERENCE_TIP = { pending: "Neither use nor drop it yet", accepted: "Agents follow it in this scope", rejected: "Agents ignore it" };
+// An agent by its name in the task, not its terminal id.
+const agentOf = (task, address) => [task.executor, task.reviewer].find((a) => a?.address === address)?.label ?? "the agent";
+const tail = (text, lines) => String(text ?? "").trimEnd().split("\n").slice(-lines).join("\n");
 
 const CONFIGURED_SKILLS = config.SKILLS;
 
@@ -62,7 +72,7 @@ export class WorkflowDetail extends WorkflowRuns {
     this.form.title.set_value(`Follow up: ${task.title}`.slice(0, 240));
     this.form.root.set_value(task.root ?? "");
     this.form.criteria.set_value(`${task.criteria ?? ""}\nRequested changes: ${this.form.decision.value().trim()}`);
-    this.form.checks.set_value(JSON.stringify(task.checks ?? []));
+    this.form.checks.set_value(checksText(task.checks));
     this.checkPreset = task.checks?.length ? "custom" : "none";
     this.form.maxRounds.set_value(String(task.maxRounds ?? 2));
     this.form.maxMinutes.set_value(String(task.maxMinutes ?? 20));
@@ -78,7 +88,7 @@ export class WorkflowDetail extends WorkflowRuns {
     this.form.title.set_value(`Follow up: ${task.title}`.slice(0, 240));
     this.form.root.set_value(task.root ?? "");
     this.form.criteria.set_value([task.criteria, findings ? `Latest reviewer findings: ${findings}` : "Latest reviewer findings: none recorded."].filter(Boolean).join("\n\n"));
-    this.form.checks.set_value(JSON.stringify(task.checks ?? []));
+    this.form.checks.set_value(checksText(task.checks));
     this.checkPreset = task.checks?.length ? "custom" : "none";
     this.form.maxRounds.set_value(String(task.maxRounds ?? 2));
     this.form.maxMinutes.set_value(String(task.maxMinutes ?? 20));
@@ -160,7 +170,8 @@ export class WorkflowDetail extends WorkflowRuns {
     if (task.state === "needs_you") return "The agents have finished. Review the result below, then accept it or ask for changes. You do not need to open their sessions.";
     if (task.state === "accepted") return "Accepted and saved in History.";
     if (task.state === "cancelled") return "Cancelled. Create a new task to continue.";
-    if (task.state === "blocked" || task.state === "failed") return "Stuck. Review the findings, then prepare a follow-up.";
+    if (task.state === "blocked" || task.state === "failed") return followUpAvailable(task) ? "Stuck. Prepare a follow-up from what it found."
+      : task.round < task.maxRounds ? `Stuck. Retry gives it ${task.maxRounds - task.round === 1 ? "one more try" : `${task.maxRounds - task.round} more tries`}.` : "Stuck. Cancel it, or open the agent to see why.";
     if (task.state === "ready") {
       const pending = (task.dependsOn ?? []).map((id) => this.tasks?.find((item) => item.id === id)).filter((item) => !item || item.state !== "accepted");
       const continuation = this.engine?.enabled && !task.paused ? "This task continues automatically once its prerequisite is accepted." : "After the prerequisite is accepted, resume this task or start automation to continue.";
@@ -188,8 +199,8 @@ export class WorkflowDetail extends WorkflowRuns {
       pill(t, "workflow-chip-checks", checkText, checks.tone === "normal" ? t.done : checks.tone === "failure" ? t.blocked : t.muted),
       pill(t, "workflow-chip-review", reviewText, !review ? t.muted : review.status === "completed" ? t.done : t.blocked),
       agents ? pill(t, "workflow-chip-agents", [agents, attemptLabel(task.round, task.maxRounds)].filter(Boolean).join(" · ")) : null,
-      evidence ? pill(t, "workflow-chip-evidence", `${evidence} evidence`) : null,
-      task.worktree?.branch ? pill(t, "workflow-chip-worktree", task.worktree.branch) : null,
+      evidence ? pill(t, "workflow-chip-evidence", count(evidence, "attachment")) : null,
+      task.worktree?.branch ? pill(t, "workflow-chip-worktree", caption(task.worktree.branch, 32)).tooltip(task.worktree.branch) : null,
     ].filter(Boolean));
   }
 
@@ -249,8 +260,9 @@ export class WorkflowDetail extends WorkflowRuns {
     const implementationAttempt = reportedAttempt("executor"), reviewAttempt = reportedAttempt("reviewer");
     const implementation = implementationAttempt?.report, review = reviewAttempt?.report;
     const blocked = ["blocked", "failed"].includes(task.state);
-    const primaryReport = blocked && review ? review : implementation;
-    const primaryId = (blocked && review ? reviewAttempt : implementationAttempt)?.id;
+    // Stuck, the newest report says why (a review older than the latest writing doesn't); otherwise the writer's.
+    const newest = blocked ? [...(task.attempts ?? [])].reverse().find((attempt) => attempt.report) : implementationAttempt, fromReviewer = newest?.role === "reviewer";
+    const primaryReport = newest?.report ?? implementation, primaryId = newest?.id ?? implementationAttempt?.id;
     const summary = primaryReport?.summary ?? "Report available", longSummary = summary.length > SUMMARY_PREVIEW, summaryOpen = Boolean(this.expandedReports?.[primaryId]);
     const details = this.detailsFor === task.id;
     const notes = taskNotes(task);
@@ -264,9 +276,10 @@ export class WorkflowDetail extends WorkflowRuns {
         .child(this.statusChips(t, task, review))
         .when(task.state !== "needs_you", (el) => el.child(row(t, this.nextStep(task)))))
       .when(Boolean(task.worktree) && ["accepted", "cancelled"].includes(task.state), (el) => el.child(this.worktreePanel(t, task)))
-      .when(Boolean(task.error), (el) => el.child(div().role("alert").text_color(t.blocked).child(task.error)))
+      .when(Boolean(task.error) && task.error !== primaryReport?.summary, (el) => el.child(div().id("workflow-error").role("alert").w_full().min_w(0).truncate()
+        .text_color(t.blocked).tooltip(task.error).child(caption(task.error.trim().split("\n")[0], 160))))
       .when(Boolean(primaryReport), (el) => el.child(v_flex().id("workflow-summary").w_full().min_w(0).gap(6)
-        .child(div().text_size(11).text_color(t.muted).child(blocked && review ? "Latest review findings" : "Summary"))
+        .child(div().text_size(11).text_color(t.muted).child(fromReviewer ? "The reviewer's verdict" : "Summary"))
         .child(TextView.markdown(`workflow-summary-${primaryId}`, agentMarkdown(longSummary && !summaryOpen ? caption(summary, SUMMARY_PREVIEW) : summary)).selectable(true).on_link_click(() => {}).w_full().text_size(13).text_color(t.foreground))
         .when(longSummary, (el) => el.child(button(t, "workflow-summary-toggle", summaryOpen ? "Show less" : "Read full report",
           (cx) => { this.expandedReports ??= {}; this.expandedReports[primaryId] = !summaryOpen; cx.notify(); }, { kind: "ghost", size: "sm" }).self_start()))))
@@ -286,7 +299,7 @@ export class WorkflowDetail extends WorkflowRuns {
       .when(details, (el) => el.child(v_flex().gap(8)
         .child(row(t, task.criteria || "No acceptance criteria recorded"))
         .child(row(t, ["executor", "reviewer"].map((key) => `${role(key).pick}: ${task[key]?.label ?? task[key]?.address ?? "Unknown"}`).join(" · ")))
-        .child(row(t, `${attemptLabel(task.round, task.maxRounds, { capital: true }) ?? `Up to ${count(task.maxRounds ?? 2, "attempt")}`} · ${task.maxMinutes ?? 20} minutes per attempt`))));
+        .child(row(t, `${attemptLabel(task.round, task.maxRounds) ?? `Up to ${task.maxRounds ?? 2} ${(task.maxRounds ?? 2) === 1 ? "try" : "tries"}`} · ${task.maxMinutes ?? 20} minutes per try`))));
   }
 
   activity(t, task) {
@@ -304,8 +317,8 @@ export class WorkflowDetail extends WorkflowRuns {
               : attempt.delivery === "sending" ? "Sending assignment" : "Delivery not confirmed";
         return v_flex().id(`workflow-handoff-${attempt.id}`).gap(6).p(12).rounded(8).bg(t.raised)
           .child(div().font_semibold().child(`${index + 1}. ${role(attempt.role).name}`))
-          .child(row(t, `${attempt.address ?? "Unknown session"} · ${status}`))
-          .when(Boolean(attempt.at), (el) => el.child(div().text_size(11).text_color(t.muted).child(attempt.at)))
+          .child(row(t, `${agentOf(task, attempt.address)} · ${status}`))
+          .when(Boolean(attempt.at), (el) => el.child(div().id(`workflow-attempt-at-${attempt.id}`).text_size(11).text_color(t.muted).tooltip(attempt.at).child(ago(Date.parse(attempt.at) / 1000))))
           .when(Boolean(attempt.report?.summary), (el) => el.child(row(t, expanded ? attempt.report.summary : caption(attempt.report.summary, 180))))
           .child(button(t, `workflow-prompt-toggle-${attempt.id}`, expanded ? "Hide assignment & report" : "Assignment & report", (cx) => {
             this.expandedPrompts ??= []; this.expandedPrompts = expanded ? this.expandedPrompts.filter((id) => id !== attempt.id) : [...this.expandedPrompts, attempt.id]; cx.notify();
@@ -320,7 +333,7 @@ export class WorkflowDetail extends WorkflowRuns {
         this.eventLogFor = this.eventLogFor === task.id ? null : task.id; cx.notify();
       }, { size: "sm", tip: "Inspect coordinator checks, errors and recorded events" }))
       .when(this.eventLogFor === task.id, (el) => el.children(items.map((event) => div().w_full().min_w(0).tooltip(event.detail ?? "")
-        .child(row(t, `${event.at ?? ""} · ${event.type ?? "Event"} · ${event.actor ?? "system"} · ${event.detail ?? ""}`)))));
+        .child(row(t, [event.at ? ago(Date.parse(event.at) / 1000) : "", event.type ?? "Event", event.detail ? caption(String(event.detail), 140) : ""].filter(Boolean).join(" · "))))));
   }
 
   changes(t, task) {
@@ -330,8 +343,10 @@ export class WorkflowDetail extends WorkflowRuns {
       .child(div().font_semibold().child("Tests"))
       .when(!task.checksResult?.length, (el) => el.child(row(t, "No tests recorded for this task.")))
       .children((task.checksResult ?? []).map((check, index) => v_flex().w_full().min_w(0).gap(3)
-        .child(row(t, (check.argv?.join(" ") ?? "Test " + (index + 1)) + " · " + (check.code === 0 ? "passed" : "failed (" + (check.code ?? "unknown") + ")")))
-        .when(Boolean(this.showCheckOutput), (el) => el.child(row(t, "stdout: " + String(check.stdout ?? "").slice(-2000) + " · stderr: " + String(check.stderr ?? "").slice(-2000))))))
+        .child(row(t, `${check.argv?.join(" ") ?? `Test ${index + 1}`} · ${check.code === 0 ? "passed" : typeof check.code === "number" ? `failed (exit ${check.code})` : `didn't finish (${check.code ?? "unknown"})`}`))
+        // The end of the output is where a failure says why: stderr first, its last lines in a monospace block.
+        .when(Boolean(this.showCheckOutput), (el) => el.child(div().w_full().min_w(0).p(8).rounded(6).bg(t.raised).font_family("JetBrains Mono").text_size(11).text_color(t.muted)
+          .child(tail([check.stderr, check.stdout].filter((x) => String(x ?? "").trim()).join("\n"), 20) || "No output.")))))
       .when(Boolean(task.checksResult?.length), (el) => el.child(button(t, "workflow-check-output", this.showCheckOutput ? "Hide test output" : "Show test output", (cx) => { this.showCheckOutput = !this.showCheckOutput; cx.notify(); }, { tip: "Expand recorded test output" })))
       .children(latest.map((attempt) => v_flex().w_full().min_w(0).gap(5).p(8).rounded(6).border_1().border_color(t.border)
         .child(div().font_semibold().child(`${role(attempt.role).report} · ${reportState(attempt.report.status, attempt.role)}`))
@@ -348,7 +363,7 @@ export class WorkflowDetail extends WorkflowRuns {
     return v_flex().gap(12)
       .child(div().font_semibold().child("Evidence for this result"))
       .when(!items.length, (el) => el.child(row(t, "No evidence attached to this task yet.")))
-      .children(items.map((item) => v_flex().gap(8).p(12).rounded(8).bg(t.raised).child(row(t, `${item.kind ?? "Evidence"} · ${item.label ?? item.path} · ${item.valid === false ? "Missing or altered" : task.revision && item.revision === task.revision ? "Current revision" : "Stale revision"}`))
+      .children(items.map((item) => v_flex().gap(8).p(12).rounded(8).bg(t.raised).child(row(t, `${item.kind ?? "Attachment"} · ${item.label ?? String(item.path ?? "").split("/").pop()} · ${item.valid === false ? "Missing or changed" : task.revision && item.revision === task.revision ? "From this result" : "From an earlier try"}`))
         .child(h_flex().gap(5).child(button(t, `workflow-open-${item.id}`, "Open file", () => exec("open", [item.path]),
           { disabled: !item.path, tip: "Open this recorded local evidence file" }))
           .child(button(t, `workflow-remove-${item.id}`, "Remove", (context) => this.command({ action: "remove-artifact", taskId: task.id, artifactId: item.id }, context),
@@ -388,7 +403,7 @@ export class WorkflowDetail extends WorkflowRuns {
       { id: "activity", label: "Who did what", detail: "See assignments and reports in order", action: (cx) => navigate("Activity", cx) },
       ...["executor", "reviewer"].filter((key) => task[key]?.address).map((key) => ({
         id: key, label: `Open ${role(key).noun} session`,
-        detail: `${task[key].label ?? task[key].address} · ${task[key].address}`,
+        detail: task[key].label ?? "Its tab in Herdr",
         action: () => run("agent.focus", { terminal: task[key].address }),
       })),
       ...Object.entries(CONFIGURED_SKILLS).filter(([, value]) => typeof value === "string" && value.trim()).map(([name, command]) => ({
@@ -435,7 +450,7 @@ export class WorkflowDetail extends WorkflowRuns {
     if (!attempt || attempt.delivery !== "uncertain") return null;
     const observed = agents().find((agent) => agent.address === attempt.address)?.status;
     const inspected = this.reconcileConfirmed === attempt.id;
-    return v_flex().gap(5).child(row(t, `Last send is uncertain. Session status: ${observed ?? "not connected"}. Reconcile only after confirming it stopped.`))
+    return v_flex().gap(5).child(row(t, `Not sure the agent got the last message (its tab says: ${observed ?? "not connected"}). Check its tab; once it has stopped, unlock the task.`))
       .child(button(t, `workflow-inspect-${attempt.id}`, "I inspected this session", (cx) => { this.reconcileConfirmed = attempt.id; cx.notify(); },
         { tip: "Inspect the matching session in Herdr before confirming it stopped" }))
       .when(inspected, (el) => el.child(button(t, `workflow-reconcile-${attempt.id}`, "Confirm stopped and unlock", (cx) => this.command({
@@ -454,7 +469,7 @@ export class WorkflowDetail extends WorkflowRuns {
             this.notice = mode === "queue" ? "Message queued. Delivery status is shown below." : "Message submitted. Check its delivery status below.";
           }), { disabled: this.busy || !this.form.message.value().trim() || ["accepted", "cancelled"].includes(task.state), tip: mode === "now" && ["needs_review", "needs_you"].includes(task.state)
             ? "Send now may affect the pending review; inspect the changes again before deciding" : `${label} for the assigned agent` }))))
-      .children((task.messages ?? []).map((message) => row(t, `${message.status ?? message.mode ?? "Message"} · ${message.address ?? ""} · ${message.text}`)));
+      .children((task.messages ?? []).map((message) => row(t, `${MESSAGE_STATE[message.status] ?? "Message"} for ${agentOf(task, message.address)} · ${caption(message.text, 160)}`)));
   }
 
   preferences(t, cx) {
@@ -488,14 +503,14 @@ export class WorkflowDetail extends WorkflowRuns {
           text: suggestion.text, scope: suggestion.scope, scopeId: suggestion.scopeId,
           sourceTaskId: suggestion.sourceTaskIds?.[0] ?? null, sourceDecisionId: suggestion.sourceDecisionIds?.[0] ?? null,
         } }, context), { disabled: this.busy, tip: `Save suggestion for review from ${suggestion.sourceTaskIds?.length ?? 0} corrections` }))))
-      .children(preferences.map((preference) => v_flex().gap(4).child(row(t, `${preference.status} · ${preference.scope}: ${preference.text}`))
+      .children(preferences.map((preference) => v_flex().gap(4).child(row(t, `${PREFERENCE_STATE[preference.status] ?? preference.status} · ${preference.text}`))
         .child(h_flex().gap(5).child(button(t, `workflow-pref-edit-${preference.id}`, "Edit", (context) => {
           this.preferenceEditId = preference.id; this.form.preference.set_value(preference.text);
           this.form.preferenceScope.set_value(preference.scope); context.notify();
         }, { disabled: this.busy, tip: "Load this preference into the edit form" }))
           .children(["pending", "accepted", "rejected"].filter((status) => status !== preference.status).map((status) => button(t,
-          `workflow-pref-${preference.id}-${status}`, status, (context) => this.command({ action: "preference-update", id: preference.id, patch: { status } }, context),
-          { disabled: this.busy, tip: `Mark this preference ${status}` })))
+          `workflow-pref-${preference.id}-${status}`, PREFERENCE_ACTION[status], (context) => this.command({ action: "preference-update", id: preference.id, patch: { status } }, context),
+          { disabled: this.busy, tip: PREFERENCE_TIP[status] })))
           .child(button(t, `workflow-pref-delete-${preference.id}`, "Delete", (context) => this.command({ action: "preference-delete", id: preference.id }, context),
             { disabled: this.busy, kind: "danger", tip: "Delete this preference" })))));
   }
