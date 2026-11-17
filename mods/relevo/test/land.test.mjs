@@ -104,6 +104,8 @@ test("a landed PR whose worktree holds only the merged commit loses its worktree
   assert.deepEqual([entry.phase, entry.note], ["landed", "worktree removed"]);
   assert.equal(calls(new RegExp(`^git -C ${MAIN} worktree remove ${WT}$`)).length, 1);
   assert.equal(calls(/branch -D feat/).length, 1);
+  assert.match(text(find(box.render(cx), `land-${URL}`)), /Landed/, "Now shows it landed for a minute");
+  fake.stored[LANDING] = { [URL]: { ...entry, done: entry.done - 120 } };
   assert.equal(find(box.render(cx), `land-${URL}`), null);
   click(find(box.render(cx), "view-maintenance"), cx);
   assert.match(text(find(box.render(cx), "maintenance-done")), /^1 marked addressed or landed/);
@@ -145,7 +147,8 @@ test("a merge GitHub refuses says why and starts nothing", async () => {
   click(find(box.render(cx), `land-btn-${URL}`), cx);
   await flush();
   assert.equal(fake.notices.at(-1).body, "Pull request is not mergeable");
-  assert.equal(fake.stored[LANDING], undefined);
+  assert.equal(fake.stored[LANDING]?.[URL], undefined, "the landing it showed while checking goes");
+  assert.ok(find(box.render(cx), `land-btn-${URL}`), "and Land is back");
 });
 
 test("a PR with commits newer than its card isn't merged; the card is read again", async () => {
@@ -172,4 +175,20 @@ test("a PR scan that never answered doesn't block the next one for good", async 
   box.scanPRs(cx);
   await flush();
   assert.equal(scans(), before + 1);
+});
+
+test("Confirm land turns the card into a landing at once, and the PR's own card goes", async () => {
+  let answer;
+  const base = fake.exec;
+  fake.exec = (cmd, args) => (cmd === "gh" && args[1] === "view" && args.includes("headRefOid,state") ? new Promise((r) => { answer = () => r(base(cmd, args)); }) : base(cmd, args));
+  const { box, cx } = await inbox();
+  click(find(box.render(cx), `land-btn-${URL}`), cx);
+  click(find(box.render(cx), `land-btn-${URL}`), cx);
+  assert.match(text(find(box.render(cx), `land-${URL}`)), /Landing…/, "before GitHub answers");
+  assert.equal(find(box.render(cx), `pr-${URL}`), null);
+  await flush();
+  answer();
+  await flush();
+  await flush();
+  assert.ok(fake.notices.some((n) => /^Merged · app #1/.test(n.title)));
 });

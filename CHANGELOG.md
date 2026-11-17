@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Land shows it is landing.** After **Confirm land** the card stayed as it was while GitHub checked and merged, and the PR card lingered after the merge. Now the PR turns at once into a landing card, "Landing…" then "Merging…", with no second copy of the PR. A toast says "Merged" as soon as GitHub has merged it, and the landed card stays in Now for a minute before going to Maintenance. A refused merge brings the PR card back and says why.
 - **Review on PRs you were asked to review.** A PR waiting on your review offered only its skill and Open PR; **Review** (`r`), the whole PR line by line in the review pane, was left out exactly there. It now shows on every PR whose repo is cloned here.
 - **A skill starts on an account with quota left.** **resolve conflicts** and the other PR skills moved off the repo's account only once it was at 100%, so at 98% they started on an account about to stop. From 90% of either window they start on the fallback account with the most left, and the button's tip says why ("Personal is at 98% (5h) — using Team").
 - **The review pane colors code.** Diff lines show keywords, strings, numbers, calls, types and comments in the Files editor's colors, over the same green and red tints. It knows JS and TypeScript, Go, Swift, Rust, Python, shell, C-like languages (C, Java, Kotlin, C#), CSS, JSON, YAML and SQL; other files and lines over 400 characters stay plain.
