@@ -154,8 +154,9 @@ doing or asks, and a click opens its last message in place, with **Open in Claud
 ### Land a PR, and review only what changed
 
 **Land** merges a ready PR at the commit you saw, follows the workflows the merge starts and removes its worktree
-when nothing would be lost. In the review pane, **Since I looked** shows only what the agent changed after your
-last look, and **Viewed** marks files until they change.
+when nothing would be lost; the card reads "Landing…" from the confirming click and stays a minute once landed. The
+review pane colors code by language and, with nothing uncommitted, opens on the branch's changes. **Since I looked**
+shows only what the agent changed after your last look, and **Viewed** marks files until they change.
 
 ![A selected PR names the check that failed, with Land on l](screenshots/land.png)
 
@@ -164,7 +165,8 @@ last look, and **Viewed** marks files until they change.
 ### Resolve conflicts, and see what each turn cost
 
 A PR with merge conflicts offers **resolve conflicts**: an agent in a worktree of its branch that merges the base
-and pushes without `--force`, then watches CI until it passes. When an agent's turn ends, a receipt says what it took and how much went to
+and pushes without `--force`, then watches CI until it passes. Past 90% of its quota, the repo's account hands the
+skill to the one with the most left. When an agent's turn ends, a receipt says what it took and how much went to
 subagents; a heavy one gets an alert.
 
 ### Edit files in the panel

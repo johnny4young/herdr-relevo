@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 · 2026-11-17
 
 - **Land shows it is landing.** After **Confirm land** the card stayed as it was while GitHub checked and merged, and the PR card lingered after the merge. Now the PR turns at once into a landing card, "Landing…" then "Merging…", with no second copy of the PR. A toast says "Merged" as soon as GitHub has merged it, and the landed card stays in Now for a minute before going to Maintenance. A refused merge brings the PR card back and says why.
 - **Review on PRs you were asked to review.** A PR waiting on your review offered only its skill and Open PR; **Review** (`r`), the whole PR line by line in the review pane, was left out exactly there. It now shows on every PR whose repo is cloned here.
