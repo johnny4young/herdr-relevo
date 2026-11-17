@@ -25,6 +25,8 @@ export function findingCard(t, key, f, ui) {
           .on_click((_e, cx) => { cx.stop_propagation(); ui.openFile(f.where, cx); }))
         .child(shortWhere(f.where))))
       .child(div().flex_1())
+      .when(Boolean(ui.outcomeOf?.(f)), (el) => el.child(div().flex_none().px(6).h(18).flex().items_center().rounded(4).text_size(11)
+        .bg(`${["Fixed", "Changed"].includes(ui.outcomeOf(f)) ? t.done : t.dim}26`).text_color(["Fixed", "Changed"].includes(ui.outcomeOf(f)) ? t.done : t.muted).child(ui.outcomeOf(f))))
       .when(f.by?.length > 1, (el) => el.child(div().flex_none().px(6).h(18).flex().items_center().rounded(4).bg(t.selected).text_size(11).child("Both")))
       .when(f.by?.length === 1, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(f.by[0]))))
     .child(div().w_full().min_w(0).text_size(13).text_color(t.foreground).child(long && !open ? `${f.issue.slice(0, LONG).trimEnd()}…` : f.issue))
@@ -90,5 +92,26 @@ export function fixChecklistView(t, id, list) {
               .child(shortWhere(where))))
             .child(div().flex_1().min_w(0).text_size(13).text_color(t.foreground).child(why));
         }));
+    }));
+}
+
+const OUTCOME_MARK = { ...VERDICT_MARK, Changed: ["check", "done"], "Not touched": ["dot", "dim"] };
+
+// A fix run's result against the deep review it came from: per finding, what happened to it, one line each.
+export function fixOutcomeView(t, id, outcome) {
+  return v_flex().id(id).w_full().min_w(0).gap(8)
+    .child(div().text_size(13).font_semibold().child(outcome.head))
+    .children(outcome.groups.map((g, gi) => {
+      const [glyph, tone] = OUTCOME_MARK[g.outcome];
+      return v_flex().id(`${id}-g-${gi}`).w_full().min_w(0).gap(3)
+        .child(h_flex().gap(6).items_center()
+          .child(glyph === "dot" ? div().size(6).flex_none().rounded_full().bg(t.dim) : icon(glyph, t[tone], 12))
+          .child(div().text_size(11).font_semibold().text_color(g.outcome === "Needs your call" ? t.blocked : t.muted).child(`${g.outcome} · ${g.rows.length}`)))
+        .children(g.rows.map(({ f, why }, i) => v_flex().id(`${id}-g-${gi}-${i}`).w_full().min_w(0).pl(18).gap(1).tooltip(f.issue)
+          .child(h_flex().w_full().min_w(0).gap(6).items_center()
+            .child(div().flex_none().text_size(11).text_color(toneOf(t, f.level)).child(f.level))
+            .child(div().flex_none().max_w(200).truncate().text_size(11).font_family("JetBrains Mono").text_color(t.muted).child(shortWhere(f.where ?? "")))
+            .child(div().flex_1().min_w(0).truncate().text_size(13).child(f.issue)))
+          .when(Boolean(why), (el) => el.child(div().w_full().min_w(0).truncate().text_size(11).text_color(t.muted).child(why)))));
     }));
 }

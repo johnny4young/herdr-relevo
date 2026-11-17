@@ -13,9 +13,9 @@ import { reviewableWork, linkedDecision, runProgress } from "./lib/goal-workflow
 import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed, draftOnAccept } from "./lib/workflow-navigation.js";
 import * as config from "./config.js";
 import { deepReviewNotice, dropReviewTrees, fixFindings, postDraftReview } from "./deep-review.js";
-import { deepReviewView, fixChecklistView, notesView } from "./deep-review-view.js";
+import { deepReviewView, fixChecklistView, fixOutcomeView, notesView } from "./deep-review-view.js";
 import { caption } from "./workflow-labels.js";
-import { counted, fixChecklist, mergedFindings, reviewAdvice, reviewLead, reviewTitle, verdicts } from "./lib/deep-review.js";
+import { counted, fixChecklist, fixOutcome, mergedFindings, reviewAdvice, reviewLead, reviewTitle, verdicts } from "./lib/deep-review.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
   taskSummary, taskNotes, isMerged, finishedAgents } from "./lib/run-panel.js";
 import { canCompare, diffFiles, tookWords } from "./lib/run-compare.js";
@@ -234,15 +234,23 @@ export class RunViews {
   finishStep(task, cx, confirm = true) {
     if (this.runBusy) return;
     if (!confirm || !acceptArmed(this.acceptIntent, task)) { this.acceptIntent = armAccept(task); cx.notify(); return; }
+    this.acceptIntent = null;
+    this.closeReview(task, cx, "Deep review closed.");
+  }
+
+  // Its findings are handled (posted, handed to a fix run, or done with): no reviewer part stays open, and its
+  // worktrees go.
+  closeReview(task, cx, notice) {
+    if (this.runBusy) return;
     const reviews = this.reviewsOf(task).filter((x) => !["accepted", "cancelled"].includes(x.state));
-    this.acceptIntent = null; this.runBusy = true; this.runError = null; cx.notify();
+    this.runBusy = true; this.runError = null; cx.notify();
     cx.spawn(async (cx) => {
       try {
         for (const r of reviews) {
           this.takeDoc(await workflowCommand(r.state === "needs_you" ? decidePayload(r, "accept", "", { draft: false }) : { action: "cancel", taskId: r.id }));
         }
         await dropReviewTrees(this.reviewsOf(task));
-        this.runNotice = "Deep review closed.";
+        this.runNotice = notice;
         this.runTask = null; this.runAt = this.runPlace(); this.sel = null;
       } catch (e) { this.runError = `Action needs attention: ${e.message ?? e}`; }
       this.runBusy = false; cx.notify();
@@ -259,6 +267,19 @@ export class RunViews {
       this.closedAgents.add(address);
       run("pane.close", { pane });
     }
+  }
+
+  // A fix of a deep review reads against that review: each finding and what the fix did with it.
+  fixSummary(t, task) {
+    const reviews = task.worktree?.prUrl ? (this.workflowTasks ?? []).filter((x) => x.pr?.url === task.worktree.prUrl) : [];
+    const findings = mergedFindings(reviews);
+    if (findings.length) {
+      const d = this.taskDiff?.taskId === task.id ? this.taskDiff : null;
+      const changed = d?.result ? diffFiles(d.result).list.map((f) => f.path) : [];
+      return [div().px(8).pb(8).child(fixOutcomeView(t, "task-fix-outcome", fixOutcome(findings, task, changed)))];
+    }
+    const list = fixChecklist(task);
+    return list ? [div().px(8).pb(6).child(fixChecklistView(t, "task-checklist", list))] : [];
   }
 
   reviewsOf(task) {
@@ -462,7 +483,11 @@ export class RunViews {
     return row(t, id, {
       turn: entry.turn, title: goal.title, selected: sel, onSelect: (cx) => this.openRun(goal, cx),
       lines: [answer("goal-now", "Now", entry.now, hot ? t.blocked : t.foreground), answer("goal-shipped", "Shipped", shipped.text, shipped.any ? t.foreground : t.muted)],
-      action: entry.group !== "flight" || sel ? this.runAction(t, entry, `goal-action-${goal.id}`) : null,
+      // A finished run is closed from its row: it then folds into the older finished runs.
+      action: entry.group === "ready" && goalState(goal) !== "completed" && !this.openTasks(goal.id).length
+        ? button(t, `goal-close-row-${goal.id}`, this.closingRun === goal.id ? "Closing…" : "Close", (cx) => this.closeRun(goal, cx),
+          { size: "sm", disabled: Boolean(this.closingRun), tip: "Nothing is left open: this files it under older finished runs" })
+        : entry.group !== "flight" || sel ? this.runAction(t, entry, `goal-action-${goal.id}`) : null,
       below: sel ? [h_flex().gap(5).children(this.runTools(t, goal)), this.confirmClose === goal.id ? this.closeConfirm(t, goal) : null].filter(Boolean) : null,
     });
   }
@@ -560,9 +585,17 @@ export class RunViews {
 
   // A task: the writer's summary, who did what, then the decision.
   // Expand and fold inside a deep review, and its findings' files opened at the PR's change.
+  // The run a deep review handed its findings to: the newest task working on that PR's branch in another run.
+  fixOf(reviews) {
+    const url = reviews[0]?.pr?.url;
+    return url ? (this.workflowTasks ?? []).filter((x) => x.worktree?.prUrl === url).at(-1) ?? null : null;
+  }
+
   deepUi(reviews) {
     this.deepOpen ??= new Set();
-    return { open: this.deepOpen,
+    const fix = this.fixOf(reviews), outcome = fix ? fixOutcome(mergedFindings(reviews), fix) : null;
+    const byFinding = new Map(outcome?.groups.flatMap((g) => g.rows.map((r) => [`${r.f.where}|${r.f.issue}`, g.outcome])) ?? []);
+    return { open: this.deepOpen, outcomeOf: (f) => byFinding.get(`${f.where}|${f.issue}`) ?? null,
       toggle: (key, cx) => { if (!this.deepOpen.delete(key)) this.deepOpen.add(key); cx.notify(); },
       openFile: (where) => { const r = reviews[0]; openReview(r.root, null, null, null, { from: r.reviewBase, to: "HEAD", file: where.replace(/:\d+(-\d+)?$/, "") }); } };
   }
@@ -571,7 +604,12 @@ export class RunViews {
     const tasks = this.runBucket(goal).all, waiting = task.state === "needs_you", summary = taskSummary(task);
     if (task.pr) {
       const reviews = tasks.filter((x) => x.pr?.url === task.pr.url);
-      return [div().px(8).pb(6).child(deepReviewView(t, `deep-${goal.id}`, reviews, this.deepUi(reviews))), this.taskDecision(t, goal, task, tasks)];
+      const fix = this.fixOf(reviews), fixGoal = fix && (this.goalDoc?.goals ?? []).find((g) => g.id === fix.goalId);
+      return [
+        ...(fixGoal ? [h_flex().id("deep-fix-run").px(8).pb(6).gap(8).items_center()
+          .child(div().flex_1().min_w(0).truncate().text_size(13).child(`Fix run: ${fixGoal.title} · ${taskReason(fix)}`))
+          .child(button(t, "deep-fix-open", "Open", (cx) => this.openRun(fixGoal, cx, fix.id), { size: "sm" }))] : []),
+        div().px(8).pb(6).child(deepReviewView(t, `deep-${goal.id}`, reviews, this.deepUi(reviews))), this.taskDecision(t, goal, task, tasks)];
     }
     const notes = waiting ? taskNotes(task) : null, linked = linkedDecision(goal, tasks).task?.id === task.id;
     // A file a finding names opens in the run's change, beside the panel.
@@ -580,7 +618,7 @@ export class RunViews {
       // Stuck: why, and the one way on, before anything else.
       ...(taskTurn(task) === "stuck" ? [v_flex().id("task-stuck").px(8).pb(6).gap(4).children(this.stuckLines(t, goal, task))] : []),
       ...(summary ? [div().id("task-summary").px(8).pb(4).text_size(13).child(summary)] : []),
-      ...(fixChecklist(task) ? [div().px(8).pb(6).child(fixChecklistView(t, "task-checklist", fixChecklist(task)))] : []),
+      ...this.fixSummary(t, task),
       v_flex().id("task-legs").children(joined(t, taskLegs(task).map((leg) => this.legRow(t, leg)))),
       ...this.taskFiles(t, task),
       ...(notes && (notes.findings.length || notes.unchecked.length) ? [div().id("task-notes").px(8).pt(6).child(notesView(t, `notes-${task.id}`, notes, ui))] : []),
@@ -599,7 +637,7 @@ export class RunViews {
       .child(h_flex().flex_wrap().gap(6).items_center()
         .child(button(t, "task-post-review", this.posting === goal.id ? "Posting…" : "Post as draft review", (cx) => this.postReview(goal, reviews, cx),
           { kind: "accent", disabled: busy || !found.length, tip: "A pending review on the PR, with a comment on each line found; you edit and send it on GitHub" }))
-        .child(button(t, "task-fix-findings", "Fix with a run", () => fixFindings(reviews).catch((e) => deepReviewNotice("Could not prepare the run", e)),
+        .child(button(t, "task-fix-findings", "Fix with a run", (cx) => fixFindings(reviews).then(() => this.closeReview(task, cx, "Handed to a fix run."), (e) => deepReviewNotice("Could not prepare the run", e)),
           { disabled: busy || !must, tip: "A run on a copy of the PR's branch, asked to fix every blocker and major" }))
         .child(button(t, "task-accept", confirming ? keyed("enter", "Confirm done") : keyed("a", "Done"), (cx) => this.acceptStep(task, cx),
           { disabled: busy, tip: "Closes the whole deep review; nothing is merged or posted" }))
@@ -607,7 +645,7 @@ export class RunViews {
       .child(div().id("task-effect").min_w(0).text_size(11).text_color(t.muted).child(say));
   }
 
-  postReview(goal, reviews, cx) {
+  postReview(goal, reviews, cx, task = reviews[0]) {
     if (this.posting) return;
     this.posting = goal.id; cx.notify();
     cx.spawn(async (cx) => {
@@ -615,6 +653,8 @@ export class RunViews {
         const url = await postDraftReview(reviews);
         notify({ title: `Draft review on #${reviews[0].pr.number}`, body: "Pending on GitHub until you send it", level: "success" });
         exec("open", [url]);
+        this.posting = null;
+        this.closeReview(task, cx, "Posted as a draft review.");
       } catch (error) { deepReviewNotice("Draft review not posted", error); }
       this.posting = null; cx.notify();
     });

@@ -115,7 +115,7 @@ test('Runs at a glance: header, legend, groups by turn, Now and Shipped, older r
   assert.equal(find(tree, 'goal-action-g').fill, t.blocked);
   assert.equal(text(find(tree, 'goal-s')), 'Ship the interface Now stuck: the reviewer rejected it twice Shipped nothing yet See why');
   assert.equal(text(find(tree, 'goal-f')), 'Workflow test Now an agent is writing "Task e" Shipped nothing yet');
-  assert.equal(text(find(tree, 'goal-r')), 'Status bar Now finished, everything accepted Shipped 1 pull request merged: #38 Open');
+  assert.equal(text(find(tree, 'goal-r')), 'Status bar Now finished, everything accepted Shipped 1 pull request merged: #38 Close');
   assert.equal(text(find(tree, 'goal-n')), 'Lab smoke Now needs a plan before agents start Shipped nothing yet Plan');
   assert.equal(find(tree, 'goal-old'), null);
   assert.equal(text(find(tree, 'runs-closed-fold')), '1 older finished run');
@@ -141,7 +141,7 @@ test('Enter or a click opens a run in the panel, never the run window; j, k and 
   assert.equal(text(find(tree, 'run-rest-fold')), '1 not started · 1 done');
   assert.deepEqual(v.nav.map((entry) => entry.id), ['task-a', 'task-b', 'task-d', 'task-e']);
   assert.equal(v.sel, 'task-a');
-  assert.match(text(find(tree, 'task-a')), /^Task a reviewer approved \S+ Review attempt 1: Codex Luna → Team Haiku · 10 min · approved$/);
+  assert.match(text(find(tree, 'task-a')), /^Task a reviewer approved \S+ Review 1st try: Codex Luna → Team Haiku · 10 min · approved$/);
   assert.match(text(find(tree, 'task-b')), /^Task b approved, 2nd attempt/);
   assert.match(text(find(tree, 'task-e')), /^Task e Codex Luna is writing it/);
   assert.equal(find(tree, 'task-p'), null);

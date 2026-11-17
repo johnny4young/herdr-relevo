@@ -290,3 +290,35 @@ test("test commands read and write as typed: npm test; make lint", async () => {
   assert.deepEqual(parseChecks('[["npm","test"]]'), [["npm", "test"]], "the older JSON still reads");
   assert.throws(() => parseChecks('npm "test'), /quote isn't closed/);
 });
+
+test("a fix run reads against its deep review: what it did with each finding, from its verdicts, its report or its diff", async () => {
+  const { fixOutcome } = await import("../lib/deep-review.js");
+  const { fixOutcomeView } = await import("../deep-review-view.js");
+  const findings = mergedFindings([claude, codex]);
+  const old = { attempts: [{ role: "executor", report: { status: "completed", details: ["Major (no test): added one in b.js and its suite"] } }] };
+  const read = fixOutcome(findings, old, ["src/a.js"]);
+  assert.equal(read.head, "2 changed");
+  assert.deepEqual(read.groups[0].rows.map((r) => [r.f.where, r.why]), [["src/a.js:4", ""], ["src/b.js", "Major (no test): added one in b.js and its suite"]]);
+  const said = { attempts: [{ role: "executor", report: { status: "completed", details: ["False positive: src/a.js:4 — the caller guards null"] } }] };
+  const outcome = fixOutcome(findings, said, []);
+  assert.equal(outcome.head, "1 false positive · 1 not touched");
+  assert.match(text(fixOutcomeView(theme(), "fo", outcome)), /^1 false positive · 1 not touched False positive · 1 blocker a\.js:4 Crashes on null the caller guards null Not touched · 1 major b\.js No test$/);
+});
+
+test("Fix with a run hands the deep review over: its reviewers close, and it links to the fix run", async () => {
+  const fixTask = { id: "f", goalId: "fixgoal", title: "Fix #7", state: "needs_you", worktree: { prUrl: PR.url, branch: "run/fix" }, executor: { address: "w" }, reviewer: { address: "r" }, attempts: [] };
+  const goals = [newGoal("g", "Deep review · app #7"), newGoal("fixgoal", "Fix #7 · deep review")];
+  fake.files[goalsPath()] = JSON.stringify(goals.reduce((doc, g) => saveGoal(doc, g, 0), emptyGoals()));
+  fake.files["/home/test/.config/herdr-app/relevo-workflow/state.json"] = JSON.stringify({ tasks: [claude, codex, fixTask], events: [], engine: { enabled: true } });
+  const v = new Inbox(), cx = fakeCx(); v.init({}, cx); await flush();
+  fake.stored[GOAL_MODE] = true; v.h.is_focused = () => true; v.render(cx);
+  v.enterRun(goals[0]); v.resetRun(claude.id);
+  const tree = v.render(cx);
+  assert.match(text(find(tree, "deep-fix-run")), /^Fix run: Fix #7 · deep review · .+ Open$/);
+  const sent = [];
+  fake.exec = (cmd, args) => { if (!/cli\.mjs$/.test(args[0] ?? "")) return null; sent.push(JSON.parse(args.at(-1))); return { stdout: JSON.stringify({ doc: { tasks: [claude, codex, fixTask], engine: { enabled: true } } }) }; };
+  v.closeReview(claude, cx, "Handed to a fix run.");
+  for (let i = 0; i < 4; i++) await flush();
+  assert.deepEqual(sent.map((p) => [p.action, p.taskId]), [["decide", "c"], ["decide", "x"]]);
+  assert.equal(v.runNotice, "Handed to a fix run.");
+});

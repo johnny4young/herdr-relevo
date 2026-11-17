@@ -133,3 +133,25 @@ export const unchecked = (tasks) => [...new Set(tasks.flatMap((t) => {
   const r = reportOf(t);
   return [...(r?.notRun ?? []).map((x) => `Not run: ${x}`), ...(r?.notProven ?? []).map((x) => `Not proven: ${x}`)];
 }))];
+
+const OUTCOMES = ["Needs your call", "Fixed", "Changed", "False positive", "Won't fix", "Not touched"];
+const fileName = (where) => String(where ?? "").trim().replace(/:\d.*$/, "").split("/").pop();
+const stem = (name) => name.replace(/\.[^.]+$/, "");
+
+// What a fix run did with each finding of the deep review it came from: its writer's verdict when it gave one; else
+// "Changed" when a line of its report or the run's diff names that finding's file, with the line as why; else
+// "Not touched". `changed` is the run's changed paths, when read.
+export function fixOutcome(findings, task, changed = []) {
+  const report = [...(task.attempts ?? [])].reverse().find((a) => a.role === "executor" && a.report)?.report;
+  const said = (fixChecklist(task)?.groups ?? []).flatMap((g) => g.items.map((i) => ({ ...i, verdict: g.verdict })));
+  const files = new Set(changed.map((p) => p.split("/").pop()));
+  const rows = findings.map((f) => {
+    const name = fileName(f.where), mention = (text) => Boolean(name) && (text.includes(name) || (stem(name).length >= 6 && text.includes(stem(name))));
+    const verdict = said.find((i) => mention(i.text));
+    if (verdict) return { f, outcome: verdict.verdict, why: verdict.text.replace(/^\S+\s+[—-]\s+/, "") };
+    const line = (report?.details ?? []).find(mention);
+    return { f, outcome: line || files.has(name) ? "Changed" : "Not touched", why: line ?? "" };
+  });
+  const groups = OUTCOMES.map((outcome) => ({ outcome, rows: rows.filter((r) => r.outcome === outcome) })).filter((g) => g.rows.length);
+  return { groups, head: groups.map((g) => `${g.rows.length} ${g.outcome.toLowerCase()}`).join(" · ") };
+}

@@ -11,9 +11,9 @@ import { agentMarkdown } from "./lib/agent-markdown.js";
 import { WorkflowRuns } from "./workflow-runs.js";
 import { ago } from "./lib/time.js";
 import { checksText } from "./lib/run-checks.js";
-import { deepReviewView, fixChecklistView, notesView } from "./deep-review-view.js";
+import { deepReviewView, fixChecklistView, fixOutcomeView, notesView } from "./deep-review-view.js";
 import { deepReviewNotice, dropReviewTrees, fixFindings, postDraftReview } from "./deep-review.js";
-import { fixChecklist, mergedFindings, reviewAdvice, reviewTitle } from "./lib/deep-review.js";
+import { fixChecklist, fixOutcome, mergedFindings, reviewAdvice, reviewTitle } from "./lib/deep-review.js";
 import { runtimeCommand } from "./runtime-cli.js";
 import { row, taskState, reportState, verdictLine, role, count, attemptLabel, caption, reportNotes, SUMMARY_PREVIEW } from "./workflow-labels.js";
 
@@ -133,7 +133,7 @@ export class WorkflowDetail extends WorkflowRuns {
           return bar
             .child(button(t, "workflow-post-review", this.posting ? "Posting…" : "Post as draft review", (cx) => this.postReview(task, cx),
               { kind: "solid", disabled: this.busy || this.posting || !found.length }))
-            .child(button(t, "workflow-fix-findings", "Fix with a run", () => fixFindings(this.prReviews(task)).catch((e) => deepReviewNotice("Could not prepare the run", e)),
+            .child(button(t, "workflow-fix-findings", "Fix with a run", (cx) => fixFindings(this.prReviews(task)).then(() => this.finishReviews(task, cx, "Handed to a fix run."), (e) => deepReviewNotice("Could not prepare the run", e)),
               { disabled: this.busy || !must }))
             .child(button(t, "workflow-decide-accept", "Done", (cx) => this.finishReviews(task, cx), { kind: "ghost", disabled: this.busy, tip: "Closes the whole deep review; nothing is merged or posted" }));
         })
@@ -204,6 +204,13 @@ export class WorkflowDetail extends WorkflowRuns {
     ].filter(Boolean));
   }
 
+  fixSummary(t, task) {
+    const findings = task.worktree?.prUrl ? mergedFindings((this.allTasks ?? this.tasks ?? []).filter((x) => x.pr?.url === task.worktree.prUrl)) : [];
+    if (findings.length) return fixOutcomeView(t, "workflow-fix-outcome", fixOutcome(findings, task));
+    const list = fixChecklist(task);
+    return list ? fixChecklistView(t, "workflow-checklist", list) : null;
+  }
+
   prReviews(task) {
     return (this.tasks ?? []).filter((x) => x.pr?.url === task.pr.url && x.goalId === task.goalId);
   }
@@ -221,7 +228,7 @@ export class WorkflowDetail extends WorkflowRuns {
   }
 
   // Done closes the whole deep review: each verdict is accepted, anything still open cancelled.
-  finishReviews(task, cx) {
+  finishReviews(task, cx, notice = "Deep review closed.") {
     if (this.busy) return;
     const open = this.prReviews(task).filter((r) => !["accepted", "cancelled"].includes(r.state));
     this.busy = true; this.error = null; cx.notify();
@@ -234,7 +241,7 @@ export class WorkflowDetail extends WorkflowRuns {
           if (out.doc?.tasks) this.applyState(out.doc, true);
         }
         await dropReviewTrees(this.prReviews(task));
-        this.notice = "Deep review closed.";
+        this.notice = notice;
       } catch (e) { this.error = String(e?.message ?? e); }
       this.busy = false; cx.notify();
     });
@@ -249,6 +256,8 @@ export class WorkflowDetail extends WorkflowRuns {
         const url = await postDraftReview(reviews);
         notify({ title: `Draft review on #${task.pr.number}`, body: "Pending on GitHub until you send it", level: "success" });
         exec("open", [url]);
+        this.posting = false;
+        this.finishReviews(task, cx, "Posted as a draft review.");
       } catch (error) { deepReviewNotice("Draft review not posted", error); }
       this.posting = false; cx.notify();
     });
@@ -283,7 +292,7 @@ export class WorkflowDetail extends WorkflowRuns {
         .child(TextView.markdown(`workflow-summary-${primaryId}`, agentMarkdown(longSummary && !summaryOpen ? caption(summary, SUMMARY_PREVIEW) : summary)).selectable(true).on_link_click(() => {}).w_full().text_size(13).text_color(t.foreground))
         .when(longSummary, (el) => el.child(button(t, "workflow-summary-toggle", summaryOpen ? "Show less" : "Read full report",
           (cx) => { this.expandedReports ??= {}; this.expandedReports[primaryId] = !summaryOpen; cx.notify(); }, { kind: "ghost", size: "sm" }).self_start()))))
-      .when(Boolean(fixChecklist(task)), (el) => el.child(fixChecklistView(t, "workflow-checklist", fixChecklist(task))))
+      .children([this.fixSummary(t, task)].filter(Boolean))
       // What neither agent could verify, where the person accepts; the full reports stay in Result.
       .when(task.state === "needs_you" && (notes.findings.length || notes.unchecked.length) > 0, (el) => el.child(v_flex().id("workflow-review-notes").w_full().min_w(0).gap(6)
         .child(div().text_size(11).text_color(t.muted).child("Before you accept"))

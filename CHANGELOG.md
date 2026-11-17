@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **A fix reads against its deep review.** A run started from a deep review shows, per finding, what it did: its writer's verdict, or Changed when its report or its diff touched that finding's file, or Not touched. The deep review links to its fix run and marks each card with that outcome. **Fix with a run** and **Post as draft review** close the deep review, so it leaves Needs me. A finished run offers **Close** on its row, which files it under older finished runs, and try lines read "1st try".
 - **A run's agents build what they change.** They start in Claude Code's auto mode, in their own worktree, without the OS sandbox, which blocked builds that need the network or a cache outside the checkout (SwiftPM, a first `npm install`). `RUN_SANDBOX = true` in `config.js` turns the sandbox back on. A writer that changed the code but could not run its tests no longer stops the run: the coordinator runs the tests and the reviewer reviews.
 - **Codex can be off.** Settings › Codex › Off (`USE_CODEX = false`) keeps Codex out of every account list and every default: runs, second opinions, deep reviews, handoffs, the status bar and the sidebar. A run that last used Codex picks a Claude account instead.
 - **Agents go when their part is over.** A deep review's reviewers close their tabs once they report, and **Done** removes the review's worktrees. A run in its own worktree closes its writer and reviewer once it is accepted or cancelled. An agent that is working stays, and so do agents a run borrowed from your sessions.
