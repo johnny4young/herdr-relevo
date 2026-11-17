@@ -53,7 +53,7 @@ test("findings from both reviewers merge on the same line at the higher level, m
   assert.deepEqual(merged.map((f) => [f.level, f.where, f.by.join("+")]), [["blocker", "src/a.js:4", "Team+Codex"], ["major", "src/b.js", "Team"]]);
   const { body, comments } = draftReview([claude, codex]);
   assert.deepEqual(comments.map((c) => [c.path, c.line, c.side]), [["src/a.js", 4, "RIGHT"]]);
-  assert.match(comments[0].body, /^\*\*blocker\*\*: Name is vague/);
+  assert.match(comments[0].body, /^\*\*blocker\*\*: Crashes on null/, "the higher level's words lead");
   assert.match(body, /Deep review · Team \+ Codex/);
   assert.match(body, /\*\*major\*\* `src\/b\.js`: No test Fix: Add one _\(Team\)_/, "a finding with no line goes in the body");
   assert.equal(draftReview([claude, codex], false).comments.length, 0);
@@ -96,7 +96,8 @@ test("a PR review's verdict offers a draft review, a fix run and Done, never Ask
   assert.equal(text(find(tree, "task-fix-findings")), "Fix with a run");
   assert.equal(text(find(tree, "task-accept")), "a Done");
   assert.equal(find(tree, "task-changes"), null);
-  assert.match(text(find(tree, "task-effect")), /^2 findings, 2 to fix, from 2 reviewers\. Nothing reaches GitHub until you post it\.$/);
+  assert.equal(text(find(tree, "task-effect")), "2 to fix: Fix with a run, or Post as draft review to leave them on the PR.");
+  assert.equal(text(find(tree, "task-title")), "Deep review · app #7");
   v.navKey({ key: "r" }, cx);
   assert.equal(v.runChangeFor, null);
   assert.equal(calls(/cli\.mjs/).filter((l) => l.includes("decide")).length, 0);
@@ -177,13 +178,43 @@ test("Settings edits the deep review: an account, a model and an effort per revi
 
 test("a stuck PR reviewer is dismissed from its row, not retried", async () => {
   const stuck = { ...codex, state: "blocked", error: "No CI", attempts: [{ ...codex.attempts[0], report: { status: "blocked", summary: "No CI", findings: [] } }] };
-  const { v, cx } = await runs([claude, stuck]);
+  const { v, cx } = await runs([stuck]);
   v.navKey({ key: "j" }, cx); v.navKey({ key: "enter" }, cx);
   v.sel = `task-${stuck.id}`;
   const tree = v.render(cx);
   assert.equal(find(tree, `task-retry-${stuck.id}`), null);
-  fake.exec = (cmd, args) => (/cli\.mjs$/.test(args[0] ?? "") ? { stdout: JSON.stringify({ doc: { tasks: [claude, { ...stuck, state: "cancelled" }], engine: { enabled: true } } }) } : null);
+  fake.exec = (cmd, args) => (/cli\.mjs$/.test(args[0] ?? "") ? { stdout: JSON.stringify({ doc: { tasks: [{ ...stuck, state: "cancelled" }], engine: { enabled: true } } }) } : null);
   find(tree, `task-dismiss-${stuck.id}`).handlers.on_click({}, cx);
   await flush();
   assert.ok(calls(/"action":"cancel"/).length);
+});
+
+test("the same problem found on another line of the same file, or in much the same words, is one finding", () => {
+  const opus = review("o", "Opus", [{ level: "minor", where: "Sources/Readiness.swift:40", issue: "'Dictate once below' appears even when there is no practice card because the model is missing" },
+    { level: "minor", where: "Sources/Other.swift:3", issue: "Unrelated naming" }]);
+  const sonnet = review("s", "Sonnet", [{ level: "major", where: "Sources/Readiness.swift:52", issue: "The header says Dictate once below, but the practice card only exists when practiceIsShown", fix: "Gate it" },
+    { level: "minor", where: "Sources/Readiness.swift:200", issue: "Spacing in the footer" }]);
+  const merged = mergedFindings([opus, sonnet]);
+  assert.deepEqual(merged.map((f) => [f.level, f.where, f.by.join("+")]), [
+    ["major", "Sources/Readiness.swift:52", "Opus+Sonnet"], ["minor", "Sources/Other.swift:3", "Opus"], ["minor", "Sources/Readiness.swift:200", "Sonnet"]]);
+});
+
+test("a deep review is one row in its run, and Done closes every reviewer's part", async () => {
+  const working = { ...codex, state: "running", attempts: [{ id: "w", role: "reviewer", state: "running" }] };
+  const { v, cx } = await runs([claude, working]);
+  v.navKey({ key: "j" }, cx); v.navKey({ key: "enter" }, cx);
+  let tree = v.render(cx);
+  assert.deepEqual(v.nav.map((entry) => entry.id), [`task-${claude.id}`]);
+  assert.match(text(find(tree, `task-${claude.id}`)), /^Deep review · app #7 1 of 2 reviewers done/);
+  v.navKey({ key: "enter" }, cx); tree = v.render(cx);
+  assert.match(text(find(tree, "task-effect")), /^Codex is still reviewing/);
+  const sent = [];
+  fake.exec = (cmd, args) => {
+    if (!/cli\.mjs$/.test(args[0] ?? "")) return null;
+    sent.push(JSON.parse(args.at(-1)));
+    return { stdout: JSON.stringify({ doc: { tasks: [claude, working], engine: { enabled: true } } }) };
+  };
+  v.navKey({ key: "a" }, cx); v.navKey({ key: "enter" }, cx);
+  for (let i = 0; i < 4; i++) await flush();
+  assert.deepEqual(sent.map((p) => [p.action, p.taskId, p.outcome ?? null]), [["decide", "c", "accept"], ["cancel", "x", null]]);
 });

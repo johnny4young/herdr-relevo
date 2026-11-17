@@ -14,12 +14,15 @@ import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed, d
 import * as config from "./config.js";
 import { deepReviewNotice, fixFindings, postDraftReview } from "./deep-review.js";
 import { deepReviewView } from "./deep-review-view.js";
-import { deepReviewDone, mergedFindings } from "./lib/deep-review.js";
+import { counted, mergedFindings, reviewAdvice, reviewLead, reviewTitle, verdicts } from "./lib/deep-review.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
   taskSummary, taskCaveats, isMerged } from "./lib/run-panel.js";
 import { canCompare, diffFiles, tookWords } from "./lib/run-compare.js";
 
 // Linked PR URLs known to have merged, kept after the landing list lets them go.
+// A deep review is one row, whatever its reviewers are doing: the reviewer most in need of you stands for it.
+const leads = (tasks, task) => !task.pr || reviewLead(tasks.filter((x) => x.pr?.url === task.pr.url))?.id === task.id;
+
 export const MERGED = "relevo.runs.merged";
 const REST = "more-run-rest";
 const WHY_LINES = 4, NOTE_LINES = 4, FILE_LINES = 8;
@@ -65,7 +68,7 @@ export class RunViews {
 
   orderedTasks(goal, rest = Boolean(this.expanded[REST])) {
     const bucket = this.runBucket(goal);
-    return [...TASK_GROUPS, ...(rest ? ["open", "done"] : [])].flatMap((turn) => bucket[turn]);
+    return [...TASK_GROUPS, ...(rest ? ["open", "done"] : [])].flatMap((turn) => bucket[turn]).filter((task) => leads(bucket.all, task));
   }
 
   shownTask() {
@@ -218,10 +221,33 @@ export class RunViews {
 
   // A, or a click, arms the acceptance of the revision on screen; only Enter, or a second click, confirms it.
   acceptStep(task, cx, confirm = true) {
+    if (task.pr) return this.finishStep(task, cx, confirm);
     if (this.runBusy || task.state !== "needs_you") return;
     if (confirm && acceptArmed(this.acceptIntent, task)) return this.decideRun(task, "accept", cx);
     this.acceptIntent = armAccept(task);
     cx.notify();
+  }
+
+  // Done on a deep review closes every reviewer's part: a verdict is accepted, anything else cancelled.
+  finishStep(task, cx, confirm = true) {
+    if (this.runBusy) return;
+    if (!confirm || !acceptArmed(this.acceptIntent, task)) { this.acceptIntent = armAccept(task); cx.notify(); return; }
+    const reviews = this.reviewsOf(task).filter((x) => !["accepted", "cancelled"].includes(x.state));
+    this.acceptIntent = null; this.runBusy = true; this.runError = null; cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        for (const r of reviews) {
+          this.takeDoc(await workflowCommand(r.state === "needs_you" ? decidePayload(r, "accept", "", { draft: false }) : { action: "cancel", taskId: r.id }));
+        }
+        this.runNotice = "Deep review closed.";
+        this.runTask = null; this.runAt = this.runPlace(); this.sel = null;
+      } catch (e) { this.runError = `Action needs attention: ${e.message ?? e}`; }
+      this.runBusy = false; cx.notify();
+    });
+  }
+
+  reviewsOf(task) {
+    return (this.workflowTasks ?? []).filter((x) => x.goalId === task.goalId && x.pr?.url === task.pr?.url);
   }
 
   askRunChanges(task, cx) {
@@ -296,7 +322,7 @@ export class RunViews {
     }
     if (task) {
       if (e.key === "?") return false;
-      const waiting = task.state === "needs_you" && !this.runBusy;
+      const waiting = (task.state === "needs_you" || Boolean(task.pr)) && !this.runBusy;
       if (e.key === "escape") {
         if (this.acceptIntent) this.acceptIntent = null;
         else this.leaveTask();
@@ -362,7 +388,7 @@ export class RunViews {
     const compared = scope && this.runCompare ? this.runBucket(scope).all.find((item) => item.id === this.runCompare) : null;
     if (compared) return [[back("compare-back", task ? "Task" : "Tasks", () => this.leaveCompare()), title("compare-title", compared.title),
       div().id("compare-attempts").flex_none().text_size(11).text_color(t.muted).child(tookWords(compared))], []];
-    if (task) return [[back("task-back", "Tasks", () => this.leaveTask()), title("task-title", task.title)], []];
+    if (task) return [[back("task-back", "Tasks", () => this.leaveTask()), title("task-title", task.pr ? reviewTitle(task.pr) : task.title)], []];
     if (scope) return [[back("runs-back", "Runs", () => this.leaveRun()), title("run-title", scope.title)], this.runTools(t, scope)];
     return [[div().id("runs-title").pl(8).flex_none().text_size(13).font_semibold().child("Runs"),
       div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(this.narrowInbox ? "" : "a run is a goal you gave your agents")],
@@ -430,7 +456,7 @@ export class RunViews {
     const { goal } = entry, bucket = this.runBucket(goal), tasks = bucket.all, summary = runSummary(bucket), outside = this.goalProjection.outsideBlockers;
     const progress = runProgress(goal.id, tasks, this.workflowEngine, this.workflowError);
     const rest = [...bucket.open, ...bucket.done];
-    const rows = (list) => joined(t, list.map((task) => this.taskRow(t, goal, task)));
+    const rows = (list) => joined(t, list.filter((task) => leads(tasks, task)).map((task) => (task.pr ? this.deepRow(t, goal, task, tasks) : this.taskRow(t, goal, task))));
     const group = (turn, label) => {
       const shown = rows(bucket[turn]);
       return shown.length ? [legHeader(t, `run-leg-${turn}`, label, bucket[turn].length, { me: turn !== "flight", after: turn === "me" ? this.pickHint(t, goal) : [] }), ...shown] : [];
@@ -451,6 +477,18 @@ export class RunViews {
       ...(rest.length ? [foldRow(this, t, "run-rest-fold", REST, `${bucket.open.length} not started · ${bucket.done.length} done`, { gap: true })] : []),
       ...(this.expanded[REST] ? rows(rest) : []),
     ];
+  }
+
+  deepRow(t, goal, lead, tasks) {
+    const reviews = tasks.filter((x) => x.pr?.url === lead.pr.url), id = `task-${lead.id}`, turn = taskTurn(lead), at = taskAt(lead);
+    const open = (cx) => { this.resetRun(lead.id); this.h.focus(); cx.notify(); };
+    const left = verdicts(reviews).filter((v) => v.state === "working").length, found = mergedFindings(reviews);
+    const reason = left ? `${reviews.length - left} of ${reviews.length} reviewers done` : found.length ? counted(found) : "no findings";
+    return this.item(t, id, {
+      turn: turn === "done" ? "ready" : turn, kind: "relay", title: reviewTitle(lead.pr), reason, age: at ? ago(at, true) : null, tip: lead.pr.url,
+      main: ["me", "stuck"].includes(turn) ? { id: `task-review-${lead.id}`, label: "Review", run: open, kind: "go" } : { id: `task-open-${lead.id}`, label: "Open", run: open },
+      lines: () => (turn === "stuck" ? this.stuckLines(t, goal, lead) : []), actions: [],
+    });
   }
 
   taskRow(t, goal, task) {
@@ -537,11 +575,9 @@ export class RunViews {
 
   // A deep review of a PR has no writer to send changes to: its findings go to GitHub as a draft review, or to a fix run.
   prReviewDecision(t, goal, task, tasks, keyed, confirming, diff, more) {
-    const reviews = tasks.filter((x) => x.pr?.url === task.pr.url), done = deepReviewDone(reviews), found = mergedFindings(reviews);
+    const reviews = tasks.filter((x) => x.pr?.url === task.pr.url), found = mergedFindings(reviews);
     const must = found.filter((f) => f.level !== "minor").length, busy = Boolean(this.runBusy) || this.posting === goal.id;
-    const say = !done ? "The other reviewer is still at work; posting now leaves its findings out."
-      : found.length ? `${found.length} ${found.length === 1 ? "finding" : "findings"}, ${must} to fix, from ${reviews.length} ${reviews.length === 1 ? "reviewer" : "reviewers"}. Nothing reaches GitHub until you post it.`
-      : "No findings. Done closes the review.";
+    const say = reviewAdvice(reviews);
     return v_flex().id("task-decision").px(8).pt(8).gap(6)
       .child(h_flex().flex_wrap().gap(6).items_center()
         .child(button(t, "task-post-review", this.posting === goal.id ? "Posting…" : "Post as draft review", (cx) => this.postReview(goal, reviews, cx),
@@ -549,7 +585,7 @@ export class RunViews {
         .child(button(t, "task-fix-findings", "Fix with a run", () => fixFindings(reviews).catch((e) => deepReviewNotice("Could not prepare the run", e)),
           { disabled: busy || !must, tip: "A run on a copy of the PR's branch, asked to fix every blocker and major" }))
         .child(button(t, "task-accept", confirming ? keyed("enter", "Confirm done") : keyed("a", "Done"), (cx) => this.acceptStep(task, cx),
-          { disabled: busy, tip: "Closes this reviewer's part; nothing is merged or posted" }))
+          { disabled: busy, tip: "Closes the whole deep review; nothing is merged or posted" }))
         .child(diff).child(div().flex_1()).child(more))
       .child(div().id("task-effect").min_w(0).text_size(11).text_color(t.muted).child(say));
   }
@@ -582,7 +618,7 @@ export class RunViews {
         .child(button(t, "task-send-changes", plan.send, (cx) => this.sendRunChanges(cx),
           { kind: "solid", disabled: Boolean(this.runBusy) || !this.runChange.value().trim(), tip: "⌘Enter" }))
         .child(button(t, "task-changes-cancel", "Cancel", (cx) => { this.cancelRunChanges(); cx.notify(); }, { kind: "ghost", disabled: Boolean(this.runBusy) })));
-    if (task.pr && waiting) return this.prReviewDecision(t, goal, task, tasks, keyed, confirming, diff, more);
+    if (task.pr) return this.prReviewDecision(t, goal, task, tasks, keyed, confirming, diff, more);
     const effect = `${task.worktree?.prHead ? `Accepting commits to the run branch; then Push to ${task.worktree.prHead} adds it to the pull request. `
       : draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accepting commits to the run branch, pushes it and opens a draft pull request on GitHub. "
       : task.worktree ? "Accepting keeps the worktree and commits to its run branch. " : ""}${acceptanceEffect(task, tasks, this.workflowEngine)}`;

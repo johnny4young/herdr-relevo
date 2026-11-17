@@ -11,7 +11,8 @@ import { agentMarkdown } from "./lib/agent-markdown.js";
 import { WorkflowRuns } from "./workflow-runs.js";
 import { deepReviewView } from "./deep-review-view.js";
 import { deepReviewNotice, fixFindings, postDraftReview } from "./deep-review.js";
-import { mergedFindings } from "./lib/deep-review.js";
+import { mergedFindings, reviewAdvice, reviewTitle } from "./lib/deep-review.js";
+import { runtimeCommand } from "./runtime-cli.js";
 import { row, taskState, reportState, verdictLine, role, count, attemptLabel, caption, reportNotes, SUMMARY_PREVIEW } from "./workflow-labels.js";
 
 const CONFIGURED_SKILLS = config.SKILLS;
@@ -100,7 +101,8 @@ export class WorkflowDetail extends WorkflowRuns {
 
   // The decision stays fixed under the content, so it never scrolls out of reach.
   decisions(t, task) {
-    if (task.state !== "needs_you") return null;
+    const stillOpen = task.pr && this.prReviews(task).some((r) => !["accepted", "cancelled"].includes(r.state));
+    if (task.state !== "needs_you" && !stillOpen) return null;
     const editing = this.decisionNoteFor === task.id;
     const changes = this.requestChangesFor === task.id;
     const submit = (outcome, cx) => this.submitDecision(task, outcome, cx);
@@ -123,7 +125,7 @@ export class WorkflowDetail extends WorkflowRuns {
               { kind: "solid", disabled: this.busy || this.posting || !found.length }))
             .child(button(t, "workflow-fix-findings", "Fix with a run", () => fixFindings(this.prReviews(task)).catch((e) => deepReviewNotice("Could not prepare the run", e)),
               { disabled: this.busy || !must }))
-            .child(button(t, "workflow-decide-accept", confirming ? "Confirm ↵" : "Done", (cx) => submit("accept", cx), { kind: "ghost", disabled: this.busy }));
+            .child(button(t, "workflow-decide-accept", "Done", (cx) => this.finishReviews(task, cx), { kind: "ghost", disabled: this.busy, tip: "Closes the whole deep review; nothing is merged or posted" }));
         })
         .when(!editing && !task.pr, (bar) => bar
           .child(button(t, "workflow-decide-accept", confirming ? "Confirm ↵" : draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accept and open draft PR" : "Accept", (cx) => submit("accept", cx),
@@ -202,8 +204,28 @@ export class WorkflowDetail extends WorkflowRuns {
     const ui = { open: this.deepOpen, toggle: (key, cx) => { if (!this.deepOpen.delete(key)) this.deepOpen.add(key); cx.notify(); },
       openFile: (where) => openReview(reviews[0].root, null, null, null, { from: reviews[0].reviewBase, to: "HEAD", file: where.replace(/:\d+(-\d+)?$/, "") }) };
     return v_flex().w_full().min_w(0).gap(14)
-      .child(div().text_size(13).font_semibold().w_full().min_w(0).child(`Deep review · #${task.pr.number}`))
+      .child(div().text_size(13).font_semibold().w_full().min_w(0).child(reviewTitle(task.pr)))
+      .child(div().id("workflow-deep-advice").text_size(11).text_color(t.muted).child(reviewAdvice(reviews)))
       .child(deepReviewView(t, "workflow-deep", reviews, ui));
+  }
+
+  // Done closes the whole deep review: each verdict is accepted, anything still open cancelled.
+  finishReviews(task, cx) {
+    if (this.busy) return;
+    const open = this.prReviews(task).filter((r) => !["accepted", "cancelled"].includes(r.state));
+    this.busy = true; this.error = null; cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        for (const r of open) {
+          const res = await runtimeCommand(r.state === "needs_you" ? decidePayload(r, "accept", "", { draft: false }) : { action: "cancel", taskId: r.id });
+          const out = JSON.parse(res.stdout || "{}");
+          if (res.code !== 0 || out.error) throw Error(out.error || res.stderr || "Workflow command failed");
+          if (out.doc?.tasks) this.applyState(out.doc, true);
+        }
+        this.notice = "Deep review closed.";
+      } catch (e) { this.error = String(e?.message ?? e); }
+      this.busy = false; cx.notify();
+    });
   }
 
   postReview(task, cx) {
