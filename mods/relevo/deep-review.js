@@ -92,9 +92,13 @@ export async function postDraftReview(tasks) {
 export async function fixFindings(tasks) {
   const pr = tasks[0].pr, source = `pr:${pr.url}`, prompt = findingsPrompt(pr, tasks);
   const { doc } = await readGoals();
-  let goal = doc.goals.find((g) => g.state !== "completed" && g.sources.includes(source) && g.title.startsWith("Fix "));
+  let goal = doc.goals.find((g) => g.state !== "completed" && g.sources.includes(source));
   if (!goal) {
-    goal = { ...newGoal(`goal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, `Fix #${pr.number} · deep review`, [source]), criteria: prompt };
+    // A work item belongs to one run: a closed run that had it leaves the new one unlinked. The findings travel in
+    // the task's prompt; the goal keeps a line.
+    const taken = doc.goals.some((g) => g.sources.includes(source));
+    goal = { ...newGoal(`goal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, `Fix #${pr.number} · deep review`, taken ? [] : [source]),
+      criteria: `Fix what the deep review of ${pr.url} found.` };
     await writeGoal(goal, 0);
   }
   openWorkflow(goal.id, null, { fixPR: { url: pr.url, number: pr.number, headRef: pr.headRef, root: pr.clone, prompt } });

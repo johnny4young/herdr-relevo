@@ -75,13 +75,24 @@ export function draftReview(tasks, inline = true) {
   return { body, comments };
 }
 
-// What a fix run is asked to do: every blocker and major, then the minor ones as optional.
+// What a fix run is asked to do: every blocker and major, then the minor ones as optional. A task's prompt holds
+// PROMPT_MAX characters, so long findings are cut and the optional ones go first.
+const PROMPT_MAX = 3900;
 export function findingsPrompt(pr, tasks) {
   const findings = mergedFindings(tasks), must = findings.filter((f) => f.level !== "minor"), rest = findings.filter((f) => f.level === "minor");
-  return [`Fix pull request #${pr.number} (${pr.url}) after a deep review by ${tasks.map(who).join(" and ")}.`,
-    must.length ? `Fix each of these:\n${must.map(findingLine).join("\n")}` : "",
-    rest.length ? `Optional, if they are cheap and safe:\n${rest.map(findingLine).join("\n")}` : "",
-    "Keep the change to these findings, run the repository's tests, and say which finding each change answers."].filter(Boolean).join("\n\n");
+  const build = (cut, optional) => {
+    const short = (f) => findingLine({ ...f, issue: f.issue.length > cut ? `${f.issue.slice(0, cut).trimEnd()}…` : f.issue,
+      fix: f.fix && f.fix.length > cut ? `${f.fix.slice(0, cut).trimEnd()}…` : f.fix });
+    return [`Fix pull request #${pr.number} (${pr.url}) after a deep review by ${tasks.map(who).join(" and ")}.`,
+      must.length ? `Fix each of these:\n${must.map(short).join("\n")}` : "",
+      optional && rest.length ? `Optional, if they are cheap and safe:\n${rest.map(short).join("\n")}` : "",
+      "Keep the change to these findings, run the repository's tests, and say which finding each change answers."].filter(Boolean).join("\n\n");
+  };
+  for (const [cut, optional] of [[400, true], [200, true], [400, false], [200, false], [100, false]]) {
+    const text = build(cut, optional);
+    if (text.length <= PROMPT_MAX) return text;
+  }
+  return build(80, false).slice(0, PROMPT_MAX);
 }
 
 export const counted = (findings) => LEVELS.map((level) => [level, findings.filter((f) => f.level === level).length]).filter(([, n]) => n)

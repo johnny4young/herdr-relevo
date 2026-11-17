@@ -218,3 +218,17 @@ test("a deep review is one row in its run, and Done closes every reviewer's part
   for (let i = 0; i < 4; i++) await flush();
   assert.deepEqual(sent.map((p) => [p.action, p.taskId, p.outcome ?? null]), [["decide", "c", "accept"], ["cancel", "x", null]]);
 });
+
+test("Fix with a run fits the goal and the task however many findings there are", async () => {
+  const many = review("m", "Opus", Array.from({ length: 14 }, (_, i) => ({ level: i < 4 ? "major" : "minor", where: `src/f${i}.swift:${i * 40 + 1}`, issue: "Long issue ".repeat(60), fix: "Long fix ".repeat(40) })));
+  const prompt = findingsPrompt(PR, [many]);
+  assert.ok(prompt.length <= 3900, `${prompt.length}`);
+  assert.equal((prompt.match(/\*\*major\*\*/g) ?? []).length, 4, "every finding to fix stays");
+  const { fixFindings } = await import("../deep-review.js");
+  const { readGoals } = await import("../goals-store.js");
+  fake.files[goalsPath()] = JSON.stringify(saveGoal(emptyGoals(), { ...newGoal("old", "Fix #7 · Search", [`pr:${PR.url}`]), state: "completed" }, 0));
+  await fixFindings([many]);
+  const made = (await readGoals()).doc.goals.find((g) => g.id !== "old");
+  assert.deepEqual([made.sources, made.criteria.length < 2000], [[], true], "a work item another run had stays with it");
+  assert.equal(fake.runs.findLast(([n]) => n === "pane.split")[1].props.fixPR.prompt, prompt);
+});
