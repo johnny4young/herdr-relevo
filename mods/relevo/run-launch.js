@@ -1,5 +1,6 @@
 // A worktree run between Start and its task: what it waits on, shared so Runs can show it wherever the person is.
-import { exec, readTextFile } from "herdr";
+import { agents, exec, panes, readTextFile, spaces, terminals } from "herdr";
+import { openInFolder } from "./accounts.js";
 import { CHECK_FILES, detectChecks } from "./lib/run-checks.js";
 
 export const RUN_LAUNCH = "relevo.runs.launch";
@@ -19,6 +20,29 @@ export async function answerTrust(address) {
   const keys = trustKeys(screen);
   if (keys) await exec("hc", ["keys", address, ...keys]).catch(() => null);
   return Boolean(keys);
+}
+
+const READY = ["idle", "done", "working"];
+const tabOf = (address) => {
+  const tab = panes().find((pane) => pane.terminal === address)?.tab;
+  return spaces().flatMap((space) => space.tabs ?? []).find((item) => item.id === tab)?.name ?? null;
+};
+
+// Opens an agent in its own tab and waits until it can take work. Until it does, `ask` gets the trust question
+// it may be stopped on ({ address }), or null, for Runs to show.
+export async function openAgent({ name, folder, tab, argv, label, ask, cx, waitMs = 180000 }) {
+  openInFolder({ name, folder, tab, argv });
+  const at = Date.now();
+  for (;;) {
+    if (Date.now() - at > waitMs) throw Error(`${label} did not start in ${tab}`);
+    await cx.sleep(1500);
+    const found = agents().find((a) => a.tab_name === tab && READY.includes(a.status));
+    if (found) return found;
+    if (Date.now() - at < 8000) continue;
+    const waiting = terminals().find((k) => k.cwd === folder && tabOf(k.address) === tab);
+    const screen = waiting ? (await exec("hc", ["read", waiting.address, "--lines", "30"]).catch(() => null))?.stdout ?? "" : "";
+    ask(trustKeys(screen) ? { address: waiting.address } : null);
+  }
 }
 
 // Files whose text decides the command; for the others being there is enough.

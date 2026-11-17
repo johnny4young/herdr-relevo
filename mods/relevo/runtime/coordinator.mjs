@@ -3,7 +3,7 @@ import path from 'node:path';
 import { run } from './process.mjs';
 import { fingerprint, runChecks, attachArtifact, verifyArtifact, removeArtifact } from './evidence.mjs';
 import { readState, transaction, taskById, event, uid, stateDir, privateDir } from './store.mjs';
-import { QUIET, trustedEnv, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, snapshotAttempt, dropAttemptRef, dropAttemptRefs, diffCounts, attemptDiff, openPullRequest, pushToPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH, taskDiff } from './worktree.mjs';
+import { QUIET, trustedEnv, prepareReview, prepareWorktree, worktreeStatus, commitWorktree, commitReviewedTree, snapshotTree, snapshotAttempt, dropAttemptRef, dropAttemptRefs, diffCounts, attemptDiff, openPullRequest, pushToPullRequest, removeRunWorktree, RUN_BRANCH, BASE_BRANCH, taskDiff } from './worktree.mjs';
 import { createHash } from 'node:crypto';
 import { archivable, stageArchive, publishArchive, MAX_TASKS } from './archive.mjs';
 import { proposePreference, updatePreference, deletePreference, preferencesFor, preferenceContext, proposeFromDecisions, decisionBatch, skillPrompt } from '../lib/workflow-preferences.js';
@@ -18,6 +18,7 @@ const MUST_FIX = LEVELS.includes(config.RUN_MUST_FIX) ? config.RUN_MUST_FIX : 'm
 
 const terminalStates = new Set(['accepted', 'cancelled']);
 const text = (value, max = 4000) => typeof value === 'string' && value.trim() && value.length <= max;
+const PR_URL = /^https:\/\/github\.com\/[^\s]+\/pull\/\d+$/;
 const recipient = (actor) => actor && /^[a-zA-Z0-9][-a-zA-Z0-9_/]*$/.test(actor.address ?? '');
 // Reports prove their attempt with a token only the prompt carries; state keeps its hash.
 const tokenHash = (token) => createHash('sha256').update(String(token)).digest('hex');
@@ -31,7 +32,7 @@ export function slotWait(doc, task, actor) {
   const active = doc.tasks.filter((other) => other.id !== task.id && holdsCheckout(other));
   const same = active.find((other) => other.root === task.root);
   if (same) return `Waits for “${same.title}”, which works in the same checkout.`;
-  const busy = active.find((other) => [other.executor.address, other.reviewer.address].includes(actor.address));
+  const busy = active.find((other) => [other.executor?.address, other.reviewer.address].includes(actor.address));
   if (busy) return `Waits for ${agentName(actor)}, which works on “${busy.title}”.`;
   const max = doc.engine.maxConcurrent;
   if (active.filter((other) => !terminalStates.has(other.state)).length < max) return null;
@@ -92,8 +93,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (!input || !text(input.goalId, 100) || !text(input.title, 240) || !text(input.criteria, 4000) || !path.isAbsolute(input.root ?? '')) throw Error('Choose a goal, title, repository and expected outcome');
     const goals = JSON.parse(fs.readFileSync(path.join(home, 'relevo-goals.json'), 'utf8'));
     if (!goals.goals?.some((g) => g.id === input.goalId && g.state !== 'completed')) throw Error('Choose an open goal');
-    if (!recipient(input.executor) || !recipient(input.reviewer) || input.executor.address === input.reviewer.address) throw Error('Select different executor and reviewer agents');
-    if ([input.executor, input.reviewer].some((actor) => actor.address.includes('/'))) throw Error('This workflow requires local agents in the selected checkout');
+    // A pull request's review has no writer here: its findings go to a draft review or a fix run, not to an agent.
+    const prReview = input.reviewOnly === true && !input.worktree && PR_URL.test(input.pr?.url ?? '') && /^[0-9a-f]{40}$/.test(input.reviewBase ?? '');
+    if (prReview && (!Number.isInteger(input.pr.number) || !BASE_BRANCH.test(input.pr.headRef ?? '') || input.pr.headRef.includes('..') || !path.isAbsolute(input.pr.clone ?? ''))) throw Error('Choose the pull request to review');
+    if (!recipient(input.reviewer) || (!prReview && (!recipient(input.executor) || input.executor.address === input.reviewer.address))) throw Error('Select different executor and reviewer agents');
+    if ([prReview ? null : input.executor, input.reviewer].filter(Boolean).some((actor) => actor.address.includes('/'))) throw Error('This workflow requires local agents in the selected checkout');
     if (!Array.isArray(input.checks ?? []) || (input.checks?.length ?? 0) > 10 || (input.checks ?? []).some((args) => !Array.isArray(args) || !args.length || args.length > 30 || args.some((a) => typeof a !== 'string' || a.length > 2000 || a.includes('\0')))) throw Error('Checks must be JSON arrays of command arguments');
     const dependencies = input.dependsOn ?? [];
     if (!Array.isArray(dependencies) || new Set(dependencies).size !== dependencies.length || dependencies.some((id) =>
@@ -102,9 +106,10 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (input.worktree && (!RUN_BRANCH.test(input.worktree.branch ?? '') || !path.isAbsolute(input.worktree.base ?? ''))) throw Error('A worktree run needs its run/ branch and repository');
     if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5 || !Number.isInteger(maxMinutes) || maxMinutes < 1 || maxMinutes > 120) throw Error('Use 1–5 attempts and a 1–120 minute limit');
     return { id: uid(), goalId: input.goalId, title: input.title.trim(), criteria: input.criteria.trim(), root: fs.realpathSync(input.root),
-      executor: { address: input.executor.address, label: input.executor.label || input.executor.address }, reviewer: { address: input.reviewer.address, label: input.reviewer.label || input.reviewer.address },
+      executor: prReview ? null : { address: input.executor.address, label: input.executor.label || input.executor.address }, reviewer: { address: input.reviewer.address, label: input.reviewer.label || input.reviewer.address },
       checks: input.checks ?? [], dependsOn: dependencies, maxRounds, maxMinutes, round: 0, state: 'planned', paused: false,
       ...(input.reviewOnly === true && !input.worktree ? { reviewOnly: true } : {}),
+      ...(prReview ? { reviewBase: input.reviewBase, pr: { url: input.pr.url, number: input.pr.number, headRef: input.pr.headRef, clone: input.pr.clone } } : {}),
       ...(input.worktree ? { worktree: { path: fs.realpathSync(input.root), branch: String(input.worktree.branch ?? ''), base: fs.realpathSync(input.worktree.base),
         ...(/^[0-9a-f]{40}$/.test(input.worktree.baseCommit ?? '') ? { baseCommit: input.worktree.baseCommit } : {}),
         ...(BASE_BRANCH.test(input.worktree.baseBranch ?? '') ? { baseBranch: input.worktree.baseBranch } : {}),
@@ -170,11 +175,13 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (payload.goalId !== undefined && !text(payload.goalId, 100)) throw Error('Choose a run to archive');
       return archiveFinished({ days, goalId: payload.goalId, preview: payload.preview === true });
     }
+    if (action === 'prepare-review') return { result: await prepareReview({ root: payload.root, pr: payload.pr ?? null, who: payload.who }) };
     if (action === 'prepare-worktree') return { result: await prepareWorktree({ root: payload.root, title: payload.title, pr: payload.pr ?? null }) };
     if (action === 'create') {
       const task = validateTask(payload.task, readState(home));
       await fp(task);
-      await getActor(task.executor, task.root); await getActor(task.reviewer, task.root);
+      if (task.executor) await getActor(task.executor, task.root);
+      await getActor(task.reviewer, task.root);
       await makeRoom(1);
       return update((doc) => {
         validateTask(payload.task, doc); roomFor(doc, 1); doc.tasks.push(task); log(doc, task, 'Task created', 'Existing agents linked; no message sent', 'Human');
@@ -443,6 +450,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     }
     if (action === 'message' || action === 'skill') {
       if (!text(payload.text ?? payload.skill, 4000)) throw Error('Enter a message or configured skill');
+      if (!before.executor) throw Error('A pull request review has no agent to message; post it as a draft review or fix it with a run');
       if (terminalStates.has(before.state)) throw Error('Start a new task for further work');
       if (action === 'skill' && !Object.values(SKILLS).includes(payload.skill)) throw Error('Choose an available configured skill');
       const message = action === 'skill' ? skillPrompt({ skill: payload.skill, title: before.title, criteria: [before.criteria], root: before.root,
@@ -524,6 +532,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       const issue = planScopeIssue(task, doc);
       if (issue) throw Error(issue);
     }
+    if (payload.outcome === 'changes' && !task.executor) throw Error('A pull request review has no agent to send changes to; fix it with a run');
     if (payload.outcome === 'changes' && !text(payload.text)) throw Error('Explain the requested changes');
     if (payload.outcome === 'changes' && task.round >= task.maxRounds) throw Error('Attempt budget exhausted. Create a new bounded task for further changes.');
     task.decisions.push({ id: uid(), outcome: payload.outcome, text: String(payload.text ?? '').slice(0, 4000), revision: task.revision, at: new Date(clock()).toISOString() });
@@ -554,7 +563,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     const proof = { attemptId: attempt.id, token: attempt.token }, reviewer = attempt.role === 'reviewer';
     return renderRole(attempt.role, {
       taskId: task.id, attemptId: attempt.id, title: task.title, criteria: task.criteria, root: task.root,
-      feedback: task.feedback ?? '', change, base: task.worktree?.baseCommit ? task.worktree.baseCommit.slice(0, 12) : 'HEAD', maxMinutes: String(task.maxMinutes), mustFix: MUST_FIX,
+      feedback: task.feedback ?? '', change, base: (task.reviewBase ?? task.worktree?.baseCommit)?.slice(0, 12) ?? 'HEAD', maxMinutes: String(task.maxMinutes), mustFix: MUST_FIX,
       checks: task.checks.length ? `Configured checks: ${JSON.stringify(task.checks)}` : 'No automated check command was configured; report that limitation.',
       checkResults: JSON.stringify(task.checksResult.map((check) => ({ argv: check.argv, code: check.code, stdout: check.stdout?.slice(-2000), stderr: check.stderr?.slice(-2000) }))).slice(0, 16000),
       preferences: preferenceContext(preferences),
@@ -650,7 +659,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     // The session that does the work, for attributing its tokens later.
     const transcript = observed.labels?.['agent.transcript'];
     if (typeof transcript === 'string' && transcript && transcript.length <= 1000) attempt.transcript = transcript;
-    const change = role === 'reviewer' ? await diffImpl(task.root, task.worktree?.baseCommit ?? 'HEAD', await gitEnv(task)).catch((e) => `Could not read the diff: ${e.message}`) : '';
+    const change = role === 'reviewer' ? await diffImpl(task.root, task.reviewBase ?? task.worktree?.baseCommit ?? 'HEAD', await gitEnv(task)).catch((e) => `Could not read the diff: ${e.message}`) : '';
     const fullPrompt = prompt(task, { ...attempt, token }, preferencesFor(doc.preferences, { goalId: task.goalId, root: task.root }), change);
     const stored = fullPrompt.split(token).join('<token>');
     attempt.prompt = stored.length > MAX_STORED_PROMPT ? `${stored.slice(0, MAX_STORED_PROMPT)}…` : stored;

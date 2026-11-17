@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, TextareaState, Textarea } from "gpui-base";
-import { shared, setShared } from "herdr";
+import { exec, notify, shared, setShared } from "herdr";
 import { button, foldRow, legHeader, legend, joined, keyBar, keycap, meTint, plusMinus, row, onSubmitChord } from "./ui.js";
 import { openReview } from "./review.js";
 import { RUN_LAUNCH, answerTrust } from "./run-launch.js";
@@ -12,6 +12,8 @@ import { ago } from "./lib/time.js";
 import { reviewableWork, linkedDecision, runProgress } from "./lib/goal-workflow.js";
 import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed, draftOnAccept } from "./lib/workflow-navigation.js";
 import * as config from "./config.js";
+import { deepReviewNotice, fixFindings, postDraftReview } from "./deep-review.js";
+import { deepReviewDone, mergedFindings } from "./lib/deep-review.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
   taskSummary, taskCaveats, isMerged } from "./lib/run-panel.js";
 import { canCompare, diffFiles, tookWords } from "./lib/run-compare.js";
@@ -222,6 +224,7 @@ export class RunViews {
   }
 
   askRunChanges(task, cx) {
+    if (task.pr) return;
     this.runChangeFor = task.id; this.acceptIntent = null;
     cx.notify();
     cx.timer.after(30, () => { if (this.runChangeFor === task.id) this.runChange.focus(); });
@@ -374,7 +377,7 @@ export class RunViews {
     const help = [["?"], "keys"], task = this.shownTask(), scope = this.goalProjection.scope;
     const compare = (item) => (item && canCompare(item) ? [[["c"], "compare"]] : []);
     if (this.runCompare) return keyBar(t, "list-keys", [[["esc"], "back"]], help);
-    if (task) return keyBar(t, "list-keys", [...(task.state === "needs_you" ? [[["a", "enter"], "accept"], [["r"], "changes"]] : []), [["d"], "diff"], ...compare(task), [["esc"], "tasks"]], help);
+    if (task) return keyBar(t, "list-keys", [...(task.state === "needs_you" ? [[["a", "enter"], task.pr ? "done" : "accept"], ...(task.pr ? [] : [[["r"], "changes"]])] : []), [["d"], "diff"], ...compare(task), [["esc"], "tasks"]], help);
     if (scope && this.runPicked.length) return this.batchBar(t, scope);
     if (scope) return keyBar(t, "list-keys", [[["j", "k"], "move"], [["enter"], "open the task"],
       ...compare(this.runBucket(scope).all.find((item) => `task-${item.id}` === this.sel)), [["esc"], "runs"]], help);
@@ -507,6 +510,38 @@ export class RunViews {
     ];
   }
 
+  // A deep review of a PR has no writer to send changes to: its findings go to GitHub as a draft review, or to a fix run.
+  prReviewDecision(t, goal, task, tasks, keyed, confirming, diff, more) {
+    const reviews = tasks.filter((x) => x.pr?.url === task.pr.url), done = deepReviewDone(reviews), found = mergedFindings(reviews);
+    const must = found.filter((f) => f.level !== "minor").length, busy = Boolean(this.runBusy) || this.posting === goal.id;
+    const say = !done ? "The other reviewer is still at work; posting now leaves its findings out."
+      : found.length ? `${found.length} ${found.length === 1 ? "finding" : "findings"}, ${must} to fix, from ${reviews.length} ${reviews.length === 1 ? "reviewer" : "reviewers"}. Nothing reaches GitHub until you post it.`
+      : "No findings. Done closes the review.";
+    return v_flex().id("task-decision").px(8).pt(8).gap(6)
+      .child(h_flex().flex_wrap().gap(6).items_center()
+        .child(button(t, "task-post-review", this.posting === goal.id ? "Posting…" : "Post as draft review", (cx) => this.postReview(goal, reviews, cx),
+          { kind: "accent", disabled: busy || !found.length, tip: "A pending review on the PR, with a comment on each line found; you edit and send it on GitHub" }))
+        .child(button(t, "task-fix-findings", "Fix with a run", () => fixFindings(reviews).catch((e) => deepReviewNotice("Could not prepare the run", e)),
+          { disabled: busy || !must, tip: "A run on a copy of the PR's branch, asked to fix every blocker and major" }))
+        .child(button(t, "task-accept", confirming ? keyed("enter", "Confirm done") : keyed("a", "Done"), (cx) => this.acceptStep(task, cx),
+          { disabled: busy, tip: "Closes this reviewer's part; nothing is merged or posted" }))
+        .child(diff).child(div().flex_1()).child(more))
+      .child(div().id("task-effect").min_w(0).text_size(11).text_color(t.muted).child(say));
+  }
+
+  postReview(goal, reviews, cx) {
+    if (this.posting) return;
+    this.posting = goal.id; cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const url = await postDraftReview(reviews);
+        notify({ title: `Draft review on #${reviews[0].pr.number}`, body: "Pending on GitHub until you send it", level: "success" });
+        exec("open", [url]);
+      } catch (error) { deepReviewNotice("Draft review not posted", error); }
+      this.posting = null; cx.notify();
+    });
+  }
+
   taskDecision(t, goal, task, tasks) {
     const waiting = task.state === "needs_you", editing = waiting && this.runChangeFor === task.id, plan = changesPlan(task);
     const confirming = acceptArmed(this.acceptIntent, task);
@@ -522,6 +557,7 @@ export class RunViews {
         .child(button(t, "task-send-changes", plan.send, (cx) => this.sendRunChanges(cx),
           { kind: "solid", disabled: Boolean(this.runBusy) || !this.runChange.value().trim(), tip: "⌘Enter" }))
         .child(button(t, "task-changes-cancel", "Cancel", (cx) => { this.cancelRunChanges(); cx.notify(); }, { kind: "ghost", disabled: Boolean(this.runBusy) })));
+    if (task.pr && waiting) return this.prReviewDecision(t, goal, task, tasks, keyed, confirming, diff, more);
     const effect = `${task.worktree?.prHead ? `Accepting commits to the run branch; then Push to ${task.worktree.prHead} adds it to the pull request. `
       : draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accepting commits to the run branch, pushes it and opens a draft pull request on GitHub. "
       : task.worktree ? "Accepting keeps the worktree and commits to its run branch. " : ""}${acceptanceEffect(task, tasks, this.workflowEngine)}`;

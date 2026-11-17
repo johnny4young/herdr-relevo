@@ -953,3 +953,32 @@ test("a second opinion checks the work as it is, sends it only to the reviewer, 
   assert.equal(f.sends.at(-1).at(-2), "exec-agent", "asked to, the person's changes go to the agent whose work it was");
   assert.match(f.sends.at(-1).at(-1), /Please fix the tests/);
 });
+
+test("a pull request's review has no writer: its diff is against the PR's base and its findings never go back to an agent", async (t) => {
+  const f = await fixture({ checkCode: 0 }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: f.root, encoding: "utf8" }).trim();
+  const pr = { url: "https://github.com/me/app/pull/7", number: 7, headRef: "feat/x", clone: f.root };
+  const created = await f.runtime.command({ action: "create", start: true, task: { goalId: "g1", title: "Claude · #7", criteria: "Ready to merge?", root: f.root,
+    reviewer: { address: "review-agent", label: "Claude" }, checks: [["npm", "test"]], reviewOnly: true, reviewBase: base, pr } });
+  const id = created.result.taskId, task = () => f.runtime.read().tasks.find((x) => x.id === id);
+  assert.deepEqual([task().executor, task().reviewBase, task().pr.number], [null, base, 7]);
+  await f.runtime.tick();
+  await f.runtime.tick();
+  assert.deepEqual(f.sends.map((args) => args.at(-2)), ["review-agent"]);
+  assert.match(f.sends[0].at(-1), new RegExp(`against ${base.slice(0, 12)}`));
+  f.report("reviewer", "changes_requested", "One bug", task().attempts.at(-1), { findings: [{ level: "major", where: "a.js:1", issue: "Broken", fix: "Fix it" }] });
+  await f.runtime.tick();
+  assert.equal(task().state, "needs_you");
+  await assert.rejects(f.runtime.command({ action: "decide", taskId: id, outcome: "changes", text: "Fix it", revision: task().revision }), /no agent to send changes to/);
+  await assert.rejects(f.runtime.command({ action: "message", taskId: id, text: "hi" }), /no agent to message/);
+  await f.runtime.command({ action: "decide", taskId: id, outcome: "accept", revision: task().revision });
+  assert.equal(task().state, "accepted");
+});
+
+test("a review without a writer still needs a real pull request and base", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const task = { goalId: "g1", title: "No PR", criteria: "?", root: f.root, reviewer: { address: "review-agent" }, reviewOnly: true };
+  await assert.rejects(f.runtime.command({ action: "create", task }), /different executor and reviewer/);
+  await assert.rejects(f.runtime.command({ action: "create", task: { ...task, reviewBase: "a".repeat(40), pr: { url: "https://github.com/me/app/pull/7", number: 7, headRef: "../x", clone: f.root } } }),
+    /Choose the pull request/);
+});

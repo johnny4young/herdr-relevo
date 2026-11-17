@@ -162,6 +162,13 @@ shows only what the agent changed after your last look, and **Viewed** marks fil
 
 ![Since I looked, with one file marked viewed](screenshots/since.png)
 
+### Deep review a pull request
+
+**Deep review** on a PR of yours has Claude and Codex each review the whole PR against its base, in a worktree of its
+exact head, after the repository's tests run. Their findings meet in Runs, merged where they agree: **Post as draft
+review** leaves them on GitHub as a pending review for you to edit and send, and **Fix with a run** fixes the blockers
+and majors. The ▾ beside it runs the review skills you use most, such as `/code-review`, on the PR.
+
 ### Resolve conflicts, and see what each turn cost
 
 A PR with merge conflicts offers **resolve conflicts**: an agent in a worktree of its branch that merges the base

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Deep review a pull request.** A PR of yours offers **Deep review**: Claude and Codex each review the whole PR against its base in a worktree of its exact head, after the repository's tests run, and their findings meet in Runs, merged where they agree. From there **Post as draft review** puts them on GitHub as a pending review with a comment on each line (you edit and send it), **Fix with a run** fixes every blocker and major on a copy of the PR's branch, and **Done** closes it. Codex joins only while it has quota. The ▾ beside it runs the review skills you type most (`/code-review`, `/code-review-pr-fix` and the like) on the PR in a worktree of its branch.
 - **A review that asks nothing stays out of Needs me.** A comment-only review after your last commit read "review from devin-ai-integration, copilot" even when it said "No issues found" and left no thread, so a PR that only waited for an approval sat in Needs me while its twin sat in Ready. A comment-only review now counts while the PR has unresolved threads; changes requested always count.
 
 ## 0.9.0 · 2026-11-17

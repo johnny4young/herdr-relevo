@@ -67,6 +67,7 @@ export const full = (q) => (q?.h5?.pct >= 100 ? "5h" : q?.d7?.pct >= 100 ? windo
 // Past this share of either window a new agent starts on another account: the rest goes in minutes.
 export const NEAR_FULL = 90;
 const used = (q) => Math.max(q?.h5?.pct ?? 0, q?.d7?.pct ?? 0);
+export const hasRoom = (q) => used(q) < NEAR_FULL;
 const tightWindow = (q) => ((q?.h5?.pct ?? 0) >= (q?.d7?.pct ?? 0) ? "5h" : windowLabel(q.d7, "7d"));
 
 // The repo's account unless it is nearly out of quota; then the fallback with the most left, known before unknown.

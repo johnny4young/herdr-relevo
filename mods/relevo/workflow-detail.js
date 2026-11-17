@@ -46,6 +46,7 @@ export class WorkflowDetail extends WorkflowRuns {
   }
 
   editDecisionNote(task, changes, cx) {
+    if (changes && task.pr) return;
     this.decisionDrafts ??= {};
     if (this.decisionNoteFor) this.decisionDrafts[this.decisionNoteFor] = this.form.decision.value();
     this.form.decision.set_value(this.decisionDrafts[task.id] ?? "");
@@ -116,7 +117,7 @@ export class WorkflowDetail extends WorkflowRuns {
           .child(button(t, "workflow-decide-accept", confirming ? "Confirm ↵" : draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accept and open draft PR" : "Accept", (cx) => submit("accept", cx),
             { kind: "solid", disabled: this.busy || changes, tip: "A, then Enter" })
             .when(!this.busy && !changes, (el) => el.bg(t.accent).text_color(t.accent_foreground)))
-          .child(button(t, "workflow-decide-changes", "Ask for changes", (cx) => this.editDecisionNote(task, true, cx), { disabled: this.busy, tip: "R" }))
+          .when(!task.pr, (b) => b.child(button(t, "workflow-decide-changes", "Ask for changes", (cx) => this.editDecisionNote(task, true, cx), { disabled: this.busy, tip: "R" })))
           .child(button(t, "workflow-decision-diff", "Diff", (cx) => this.openDiff(task, cx), { kind: "ghost", size: "sm", disabled: this.busy || !task.root }))
           .child(button(t, "workflow-decide-defer", "Later", (cx) => submit("defer", cx), { kind: "ghost", size: "sm", disabled: this.busy, tip: "Keep it pending and pause further work" }))
           .child(button(t, "workflow-decision-note-toggle", "Note", (cx) => this.editDecisionNote(task, false, cx), { kind: "ghost", size: "sm" })))

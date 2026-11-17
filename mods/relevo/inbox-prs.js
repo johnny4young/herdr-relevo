@@ -23,6 +23,7 @@ import { readGoals, writeGoal } from "./goals-store.js";
 import { openWorkflow } from "./workflow-window.js";
 import { desktopKey } from "./lib/desktop.js";
 import { noteUse } from "./run-usage.js";
+import { deepReviewNotice, startDeepReview } from "./deep-review.js";
 
 const ADDRESSED = ".local/state/relevo/addressed.json";
 
@@ -158,13 +159,13 @@ export class PrViews {
     mergedAlert(e, tree, contextKey);
   }
 
-  openSkillMenu(pr, skill = pr.skills?.[0] ?? "review") {
+  openSkillMenu(pr, skill = pr.skills?.[0] ?? "review", reviews = false) {
     if (!this.clones[pr.repo]) return;
     const current = pickAccount(pr.repo, this.quotas).key;
-    openOverlay({ mod: "relevo", kind: "popup", width: 360, height: 170 + 34 * Object.keys(SKILLS).length,
+    openOverlay({ mod: "relevo", kind: "popup", width: 360, height: 170 + 34 * (reviews ? 6 : Object.keys(SKILLS).length),
       props: { role: "account-menu", pr: { url: pr.url, number: pr.number, repo: pr.repo, updatedAt: pr.updatedAt, title: pr.title,
         headRefName: pr.headRefName, baseRefName: pr.baseRefName, isCrossRepository: pr.isCrossRepository, untrusted: Boolean(pr.untrusted) },
-      skill, folder: this.clones[pr.repo], current } });
+      skill, reviews, folder: this.clones[pr.repo], current } });
   }
 
   // The left part runs the skill with the picked account; ▾ picks the account, other skills or a new session.
@@ -201,6 +202,34 @@ export class PrViews {
           this.openSkillMenu(pr, skill);
         })
         .child(icon("chevron-down", null, 10)));
+  }
+
+  // A deep review of your PR on the left; your most used review skills on the right.
+  deepButton(t, pr) {
+    const busy = this.deepFor === pr.url;
+    return h_flex().id(`deep-${pr.url}`).h(24).flex_none().rounded(6).overflow_hidden().border_1().border_color(t.border)
+      .child(Button.new(`deep-run-${pr.url}`).id(`deep-run-${pr.url}`).tab_index(0).disabled(busy).accessibility_label("Deep review")
+        .focus((s) => s.border_2().border_color(t.accent)).flex().h_full().px(9).items_center().cursor_pointer()
+        .text_size(11).text_color(busy ? t.dim : t.foreground).hover((s) => s.bg(t.hover))
+        .tooltip("Claude and Codex each review the whole PR against its base after its tests run; their findings wait in Runs")
+        .on_click((_e, cx) => { cx.stop_propagation(); this.deepReview(pr, cx); })
+        .child(busy ? "Starting review…" : "Deep review"))
+      .child(Button.new(`deep-pick-${pr.url}`).id(`deep-pick-${pr.url}`).tab_index(0).accessibility_label("Choose a review skill")
+        .focus((s) => s.border_2().border_color(t.accent)).h_full().px(6).flex().items_center().cursor_pointer()
+        .text_size(11).text_color(t.foreground).border_l(1).border_color(t.border)
+        .hover((s) => s.bg(t.hover)).tooltip("Your most used review skills")
+        .on_click((_e, cx) => { cx.stop_propagation(); this.openSkillMenu(pr, null, true); })
+        .child(icon("chevron-down", null, 10)));
+  }
+
+  deepReview(pr, cx) {
+    if (this.deepFor) return;
+    this.deepFor = pr.url; cx.notify();
+    cx.spawn(async (cx) => {
+      try { await startDeepReview(pr, this.clones[pr.repo], cx); }
+      catch (error) { deepReviewNotice("Deep review not started", error); }
+      this.deepFor = null; cx.notify();
+    });
   }
 
   // Only the failed and cancelled jobs of each run go again; a run with none left says so.
@@ -361,6 +390,7 @@ export class PrViews {
     if (this.clones[pr.repo]) {
       actions.push({ id: `review-pr-${pr.url}`, key: "r", label: "Review", run: () => this.reviewPR(pr), tip: withKey("The whole PR against its base, line by line", "relevo.review") });
     }
+    if (!requested && this.clones[pr.repo] && !pr.untrusted && pr.headRefOid) actions.push({ el: () => this.deepButton(t, pr) });
     if (!requested && fixable(pr, this.clones[pr.repo])) {
       actions.push({ id: `fix-run-${pr.url}`, label: this.fixing === pr.url ? "Preparing…" : "Fix with a run", run: (cx) => this.fixWithRun(pr, cx),
         tip: "Opens a run on a copy of this PR's branch with its failing checks and unresolved comments as the prompt; one agent fixes, another reviews, you push" });
