@@ -44,6 +44,7 @@ export function runsPhase(runs, mergedAt, now = Date.now() / 1000) {
 
 export function landLine(entry) {
   switch (entry.phase) {
+    case "checking": return "Landing…";
     case "queued": return "Merges as soon as GitHub allows it";
     case "merging": return "Merging…";
     case "ci": return entry.total ? `Merged · ${entry.running} of ${entry.total} workflows running` : "Merged · waiting for workflows";

@@ -166,7 +166,7 @@ test("Maintenance lists old PRs under OLD and every addressed or landed item in 
   inbox.addressed[done.url] = Date.parse(NOW) / 1000;
   inbox.local = [{ kind: "diff", top: "/work/app", repo: "app", agent: agent("t1", "done"), files: 1, add: 1, del: 0, at: 1 }];
   inbox.labelling.t1 = "123:1";
-  fake.stored[LANDING] = { [url(90)]: landing(90, "landed", { done: Date.now() / 1000 }) };
+  fake.stored[LANDING] = { [url(90)]: landing(90, "landed", { done: Date.now() / 1000 - 120 }) };
   let view = ui();
   for (const id of [`pr-${url(1)}`, `pr-${url(2)}`, `pr-${done.url}`, "in-t1", `land-${url(90)}`]) assert.equal(find(view, id), null, id);
   assert.equal(text(find(view, "view-now")), "Now 0");

@@ -17,6 +17,7 @@ export { REVIEW_VIEW };
 export const NOW_SECTIONS = ["errors", "away", "me", "flight", "ready", "open"];
 export const MAINTENANCE_SECTIONS = ["safe", "look", "old", "terms", "quiet", "done", "today"];
 const GROUPS = ["me", "flight", "ready"];
+const LANDED_SHOWN = 60;
 const SHORT = { me: "Me", flight: "Flight", ready: "Ready" };
 const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
 const said = (n) => (n < WORDS.length ? WORDS[n] : String(n));
@@ -99,13 +100,17 @@ export class NowViews {
     }
     for (const s of v.desktop) add({ id: `dk-${s.id}`, turn: s.state === "blocked" ? "me" : "ready", text: `${s.project} ${s.title ?? ""} ${s.needs ?? ""}`,
       draw: () => this.desktopCard(t, s), go: () => openDesktop(s.id), keys: () => keysOf(this.desktopActions(s)) });
-    for (const [url, e] of Object.entries(this.landing()).filter(([, e]) => e.phase !== "landed")) {
+    // A landed PR stays in Now for a minute, so the click that landed it is seen to finish.
+    const fresh = (e) => e.phase !== "landed" || Date.now() / 1000 - (e.done ?? 0) < LANDED_SHOWN;
+    for (const [url, e] of Object.entries(this.landing()).filter(([, e]) => fresh(e))) {
       add({ id: `land-${url}`, turn: e.phase === "failed" ? "me" : "flight", text: `${e.repo} ${e.number} ${e.title}`,
         draw: () => this.landCard(t, url, e), go: () => exec("open", [e.failed?.url ?? url]), keys: () => keysOf(this.landActions(url, e)) });
     }
     for (const entry of this.openReviews()) add({ id: entry.id, turn: "me", text: `${entry.title} ${entry.detail ?? ""}`, draw: () => this.reviewRow(t, entry), go: entry.go,
       keys: () => keysOf(this.reviewActions(entry)) });
-    const prs = [...v.requested.filter(recent).map((pr) => [pr, true]), ...[...v.mine, ...(v.ready ?? [])].filter(recent).map((pr) => [pr, false])];
+    // A PR being landed shows as its landing, not twice.
+    const prs = [...v.requested.filter(recent).map((pr) => [pr, true]), ...[...v.mine, ...(v.ready ?? [])].filter(recent).map((pr) => [pr, false])]
+      .filter(([pr]) => !this.landing()[pr.url]);
     for (const [pr, requested] of prs) {
       add({ id: `pr-${pr.url}`, repo: pr.repo, turn: prTurnOf(pr, requested), text: `${pr.repo} ${pr.number} ${pr.title} ${pr.author?.login ?? ""}`,
         draw: () => this.prCard(t, pr, requested, false, ready.has(pr.url)), go: () => this.runPR(pr), keys: () => keysOf(this.prActions(t, pr, requested)) });

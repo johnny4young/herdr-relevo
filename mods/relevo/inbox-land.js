@@ -13,6 +13,8 @@ export const LANDING = "relevo.landing";
 const TICK_MS = 20000;
 // A queued auto-merge can wait on a review for hours: past its first minutes, GitHub is asked every two minutes.
 const QUEUED_FAST = 300, QUEUED_EVERY = 120;
+// A landing still checking after this was cut off (the window closed mid-merge): it goes, and the PR shows again.
+const CHECKING_FOR = 120;
 // Done or failed cards stay this long, then go.
 const KEPT = 86400;
 const first = (r) => (r?.stderr ?? "").trim().split("\n")[0];
@@ -51,17 +53,26 @@ export class LandViews {
   }
 
   land(pr, auto, cx) {
+    // The card turns into a landing at once; the checks and the merge take a few seconds.
+    this.setLanding(pr.url, {
+      repo: pr.repo, number: pr.number, title: pr.title, branch: localBranch(pr), oid: pr.headRefOid,
+      clone: this.clones[pr.repo] ?? null, phase: "checking", at: Math.round(Date.now() / 1000),
+    });
+    cx.notify();
     cx.spawn(async (cx) => {
       const name = `${pr.repo.split("/")[1]} #${pr.number}`;
+      const undo = () => { this.setLanding(pr.url, null); cx.notify(); };
       // The card can be minutes old: new commits since then are news to look at, not a merge error.
       const now = await exec("gh", ["pr", "view", String(pr.number), "--repo", pr.repo, "--json", "headRefOid,state"]);
       let head = null;
       try {
         head = JSON.parse(now.stdout);
       } catch {
+        undo();
         return notify({ title: `Could not read ${name}`, body: first(now), level: "warning" });
       }
       if (head.state !== "OPEN" || head.headRefOid !== pr.headRefOid) {
+        undo();
         notify({
           title: head.state !== "OPEN" ? `${name} is ${head.state.toLowerCase()}` : `${name} has new commits`,
           body: head.state !== "OPEN" ? undefined : "Nothing was merged. Look at them, then Land again.",
@@ -71,11 +82,11 @@ export class LandViews {
       }
       const args = ["pr", "merge", String(pr.number), "--repo", pr.repo, mergeFlag(pr.repository), "--match-head-commit", pr.headRefOid];
       const r = await exec("gh", auto ? [...args, "--auto"] : args);
-      if (r.code !== 0) return notify({ title: `Could not merge ${name}`, body: first(r), level: "warning" });
-      this.setLanding(pr.url, {
-        repo: pr.repo, number: pr.number, title: pr.title, branch: localBranch(pr), oid: pr.headRefOid,
-        clone: this.clones[pr.repo] ?? null, phase: auto ? "queued" : "merging", at: Math.round(Date.now() / 1000),
-      });
+      if (r.code !== 0) {
+        undo();
+        return notify({ title: `Could not merge ${name}`, body: first(r), level: "warning" });
+      }
+      this.setLanding(pr.url, { phase: auto ? "queued" : "merging", at: Math.round(Date.now() / 1000) });
       await this.landTick(cx);
     });
   }
@@ -90,6 +101,10 @@ export class LandViews {
       for (const [url, e] of Object.entries(this.landing())) {
         if (e.phase === "landed" || e.phase === "failed") {
           if (now - (e.done ?? e.at) > KEPT) this.setLanding(url, null);
+          continue;
+        }
+        if (e.phase === "checking") {
+          if (now - e.at > CHECKING_FOR) this.setLanding(url, null);
           continue;
         }
         if (e.phase === "queued" && now - e.at > QUEUED_FAST && now - (this.landAsked[url] ?? 0) < QUEUED_EVERY) continue;
@@ -110,6 +125,7 @@ export class LandViews {
     const pr = JSON.parse(r.stdout);
     if (pr.state === "MERGED") {
       this.setLanding(url, { phase: "ci", sha: pr.mergeCommit?.oid, mergedAt: Math.round(Date.parse(pr.mergedAt) / 1000) });
+      notify({ title: `Merged · ${e.repo.split("/")[1]} #${e.number}`, body: "Following the workflows it starts", level: "success" });
       this.scanPRs(cx);
     } else if (pr.state === "CLOSED") {
       this.setLanding(url, { phase: "failed", note: "Closed without merging", done: Math.round(Date.now() / 1000) });
