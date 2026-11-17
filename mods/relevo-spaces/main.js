@@ -5,7 +5,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { agents, exec, home, spaces, terminals, panes, run, openOverlay, closeOverlay, props, theme, shared, setShared, watchFolder, window, layout, pickFolder } from "herdr";
-import { COLORS, folderData, folderFor, loadFolders, paint, updateFolders } from "./folders.js";
+import { COLORS, folderData, folderFor, loadFolders, openSpaceIn, paint, updateFolders } from "./folders.js";
 import { readGit } from "./git.js";
 import { aliveBySpace, branchNote, buildModel, movesTo, mostUrgent, portsIn, quietSpaces, spaceTurn, where } from "./model.js";
 
@@ -26,7 +26,7 @@ const FALLBACK_MS = 60000;
 // A space quiet for over a day is looked at less often, and the fallback takes a few places per tick so every repo's
 // git doesn't run at the same moment; at most this many places are read at once.
 const QUIET_FALLBACK_MS = 300000, FALLBACK_PER_TICK = 2, AT_ONCE = 4;
-const RAIL_CELL = 32;
+const RAIL_CELL = 32, WATCH_GAP_MS = 1000;
 // How long "close N" waits for its confirming second click.
 const ARM_MS = 4000;
 // The Relevo mod's lane glyphs: a mod can't import from another mod's folder.
@@ -53,6 +53,11 @@ function termGlyph(t, r) {
   return div().size(6).flex_none().rounded_full().border_1().border_color(t.dim);
 }
 
+// A stored value that no longer parses starts over instead of breaking the sidebar.
+function stored(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+}
+
 export default class Spaces extends View {
   init(_props, cx) {
     const p = props() ?? {};
@@ -61,6 +66,8 @@ export default class Spaces extends View {
     this.git = {}; // where() -> git info, null: not a repo
     this.checked = {};
     this.unsure = new Set();
+    // where() keys whose folder is gone: no stale branch, and the row says so.
+    this.gone = new Set();
     this.pending = new Set();
     this.busy = {};
     this.at = {};
@@ -72,10 +79,10 @@ export default class Spaces extends View {
     this.pressed = null;
     this.over = null;
     // The space you are in opens by itself; any other opens or closes with a click on its chevron.
-    this.closed = new Set(JSON.parse(localStorage.getItem("closed") ?? "[]"));
+    this.closed = new Set(stored("closed", []));
     this.hovered = null;
     this.armed = null;
-    this.touched = JSON.parse(localStorage.getItem("touched") ?? "{}");
+    this.touched = stored("touched", {});
     cx.spawn(async (cx) => { await loadFolders(); cx.notify(); });
     cx.timer.every(500, (cx) => this.tick(cx));
   }
@@ -149,10 +156,12 @@ export default class Spaces extends View {
     try {
       const g = await readGit(cwd, on);
       this.git[key] = g;
+      this.gone.delete(key);
       if (g && !on) this.watch(g.gitDir, cx);
     } catch {
-      // Couldn't ask (a machine away, a busy disk): keep what it showed and look again later.
-      this.git[key] ??= null;
+      // Couldn't ask (a machine away, a busy disk): keep what it showed and look again later, unless the folder is gone.
+      const there = cwd ? await exec("test", ["-d", cwd], { on }).then((r) => r.code === 0, () => null) : null;
+      if (there === false) { this.git[key] = null; this.gone.add(key); } else this.git[key] ??= null;
       this.unsure.add(key);
     }
   }
@@ -165,9 +174,11 @@ export default class Spaces extends View {
     cx.spawn(async (cx) => {
       try {
         while (this.watching.has(dir)) {
-          const pending = watchFolder(dir);
+          const pending = watchFolder(dir), started = Date.now();
           this.watching.set(dir, pending);
           await pending;
+          // A watch that ends at once (its folder gone, or taken back) waits before the next.
+          if (Date.now() - started < WATCH_GAP_MS) await cx.sleep(WATCH_GAP_MS);
           if (this.watching.has(dir)) this.refreshGit(Object.keys(this.git).filter((k) => this.git[k]?.gitDir === dir), cx);
         }
       } catch { this.watching.delete(dir); }
@@ -264,7 +275,7 @@ export default class Spaces extends View {
       .when(!open && Boolean(spaceTurn(top)), (el) => el.child(laneGlyph(t, spaceTurn(top))))
       .when(Boolean(f?.path), (el) => el.child(div().id(`folder-new-${g.id}`).flex_none().px(4).rounded(4).text_size(13).text_color(t.dim)
         .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(`New space in ${f.path}`)
-        .on_click((_e, cx) => { cx.stop_propagation(); run("space.new", { folder: f.path }); })
+        .on_click((_e, cx) => { cx.stop_propagation(); openSpaceIn(f.path); })
         .child("+"))), target, m);
   }
 
@@ -369,7 +380,7 @@ export default class Spaces extends View {
         .child(div().flex_none().child("no space")))
       .when(Boolean(entry.cwd), (el) => el.child(div().id(`${id}-new`).flex_none().px(4).rounded(4).text_size(13).text_color(t.dim)
         .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(`New space in ${entry.cwd}`)
-        .on_click((_e, cx) => { cx.stop_propagation(); run("space.new", { folder: entry.cwd }); })
+        .on_click((_e, cx) => { cx.stop_propagation(); openSpaceIn(entry.cwd); })
         .child("+"))),
     ...(open ? this.lifeRows(t, id, entry) : [])];
   }
@@ -383,7 +394,8 @@ export default class Spaces extends View {
     const repo = (g?.name ?? w.name ?? "").toLowerCase(), prs = (this.frame?.prs ?? shared(REPO_PRS) ?? {})[repo] ?? null;
     const target = { space: w.id };
     const hot = this.pressed !== null && this.pressed !== w.id && this.over === JSON.stringify(target);
-    const tip = [r.path, g?.branch && `on ${g.branch}`].filter(Boolean).join(" · ");
+    const gone = this.gone.has(JSON.stringify([w.machine ?? null, r.path]));
+    const tip = [r.path, gone ? "folder moved or deleted" : g?.branch && `on ${g.branch}`].filter(Boolean).join(" · ");
     return this.dragHandlers(h_flex().id(`space-${w.id}`).relative().h(tree ? 26 : 30).px(6).gap(8).flex_none().items_center().rounded(6)
       .when(w.active, (el) => el.bg(t.selected))
       .when(!w.active, (el) => el.hover((s) => s.bg(t.hover)))
@@ -397,6 +409,7 @@ export default class Spaces extends View {
         .text_size(11).font_bold().text_color("#ffffff").child([...w.name][0]?.toUpperCase() ?? "?")))
       .child(div().flex_shrink(0).max_w(tree ? 120 : 130).truncate().font_medium().text_color(t.foreground).child(tree && g?.branch ? g.branch : w.name))
       .child(h_flex().flex_1().min_w(0).gap(5).justify_end().items_center().text_size(11).text_color(t.dim)
+        .when(gone, (el) => el.child(div().flex_none().text_color(t.blocked).child("folder gone")))
         .when(Boolean(branch) && !tree, (el) => el.child(div().min_w(0).truncate().child(branch)))
         .when(g?.ahead > 0, (el) => el.child(div().flex_none().text_color(t.ansi2).child(`↑${g.ahead}`)))
         .when(g?.behind > 0, (el) => el.child(div().flex_none().text_color(t.ansi1).child(`↓${g.behind}`)))
@@ -534,7 +547,7 @@ export default class Spaces extends View {
       .text_color(danger ? t.blocked : t.foreground).hover((el) => el.bg(t.hover))
       .on_click(() => { act(); close(); }).child(label);
     return v_flex().w_full().p(5).bg(t.popover).text_size(13)
-      .when(Boolean(f?.path), (el) => el.child(item("folder-space", "New space here", () => run("space.new", { folder: f.path }))))
+      .when(Boolean(f?.path), (el) => el.child(item("folder-space", "New space here", () => openSpaceIn(f.path))))
       .child(item("folder-edit", "Edit folder…", () => openOverlay({ mod: "relevo-spaces", kind: "dialog", width: 460, props: { editFolder: id } })))
       .when(Boolean(f) && !managed().has(id), (el) => el.child(item("folder-delete", "Delete folder", () => updateFolders((d) => ({
         list: d.list.filter((x) => x.id !== id), of: Object.fromEntries(Object.entries(d.of).filter(([, v]) => v !== id)),

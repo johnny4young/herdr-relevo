@@ -1,32 +1,51 @@
 // The sidebar's folders: { list: [{ id, name, color, path, match, folded }], of: { spaceId: folderId }, at }.
 // Kept in the same file and shared key the space-folders mod used, so existing folders carry over.
-import { exec, shared, setShared } from "herdr";
+import { exec, home, notify, run, shared, setShared } from "herdr";
 
 export const FILE = "~/.config/herdr-space-folders.json";
 export const KEY = "space-folders";
 export const EMPTY = { list: [], of: {}, at: 0 };
 
-export const folderData = () => shared(KEY)?.[""] ?? null;
+// Herdr starts terminals in the folder as written, so `~` has to be expanded first.
+export const expandHome = (path) => String(path).replace(/^~(?=\/|$)/, home());
 
+export const folderData = () => shared(KEY)?.[""] ?? null;
+const publish = (data) => setShared(KEY, { ...(shared(KEY) ?? {}), "": data });
+const failed = (r) => r.stderr?.trim() || String(r.message ?? "") || `exit ${r.code}`;
+
+// A file that is there but can't be read stays as it is: the folders load empty and nothing is saved over it.
 export async function loadFolders() {
-  if (folderData()) return folderData();
-  const r = await exec("sh", ["-c", `cat ${FILE} 2>/dev/null`]);
+  const now = folderData();
+  if (now && !now.broken) return now;
+  const r = await exec("sh", ["-c", `[ -e ${FILE} ] || exit 3; cat ${FILE}`]).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
   let data = EMPTY;
-  try {
-    const d = JSON.parse(r.stdout);
-    data = { list: Array.isArray(d.list) ? d.list : [], of: d.of ?? {}, at: d.at ?? 0 };
-  } catch { /* no file yet */ }
+  if (r.code === 0) {
+    try {
+      const d = JSON.parse(r.stdout);
+      data = { list: Array.isArray(d.list) ? d.list : [], of: d.of ?? {}, at: d.at ?? 0 };
+    } catch { data = { ...EMPTY, broken: "it is not valid JSON" }; }
+  } else if (r.code !== 3) data = { ...EMPTY, broken: failed(r) };
+  if (data.broken && data.broken !== now?.broken) {
+    notify({ title: "Spaces can't read its folders", body: `${FILE}: ${data.broken}. Nothing is saved over it until it reads again.`, level: "error" });
+  }
   // Another copy may have published while this one read the file.
-  if (!folderData()) setShared(KEY, { ...(shared(KEY) ?? {}), "": data });
+  if (!folderData() || folderData().broken) publish(data);
   return folderData();
 }
 
-export function saveFolders(next) {
+export async function saveFolders(next) {
+  if (folderData()?.broken) {
+    notify({ title: "Spaces didn't save its folders", body: `${FILE} can't be read: ${folderData().broken}.`, level: "error" });
+    return null;
+  }
   next = { list: next.list, of: next.of ?? {}, at: Date.now() };
-  setShared(KEY, { ...(shared(KEY) ?? {}), "": next });
-  return exec("sh", [
-    "-c", `mkdir -p ~/.config && printf '%s\\n' "$1" > ${FILE}.tmp && mv ${FILE}.tmp ${FILE}`, "sh", JSON.stringify(next),
-  ]);
+  publish(next);
+  const r = await exec("sh", [
+    "-c", `mkdir -p ~/.config && t=$(mktemp ${FILE}.XXXXXX) && printf '%s\\n' "$1" > "$t" && mv "$t" ${FILE} || { rm -f "$t"; exit 1; }`,
+    "sh", JSON.stringify(next),
+  ]).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
+  if (r.code !== 0) notify({ title: "Spaces didn't save its folders", body: `${FILE}: ${failed(r)}`, level: "error" });
+  return r;
 }
 
 export function updateFolders(change) {
@@ -34,12 +53,24 @@ export function updateFolders(change) {
   return saveFolders(change({ list: [...now.list], of: { ...now.of } }));
 }
 
+// A new space in a folder that is still there; a moved or deleted one says so instead of failing in Herdr.
+export async function openSpaceIn(path, args = {}) {
+  const folder = expandHome(path);
+  const r = await exec("test", ["-d", folder, "-a", "-x", folder]).catch(() => ({ code: 1 }));
+  if (r.code !== 0) {
+    notify({ title: "Folder not found", body: `${folder} was moved, deleted or can't be opened.`, level: "warning" });
+    return false;
+  }
+  run("space.new", { ...args, folder });
+  return true;
+}
+
 // A rule is a path (`~/code/*`) or a bare folder name that can appear anywhere in the path.
 const rules = new Map();
 export function compileRule(pattern) {
   if (!rules.has(pattern)) {
     const p = String(pattern ?? "").trim().replace(/\/+$/, "");
-    const body = p.replace(/^~/, "\u0000").split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")
+    const body = p.replace(/^~(?=\/|$)/, "\u0000").split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")
       .replace("\u0000", "(?:/(?:home|Users)/[^/]+|/root)");
     rules.set(pattern, p ? new RegExp(`${/^[/~]/.test(p) ? "^" : "(?:^|/)"}${body}(?:/|$)`) : null);
   }
