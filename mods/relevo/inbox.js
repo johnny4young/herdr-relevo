@@ -646,6 +646,13 @@ export class Inbox {
   }
 
   // What a local row can do, for its buttons, its keys and its keycaps alike.
+  // The card may be a minute behind the checkout: read it again now.
+  reviewLocal(item, cx) {
+    openReview(item.top, item.agent.address);
+    this.dirty.add(item.top);
+    if (cx) this.scanLocal(cx);
+  }
+
   localActions(item, addressed = false) {
     const a = item.agent, goAgent = { id: `agent-${a.address}`, key: "o", label: "Agent", run: () => run("agent.focus", { terminal: a.address }) };
     if (item.kind === "blocked") {
@@ -663,7 +670,7 @@ export class Inbox {
       };
     }
     return {
-      main: { id: `review-${a.address}`, key: "r", label: "Review", run: () => openReview(item.top, a.address), kind: "go", tip: withKey("Comment on the diff line by line", "relevo.review") },
+      main: { id: `review-${a.address}`, key: "r", label: "Review", run: (cx) => this.reviewLocal(item, cx), kind: "go", tip: withKey("Comment on the diff line by line", "relevo.review") },
       actions: [
         goAgent,
         this.opinionAction(item),

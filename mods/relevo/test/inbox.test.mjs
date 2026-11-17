@@ -1150,3 +1150,13 @@ test("a PR of yours with failing CI or open comments offers Fix with a run, whic
   const goals = JSON.parse(Object.entries(fake.files).find(([path]) => path.endsWith("relevo-goals.json"))[1]);
   assert.deepEqual([goals.goals[0].title, goals.goals[0].sources], ["Fix #7 · Search", [`pr:${url}`]]);
 });
+
+test("Review reads the checkout again, so a card whose work was committed goes", async () => {
+  setAgents(["t1", "done"]);
+  const { ui, cx } = await open();
+  assert.ok(find(ui(), "review-t1"));
+  fake.exec = (cmd, args) => (args.join(" ").includes("--shortstat") ? { stdout: "" } : repoOutput(cmd, args));
+  click(find(ui(), "review-t1"), cx);
+  for (let i = 0; i < 6; i++) await flush();
+  assert.equal(find(ui(), "review-t1"), null);
+});

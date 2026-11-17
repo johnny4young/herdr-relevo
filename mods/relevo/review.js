@@ -219,6 +219,14 @@ export class ReviewDiff {
     // Switched while reading: the newer read draws.
     if (scope !== this.scope) return;
     const files = [...tracked, ...untracked];
+    // Opened on work committed since: the first read shows the branch's changes instead of an empty pane.
+    const first = !this.readOnce;
+    this.readOnce = true;
+    if (first && !files.length && scope === "uncommitted") {
+      Object.assign(this, { scope: "all", mergeBase: null, filesSign: null, diffSign: null });
+      cx.notify();
+      return this.read(cx);
+    }
     const hashed = files.slice(0, MAX_HASHED).map((f) => f.path);
     const found = hashed.length ? parseHashes((await exec("sh", ["-c", HASHES, "sh", this.to ?? "", ...hashed], { cwd: this.root })).stdout, this.to) : new Map();
     this.hashes = new Map(hashed.map((p) => [p, found.get(p) ?? "-"]));
