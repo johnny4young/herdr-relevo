@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, TextareaState, Textarea } from "gpui-base";
-import { exec, notify, shared, setShared } from "herdr";
+import { agents, exec, notify, panes, run, shared, setShared } from "herdr";
 import { button, foldRow, legHeader, legend, joined, keyBar, keycap, meTint, plusMinus, row, onSubmitChord } from "./ui.js";
 import { openReview } from "./review.js";
 import { RUN_LAUNCH, answerTrust } from "./run-launch.js";
@@ -12,11 +12,11 @@ import { ago } from "./lib/time.js";
 import { reviewableWork, linkedDecision, runProgress } from "./lib/goal-workflow.js";
 import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed, draftOnAccept } from "./lib/workflow-navigation.js";
 import * as config from "./config.js";
-import { deepReviewNotice, fixFindings, postDraftReview } from "./deep-review.js";
-import { deepReviewView } from "./deep-review-view.js";
-import { counted, mergedFindings, reviewAdvice, reviewLead, reviewTitle, verdicts } from "./lib/deep-review.js";
+import { deepReviewNotice, dropReviewTrees, fixFindings, postDraftReview } from "./deep-review.js";
+import { deepReviewView, fixChecklistView } from "./deep-review-view.js";
+import { counted, fixChecklist, mergedFindings, reviewAdvice, reviewLead, reviewTitle, verdicts } from "./lib/deep-review.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
-  taskSummary, taskCaveats, isMerged } from "./lib/run-panel.js";
+  taskSummary, taskCaveats, isMerged, finishedAgents } from "./lib/run-panel.js";
 import { canCompare, diffFiles, tookWords } from "./lib/run-compare.js";
 
 // Linked PR URLs known to have merged, kept after the landing list lets them go.
@@ -175,6 +175,7 @@ export class RunViews {
   takeDoc(response) {
     if (!Array.isArray(response.doc?.tasks)) return;
     this.workflowTasks = response.doc.tasks;
+    this.closeDoneAgents(this.workflowTasks);
     this.workflowEngine = response.doc.engine ?? this.workflowEngine;
   }
 
@@ -239,11 +240,24 @@ export class RunViews {
         for (const r of reviews) {
           this.takeDoc(await workflowCommand(r.state === "needs_you" ? decidePayload(r, "accept", "", { draft: false }) : { action: "cancel", taskId: r.id }));
         }
+        await dropReviewTrees(this.reviewsOf(task));
         this.runNotice = "Deep review closed.";
         this.runTask = null; this.runAt = this.runPlace(); this.sel = null;
       } catch (e) { this.runError = `Action needs attention: ${e.message ?? e}`; }
       this.runBusy = false; cx.notify();
     });
+  }
+
+  // Their report is in Runs: the tab of an agent whose part is over goes, unless it is working on something.
+  closeDoneAgents(tasks) {
+    this.closedAgents ??= new Set();
+    for (const address of finishedAgents(tasks ?? [])) {
+      if (this.closedAgents.has(address) || agents().find((a) => a.address === address)?.status === "working") continue;
+      const pane = panes().find((p) => p.terminal === address)?.pane;
+      if (!pane) continue;
+      this.closedAgents.add(address);
+      run("pane.close", { pane });
+    }
   }
 
   reviewsOf(task) {
@@ -561,6 +575,7 @@ export class RunViews {
     const notes = waiting ? taskCaveats(task) : [], linked = linkedDecision(goal, tasks).task?.id === task.id;
     return [
       ...(summary ? [div().id("task-summary").px(8).pb(4).text_size(13).child(summary)] : []),
+      ...(fixChecklist(task) ? [div().px(8).pb(6).child(fixChecklistView(t, "task-checklist", fixChecklist(task)))] : []),
       v_flex().id("task-legs").children(joined(t, taskLegs(task).map((leg) => this.legRow(t, leg)))),
       ...this.taskFiles(t, task),
       ...(notes.length ? [v_flex().id("task-notes").px(8).pt(6).gap(2)

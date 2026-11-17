@@ -4,7 +4,7 @@ import { agents, terminals, exec, appHome, run, panes, shared, setShared, spaces
 import { runtimeCommand } from "./runtime-cli.js";
 import { button } from "./ui.js";
 import * as config from "./config.js";
-import { ACCOUNTS, CODEX, accountOf, launchArgv, openInFolder, loadClaudeQuotas, full } from "./accounts.js";
+import { CODEX, accountOf, agentAccounts, codexOn, launchArgv, openInFolder, loadClaudeQuotas, full } from "./accounts.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { accountFor } from "./context.js";
 import { row } from "./workflow-labels.js";
@@ -33,22 +33,24 @@ const LAUNCH_TIMEOUT = 180000;
 export const codexUpdatePrompt = (screen) => /Update available · \S+ → \S+/.test(screen) && /esc skip/.test(screen);
 
 // Agents write only their checkout and the reports folder. Codex gets that from workspace-write; Claude runs
-// Bash in the OS sandbox and its file tools may not edit the app (its state, locks, mods or settings).
+// A run agent's file tools may not edit the app (its state, locks, mods or settings). It works in auto mode in its
+// own worktree; RUN_SANDBOX = true also keeps its Bash in the OS sandbox, where builds that need the network or a
+// cache outside the checkout (SwiftPM, a first npm install) fail.
 export function runAgentArgs(key, role, home) {
   const reports = `${home}/relevo-workflow/reports`;
   // A Codex reviewer never asks: what its hooks or global instructions start outside the sandbox fails and it goes on
   // reviewing. Its hooks can't be turned off here: that would ask to restart Codex's shared server for every session.
-  if (key === CODEX.key) return ["-m", config.RUN_CODEX_MODEL ?? "gpt-6-luna", "--sandbox", "workspace-write",
+  const sandboxed = config.RUN_SANDBOX === true;
+  if (key === CODEX.key) return ["-m", config.RUN_CODEX_MODEL ?? "gpt-6-luna", "--sandbox", role === "executor" && !sandboxed ? "danger-full-access" : "workspace-write",
     "--ask-for-approval", role === "reviewer" ? "never" : "on-request", "--add-dir", reports];
   // A bare "*" would also match the reports folder: app files all carry an extension, folders are listed.
   const deny = ["*.*", "relevo-workflow/*.*", ...["mods", "data", "layouts", "themes", "icons", "frame", "telemetry", "relevo-workflow/artifacts", "relevo-workflow/archive"].map((dir) => `${dir}/**`)]
     .map((glob) => `Edit(/${home}/${glob})`);
   // Its status and report files are written without asking; nothing else is granted.
-  // Bash runs in the OS sandbox and can't leave it, so a run's writer doesn't stop to ask for each command it runs there.
-  const settings = { sandbox: { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true, autoAllowBashIfSandboxed: true },
+  const settings = { ...(sandboxed ? { sandbox: { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true, autoAllowBashIfSandboxed: true } } : {}),
     // A Claude reviewer starts without the person's hooks: one that asks for something else pulls it off the review.
     permissions: { allow: [`Edit(/${reports}/*.json)`], deny }, ...(role === "reviewer" ? { disableAllHooks: true } : {}) };
-  return ["--add-dir", reports, "--permission-mode", "acceptEdits", "--settings", JSON.stringify(settings), ...(role === "reviewer" ? ["--tools", "Read,Write,Grep,Glob"] : [])];
+  return ["--add-dir", reports, "--permission-mode", "auto", "--settings", JSON.stringify(settings), ...(role === "reviewer" ? ["--tools", "Read,Write,Grep,Glob"] : [])];
 }
 
 export class WorkflowRuns extends WorkflowDraftView {
@@ -61,10 +63,10 @@ export class WorkflowRuns extends WorkflowDraftView {
 
   runAccounts() {
     const saved = shared(RUN_ACCOUNTS) ?? {};
-    const all = [...ACCOUNTS, CODEX].map((account) => account.key);
+    const all = agentAccounts().map((account) => account.key);
     const open = (key) => all.includes(key) && !full(this.quotas?.[key]);
     // The last choice, unless that account is out of quota now.
-    const executor = open(saved.executor) ? saved.executor : [CODEX.key, ...all].find(open) ?? CODEX.key;
+    const executor = open(saved.executor) ? saved.executor : [...(codexOn() ? [CODEX.key] : []), ...all].find(open) ?? all[0];
     const repoAccount = accountFor(this.form.root.value().trim());
     const reviewer = open(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer
       : [repoAccount, ...all].find((key) => key && key !== executor && open(key)) ?? all.find((key) => key !== executor);
@@ -74,7 +76,7 @@ export class WorkflowRuns extends WorkflowDraftView {
   accountPicker(t, role, label) {
     const chosen = this.runAccounts();
     return v_flex().w_full().min_w(0).gap(4).child(row(t, label))
-      .child(h_flex().flex_wrap().gap(4).children([...ACCOUNTS, CODEX].map((account) => button(t, `workflow-${role}-account-${account.key}`,
+      .child(h_flex().flex_wrap().gap(4).children(agentAccounts().map((account) => button(t, `workflow-${role}-account-${account.key}`,
         full(this.quotas?.[account.key]) ? `${account.label} · ${full(this.quotas[account.key])} full` : account.label,
         (cx) => { setShared(RUN_ACCOUNTS, { ...chosen, [role]: account.key }); cx.notify(); },
         { kind: "ghost", size: "sm", selected: chosen[role] === account.key, disabled: chosen[role === "executor" ? "reviewer" : "executor"] === account.key }))));

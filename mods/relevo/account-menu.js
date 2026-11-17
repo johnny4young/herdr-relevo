@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, Button } from "gpui-base";
 import { theme, props, closeOverlay } from "herdr";
 import { windowLabel } from "./lib/time.js";
-import { ACCOUNTS, CODEX, accountOf, chip, loadClaudeQuotas } from "./accounts.js";
+import { ACCOUNTS, CODEX, accountOf, agentAccounts, chip, loadClaudeQuotas } from "./accounts.js";
 import { accountFor } from "./context.js";
 import { SKILLS, configuredSkill, launchSkill } from "./skills.js";
 import { skillUses, openPrSession } from "./prsession.js";
@@ -135,7 +135,7 @@ export class AccountMenu {
     return v_flex().id("account-menu").w_full().p(4).gap(1).bg(t.popover ?? t.surface).text_color(t.foreground)
       .child(h_flex().px(8).pt(4).pb(4).gap(6).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(`${p.pr.repo.split("/").pop()} #${p.pr.number} with`))
-        .children([...ACCOUNTS, CODEX].map(pickChip)))
+        .children(agentAccounts().map(pickChip)))
       .child(div().id("menu-usage").px(8).pb(4).text_size(11).text_color(t.muted)
         .child(this.quotaError ? `${acct.label} · Usage unavailable` : this.quotas ? `${acct.label}${usage ? ` · ${usage}` : ""}` : spinner(t.dim, 10)))
       .child(div().h(1).mx(6).my(2).bg(t.border))

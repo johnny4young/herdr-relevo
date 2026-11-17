@@ -1008,3 +1008,26 @@ test("a second PR reviewer reads the first one's tests, sees the PR's CI, and an
   assert.equal(task(two).state, "needs_you");
   assert.equal(task(two).error, null);
 });
+
+test("a writer that changed the checkout but couldn't verify it in its sandbox goes on to the checks and the review", async (t) => {
+  let revision = "r1";
+  const f = await fixture({ fingerprintImpl: async () => revision }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId });
+  await f.runtime.tick();
+  const task = () => f.runtime.read().tasks.find((x) => x.id === f.taskId);
+  revision = "r2";
+  f.report("executor", "blocked", "Fixed it", task().attempts.at(-1), { details: ["Closed the guide"], notProven: ["swift test did not run in the sandbox"] });
+  await f.runtime.tick();
+  assert.notEqual(task().state, "blocked");
+  assert.equal(task().checksResult.length, 1, "the configured checks ran");
+});
+
+test("a writer that changed nothing and says blocked stays blocked", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId });
+  await f.runtime.tick();
+  const task = () => f.runtime.read().tasks.find((x) => x.id === f.taskId);
+  f.report("executor", "blocked", "Scope unclear", task().attempts.at(-1), { details: ["Read the code"] });
+  await f.runtime.tick();
+  assert.equal(task().state, "blocked");
+});

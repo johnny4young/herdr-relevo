@@ -2,7 +2,7 @@ import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, run, focused, panes, setShared, notify, agents, terminals, shared } from "herdr";
 import { AgentWatch, BackgroundWatch, quotaAlerts } from "./alerts.js";
-import { ACCOUNTS, CODEX, API_QUOTAS, launchArgv, chip, loadClaudeQuotas, shellArgv } from "./accounts.js";
+import { ACCOUNTS, CODEX, API_QUOTAS, agentAccounts, launchArgv, chip, loadClaudeQuotas, shellArgv } from "./accounts.js";
 import { FOCUS, focus, publishSetup, contextOfPath } from "./context.js";
 import { ago, resetText, resetClock, runsOut, clock, FIVE_HOURS, WEEK, windowLabel } from "./lib/time.js";
 
@@ -218,7 +218,7 @@ export class Sidebar {
           cx.notify();
         }
       })
-      .children([...ACCOUNTS, CODEX].map(cell));
+      .children(agentAccounts().map(cell));
   }
 
   cycleFocus(cx) {
@@ -250,6 +250,6 @@ export class Sidebar {
             })
             .child(svg("mods/relevo/settings.svg").size(11))))
         .child(this.focusPicker(t)))
-      .children([...ACCOUNTS, CODEX].map((p) => this.row(t, p, this.quota[p.key], barWidth)));
+      .children(agentAccounts().map((p) => this.row(t, p, this.quota[p.key], barWidth)));
   }
 }

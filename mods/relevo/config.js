@@ -11,6 +11,8 @@ export const ACCOUNTS = [
 ];
 
 export const CODEX = { key: "codex", label: "Codex", letter: "X", launcher: "codex", bg: "#4fd6be", fg: "#1e2030" };
+// false: Codex stays out of every account list and every default (runs, second opinions, deep reviews, handoffs).
+export const USE_CODEX = true;
 
 // The first context is the default. The others claim the repos whose GitHub owner is in `orgs`,
 // and each gets a space folder with that key.

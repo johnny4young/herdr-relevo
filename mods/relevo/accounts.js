@@ -1,5 +1,6 @@
 import { home, readTextFile, run, spaces, shared } from "herdr";
 import { ACCOUNTS as CONFIGURED, CODEX as CODEX_ACCOUNT, FALLBACK } from "./config.js";
+import * as config from "./config.js";
 import { FIVE_HOURS, WEEK, windowOf, windowLabel } from "./lib/time.js";
 import { accountFor } from "./context.js";
 import { shellArgv } from "./lib/session-env.js";
@@ -12,6 +13,9 @@ export const ACCOUNTS = CONFIGURED.map(withFile);
 export const CODEX = withFile(CODEX_ACCOUNT);
 
 export const accountOf = (key) => [...ACCOUNTS, CODEX].find((p) => p.key === key) ?? ACCOUNTS[0];
+// USE_CODEX = false in config.js keeps Codex out of every list and every default.
+export const codexOn = () => config.USE_CODEX !== false;
+export const agentAccounts = () => (codexOn() ? [...ACCOUNTS, CODEX] : ACCOUNTS);
 
 export { shellArgv } from "./lib/session-env.js";
 

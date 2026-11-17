@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, exec, run, home, agents, panes, terminals, notify, props, openOverlay, closeOverlay } from "herdr";
 import { resetClock } from "./lib/time.js";
-import { ACCOUNTS, CODEX, accountOf, launchArgv, loadClaudeQuotas, chip, full } from "./accounts.js";
+import { ACCOUNTS, CODEX, accountOf, agentAccounts, launchArgv, loadClaudeQuotas, chip, full } from "./accounts.js";
 import { band, digit, grabFocus, held, keycap, spinner } from "./ui.js";
 import { marginOf } from "./lib/margin.js";
 import { tightestWindow } from "./lib/account-status.js";
@@ -17,7 +17,7 @@ export function openHandoff(address = null, reason = null) {
   if (!a) return notify({ title: "Focus the agent to hand off first", level: "info" });
   const cwd = panes().find((p) => p.pane === a.pane)?.cwd;
   const k = terminals().find((x) => x.address === a.address), from = terminalAccount(k);
-  const rows = [...ACCOUNTS, CODEX].length;
+  const rows = agentAccounts().length;
   openOverlay({
     mod: "relevo", kind: "popup", width: 340, height: 44 + rows * 48,
     props: {
@@ -167,7 +167,7 @@ export class Handoff {
   // Accounts with room first, numbered; full ones after them, and the one being left last.
   rows() {
     const p = props(), plan = (to) => handoffPlan({ from: p.from, to, transcript: p.transcript, accounts: ACCOUNTS, home: home() });
-    const list = [...ACCOUNTS, CODEX].map((acct) => {
+    const list = agentAccounts().map((acct) => {
       const q = this.quotas?.[acct.key], leaving = acct.key === p.from;
       const how = leaving ? null : plan(acct.key).mode === "resume" ? "same conversation" : "from a note";
       return { acct, q, leaving, isFull: Boolean(full(q)), how };

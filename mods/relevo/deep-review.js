@@ -2,7 +2,7 @@
 // worktree of their own, with the repository's tests and the PR's CI. Their findings meet in Runs, to post as a draft
 // review or fix with a run.
 import { appHome, exec, notify, setShared } from "herdr";
-import { CODEX, accountOf, hasRoom, launchArgv, loadClaudeQuotas, withRoom } from "./accounts.js";
+import { CODEX, accountOf, codexOn, hasRoom, launchArgv, loadClaudeQuotas, withRoom } from "./accounts.js";
 import { accountFor } from "./context.js";
 import * as config from "./config.js";
 import { DEFAULT_DEEP_REVIEW, modelArgs, reviewerLabel } from "./lib/deep-setup.js";
@@ -21,7 +21,7 @@ export const deepSetup = () => config.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW;
 // left, and Codex past it sits out.
 export function deepReviewers(repo, quotas, setup = deepSetup()) {
   return setup.flatMap((r) => {
-    if (r.account === CODEX.key) return hasRoom(quotas?.[CODEX.key]) ? [{ ...r, key: CODEX.key, note: null }] : [];
+    if (r.account === CODEX.key) return codexOn() && hasRoom(quotas?.[CODEX.key]) ? [{ ...r, key: CODEX.key, note: null }] : [];
     const pick = withRoom(r.account === "repo" ? accountFor(repo) : r.account, quotas);
     return [{ ...r, key: pick.key, note: pick.note }];
   });
@@ -102,6 +102,11 @@ export async function fixFindings(tasks) {
     await writeGoal(goal, 0);
   }
   openWorkflow(goal.id, null, { fixPR: { url: pr.url, number: pr.number, headRef: pr.headRef, root: pr.clone, prompt } });
+}
+
+// A closed review's worktrees hold nothing of anyone's: each goes, unless git finds a change in it.
+export async function dropReviewTrees(reviews) {
+  for (const r of reviews) if (r.pr?.clone && r.root) await exec("git", ["-C", r.pr.clone, "worktree", "remove", r.root]).catch(() => null);
 }
 
 export function deepReviewNotice(title, error) {

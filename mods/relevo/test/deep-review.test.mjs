@@ -232,3 +232,40 @@ test("Fix with a run fits the goal and the task however many findings there are"
   assert.deepEqual([made.sources, made.criteria.length < 2000], [[], true], "a work item another run had stays with it");
   assert.equal(fake.runs.findLast(([n]) => n === "pane.split")[1].props.fixPR.prompt, prompt);
 });
+
+const { finishedAgents } = await import("../lib/run-panel.js");
+const { fixChecklist } = await import("../lib/deep-review.js");
+const { fixChecklistView } = await import("../deep-review-view.js");
+
+test("a deep review's reviewer closes once it reported; a worktree run's agents once it is accepted; borrowed agents stay", async () => {
+  const run = (state) => ({ id: state, state, worktree: { branch: "run/x" }, executor: { address: `w-${state}` }, reviewer: { address: `r-${state}` }, attempts: [] });
+  const borrowed = { id: "b", state: "accepted", executor: { address: "mine" }, reviewer: { address: "mine2" }, attempts: [] };
+  const reviewing = { ...codex, state: "running", attempts: [{ role: "reviewer", state: "running" }] };
+  assert.deepEqual(finishedAgents([claude, reviewing, run("accepted"), run("running"), borrowed]), ["c", "w-accepted", "r-accepted"]);
+  const { v, cx } = await runs([claude]);
+  fake.agents = [{ address: "c", status: "done" }, { address: "busy", status: "working" }];
+  fake.panes = [{ pane: "p-c", terminal: "c" }, { pane: "p-busy", terminal: "busy" }];
+  fake.runs.length = 0;
+  v.closeDoneAgents([claude, { ...claude, id: "z", reviewer: { address: "busy" } }]);
+  v.closeDoneAgents([claude]);
+  assert.deepEqual(fake.runs.filter(([n]) => n === "pane.close"), [["pane.close", { pane: "p-c" }]], "once, and never a working agent");
+});
+
+test("a fix run reports a checklist: what it fixed and why the rest stayed", () => {
+  const fix = { attempts: [{ role: "executor", report: { status: "completed", summary: "Fixed", details: ["Fixed: src/a.js:4 — guarded the null", "Not fixed: src/b.js — needs a design call", "Ran swiftlint"] } }] };
+  const list = fixChecklist(fix);
+  assert.equal(list.head, "1 of 2 fixed");
+  assert.match(text(fixChecklistView(theme(), "fx", list)), /^1 of 2 fixed src\/a\.js:4 — guarded the null src\/b\.js — needs a design call$/);
+  assert.equal(fixChecklist({ attempts: [{ role: "executor", report: { details: ["Ran tests"] } }] }), null);
+  assert.match(findingsPrompt(PR, [claude]), /"Fixed: <file:line> — "/);
+});
+
+test("Settings turns Codex off for every list and default", async () => {
+  const { Settings } = await import("../settings.js");
+  const s = new Settings(), cx = fakeCx();
+  s.init({}, cx);
+  assert.equal(s.collect().USE_CODEX, true);
+  find(s.render(cx), "settings-use-codex-off").handlers.on_click({}, cx);
+  assert.equal(s.collect().USE_CODEX, false);
+  assert.equal(find(s.render(cx), `sd-account-${s.deep[0].id}-codex`), null, "a deep reviewer can't pick it");
+});

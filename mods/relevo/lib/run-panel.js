@@ -195,3 +195,13 @@ export function taskCaveats(task) {
   const writer = [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === "executor" && attempt.report)?.report;
   return [...reportNotes(lastReview(task)?.report), ...(writer?.notProven ?? []).map((item) => `Not proven by the ${role("executor").noun}: ${item}`)];
 }
+
+// Agents Relevo opened for a run whose part is over: a deep review's reviewer once it reported, and both agents of a
+// run in its own worktree once it is accepted or cancelled. Agents a run borrowed from your own sessions stay.
+export function finishedAgents(tasks) {
+  return tasks.flatMap((task) => {
+    const over = ["accepted", "cancelled"].includes(task.state);
+    if (task.pr) return over || (task.attempts ?? []).some((a) => a.role === "reviewer" && a.report) ? [task.reviewer?.address] : [];
+    return task.worktree && over ? [task.executor?.address, task.reviewer?.address] : [];
+  }).filter(Boolean);
+}

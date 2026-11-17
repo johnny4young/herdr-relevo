@@ -26,6 +26,7 @@ export class Settings {
     this.errors = [];
     this.accounts = ACCOUNTS.map((a) => this.accountRow(a));
     this.codex = this.input(CODEX.launcher, "codex");
+    this.useCodex = config.USE_CODEX !== false;
     this.contexts = CONTEXTS.map((c) => this.contextRow(c));
     this.fallback = this.input(FALLBACK.join(", "), "personal, work");
     this.reposRoot = this.input(REPOS_ROOT, "code");
@@ -69,7 +70,7 @@ export class Settings {
   }
 
   deepRowView(t, row, i) {
-    const accounts = [["repo", "Repo's"], ...this.accounts.map((a) => [this.keyOf(a), text(a.inputs.label) || "?"]), [CODEX.key, "Codex"]];
+    const accounts = [["repo", "Repo's"], ...this.accounts.map((a) => [this.keyOf(a), text(a.inputs.label) || "?"]), ...(this.useCodex || row.account === CODEX.key ? [[CODEX.key, "Codex"]] : [])];
     return h_flex().id(`settings-deep-${row.id}`).gap(6).items_center()
       .child(this.choice(t, `sd-account-${row.id}`, accounts, row.account, (account, cx) => this.changeDeep(row, { account }, cx), this.bad(`deepReview.${i}.account`)))
       .child(this.field(t, `sd-model-${row.id}`, row.inputs.model, `deepReview.${i}.model`, COLS.model))
@@ -160,6 +161,7 @@ export class Settings {
         ...Object.fromEntries(Object.entries(r.inputs).map(([k, s]) => [k, text(s)])),
       })),
       CODEX: { ...CODEX, launcher: text(this.codex) },
+      USE_CODEX: this.useCodex,
       CONTEXTS: contexts,
       FALLBACK: parseList(this.fallback.value()),
       REPOS_ROOT: text(this.reposRoot),
@@ -311,7 +313,10 @@ export class Settings {
         h_flex().child(button(t, "settings-add-account", "+ Account", (cx) => this.addAccount(cx), { size: "sm" })),
       ]))
       .child(this.section(t, "settings-codex", "CODEX", ["codex"], [
-        this.labeled(t, "Launcher", this.field(t, "settings-codex-launcher", this.codex, "codex.launcher")),
+        h_flex().gap(12).items_end()
+          .child(this.labeled(t, "Launcher", this.field(t, "settings-codex-launcher", this.codex, "codex.launcher")))
+          .child(this.choice(t, "settings-use-codex", [["on", "Use Codex"], ["off", "Off"]], this.useCodex ? "on" : "off",
+            (v, cx) => { this.useCodex = v === "on"; cx.notify(); })),
       ]))
       .child(this.section(t, "settings-contexts", "CONTEXTS", ["contexts"], [
         ...this.contexts.map((r, i) => this.contextRowView(t, r, i)),

@@ -736,8 +736,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       try { report = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { break report; }
       if (!proves(attempt, report) || !['completed', 'changes_requested', 'blocked'].includes(report.status) || !text(report.summary, 10000)) { block(task.id, 'Invalid or mismatched agent report'); return; }
       const extra = cleanReport(report);
+      // A writer that changed the checkout but couldn't verify it in its sandbox goes on to the checks and the review,
+      // which run outside it: stopping there would leave its work untested and unreviewed.
+      const unverified = attempt.role === 'executor' && report.status === 'blocked' && (extra.details?.length ?? 0) > 0 && await fp(task) !== attempt.revision;
       // A reviewer's own findings decide between changes and completion; only an implementer's status is taken as said.
-      const status = attempt.role === 'reviewer' ? reviewStatus(report.status, extra.findings, MUST_FIX) : report.status;
+      const status = attempt.role === 'reviewer' ? reviewStatus(report.status, extra.findings, MUST_FIX) : unverified ? 'completed' : report.status;
       const actor = await hc(['get', '--json', attempt.address]);
       if (actor.code !== 0) { block(task.id, 'Agent disconnected before its report could be verified'); return; }
       const state = JSON.parse(actor.stdout);

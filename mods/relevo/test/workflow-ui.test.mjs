@@ -680,19 +680,19 @@ test('own worktree mode creates the checkout, opens both agents and starts once 
   v.close();
 });
 
-test('run agents start with their model, sandbox and access to the report folder', async () => {
+test('run agents start with their model, in auto mode and with access to the report folder', async () => {
   const { runAgentArgs } = await import('../workflow.js');
   const reports = '/h/relevo-workflow/reports';
-  assert.deepEqual(runAgentArgs('codex', 'executor', '/h'), ['-m', 'gpt-6-luna', '--sandbox', 'workspace-write', '--ask-for-approval', 'on-request', '--add-dir', reports]);
+  assert.deepEqual(runAgentArgs('codex', 'executor', '/h'), ['-m', 'gpt-6-luna', '--sandbox', 'danger-full-access', '--ask-for-approval', 'on-request', '--add-dir', reports]);
+  assert.equal(runAgentArgs('codex', 'reviewer', '/h')[3], 'workspace-write', 'a reviewer writes only its report');
   const reviewer = runAgentArgs('personal', 'reviewer', '/h'), executor = runAgentArgs('personal', 'executor', '/h');
   assert.deepEqual(reviewer.slice(-2), ['--tools', 'Read,Write,Grep,Glob']);
   assert.equal(executor.includes('--tools'), false);
   const settings = JSON.parse(executor[executor.indexOf('--settings') + 1]);
-  assert.deepEqual(settings.sandbox, { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true, autoAllowBashIfSandboxed: true },
-    'Bash cannot leave the sandbox, and inside it runs without asking');
+  assert.equal(settings.sandbox, undefined, 'builds that need the network or a cache outside the worktree run; RUN_SANDBOX turns it back on');
   assert.ok(settings.permissions.deny.includes('Edit(//h/relevo-workflow/*.*)'), 'state and locks are not editable');
   assert.ok(!settings.permissions.deny.some((rule) => rule.includes('reports')), 'reports stay writable');
-  assert.deepEqual(executor.slice(0, 4), ['--add-dir', reports, '--permission-mode', 'acceptEdits']);
+  assert.deepEqual(executor.slice(0, 4), ['--add-dir', reports, '--permission-mode', 'auto']);
 });
 
 test('a worktree launch starts with no first message, accepts a working agent and Start resumes a stalled wait', async () => {

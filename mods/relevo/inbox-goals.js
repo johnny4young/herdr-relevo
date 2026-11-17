@@ -73,6 +73,7 @@ export class GoalViews {
           this.pruneReviewMarks();
           this.rememberMerged();
           runResultAlerts(this.workflowTasks);
+          this.closeDoneAgents(this.workflowTasks);
         }
       } catch (e) { this.goalsError = `Runs: ${e.message ?? e}. Reviews is still available.`; }
       this.goalChange = shared(GOALS_CHANGED)?.at;

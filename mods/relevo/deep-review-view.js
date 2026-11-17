@@ -49,3 +49,12 @@ export function deepReviewView(t, id, reviews, ui) {
         .child(div().text_size(11).text_color(t.dim).child(`What nobody checked · ${nobody.length}`)))
       .when(!folded, (inner) => inner.children(nobody.map((n) => div().pl(16).text_size(11).text_color(t.muted).child(n))))));
 }
+
+// A fix run's checklist: how many it fixed, then each finding with what changed or why it stayed.
+export function fixChecklistView(t, id, list) {
+  return v_flex().id(id).w_full().min_w(0).gap(4)
+    .child(div().text_size(11).font_semibold().text_color(t.muted).child(list.head))
+    .children(list.items.map((item, i) => h_flex().id(`${id}-${i}`).w_full().min_w(0).gap(8).items_start()
+      .child(div().pt(2).child(icon(item.fixed ? "check" : "x", item.fixed ? t.done : t.blocked, 12)))
+      .child(div().flex_1().min_w(0).text_size(13).text_color(item.fixed ? t.foreground : t.muted).child(item.text))));
+}

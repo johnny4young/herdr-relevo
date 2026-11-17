@@ -55,6 +55,14 @@ export function reviewAdvice(reviews) {
   return "No findings: Done closes the review.";
 }
 
+// A fix run's report as a checklist: its "Fixed:" and "Not fixed:" lines, each with what was done or why not.
+export function fixChecklist(task) {
+  const report = [...(task.attempts ?? [])].reverse().find((a) => a.role === "executor" && a.report)?.report;
+  const items = (report?.details ?? []).map((line) => /^(Fixed|Not fixed):\s*(.+)$/i.exec(line.trim())).filter(Boolean)
+    .map(([, mark, text]) => ({ fixed: /^fixed$/i.test(mark), text }));
+  return items.length ? { items, head: `${items.filter((i) => i.fixed).length} of ${items.length} fixed` } : null;
+}
+
 export const deepReviewDone = (tasks) => tasks.length > 0 && tasks.every((t) => reportOf(t) || ["accepted", "cancelled", "failed"].includes(t.state));
 
 const findingLine = (f) => `- **${f.level}**${f.where ? ` \`${f.where}\`` : ""}: ${f.issue}${f.fix ? ` Fix: ${f.fix}` : ""} _(${f.by.join(", ")})_`;
@@ -86,7 +94,7 @@ export function findingsPrompt(pr, tasks) {
     return [`Fix pull request #${pr.number} (${pr.url}) after a deep review by ${tasks.map(who).join(" and ")}.`,
       must.length ? `Fix each of these:\n${must.map(short).join("\n")}` : "",
       optional && rest.length ? `Optional, if they are cheap and safe:\n${rest.map(short).join("\n")}` : "",
-      "Keep the change to these findings, run the repository's tests, and say which finding each change answers."].filter(Boolean).join("\n\n");
+      "Keep the change to these findings and run the repository's tests. In your report's details, write one line per finding to fix, starting with \"Fixed: <file:line> — \" and what changed, or \"Not fixed: <file:line> — \" and why."].filter(Boolean).join("\n\n");
   };
   for (const [cut, optional] of [[400, true], [200, true], [400, false], [200, false], [100, false]]) {
     const text = build(cut, optional);

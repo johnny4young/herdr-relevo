@@ -2,7 +2,7 @@ import { div } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
 import { closeOverlay, focused, openOverlay, panes, props, theme } from 'herdr';
 import { Sidebar } from './sidebar.js';
-import { ACCOUNTS, CODEX, chip } from './accounts.js';
+import { ACCOUNTS, CODEX, agentAccounts, chip } from './accounts.js';
 import { accountFor } from './context.js';
 import { openSettings } from './settings.js';
 import { handoffAgent, handoffFrom } from './handoff.js';
@@ -10,7 +10,7 @@ import { band, button, digit, grabFocus, hairline, held, keycap, meTint, overlay
 import { duration, resetClock, resetText, windowLabel } from './lib/time.js';
 import { HANDOFF_AT, QUOTA_WARN, accountNote, quotaRingDots, quotaStatusText, quotaSummary, readAge } from './lib/account-status.js';
 
-const ACCOUNTS_ALL = [...ACCOUNTS, CODEX];
+const ACCOUNTS_ALL = agentAccounts();
 // At or under NARROW the status item is chips and rings; a reset time needs RESET_FITS.
 const NARROW = 150, RESET_FITS = 360, BAND = 150;
 
