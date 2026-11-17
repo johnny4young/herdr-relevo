@@ -358,7 +358,7 @@ export class PrViews {
       // Built only when drawn: a row that isn't open shows its first action alone.
       pr.skills.forEach((s) => actions.push({ el: () => this.skillButton(t, pr, s, !seen && !requested && (s === "conflicts" || (pr.hot && s === "fix"))) }));
     }
-    if (!requested && this.clones[pr.repo]) {
+    if (this.clones[pr.repo]) {
       actions.push({ id: `review-pr-${pr.url}`, key: "r", label: "Review", run: () => this.reviewPR(pr), tip: withKey("The whole PR against its base, line by line", "relevo.review") });
     }
     if (!requested && fixable(pr, this.clones[pr.repo])) {
