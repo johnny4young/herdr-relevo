@@ -172,6 +172,18 @@ test("doctor checks the programs, the community mod and the keys", () => {
   assert.ok(lines.some((l) => /^warn  2 of Relevo's keys are not in keys\.json \(relevo\.next-waiting, relevo\.launch-personal\)/.test(l)));
 });
 
+test("doctor names the space-folders mod and how to set up an outdated hook", () => {
+  put(source, "mods/relevo/hooks/relevo-labels.sh", 'echo "personal (.claude): outdated"; exit 1\n');
+  install({ source, root });
+  const bin = path.join(base, "bin"); fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, "jq"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  fs.mkdirSync(path.join(root, "mods/space-folders"));
+  doctor({ source, root, env: { PATH: `${bin}${path.delimiter}/bin${path.delimiter}/usr/bin`, HOME: base }, log });
+  assert.ok(lines.includes(`warn  the space-folders mod is no longer needed: Spaces keeps the same folders. Remove ${path.join(root, "mods/space-folders")}`));
+  const hook = path.join(root, "mods/relevo/hooks/relevo-labels.sh");
+  assert.ok(lines.some((l) => l.startsWith("warn  the optional hook") && l.includes("personal (.claude): outdated") && l.endsWith(`To set it up: bash ${hook} --install (see hooks/HOOK.md)`)));
+});
+
 test("uninstall removes what it installed, keeps what the person changed and their config.js", () => {
   install({ source, root });
   put(root, "mods/relevo/main.js", "// mine\n");

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **`doctor` says what an update leaves to you.** It warns while the space-folders mod is still installed, since Spaces replaces it with the same folders, and its hook warning gives the command that fixes it. The README's update section is the one way to update, including from `live-relevo.mjs` installs, which left every mod but `relevo` behind.
+
 ## 0.8.0 · 2026-11-16
 
 - **A run's Claude writer stops asking for each command.** Its Bash already runs in the OS sandbox with no way out (`allowUnsandboxedCommands: false`), so `autoAllowBashIfSandboxed` is on for it: `npm test`, `ls` and the like run without a prompt, and anything the sandbox blocks still fails. Your own Claude settings don't change.
