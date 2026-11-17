@@ -95,8 +95,10 @@ export function mapMine(data, now = Date.now() / 1000) {
     const last = p.commits.nodes[0]?.commit, ci = ciOf(p);
     const threads = unresolved(p);
     const since = last ? seconds(last.committedDate) : 0;
+    // A comment-only review with every thread resolved (a bot's "no issues found") asks nothing of you.
     const reviewers = [...new Set(p.reviews.nodes
       .filter((v) => v.author?.login !== me && v.state !== "APPROVED" && v.state !== "PENDING" && seconds(v.submittedAt) > since)
+      .filter((v) => v.state !== "COMMENTED" || threads > 0)
       .map((v) => v.author?.login?.replace(/-pull-request-reviewer$/, "").replace(/\[bot\]$/, "") ?? "someone"))];
     const reasons = [], skills = [];
     if (ci === "FAILURE" || ci === "ERROR") {

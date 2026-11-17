@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **A review that asks nothing stays out of Needs me.** A comment-only review after your last commit read "review from devin-ai-integration, copilot" even when it said "No issues found" and left no thread, so a PR that only waited for an approval sat in Needs me while its twin sat in Ready. A comment-only review now counts while the PR has unresolved threads; changes requested always count.
+
 ## 0.9.0 · 2026-11-17
 
 - **Land shows it is landing.** After **Confirm land** the card stayed as it was while GitHub checked and merged, and the PR card lingered after the merge. Now the PR turns at once into a landing card, "Landing…" then "Merging…", with no second copy of the PR. A toast says "Merged" as soon as GitHub has merged it, and the landed card stays in Now for a minute before going to Maintenance. A refused merge brings the PR card back and says why.

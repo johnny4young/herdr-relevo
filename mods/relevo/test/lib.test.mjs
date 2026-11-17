@@ -178,10 +178,13 @@ test("mapMine: only PRs that need something, with why and which skill", () => {
     pr({ url: "draft", isDraft: true, reviewDecision: "CHANGES_REQUESTED" }),
     pr({ url: "ci", commits: { nodes: [{ commit: { committedDate: "2026-10-30T09:00:00Z", statusCheckRollup: { state: "FAILURE" } } }] } }),
     pr({ url: "threads", reviewThreads: { nodes: [{ isResolved: false }, { isResolved: true }] } }),
-    pr({ url: "review", reviews: { nodes: [{ author: { login: "copilot-pull-request-reviewer" }, state: "COMMENTED", submittedAt: "2026-10-30T09:30:00Z" }] } }),
+    pr({ url: "review", reviewThreads: { nodes: [{ isResolved: false }] }, reviews: { nodes: [{ author: { login: "copilot-pull-request-reviewer" }, state: "COMMENTED", submittedAt: "2026-10-30T09:30:00Z" }] } }),
+    pr({ url: "no-issues", reviews: { nodes: [{ author: { login: "devin-ai-integration[bot]" }, state: "COMMENTED", submittedAt: "2026-10-30T09:30:00Z" }] } }),
+    pr({ url: "asked", reviews: { nodes: [{ author: { login: "ana" }, state: "CHANGES_REQUESTED", submittedAt: "2026-10-30T09:30:00Z" }] } }),
   ] } } };
   const byUrl = Object.fromEntries(mapMine(data).map((p) => [p.url, p]));
-  assert.deepEqual(Object.keys(byUrl).sort(), ["ci", "review", "threads"]);
+  assert.deepEqual(Object.keys(byUrl).sort(), ["asked", "ci", "review", "threads"], "a comment-only review with nothing open asks nothing");
+  assert.deepEqual(byUrl.asked.reasons, ["review from ana"]);
   assert.deepEqual(byUrl.ci.skills, ["fix"]);
   assert.equal(byUrl.ci.hot, true);
   assert.equal(byUrl.threads.threads, 1);
