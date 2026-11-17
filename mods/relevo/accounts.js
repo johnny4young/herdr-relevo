@@ -64,13 +64,20 @@ export async function loadClaudeQuotas() {
 
 export const full = (q) => (q?.h5?.pct >= 100 ? "5h" : q?.d7?.pct >= 100 ? windowLabel(q.d7, "7d") : null);
 
-// The repo's account unless it is out of quota; Team is the shared fallback.
+// Past this share of either window a new agent starts on another account: the rest goes in minutes.
+export const NEAR_FULL = 90;
+const used = (q) => Math.max(q?.h5?.pct ?? 0, q?.d7?.pct ?? 0);
+const tightWindow = (q) => ((q?.h5?.pct ?? 0) >= (q?.d7?.pct ?? 0) ? "5h" : windowLabel(q.d7, "7d"));
+
+// The repo's account unless it is nearly out of quota; then the fallback with the most left, known before unknown.
 export function pickAccount(repo, quotas) {
-  const key = accountFor(repo), window = full(quotas?.[key]);
-  if (!window) return { key, note: null };
-  const alt = FALLBACK.find((k) => k !== key && !full(quotas?.[k]));
+  const key = accountFor(repo), q = quotas?.[key];
+  if (used(q) < NEAR_FULL) return { key, note: null };
+  const alt = FALLBACK.filter((k) => k !== key && used(quotas?.[k]) < NEAR_FULL)
+    .map((k, i) => ({ k, i, rank: quotas?.[k] ? used(quotas[k]) : 100 }))
+    .sort((x, y) => x.rank - y.rank || x.i - y.i)[0]?.k;
   return alt
-    ? { key: alt, note: `${accountOf(key).label} is at 100% (${window}) — using ${accountOf(alt).label}` }
+    ? { key: alt, note: `${accountOf(key).label} is at ${Math.round(used(q))}% (${tightWindow(q)}) — using ${accountOf(alt).label}` }
     : { key, note: null };
 }
 
