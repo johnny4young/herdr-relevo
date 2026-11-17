@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Spaces holds up when folders move.** A folder whose path starts with `~` opens its new spaces again; Herdr took the `~` literally and failed with "cannot start /bin/zsh". A folder path or repo that was moved or deleted says so instead of failing in Herdr, and a space whose folder is gone reads "folder gone" instead of its old branch. A folders file that can't be read (bad JSON, no permission) is never saved over, a save that fails says why, and a corrupt stored value no longer breaks the sidebar.
 - **`doctor` says what an update leaves to you.** It warns while the space-folders mod is still installed, since Spaces replaces it with the same folders, and its hook warning gives the command that fixes it. The README's update section is the one way to update, including from `live-relevo.mjs` installs, which left every mod but `relevo` behind.
 
 ## 0.8.0 · 2026-11-16

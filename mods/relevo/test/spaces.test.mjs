@@ -175,6 +175,42 @@ test("a new folder goes before the default one, and a context's folder can't be 
   assert.ok(find(menu.render(cx), "folder-delete"));
 });
 
+test("a new space in a folder starts in its path with ~ expanded", async () => {
+  const { cx, ui } = await open([space("a", "blog", "/home/test/code/blog")]);
+  find(ui(), "folder-new-personal").handlers.on_click({}, cx);
+  await flush();
+  assert.deepEqual(fake.runs.at(-1), ["space.new", { folder: "/home/test/code" }]);
+  fake.props = { folderMenu: "personal" };
+  const menu = new Spaces();
+  menu.init({}, cx);
+  fake.runs.length = 0;
+  find(menu.render(cx), "folder-space").handlers.on_click({}, cx);
+  await flush();
+  assert.deepEqual(fake.runs.at(-1), ["space.new", { folder: "/home/test/code" }]);
+});
+
+test("a folder whose path was moved or deleted says so instead of opening a space", async () => {
+  const { cx, ui } = await open([space("a", "blog", "/home/test/code/blog")]);
+  fake.exec = (cmd) => (cmd === "test" ? { code: 1 } : null);
+  find(ui(), "folder-new-personal").handlers.on_click({}, cx);
+  await flush();
+  assert.equal(fake.runs.some(([n]) => n === "space.new"), false);
+  assert.match(fake.notices.at(-1).body, /\/home\/test\/code was moved, deleted/);
+});
+
+test("a space whose folder was deleted drops its stale branch and says the folder is gone", async () => {
+  const { mod, cx, ui } = await open([space("b", "acme-api", "/home/test/code/acme-api")]);
+  assert.match(text(find(ui(), "space-b")), /feat\/limits/);
+  fake.exec = (cmd) => {
+    if (cmd === "test") return { code: 1 };
+    throw Error("no such folder");
+  };
+  await mod.check(JSON.stringify([null, "/home/test/code/acme-api"]), cx);
+  const row = text(find(ui(), "space-b"));
+  assert.match(row, /folder gone/);
+  assert.doesNotMatch(row, /feat\/limits/);
+});
+
 test("a drag let go outside the list ends when the pointer leaves it", async () => {
   const { mod, cx, ui } = await open([space("a", "blog", "/home/test/code/blog"), space("b", "acme-api", "/home/test/code/acme-api")]);
   Object.assign(mod, { pressed: "a", over: "x" });

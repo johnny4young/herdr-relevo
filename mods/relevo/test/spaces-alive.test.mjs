@@ -144,6 +144,7 @@ test("a repo with a server but no space shows as a row with no space, in the fol
   ghost.handlers.on_click({}, cx);
   assert.equal(find(ui(), "sv-ghost-billing-520"), null);
   find(ui(), "ghost-billing-new").handlers.on_click({ }, cx);
+  await flush();
   assert.deepEqual(fake.runs.at(-1), ["space.new", { folder: "/home/test/code/billing" }]);
 });
 
