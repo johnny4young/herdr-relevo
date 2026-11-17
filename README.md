@@ -165,7 +165,7 @@ shows only what the agent changed after your last look, and **Viewed** marks fil
 ### Deep review a pull request
 
 **Deep review** on a PR of yours has the reviewers you set in Settings (an account, a model and an effort each; by
-default Claude on Opus and Codex) review the whole PR against its base, in a worktree of its exact head, with the
+default two Claude Code sessions, Opus and Sonnet) review the whole PR against its base, in a worktree of its exact head, with the
 repository's tests and the PR's checks on GitHub. Their findings meet in Runs as one page, merged where they agree: **Post as draft
 review** leaves them on GitHub as a pending review for you to edit and send, and **Fix with a run** fixes the blockers
 and majors. The ▾ beside it runs the review skills you use most, such as `/code-review`, on the PR.

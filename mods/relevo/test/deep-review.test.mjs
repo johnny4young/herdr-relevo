@@ -162,7 +162,7 @@ test("Settings edits the deep review: an account, a model and an effort per revi
   const s = new Settings(), cx = fakeCx();
   s.init({}, cx);
   const ui = () => s.render(cx);
-  assert.deepEqual(s.collect().DEEP_REVIEW, [{ account: "repo", model: "opus", effort: "high" }, { account: "codex", model: "", effort: "high" }]);
+  assert.deepEqual(s.collect().DEEP_REVIEW, [{ account: "repo", model: "opus", effort: "high" }, { account: "repo", model: "sonnet", effort: "high" }]);
   const [first, second] = s.deep;
   find(ui(), `sd-account-${second.id}-personal`).handlers.on_click({}, cx);
   assert.equal(second.effort, "high");

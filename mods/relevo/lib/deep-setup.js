@@ -1,7 +1,7 @@
 // Who a deep review asks, as config.js's DEEP_REVIEW says: an account ("repo" for the repo's own), a model and an
 // effort each. Pure, so Settings checks a setup with the same rules the Inbox launches it with.
 
-export const DEFAULT_DEEP_REVIEW = [{ account: "repo", model: "opus", effort: "high" }, { account: "codex", model: "", effort: "high" }];
+export const DEFAULT_DEEP_REVIEW = [{ account: "repo", model: "opus", effort: "high" }, { account: "repo", model: "sonnet", effort: "high" }];
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 export const CODEX_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"];
 export const MAX_REVIEWERS = 3;

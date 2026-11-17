@@ -37,5 +37,5 @@ export const REPLIES = ["Continue", "Tested and it works: commit and push", "Fix
 // Who reviews a PR in Deep review: an account ("repo" is the repo's own), its model (empty: the default) and effort.
 export const DEEP_REVIEW = [
   { account: "repo", model: "opus", effort: "high" },
-  { account: "codex", model: "", effort: "high" },
+  { account: "repo", model: "sonnet", effort: "high" },
 ];
