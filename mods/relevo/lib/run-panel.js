@@ -2,6 +2,7 @@
 import { count, role, verdictLine, attemptLabel } from "./run-words.js";
 import { lastReview, workflowCheckSummary } from "./workflow-navigation.js";
 import { reportNotes } from "./run-report.js";
+import { counted, mergedFindings } from "./deep-review.js";
 
 const DONE = ["accepted", "cancelled"], STUCK = ["blocked", "failed"];
 const TIMES = ["", "once", "twice"], ORDINAL = ["", "1st", "2nd", "3rd"];
@@ -113,6 +114,14 @@ export function runRow(goal, bucket, { engine = null, error = null, decision = f
     : { group: "flight", turn: "flight", now: launch.words, action: open };
   if (error) return { group: "me", turn: "stuck", now: "status unavailable", hot: true, action: open };
   const c = { me: bucket.me.length, open: bucket.open.length };
+  // A deep review reads as what its reviewers found, not as results to accept one by one.
+  const deep = bucket.all.length > 0 && bucket.all.every((task) => task.pr);
+  if (deep && (c.me || bucket.flight.length)) {
+    const working = bucket.all.filter((task) => !["needs_you", "accepted", "cancelled", "blocked", "failed"].includes(task.state)).length;
+    const found = mergedFindings(bucket.all);
+    return working ? { group: "flight", turn: "flight", now: `${bucket.all.length - working} of ${bucket.all.length} reviewers done`, action: open }
+      : { group: "me", turn: "me", hot: true, now: found.length ? `${counted(found)} to look at` : "no findings", action: { kind: "review", label: "Review" } };
+  }
   if (c.me) return { group: "me", turn: "me", hot: true, now: `${count(c.me, "result")} ${c.me === 1 ? "waits" : "wait"} for your review`,
     action: { kind: "review", label: `Review ${c.me}` } };
   if (bucket.stuck.length) {
@@ -220,4 +229,13 @@ export function finishedAgents(tasks) {
     if (task.pr) return over || (task.attempts ?? []).some((a) => a.role === "reviewer" && a.report) ? [task.reviewer?.address] : [];
     return task.worktree && over ? [task.executor?.address, task.reviewer?.address] : [];
   }).filter(Boolean);
+}
+
+// One line for where a task stands: "Ready to accept · make test passed · Codex approved".
+export function statusWords(task) {
+  const turn = taskTurn(task), checks = workflowCheckSummary(task), review = lastReview(task)?.report, who = person(task, "reviewer");
+  const head = turn === "me" ? "Ready to accept" : turn === "stuck" ? "Stuck" : task.state === "accepted" ? "Accepted" : task.state === "cancelled" ? "Cancelled" : "In progress";
+  const tests = checks.tone === "muted" ? `tests ${checks.label.toLowerCase()}` : checks.label.toLowerCase().replace(/^/, checks.label.includes(" ") ? "" : "tests ");
+  const verdict = !review ? "review pending" : review.status === "completed" ? `${who} approved` : review.status === "blocked" ? `${who} couldn't decide` : `${who} asked for changes`;
+  return { head, tone: turn === "me" ? "done" : turn === "stuck" ? "blocked" : "muted", text: [head, tests, verdict].join(" · ") };
 }

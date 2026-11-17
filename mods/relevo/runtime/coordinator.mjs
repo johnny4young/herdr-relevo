@@ -111,7 +111,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       executor: prReview ? null : { address: input.executor.address, label: input.executor.label || input.executor.address }, reviewer: { address: input.reviewer.address, label: input.reviewer.label || input.reviewer.address },
       checks: input.checks ?? [], dependsOn: dependencies, maxRounds, maxMinutes, round: 0, state: 'planned', paused: false,
       ...(input.reviewOnly === true && !input.worktree ? { reviewOnly: true } : {}),
-      ...(prReview ? { reviewBase: input.reviewBase, pr: { url: input.pr.url, number: input.pr.number, headRef: input.pr.headRef, clone: input.pr.clone },
+      ...(prReview ? { reviewBase: input.reviewBase, pr: { url: input.pr.url, number: input.pr.number, headRef: input.pr.headRef, clone: input.pr.clone, ...(/^[0-9a-f]{40}$/.test(input.pr.head ?? '') ? { head: input.pr.head } : {}) },
         ...(input.prChecks ? { prChecks: input.prChecks } : {}), ...(input.checksFrom ? { checksFrom: input.checksFrom } : {}) } : {}),
       ...(input.worktree ? { worktree: { path: fs.realpathSync(input.root), branch: String(input.worktree.branch ?? ''), base: fs.realpathSync(input.worktree.base),
         ...(/^[0-9a-f]{40}$/.test(input.worktree.baseCommit ?? '') ? { baseCommit: input.worktree.baseCommit } : {}),

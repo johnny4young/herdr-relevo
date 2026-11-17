@@ -194,6 +194,8 @@ test('a task opens with the summary, who did what and the decision; Accept is A 
   assert.equal(v.runTask, 'a'); assert.deepEqual(windows(), []);
   assert.equal(text(find(tree, 'task-back')), '‹ Tasks'); assert.equal(text(find(tree, 'task-title')), 'Task a');
   assert.equal(text(find(tree, 'task-summary')), 'Ready results sort ahead of failed ones.');
+  assert.equal(text(find(tree, 'task-status')), 'Ready to accept · npm test passed · Team Haiku approved');
+  click(find(tree, 'task-how-fold'), cx); tree = v.render(cx);
   assert.deepEqual(['writer', 'tests', 'reviewer', 'you'].map((id) => text(find(tree, `task-leg-${id}`)).replace(/ \d+[mhd]$/, '')), [
     'Codex Luna wrote it in its own worktree', 'Tests npm test passed', 'Team Haiku reviewed it: approved, no findings', 'You accept it, or say what to change now']);
   assert.equal(find(tree, 'task-leg-you').fill, `${t.blocked}12`, "the person's turn is tinted");
@@ -322,6 +324,8 @@ test('a stuck task in detail offers the follow-up, never Accept; a task that van
   click(find(v.render(cx), 'goal-action-g'), cx); v.render(cx); v.sel = 'task-d'; v.navKey({ key: 'enter' }, cx);
   let tree = v.render(cx);
   assert.equal(v.runTask, 'd'); assert.equal(find(tree, 'task-accept'), null); assert.equal(find(tree, 'task-effect'), null);
+  assert.match(text(find(tree, 'task-status')), /^Stuck · /);
+  v.expanded['how-d'] = true; tree = v.render(cx);
   assert.equal(text(find(tree, 'task-leg-you')), 'You decide what happens next');
   v.navKey({ key: 'a' }, cx); v.navKey({ key: 'enter' }, cx); v.navKey({ key: 'r' }, cx); await flush();
   assert.deepEqual(decided(), []); assert.equal(v.runChangeFor ?? null, null);
@@ -432,6 +436,8 @@ test('a worktree task lists its changed files, and d or a file opens that change
   const { v, cx } = await runs([ready('a', { worktree: wt })]);
   click(find(v.render(cx), 'goal-action-g'), cx); click(find(v.render(cx), 'task-review-a'), cx);
   v.render(cx); await flush();
+  assert.match(text(find(v.render(cx), 'task-files-fold')), /^2 files changed · \+6 −1/);
+  v.expanded['files-a'] = true;
   const view = v.render(cx);
   assert.match(text(find(view, 'task-files')), /2 files changed.*\+6.*−1.*slug\.js.*\+6.*−1.*img\.png.*binary/);
   assert.equal(find(view, 'task-diff').fill, t.solid, 'while it waits on you, the diff is a main action beside Accept');

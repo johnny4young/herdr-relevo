@@ -5,8 +5,9 @@ import { readRunState, runtimeCommand } from "./runtime-cli.js";
 import { accountFor, inFocus } from "./context.js";
 import { button } from "./ui.js";
 import { openGoal } from "./goals-editor.js";
-import { readGoals, writeGoal, GOALS_CHANGED } from "./goals-store.js";
-import { emptyGoals, groupSources, sourceKey, closeGoal, goalState } from "./lib/goals.js";
+import { dropGoalRecords, readGoals, writeGoal, GOALS_CHANGED } from "./goals-store.js";
+import { dropReviewTrees } from "./deep-review.js";
+import { emptyGoals, groupSources, sourceKey, closeGoal, goalState, staleClosed } from "./lib/goals.js";
 import { isAddressed } from "./lib/addressed.js";
 import { runResultAlerts } from "./alerts.js";
 import { resultMark } from "./lib/run-alerts.js";
@@ -74,6 +75,7 @@ export class GoalViews {
           this.rememberMerged();
           runResultAlerts(this.workflowTasks);
           this.closeDoneAgents(this.workflowTasks);
+          this.archiveStale(cx);
         }
       } catch (e) { this.goalsError = `Runs: ${e.message ?? e}. Reviews is still available.`; }
       this.goalChange = shared(GOALS_CHANGED)?.at;
@@ -273,6 +275,42 @@ export class GoalViews {
       this.loadGoals(cx);
       cx.notify();
     });
+  }
+
+  // Archive files closed runs away: their finished tasks go to the runs archive and they leave the list. Delete also
+  // removes their worktrees; a worktree with uncommitted work stays, and says so.
+  archiveRuns(goals, cx, { remove = false, quiet = false } = {}) {
+    if (this.archivingRuns || !goals.length) return;
+    this.archivingRuns = true; this.runCloseError = null; cx.notify();
+    cx.spawn(async (cx) => {
+      const kept = [];
+      try {
+        for (const goal of goals) {
+          const tasks = (this.workflowTasks ?? []).filter((task) => task.goalId === goal.id);
+          if (remove) {
+            for (const task of tasks.filter((x) => x.worktree && !x.worktree.removed && ["accepted", "cancelled"].includes(x.state))) {
+              await workflowCommand({ action: "worktree-remove", taskId: task.id }).catch(() => kept.push(task.worktree.branch));
+            }
+            await dropReviewTrees(tasks.filter((x) => x.pr));
+          }
+          await workflowCommand({ action: "archive", olderThanDays: 0, goalId: goal.id });
+        }
+        await dropGoalRecords(goals.map((g) => g.id), remove ? "deleted" : "archived");
+        this.confirmDelete = null;
+        if (!quiet) this.runNotice = `${remove ? "Deleted" : "Archived"} ${goals.length === 1 ? `“${goals[0].title}”` : `${goals.length} runs`}${kept.length ? `; kept ${kept.join(", ")}: it has uncommitted work` : ""}.`;
+      } catch (e) { this.runCloseError = `Could not ${remove ? "delete" : "archive"}: ${e.message ?? e}`; }
+      this.archivingRuns = false;
+      this.loadGoals(cx);
+      cx.notify();
+    });
+  }
+
+  // Runs closed over a week ago archive themselves, once a session.
+  archiveStale(cx) {
+    if (this.staleArchived || !this.goalDoc || this.workflowError) return;
+    this.staleArchived = true;
+    const ids = new Set(staleClosed(this.goalDoc));
+    this.archiveRuns(this.goalDoc.goals.filter((g) => ids.has(g.id)), cx, { quiet: true });
   }
 
   closeConfirm(t, goal) {

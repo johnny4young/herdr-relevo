@@ -43,7 +43,8 @@ export function mergedFindings(tasks) {
 const RANK = { needs_you: 0, blocked: 1, failed: 1, running: 2, needs_review: 2, ready: 2, planned: 3 };
 // The reviewer whose row stands for the whole deep review: the one most in need of the person.
 export const reviewLead = (reviews) => [...reviews].sort((a, b) => (RANK[a.state] ?? 4) - (RANK[b.state] ?? 4))[0] ?? null;
-export const reviewTitle = (pr) => `Deep review · ${pr.url.split("/").slice(-3, -2)[0]} #${pr.number}`;
+// Each deep review names the commit it read, so two reviews of one PR tell apart.
+export const reviewTitle = (pr) => `Deep review · ${pr.url.split("/").slice(-3, -2)[0]} #${pr.number}${pr.head ? ` · ${pr.head.slice(0, 7)}` : ""}`;
 
 // What the person can do now, in one line.
 export function reviewAdvice(reviews) {
@@ -149,9 +150,12 @@ export function fixOutcome(findings, task, changed = []) {
     const name = fileName(f.where), mention = (text) => Boolean(name) && (text.includes(name) || (stem(name).length >= 6 && text.includes(stem(name))));
     const verdict = said.find((i) => mention(i.text));
     if (verdict) return { f, outcome: verdict.verdict, why: verdict.text.replace(/^\S+\s+[—-]\s+/, "") };
+    // A report line naming the file says it was touched, not why: one line can name several findings.
     const line = (report?.details ?? []).find(mention);
-    return { f, outcome: line || files.has(name) ? "Changed" : "Not touched", why: line ?? "" };
+    return { f, outcome: line || files.has(name) ? "Changed" : "Not touched", why: "" };
   });
   const groups = OUTCOMES.map((outcome) => ({ outcome, rows: rows.filter((r) => r.outcome === outcome) })).filter((g) => g.rows.length);
-  return { groups, head: groups.map((g) => `${g.rows.length} ${g.outcome.toLowerCase()}`).join(" · ") };
+  const majors = rows.filter((r) => r.f.level !== "minor"), left = majors.filter((r) => ["Not touched", "Needs your call"].includes(r.outcome));
+  const tally = majors.length ? `${majors.length - left.length} of ${majors.length} ${majors.length === 1 ? "major" : "majors"} handled${left.length ? ` · ${left.length} left` : ""}` : "No majors";
+  return { groups, rows, majors, left, tally, head: groups.map((g) => `${g.rows.length} ${g.outcome.toLowerCase()}`).join(" · ") };
 }

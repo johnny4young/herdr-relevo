@@ -13,11 +13,11 @@ import { reviewableWork, linkedDecision, runProgress } from "./lib/goal-workflow
 import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed, draftOnAccept } from "./lib/workflow-navigation.js";
 import * as config from "./config.js";
 import { deepReviewNotice, dropReviewTrees, fixFindings, postDraftReview } from "./deep-review.js";
-import { deepReviewView, fixChecklistView, fixOutcomeView, notesView } from "./deep-review-view.js";
+import { deepReviewView, fixChecklistView, fixGlanceView, notesView } from "./deep-review-view.js";
 import { caption } from "./workflow-labels.js";
 import { counted, fixChecklist, fixOutcome, mergedFindings, reviewAdvice, reviewLead, reviewTitle, verdicts } from "./lib/deep-review.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
-  taskSummary, taskNotes, isMerged, finishedAgents } from "./lib/run-panel.js";
+  taskSummary, taskNotes, isMerged, finishedAgents, statusWords } from "./lib/run-panel.js";
 import { canCompare, diffFiles, tookWords } from "./lib/run-compare.js";
 
 // Linked PR URLs known to have merged, kept after the landing list lets them go.
@@ -205,6 +205,8 @@ export class RunViews {
       this.runBusy = false;
       this.loadGoals(cx);
       this.h.focus(); cx.notify();
+      // A run that fixes a pull request goes onto it with the same click.
+      if (!this.runError && outcome === "accept" && task.worktree?.prHead) this.pushRun(task, cx);
     });
   }
 
@@ -270,13 +272,16 @@ export class RunViews {
   }
 
   // A fix of a deep review reads against that review: each finding and what the fix did with it.
-  fixSummary(t, task) {
+  fixSummary(t, task, ui) {
     const reviews = task.worktree?.prUrl ? (this.workflowTasks ?? []).filter((x) => x.pr?.url === task.worktree.prUrl) : [];
     const findings = mergedFindings(reviews);
     if (findings.length) {
       const d = this.taskDiff?.taskId === task.id ? this.taskDiff : null;
       const changed = d?.result ? diffFiles(d.result).list.map((f) => f.path) : [];
-      return [div().px(8).pb(8).child(fixOutcomeView(t, "task-fix-outcome", fixOutcome(findings, task, changed)))];
+      // Ask to fix writes that finding into Ask for changes, ready to send.
+      const ask = task.state === "needs_you" ? (f, cx) => { this.askRunChanges(task, cx);
+        this.runChange.set_value(`Fix this too: [${f.level}] ${f.where ?? ""} — ${f.issue}${f.fix ? ` Fix: ${f.fix}` : ""}`); } : null;
+      return [div().px(8).pb(8).child(fixGlanceView(t, "task-fix-outcome", fixOutcome(findings, task, changed), { ...ui, ask }))];
     }
     const list = fixChecklist(task);
     return list ? [div().px(8).pb(6).child(fixChecklistView(t, "task-checklist", list))] : [];
@@ -379,7 +384,16 @@ export class RunViews {
       return true;
     }
     if (e.key === "n") { openGoal(); return true; }
-    if (!scope) return false;
+    if (!scope) {
+      const goal = this.sel?.startsWith("goal-") ? (this.goalDoc?.goals ?? []).find((g) => `goal-${g.id}` === this.sel) : null, closed = goal && goalState(goal) === "completed";
+      if (!goal) return false;
+      if (e.key === "e") openGoal(goal.id);
+      else if (e.key === "p" || e.key === "w") openWorkflow(goal.id);
+      else if (e.key === "c" && !closed) { this.confirmClose = goal.id; cx.notify(); }
+      else if (e.key === "a" && closed) this.archiveRuns([goal], cx);
+      else return false;
+      return true;
+    }
     const at = this.runBucket(scope).all.find((item) => `task-${item.id}` === this.sel), waits = at?.state === "needs_you";
     if (this.runPicked.length && e.key === "enter") this.acceptPicked(scope, cx);
     else if (this.runPicked.length && e.key === "escape") this.runPicked = [];
@@ -409,10 +423,10 @@ export class RunViews {
 
   runTools(t, goal) {
     return [
-      button(t, `goal-edit-${goal.id}`, "Edit", () => openGoal(goal.id), { kind: "ghost", size: "sm", tip: "E" }),
-      ...(goalState(goal) !== "completed" ? [button(t, `goal-close-${goal.id}`, "Close", (cx) => { this.confirmClose = goal.id; cx.notify(); },
+      button(t, `goal-edit-${goal.id}`, [keycap(t, "e"), "Edit"], () => openGoal(goal.id), { kind: "ghost", size: "sm" }),
+      ...(goalState(goal) !== "completed" ? [button(t, `goal-close-${goal.id}`, [keycap(t, "c"), "Close"], (cx) => { this.confirmClose = goal.id; cx.notify(); },
         { kind: "ghost", size: "sm", disabled: Boolean(this.closingRun), tip: "Cancel open tasks and close this run" })] : []),
-      button(t, `goal-window-${goal.id}`, "Plan", () => openWorkflow(goal.id), { kind: "ghost", size: "sm", tip: "W · plan or add tasks in the run window" }),
+      button(t, `goal-window-${goal.id}`, [keycap(t, "p"), "Plan"], () => openWorkflow(goal.id), { kind: "ghost", size: "sm", tip: "Plan or add tasks in the run window" }),
     ];
   }
 
@@ -444,6 +458,9 @@ export class RunViews {
     if (scope && this.runPicked.length) return this.batchBar(t, scope);
     if (scope) return keyBar(t, "list-keys", [[["j", "k"], "move"], [["enter"], "open the task"],
       ...compare(this.runBucket(scope).all.find((item) => `task-${item.id}` === this.sel)), [["esc"], "runs"]], help);
+    const picked = this.sel?.startsWith("goal-") ? (this.goalDoc?.goals ?? []).find((g) => `goal-${g.id}` === this.sel) : null;
+    if (picked) return keyBar(t, "list-keys", [[["j", "k"], "move"], [["enter"], "open"], [["e"], "edit"],
+      ...(goalState(picked) === "completed" ? [[["a"], "archive"]] : [[["c"], "close"]]), [["p"], "plan"]], help);
     return this.listKeys(t, "runs");
   }
 
@@ -471,8 +488,21 @@ export class RunViews {
       ...(!runs.length ? [line("No runs yet", t)] : []),
       ...(closed.length ? [foldRow(this, t, "runs-closed-fold", "runs-closed", `${closed.length} older finished ${closed.length === 1 ? "run" : "runs"}`, { gap: true })] : []),
       ...(this.expanded["runs-closed"] ? joined(t, closed.filter(seen).map(draw)) : []),
+      ...(this.expanded["runs-closed"] && closed.length > 1 ? [h_flex().px(8).pt(4).child(button(t, "runs-archive-all", this.archivingRuns ? "Archiving…" : `Archive all ${closed.length}`,
+        (cx) => this.archiveRuns(closed.map((entry) => entry.goal), cx), { size: "sm", disabled: Boolean(this.archivingRuns), tip: "Files every closed run away; their history stays in the runs archive" }))] : []),
       ...this.setupsFold(t, target),
     ];
+  }
+
+  closedActions(t, goal) {
+    const busy = Boolean(this.archivingRuns);
+    if (this.confirmDelete === goal.id) return h_flex().gap(5).items_center()
+      .child(div().text_size(11).text_color(t.blocked).child("Delete it and its worktrees?"))
+      .child(button(t, `goal-delete-no-${goal.id}`, "Keep", (cx) => { this.confirmDelete = null; cx.notify(); }, { size: "sm", disabled: busy }))
+      .child(button(t, `goal-delete-yes-${goal.id}`, "Delete", (cx) => this.archiveRuns([goal], cx, { remove: true }), { size: "sm", kind: "danger", disabled: busy }));
+    return h_flex().gap(5)
+      .child(button(t, `goal-archive-${goal.id}`, "Archive", (cx) => this.archiveRuns([goal], cx), { size: "sm", disabled: busy, tip: "A · files it away; its history stays in the runs archive" }))
+      .child(button(t, `goal-delete-${goal.id}`, "Delete", (cx) => { this.confirmDelete = goal.id; cx.notify(); }, { size: "sm", kind: "ghost", disabled: busy, tip: "Also removes its worktrees, unless one has uncommitted work" }));
   }
 
   // A run answers three questions: what it is, what it does or wants now, and what it shipped.
@@ -481,10 +511,12 @@ export class RunViews {
     const answer = (key, label, value, tone) => labelled(t, `${key}-${goal.id}`, label,
       div().flex_1().min_w(0).truncate().text_size(13).text_color(tone).tooltip(value).child(value));
     return row(t, id, {
-      turn: entry.turn, title: goal.title, selected: sel, onSelect: (cx) => this.openRun(goal, cx),
+      // A click selects, showing Edit, Close and Plan; a second click, or Enter, opens it.
+      turn: entry.turn, title: goal.title, selected: sel, onSelect: (cx) => { if (sel) this.openRun(goal, cx); else { this.sel = id; this.clicked = true; this.h.focus(); cx.notify(); } },
       lines: [answer("goal-now", "Now", entry.now, hot ? t.blocked : t.foreground), answer("goal-shipped", "Shipped", shipped.text, shipped.any ? t.foreground : t.muted)],
-      // A finished run is closed from its row: it then folds into the older finished runs.
-      action: entry.group === "ready" && goalState(goal) !== "completed" && !this.openTasks(goal.id).length
+      // A finished run is closed from its row: it then folds into the older finished runs, which archive or delete.
+      action: entry.closed ? this.closedActions(t, goal)
+        : entry.group === "ready" && goalState(goal) !== "completed" && !this.openTasks(goal.id).length
         ? button(t, `goal-close-row-${goal.id}`, this.closingRun === goal.id ? "Closing…" : "Close", (cx) => this.closeRun(goal, cx),
           { size: "sm", disabled: Boolean(this.closingRun), tip: "Nothing is left open: this files it under older finished runs" })
         : entry.group !== "flight" || sel ? this.runAction(t, entry, `goal-action-${goal.id}`) : null,
@@ -614,16 +646,21 @@ export class RunViews {
     const notes = waiting ? taskNotes(task) : null, linked = linkedDecision(goal, tasks).task?.id === task.id;
     // A file a finding names opens in the run's change, beside the panel.
     const ui = { ...this.deepUi([task]), openFile: task.worktree ? (where) => this.seeDiff(task, where.replace(/:\d+(-\d+)?$/, "")) : null };
+    // Where it stands, what it did and what you decide come first; who did what, the files and the tries fold.
+    const status = statusWords(task), d = this.taskDiff?.taskId === task.id ? this.taskDiff : null, files = d?.result ? diffFiles(d.result) : null;
+    const tries = (task.attempts ?? []).filter((a) => a.role === "executor").length;
     return [
-      // Stuck: why, and the one way on, before anything else.
       ...(taskTurn(task) === "stuck" ? [v_flex().id("task-stuck").px(8).pb(6).gap(4).children(this.stuckLines(t, goal, task))] : []),
-      ...(summary ? [div().id("task-summary").px(8).pb(4).text_size(13).child(summary)] : []),
-      ...this.fixSummary(t, task),
-      v_flex().id("task-legs").children(joined(t, taskLegs(task).map((leg) => this.legRow(t, leg)))),
-      ...this.taskFiles(t, task),
-      ...(notes && (notes.findings.length || notes.unchecked.length) ? [div().id("task-notes").px(8).pt(6).child(notesView(t, `notes-${task.id}`, notes, ui))] : []),
+      div().id("task-status").px(8).pb(4).text_size(13).font_semibold().text_color(t[status.tone]).child(status.text),
+      ...(summary ? [div().id("task-summary").px(8).pb(6).text_size(13).child(summary)] : []),
+      ...this.fixSummary(t, task, ui),
+      ...(notes && (notes.findings.length || notes.unchecked.length) ? [div().id("task-notes").px(8).pt(2).child(notesView(t, `notes-${task.id}`, notes, ui))] : []),
       ...(linked ? [line(`Also resolves: ${caption(goal.decision, 120)}`, t)] : []),
-      ...(canCompare(task) ? [v_flex().id("task-attempts").px(8).pt(6).gap(2).children(this.attemptLines(t, task))] : []),
+      foldRow(this, t, "task-files-fold", `files-${task.id}`, files ? `${files.head} · +${files.added} −${files.removed}` : "Changed files", { gap: true }),
+      ...(this.expanded[`files-${task.id}`] ? this.taskFiles(t, task) : []),
+      foldRow(this, t, "task-how-fold", `how-${task.id}`, `How it went${tries > 1 ? ` · ${tries} tries` : ""}`),
+      ...(this.expanded[`how-${task.id}`] ? [v_flex().id("task-legs").children(joined(t, taskLegs(task).map((leg) => this.legRow(t, leg)))),
+        ...(canCompare(task) ? [v_flex().id("task-attempts").px(8).pt(6).gap(2).children(this.attemptLines(t, task))] : [])] : []),
       this.taskDecision(t, goal, task, tasks),
     ];
   }
@@ -676,14 +713,14 @@ export class RunViews {
           { kind: "solid", disabled: Boolean(this.runBusy) || !this.runChange.value().trim(), tip: "⌘Enter" }))
         .child(button(t, "task-changes-cancel", "Cancel", (cx) => { this.cancelRunChanges(); cx.notify(); }, { kind: "ghost", disabled: Boolean(this.runBusy) })));
     if (task.pr) return this.prReviewDecision(t, goal, task, tasks, keyed, confirming, diff, more);
-    const effect = `${task.worktree?.prHead ? `Accepting commits to the run branch; then Push to ${task.worktree.prHead} adds it to the pull request. `
+    const effect = `${task.worktree?.prHead ? `Accepting commits to the run branch and pushes it onto ${task.worktree.prHead}, never forced. `
       : draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accepting commits to the run branch, pushes it and opens a draft pull request on GitHub. "
       : task.worktree ? "Accepting keeps the worktree and commits to its run branch. " : ""}${acceptanceEffect(task, tasks, this.workflowEngine)}`;
     const push = task.state === "accepted" && task.worktree?.prHead && !task.worktree.pushed && !task.worktree.removed;
     return v_flex().id("task-decision").px(8).pt(8).gap(6)
       .child(h_flex().flex_wrap().gap(6).items_center()
         .when(waiting, (bar) => bar
-          .child(button(t, "task-accept", confirming ? keyed("enter", "Confirm accept") : keyed("a", draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accept and open draft PR" : "Accept"), (cx) => this.acceptStep(task, cx),
+          .child(button(t, "task-accept", confirming ? keyed("enter", "Confirm accept") : keyed("a", task.worktree?.prHead ? `Accept and push to ${task.worktree.prHead}` : draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accept and open draft PR" : "Accept"), (cx) => this.acceptStep(task, cx),
             { kind: "accent", disabled: Boolean(this.runBusy), tip: "A, then Enter" }))
           .child(button(t, "task-changes", keyed("r", "Ask for changes"), (cx) => this.askRunChanges(task, cx), { disabled: Boolean(this.runBusy) }))
           .child(diff))

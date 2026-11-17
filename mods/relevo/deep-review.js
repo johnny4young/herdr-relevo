@@ -13,7 +13,7 @@ import { newGoal } from "./lib/goals.js";
 import { readGoals, writeGoal } from "./goals-store.js";
 import { openWorkflow } from "./workflow-window.js";
 import { noteUse } from "./run-usage.js";
-import { draftReview, findingsPrompt } from "./lib/deep-review.js";
+import { draftReview, findingsPrompt, reviewTitle } from "./lib/deep-review.js";
 
 export const deepSetup = () => config.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW;
 
@@ -48,7 +48,7 @@ export async function startDeepReview(pr, clone, cx) {
   const name = pr.repo.split("/").pop(), at = Date.now();
   const reviewers = deepReviewers(pr.repo, await loadClaudeQuotas().catch(() => ({})));
   if (!reviewers.length) throw Error("Every reviewer in the deep review setup is out of quota");
-  const goal = { ...newGoal(`goal-${at}-${Math.random().toString(36).slice(2, 8)}`, `Deep review · ${name} #${pr.number}`.slice(0, 240)),
+  const goal = { ...newGoal(`goal-${at}-${Math.random().toString(36).slice(2, 8)}`, reviewTitle({ url: pr.url, number: pr.number, head: pr.headRefOid }).slice(0, 240)),
     criteria: `Review pull request ${pr.url} (“${pr.title}”) as a whole against ${pr.baseRefName}: is it correct, complete, safe and ready to merge?` };
   await writeGoal(goal, 0);
   const say = (words, trust = null) => setShared(RUN_LAUNCH, { goalId: goal.id, words, trust, at });
@@ -66,7 +66,7 @@ export async function startDeepReview(pr, clone, cx) {
         ask: (trust) => say(trust ? `${label} asks whether to trust ${name} before it reviews.` : `Opening ${label} on #${pr.number}…`, trust) });
       const made = await command({ action: "create", start: true, task: { goalId: goal.id, title: `${label} · #${pr.number} ${pr.title}`.slice(0, 240), criteria: goal.criteria,
         root: tree.path, reviewer: { address: agent.address, label }, checks, maxRounds: 1, maxMinutes: 30, reviewOnly: true, reviewBase: tree.base,
-        pr: { url: pr.url, number: pr.number, headRef: pr.headRefName, clone }, prChecks: ci, ...(first ? { checksFrom: first } : {}) } });
+        pr: { url: pr.url, number: pr.number, headRef: pr.headRefName, clone, head: pr.headRefOid }, prChecks: ci, ...(first ? { checksFrom: first } : {}) } });
       first ??= made?.taskId ?? null;
       if (r.note) notify({ title: "Deep review", body: r.note, level: "info", timeout: 5000 });
     }

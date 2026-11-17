@@ -94,3 +94,18 @@ export function evidenceState(evidence, sources, fresh) {
   if (!fresh || !source?.revision) return "Unverified";
   return source.revision === evidence.revision ? "Matches the latest PR read" : "Outdated: commit changed";
 }
+
+// Archived or deleted runs leave the list; the history keeps a line for each.
+export function dropGoals(doc, ids, action, at = new Date().toISOString()) {
+  validateGoals(doc);
+  const gone = new Set(ids);
+  return validateGoals({ ...doc, revision: doc.revision + 1, goals: doc.goals.filter((g) => !gone.has(g.id)),
+    history: [...doc.history, ...ids.map((id) => ({ goal: id, version: 0, at, action, state: "completed" }))].slice(-1000) });
+}
+
+// Runs closed more than `days` ago, by the time of their last save: they archive themselves.
+export function staleClosed(doc, days = 7, now = Date.now()) {
+  const last = new Map();
+  for (const h of doc.history ?? []) last.set(h.goal, h.at);
+  return (doc.goals ?? []).filter((g) => goalState(g) === "completed" && now - Date.parse(last.get(g.id) ?? 0) > days * 86400000).map((g) => g.id);
+}

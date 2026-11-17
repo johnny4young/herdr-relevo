@@ -146,7 +146,7 @@ test('a selected task lists its attempts; the task shows them above the decision
     ['1st try: Codex Luna → Team Haiku · 18 min · asked for changes', '2nd try: Codex Luna → Team Haiku · 9 min · approved']);
   assert.equal(find(tree, 'task-attempt-t-1').ink, t.blocked); assert.equal(find(tree, 'task-attempt-t-2').ink, t.muted);
   assert.equal(find(tree, 'task-attempt-a-1'), null, 'only the selected row opens');
-  v.navKey({ key: 'enter' }, cx); tree = v.render(cx);
+  v.navKey({ key: 'enter' }, cx); v.expanded['how-t'] = true; tree = v.render(cx);
   assert.equal(text(find(tree, 'task-attempts')), '1st try: Codex Luna → Team Haiku · 18 min · asked for changes 2nd try: Codex Luna → Team Haiku · 9 min · approved');
   assert.equal(text(find(tree, 'task-compare')), 'c Compare attempts');
   assert.equal(text(find(tree, 'list-keys')), 'a accept r changes d diff c compare esc tasks ? keys');

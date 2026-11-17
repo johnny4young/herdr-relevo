@@ -298,7 +298,8 @@ test("a fix run reads against its deep review: what it did with each finding, fr
   const old = { attempts: [{ role: "executor", report: { status: "completed", details: ["Major (no test): added one in b.js and its suite"] } }] };
   const read = fixOutcome(findings, old, ["src/a.js"]);
   assert.equal(read.head, "2 changed");
-  assert.deepEqual(read.groups[0].rows.map((r) => [r.f.where, r.why]), [["src/a.js:4", ""], ["src/b.js", "Major (no test): added one in b.js and its suite"]]);
+  assert.deepEqual(read.groups[0].rows.map((r) => [r.f.where, r.why]), [["src/a.js:4", ""], ["src/b.js", ""]], "a report line says it was touched, not why");
+  assert.equal(read.tally, "2 of 2 majors handled");
   const said = { attempts: [{ role: "executor", report: { status: "completed", details: ["False positive: src/a.js:4 — the caller guards null"] } }] };
   const outcome = fixOutcome(findings, said, []);
   assert.equal(outcome.head, "1 false positive · 1 not touched");
@@ -321,4 +322,47 @@ test("Fix with a run hands the deep review over: its reviewers close, and it lin
   for (let i = 0; i < 4; i++) await flush();
   assert.deepEqual(sent.map((p) => [p.action, p.taskId]), [["decide", "c"], ["decide", "x"]]);
   assert.equal(v.runNotice, "Handed to a fix run.");
+});
+
+test("closed runs archive or delete; ones closed over a week ago archive themselves", async () => {
+  const { dropGoals, staleClosed } = await import("../lib/goals.js");
+  const old = { ...newGoal("old", "Old run"), state: "completed" }, fresh = { ...newGoal("new", "New run"), state: "completed" };
+  let doc = saveGoal(saveGoal(emptyGoals(), old, 0, "2026-01-01T00:00:00Z", { close: true }), fresh, 0, "2026-03-01T00:00:00Z", { close: true });
+  assert.deepEqual(staleClosed(doc, 7, Date.parse("2026-03-03T00:00:00Z")), ["old"]);
+  doc = dropGoals(doc, ["old"], "archived", "2026-03-03T00:00:00Z");
+  assert.deepEqual([doc.goals.map((g) => g.id), doc.history.at(-1).action], [["new"], "archived"]);
+});
+
+test("a run row selects on a click and shows e, c and p; a second click opens it; a closed run archives with a", async () => {
+  const done = { ...newGoal("z", "Shipped thing"), state: "completed" };
+  fake.files[goalsPath()] = JSON.stringify(saveGoal(saveGoal(emptyGoals(), newGoal("g", "Deep review · app #7"), 0), done, 0, undefined, { close: true }));
+  fake.files["/home/test/.config/herdr-app/relevo-workflow/state.json"] = JSON.stringify({ tasks: [claude, codex], events: [], engine: { enabled: true } });
+  const v = new Inbox(), cx = fakeCx(); v.init({}, cx); await flush();
+  fake.stored[GOAL_MODE] = true; v.h.is_focused = () => true;
+  let tree = v.render(cx);
+  find(tree, "goal-g").handlers.on_click({}, cx);
+  tree = v.render(cx);
+  assert.equal(v.sel, "goal-g"); assert.equal(v.goalProjection.scope, null, "a click only selects");
+  assert.ok(find(tree, "goal-edit-g")); assert.match(text(find(tree, "list-keys")), /move open e edit c close p plan/);
+  assert.match(text(find(tree, "goal-now-g")), /1 blocker, 1 major to look at/);
+  v.navKey({ key: "c" }, cx); assert.equal(v.confirmClose, "g");
+  find(v.render(cx), "goal-g").handlers.on_click({}, cx);
+  v.render(cx);
+  assert.equal(v.goalProjection.scope?.id, "g", "a second click opens");
+});
+
+test("the fix at a glance: majors handled and left, Ask to fix on what is left, the rest folded", async () => {
+  const { fixGlanceView } = await import("../deep-review-view.js");
+  const { fixOutcome } = await import("../lib/deep-review.js");
+  const findings = mergedFindings([claude, codex]);
+  const fix = { attempts: [{ role: "executor", report: { status: "completed", details: ["Fixed: src/a.js:4 — guarded it"] } }] };
+  const asked = [], open = new Set();
+  const ui = { open, toggle: (k) => (open.has(k) ? open.delete(k) : open.add(k)), ask: (f) => asked.push(f.where) };
+  const view = () => fixGlanceView(theme(), "fg", fixOutcome(findings, fix, []), ui);
+  assert.match(text(view()), /^1 of 2 majors handled · 1 left major b\.js No test Ask to fix Handled · 1$/);
+  find(view(), "fg-left-0-ask").handlers.on_click({}, {});
+  assert.deepEqual(asked, ["src/b.js"]);
+  const { statusWords } = await import("../lib/run-panel.js");
+  assert.equal(statusWords({ state: "needs_you", checks: [["make", "test"]], checksResult: [{ argv: ["make", "test"], code: 0 }], reviewer: { label: "Codex" },
+    attempts: [{ role: "executor", report: { status: "completed" } }, { role: "reviewer", report: { status: "completed" } }] }).text, "Ready to accept · make test passed · Codex approved");
 });

@@ -244,6 +244,7 @@ test('Runs contains only run navigation; Reviews receives each ready result and 
   assert.equal(find(tree, 'result-second'), null);
   assert.equal(fake.stored['relevo.inbox.count'], count - 1);
   fake.stored[GOAL_MODE] = true;
+  v.expanded['how-second'] = true;
   tree = v.render(cx);
   assert.equal(text(find(tree, 'task-leg-you')), 'You accepted it'); assert.equal(find(tree, 'task-accept'), null);
   click(find(tree, 'task-back'), cx); tree = v.render(cx);

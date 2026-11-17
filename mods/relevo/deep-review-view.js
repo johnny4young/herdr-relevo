@@ -70,7 +70,15 @@ export function deepReviewView(t, id, reviews, ui) {
         .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t[tone]).child(v.line));
     })))
     .when(!findings.length && reviews.every((r) => r.attempts?.some((a) => a.report)), (el) => el.child(div().text_size(13).text_color(t.done).child("No findings.")))
-    .children(findings.map((f, i) => findingCard(t, `${id}-f-${i}`, f, ui)))
+    // What could stop the merge first; minor notes fold under a count.
+    .children(findings.map((f, i) => [f, i]).filter(([f]) => f.level !== "minor").map(([f, i]) => findingCard(t, `${id}-f-${i}`, f, ui)))
+    .when(findings.some((f) => f.level === "minor"), (el) => {
+      const key = `${id}-minor`, open = ui.open.has(key), minors = findings.map((f, i) => [f, i]).filter(([f]) => f.level === "minor");
+      return el.child(v_flex().id(key).w_full().min_w(0).gap(6)
+        .child(h_flex().id(`${key}-head`).gap(6).items_center().cursor_pointer().on_click((_e, cx) => ui.toggle(key, cx))
+          .child(icon(open ? "chevron-down" : "chevron-right", t.dim, 10)).child(div().text_size(11).text_color(t.dim).child(`Minor notes · ${minors.length}`)))
+        .when(open, (inner) => inner.children(minors.map(([f, i]) => findingCard(t, `${id}-f-${i}`, f, ui)))));
+    })
     .when(nobody.length > 0, (el) => el.child(foldList(t, `${id}-unchecked`, "What nobody checked", nobody, ui)));
 }
 
@@ -114,4 +122,31 @@ export function fixOutcomeView(t, id, outcome) {
             .child(div().flex_1().min_w(0).truncate().text_size(13).child(f.issue)))
           .when(Boolean(why), (el) => el.child(div().w_full().min_w(0).truncate().text_size(11).text_color(t.muted).child(why)))));
     }));
+}
+
+// The fix at a glance: how many majors it handled, the ones left (each with Ask to fix), and the rest folded.
+// `ui`: { open, toggle, ask?(finding, cx) }.
+export function fixGlanceView(t, id, outcome, ui) {
+  const line = (r, i, key, ask) => h_flex().id(`${key}-${i}`).w_full().min_w(0).gap(6).items_center().tooltip(r.why || r.f.issue)
+    .child(div().flex_none().text_size(11).text_color(toneOf(t, r.f.level)).child(r.f.level))
+    .child(div().flex_none().max_w(170).truncate().text_size(11).font_family("JetBrains Mono").text_color(t.muted).child(shortWhere(r.f.where ?? "")))
+    .child(div().flex_1().min_w(0).truncate().text_size(13).child(r.f.issue))
+    .when(!ask, (el) => el.child(div().flex_none().text_size(11).text_color(["Fixed", "Changed"].includes(r.outcome) ? t.done : t.muted).child(r.outcome)))
+    .when(Boolean(ask && ui.ask), (el) => el.child(div().id(`${key}-${i}-ask`).flex_none().px(6).h(20).flex().items_center().rounded(5).border_1().border_color(t.border)
+      .text_size(11).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => ui.ask(r.f, cx)).child("Ask to fix")));
+  const fold = (key, label, rows) => {
+    const open = ui.open.has(key);
+    return v_flex().id(key).w_full().min_w(0).gap(3)
+      .child(h_flex().id(`${key}-head`).gap(6).items_center().cursor_pointer().on_click((_e, cx) => ui.toggle(key, cx))
+        .child(icon(open ? "chevron-down" : "chevron-right", t.dim, 10)).child(div().text_size(11).text_color(t.dim).child(label)))
+      .when(open, (el) => el.children(rows.map((r, i) => line(r, i, key, false).pl(16))));
+  };
+  const handled = outcome.majors.filter((r) => !outcome.left.includes(r)), minors = outcome.rows.filter((r) => r.f.level === "minor");
+  const minorTally = ["Fixed", "Changed", "False positive", "Won't fix", "Needs your call", "Not touched"]
+    .map((o) => [o, minors.filter((r) => r.outcome === o).length]).filter(([, n]) => n).map(([o, n]) => `${n} ${o.toLowerCase()}`).join(" · ");
+  return v_flex().id(id).w_full().min_w(0).gap(5)
+    .child(div().text_size(13).font_semibold().text_color(outcome.left.length ? t.blocked : t.done).child(outcome.tally))
+    .children(outcome.left.map((r, i) => line(r, i, `${id}-left`, true)))
+    .when(handled.length > 0, (el) => el.child(fold(`${id}-handled`, `Handled · ${handled.length}`, handled)))
+    .when(minors.length > 0, (el) => el.child(fold(`${id}-minor`, `${minors.length} minor · ${minorTally}`, minors)));
 }
