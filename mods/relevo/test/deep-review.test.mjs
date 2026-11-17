@@ -174,3 +174,16 @@ test("Settings edits the deep review: an account, a model and an effort per revi
   assert.equal(s.deep.length, 3);
   assert.equal(find(ui(), "settings-add-deep").isDisabled, true);
 });
+
+test("a stuck PR reviewer is dismissed from its row, not retried", async () => {
+  const stuck = { ...codex, state: "blocked", error: "No CI", attempts: [{ ...codex.attempts[0], report: { status: "blocked", summary: "No CI", findings: [] } }] };
+  const { v, cx } = await runs([claude, stuck]);
+  v.navKey({ key: "j" }, cx); v.navKey({ key: "enter" }, cx);
+  v.sel = `task-${stuck.id}`;
+  const tree = v.render(cx);
+  assert.equal(find(tree, `task-retry-${stuck.id}`), null);
+  fake.exec = (cmd, args) => (/cli\.mjs$/.test(args[0] ?? "") ? { stdout: JSON.stringify({ doc: { tasks: [claude, { ...stuck, state: "cancelled" }], engine: { enabled: true } } }) } : null);
+  find(tree, `task-dismiss-${stuck.id}`).handlers.on_click({}, cx);
+  await flush();
+  assert.ok(calls(/"action":"cancel"/).length);
+});

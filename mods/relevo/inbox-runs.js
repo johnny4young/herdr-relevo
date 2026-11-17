@@ -472,10 +472,22 @@ export class RunViews {
     return button(t, id, [keycap(t, "c"), "Compare attempts"], (cx) => { this.openCompare(task); this.h.focus(); cx.notify(); }, { kind: "ghost" });
   }
 
+  dismissReview(task, cx) {
+    if (this.runBusy) return;
+    this.runBusy = true; cx.notify();
+    cx.spawn(async (cx) => {
+      try { this.takeDoc(await workflowCommand({ action: "cancel", taskId: task.id })); }
+      catch (error) { this.runError = String(error?.message ?? error); }
+      this.runBusy = false; cx.notify();
+    });
+  }
+
   // Why a task is stuck, in the reviewer's words, and the one way on.
   stuckLines(t, goal, task) {
     const findings = stuckFindings(task), more = findings.length - WHY_LINES;
-    const next = followUpAvailable(task) ? this.followUpButton(t, goal, task, `task-follow-up-${task.id}`)
+    // A stuck PR review has nothing to retry into: it goes, and a new Deep review starts fresh.
+    const next = task.pr ? button(t, `task-dismiss-${task.id}`, "Dismiss", (cx) => this.dismissReview(task, cx), { tip: "Cancels this reviewer's part; start Deep review again from the PR" })
+      : followUpAvailable(task) ? this.followUpButton(t, goal, task, `task-follow-up-${task.id}`)
       : button(t, `task-retry-${task.id}`, "Retry in the run window", () => openWorkflow(goal.id, task.id), { tip: "It still has attempts left" });
     return [
       labelled(t, `task-why-text-${task.id}`, "Why", v_flex().flex_1().min_w(0).gap(2)
