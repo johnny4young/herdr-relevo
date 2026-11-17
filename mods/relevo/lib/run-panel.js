@@ -167,9 +167,9 @@ export function taskLegs(task) {
   const reviewer = reviewerAt > writerAt ? attempts[reviewerAt] : null, verdict = reviewer?.report;
   const findings = verdict?.findings?.length ?? 0;
   const legs = [
-    { id: "writer", who: person(task, "executor"), at: writer?.at ?? null,
+    ...(task.pr ? [] : [{ id: "writer", who: person(task, "executor"), at: writer?.at ?? null,
       state: !writer ? "wait" : !writer.report ? "run" : writer.report.status === "completed" ? "ok" : "bad",
-      what: !writer ? "writes it" : !writer.report ? "is writing it" : writer.report.status === "completed" ? `wrote it${task.worktree ? " in its own worktree" : ""}` : "could not finish it" },
+      what: !writer ? "writes it" : !writer.report ? "is writing it" : writer.report.status === "completed" ? `wrote it${task.worktree ? " in its own worktree" : ""}` : "could not finish it" }]),
     { id: "tests", who: "Tests", at: null, state: checks.tone === "normal" ? "ok" : checks.tone === "failure" ? "bad" : "wait", what: checks.label.toLowerCase() },
     { id: "reviewer", who: person(task, "reviewer"), at: reviewer?.at ?? null,
       state: !reviewer ? "wait" : !verdict ? "run" : verdict.status === "completed" ? "ok" : "bad",

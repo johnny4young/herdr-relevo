@@ -33,3 +33,9 @@ export const SKILLS = { review: "review", fix: "fix-ci", comments: "address-comm
 
 // What the quick replies menu offers to send an agent (⌥⌘S, or ↩ beside an agent).
 export const REPLIES = ["Continue", "Tested and it works: commit and push", "Fix all of it"];
+
+// Who reviews a PR in Deep review: an account ("repo" is the repo's own), its model (empty: the default) and effort.
+export const DEEP_REVIEW = [
+  { account: "repo", model: "opus", effort: "high" },
+  { account: "codex", model: "", effort: "high" },
+];

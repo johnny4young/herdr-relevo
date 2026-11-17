@@ -95,6 +95,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (!goals.goals?.some((g) => g.id === input.goalId && g.state !== 'completed')) throw Error('Choose an open goal');
     // A pull request's review has no writer here: its findings go to a draft review or a fix run, not to an agent.
     const prReview = input.reviewOnly === true && !input.worktree && PR_URL.test(input.pr?.url ?? '') && /^[0-9a-f]{40}$/.test(input.reviewBase ?? '');
+    if (prReview && input.prChecks !== undefined && (typeof input.prChecks !== 'string' || input.prChecks.length > 4000)) throw Error('PR checks are a short text');
+    if (prReview && input.checksFrom !== undefined && !doc.tasks.some((t) => t.id === input.checksFrom && t.goalId === input.goalId && t.pr?.url === input.pr.url)) throw Error('Tests can come only from another review of this pull request');
     if (prReview && (!Number.isInteger(input.pr.number) || !BASE_BRANCH.test(input.pr.headRef ?? '') || input.pr.headRef.includes('..') || !path.isAbsolute(input.pr.clone ?? ''))) throw Error('Choose the pull request to review');
     if (!recipient(input.reviewer) || (!prReview && (!recipient(input.executor) || input.executor.address === input.reviewer.address))) throw Error('Select different executor and reviewer agents');
     if ([prReview ? null : input.executor, input.reviewer].filter(Boolean).some((actor) => actor.address.includes('/'))) throw Error('This workflow requires local agents in the selected checkout');
@@ -109,7 +111,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       executor: prReview ? null : { address: input.executor.address, label: input.executor.label || input.executor.address }, reviewer: { address: input.reviewer.address, label: input.reviewer.label || input.reviewer.address },
       checks: input.checks ?? [], dependsOn: dependencies, maxRounds, maxMinutes, round: 0, state: 'planned', paused: false,
       ...(input.reviewOnly === true && !input.worktree ? { reviewOnly: true } : {}),
-      ...(prReview ? { reviewBase: input.reviewBase, pr: { url: input.pr.url, number: input.pr.number, headRef: input.pr.headRef, clone: input.pr.clone } } : {}),
+      ...(prReview ? { reviewBase: input.reviewBase, pr: { url: input.pr.url, number: input.pr.number, headRef: input.pr.headRef, clone: input.pr.clone },
+        ...(input.prChecks ? { prChecks: input.prChecks } : {}), ...(input.checksFrom ? { checksFrom: input.checksFrom } : {}) } : {}),
       ...(input.worktree ? { worktree: { path: fs.realpathSync(input.root), branch: String(input.worktree.branch ?? ''), base: fs.realpathSync(input.worktree.base),
         ...(/^[0-9a-f]{40}$/.test(input.worktree.baseCommit ?? '') ? { baseCommit: input.worktree.baseCommit } : {}),
         ...(BASE_BRANCH.test(input.worktree.baseBranch ?? '') ? { baseBranch: input.worktree.baseBranch } : {}),
@@ -561,7 +564,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
   // The words of each role live in roles/<role>.md; this only fills them in.
   function prompt(task, attempt, preferences, change = '') {
     const proof = { attemptId: attempt.id, token: attempt.token }, reviewer = attempt.role === 'reviewer';
-    return renderRole(attempt.role, {
+    return renderRole(reviewer && task.pr ? 'pr-reviewer' : attempt.role, {
+      ci: task.prChecks ?? '', pr: task.pr?.url ?? '',
       taskId: task.id, attemptId: attempt.id, title: task.title, criteria: task.criteria, root: task.root,
       feedback: task.feedback ?? '', change, base: (task.reviewBase ?? task.worktree?.baseCommit)?.slice(0, 12) ?? 'HEAD', maxMinutes: String(task.maxMinutes), mustFix: MUST_FIX,
       checks: task.checks.length ? `Configured checks: ${JSON.stringify(task.checks)}` : 'No automated check command was configured; report that limitation.',
@@ -570,7 +574,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       statusFile: statusFile(attempt.id), statusExample: JSON.stringify({ ...proof, line: 'Fixing the two failing tests', done: 40, left: 15 }),
       reportFile: path.join(dir, 'reports', `${attempt.id}.json`),
       reportExample: JSON.stringify(reviewer
-        ? { ...proof, status: 'changes_requested', summary: 'Your verdict in plain words', findings: [{ level: 'major', where: 'src/file.js:12', issue: 'What is wrong, with proof', fix: 'What to do instead' }], notRun: [], notProven: [] }
+        ? { ...proof, status: 'changes_requested', summary: 'Your verdict in plain words', findings: [{ level: 'major', where: 'src/file.js:12', issue: task.pr ? 'One or two sentences: what breaks and for whom' : 'What is wrong, with proof', ...(task.pr ? { proof: 'The code path or evidence, briefly' } : {}), fix: 'What to do instead' }], notRun: [], notProven: [] }
         : { ...proof, status: 'completed', summary: 'What the person now sees or can do', details: ['What changed', 'How it was checked'], notProven: [] }),
     });
   }
@@ -600,6 +604,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
   }
   // A second opinion's checks run on the work as it is, then the reviewer gets it whatever they say: failures are evidence.
   async function precheck(task) {
+    if (task.checksFrom) return borrowChecks(task);
     const key = `pre-${task.id}`, pending = checkRuns.get(key) ?? startChecks(task, key, await fp(task));
     if (!pending.done) await Promise.race([pending.promise, new Promise((resolve) => globalThis.setTimeout(resolve, CHECK_GRACE_MS).unref?.())]);
     if (!pending.done || pending.controller.signal.aborted) return;
@@ -615,6 +620,18 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (revision !== pending.revision) { t.state = 'blocked'; t.error = 'The work changed while its checks ran. Ask for a second opinion again once the agent stops.'; return; }
       t.state = 'needs_review'; t.nextRole = 'reviewer';
       log(doc, t, 'Checks observed', pending.checks.length ? `${pending.checks.filter((check) => check.code === 0).length} of ${pending.checks.length} checks passed` : 'No checks configured');
+    });
+  }
+  // Another reviewer of the same pull request ran the tests in its own worktree: this one reads their results.
+  async function borrowChecks(task) {
+    const from = readState(home).tasks.find((t) => t.id === task.checksFrom);
+    if (from && from.state === 'ready' && from.nextRole === 'checks' && !terminalStates.has(from.state)) return;
+    const revision = await fp(task);
+    update((doc) => {
+      const t = taskById(doc, task.id);
+      if (t.state !== 'ready' || t.nextRole !== 'checks' || t.paused) return;
+      t.checksResult = from?.checksResult ?? []; t.revision = revision; t.state = 'needs_review'; t.nextRole = 'reviewer';
+      log(doc, t, 'Checks observed', `From ${from?.reviewer?.label ?? 'the other review'}: ${t.checksResult.filter((c) => c.code === 0).length} of ${t.checksResult.length} passed`);
     });
   }
   async function dispatch(taskId) {
@@ -759,7 +776,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
         // A valid attempt-specific report also reconciles an uncertain delivery.
         a.delivery = 'acknowledged'; t.error = null;
         log(doc, t, 'Agent reported', `${attempt.role}: ${report.summary}`, attempt.address);
-        if (status === 'blocked') { t.state = 'blocked'; t.error = report.summary; return; }
+        // A PR's reviewer that couldn't decide still says what it saw: that is the person's to weigh, not a stuck task.
+        if (status === 'blocked' && !t.pr) { t.state = 'blocked'; t.error = report.summary; return; }
         if (attempt.role === 'reviewer' && (revision !== attempt.revision || afterChecks !== revision)) { t.state = 'blocked'; t.error = 'Review is stale: checkout changed during review'; return; }
         if (attempt.role === 'executor' && afterChecks !== revision) { t.state = 'blocked'; t.error = 'Checks changed the checkout. Review the changes before retrying.'; return; }
         // A check that couldn't start says nothing about the code: the person fixes the command, not the agent.

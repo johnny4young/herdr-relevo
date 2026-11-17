@@ -115,3 +115,62 @@ test("your PR offers Deep review, with your review skills on its ▾; a PR you w
   find(deep, `deep-pick-${PR.url}`).handlers.on_click({}, { stop_propagation() {} });
   assert.equal(fake.overlays.at(-1).props.reviews, true);
 });
+
+const { checkDeepReview, modelArgs, setupLine } = await import("../lib/deep-setup.js");
+const { deepReviewers } = await import("../deep-review.js");
+const { deepReviewView } = await import("../deep-review-view.js");
+const { verdicts } = await import("../lib/deep-review.js");
+
+test("a deep review setup names accounts, models and efforts each provider takes", () => {
+  assert.deepEqual(checkDeepReview([{ account: "repo", model: "opus", effort: "high" }, { account: "codex", model: "", effort: "xhigh" }], ["personal"], "codex"), []);
+  assert.deepEqual(checkDeepReview([{ account: "codex", effort: "max" }, { account: "ghost" }], ["personal"], "codex").map((e) => e.at), ["deepReview.0.effort", "deepReview.1.account"]);
+  assert.match(checkDeepReview([], [], "codex")[0].message, /at least one reviewer/);
+  assert.deepEqual(modelArgs({ account: "team", model: "sonnet", effort: "medium" }, "codex", ["--x"]), ["--x", "--model", "sonnet", "--effort", "medium"]);
+  assert.deepEqual(modelArgs({ account: "codex", model: "gpt-x", effort: "high" }, "codex", ["-m", "luna", "--sandbox", "workspace-write"]),
+    ["-m", "gpt-x", "--sandbox", "workspace-write", "-c", 'model_reasoning_effort="high"']);
+  assert.equal(setupLine([{ account: "repo", model: "opus", effort: "high" }, { account: "codex", model: "", effort: "high" }], () => "Codex"), "repo · opus high + Codex · high");
+});
+
+test("each reviewer of the setup lands on an account with room; Codex past 90% sits out", () => {
+  const setup = [{ account: "repo", model: "opus", effort: "high" }, { account: "codex", model: "", effort: "high" }];
+  assert.deepEqual(deepReviewers("me/app", {}, setup).map((r) => r.key), ["personal", "codex"]);
+  const full = { personal: { h5: { pct: 98 } }, work: { h5: { pct: 10 } }, codex: { h5: { pct: 95 } } };
+  const picked = deepReviewers("me/app", full, setup);
+  assert.deepEqual(picked.map((r) => [r.key, r.model]), [["work", "opus"]]);
+  assert.match(picked[0].note, /Personal is at 98%/);
+});
+
+test("the deep review reads as verdicts, then findings by level, with the long ones and what nobody checked folded", () => {
+  const unsure = review("u", "Codex", []);
+  unsure.attempts[0].report = { status: "blocked", summary: "No CI results", findings: [], notRun: ["make test"] };
+  const long = review("l", "Team", [{ level: "major", where: "src/a.js:9", issue: "x".repeat(300), proof: "Called twice", fix: "Guard it" }]);
+  assert.deepEqual(verdicts([long, unsure]).map((v) => [v.label, v.state, v.line]), [["Team", "changes", "1 major"], ["Codex", "unsure", "couldn't decide: No CI results"]]);
+  const open = new Set(), ui = { open, toggle: (key) => (open.has(key) ? open.delete(key) : open.add(key)), openFile: (where) => opened.push(where) }, opened = [];
+  const view = () => deepReviewView(theme(), "d", [long, unsure], ui);
+  assert.match(text(find(view(), "d-f-0")), /^major src\/a\.js:9 Team x{220}… Fix Guard it More$/);
+  assert.match(text(find(view(), "d-unchecked")), /^What nobody checked · 1$/);
+  find(view(), "d-f-0-more").handlers.on_click({}, { notify() {} });
+  assert.match(text(find(view(), "d-f-0")), /Called twice/);
+  find(view(), "d-f-0-where").handlers.on_click({}, { stop_propagation() {} });
+  assert.deepEqual(opened, ["src/a.js:9"]);
+  find(view(), "d-unchecked-head").handlers.on_click({}, { notify() {} });
+  assert.match(text(find(view(), "d-unchecked")), /Not run: make test/);
+});
+
+test("Settings edits the deep review: an account, a model and an effort per reviewer, three at most", async () => {
+  const { Settings } = await import("../settings.js");
+  const s = new Settings(), cx = fakeCx();
+  s.init({}, cx);
+  const ui = () => s.render(cx);
+  assert.deepEqual(s.collect().DEEP_REVIEW, [{ account: "repo", model: "opus", effort: "high" }, { account: "codex", model: "", effort: "high" }]);
+  const [first, second] = s.deep;
+  find(ui(), `sd-account-${second.id}-personal`).handlers.on_click({}, cx);
+  assert.equal(second.effort, "high");
+  find(ui(), `sd-effort-${second.id}-max`).handlers.on_click({}, cx);
+  find(ui(), `sd-account-${first.id}-codex`).handlers.on_click({}, cx);
+  find(ui(), `sd-effort-${first.id}-minimal`).handlers.on_click({}, cx);
+  assert.deepEqual(s.collect().DEEP_REVIEW.map((r) => [r.account, r.effort]), [["codex", "minimal"], ["personal", "max"]]);
+  find(ui(), "settings-add-deep").handlers.on_click({}, cx);
+  assert.equal(s.deep.length, 3);
+  assert.equal(find(ui(), "settings-add-deep").isDisabled, true);
+});

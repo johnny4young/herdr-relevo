@@ -13,6 +13,7 @@ import { reviewableWork, linkedDecision, runProgress } from "./lib/goal-workflow
 import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed, draftOnAccept } from "./lib/workflow-navigation.js";
 import * as config from "./config.js";
 import { deepReviewNotice, fixFindings, postDraftReview } from "./deep-review.js";
+import { deepReviewView } from "./deep-review-view.js";
 import { deepReviewDone, mergedFindings } from "./lib/deep-review.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
   taskSummary, taskCaveats, isMerged } from "./lib/run-panel.js";
@@ -493,8 +494,20 @@ export class RunViews {
   }
 
   // A task: the writer's summary, who did what, then the decision.
+  // Expand and fold inside a deep review, and its findings' files opened at the PR's change.
+  deepUi(reviews) {
+    this.deepOpen ??= new Set();
+    return { open: this.deepOpen,
+      toggle: (key, cx) => { if (!this.deepOpen.delete(key)) this.deepOpen.add(key); cx.notify(); },
+      openFile: (where) => { const r = reviews[0]; openReview(r.root, null, null, null, { from: r.reviewBase, to: "HEAD", file: where.replace(/:\d+(-\d+)?$/, "") }); } };
+  }
+
   taskDetail(t, goal, task) {
     const tasks = this.runBucket(goal).all, waiting = task.state === "needs_you", summary = taskSummary(task);
+    if (task.pr) {
+      const reviews = tasks.filter((x) => x.pr?.url === task.pr.url);
+      return [div().px(8).pb(6).child(deepReviewView(t, `deep-${goal.id}`, reviews, this.deepUi(reviews))), this.taskDecision(t, goal, task, tasks)];
+    }
     const notes = waiting ? taskCaveats(task) : [], linked = linkedDecision(goal, tasks).task?.id === task.id;
     return [
       ...(summary ? [div().id("task-summary").px(8).pb(4).text_size(13).child(summary)] : []),

@@ -11,7 +11,7 @@ const atOrAbove = (level, bar) => LEVELS.indexOf(level) <= LEVELS.indexOf(LEVELS
 
 export function cleanReport(report) {
   const findings = (Array.isArray(report?.findings) ? report.findings : []).map((f) => ({
-    level: LEVELS.includes(f?.level) ? f.level : 'major', where: line(f?.where, 200), issue: line(f?.issue), fix: line(f?.fix),
+    level: LEVELS.includes(f?.level) ? f.level : 'major', where: line(f?.where, 200), issue: line(f?.issue), fix: line(f?.fix), ...(line(f?.proof, 800) ? { proof: line(f?.proof, 800) } : {}),
   })).filter((f) => f.issue).slice(0, ITEMS);
   return { details: list(report?.details), findings, notProven: list(report?.notProven), notRun: list(report?.notRun) };
 }

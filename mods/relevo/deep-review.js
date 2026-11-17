@@ -1,7 +1,11 @@
-// A deep review of a pull request: Claude and Codex each review its whole change against its base, in a worktree of
-// their own, after the repository's tests run. Their findings meet in Runs, to post as a draft review or fix with a run.
+// A deep review of a pull request: the reviewers DEEP_REVIEW names each review its whole change against its base, in a
+// worktree of their own, with the repository's tests and the PR's CI. Their findings meet in Runs, to post as a draft
+// review or fix with a run.
 import { appHome, exec, notify, setShared } from "herdr";
-import { CODEX, accountOf, hasRoom, launchArgv, loadClaudeQuotas, pickAccount } from "./accounts.js";
+import { CODEX, accountOf, hasRoom, launchArgv, loadClaudeQuotas, withRoom } from "./accounts.js";
+import { accountFor } from "./context.js";
+import * as config from "./config.js";
+import { DEFAULT_DEEP_REVIEW, modelArgs, reviewerLabel } from "./lib/deep-setup.js";
 import { RUN_LAUNCH, openAgent, repoChecks } from "./run-launch.js";
 import { runAgentArgs } from "./workflow-runs.js";
 import { runtimeCommand } from "./runtime-cli.js";
@@ -11,10 +15,25 @@ import { openWorkflow } from "./workflow-window.js";
 import { noteUse } from "./run-usage.js";
 import { draftReview, findingsPrompt } from "./lib/deep-review.js";
 
-// The repo's Claude account (or the one with room), and Codex while it has room: two providers see different things.
-export function deepReviewers(repo, quotas) {
-  const claude = pickAccount(repo, quotas).key;
-  return [{ key: claude, who: "claude" }, ...(hasRoom(quotas?.[CODEX.key]) ? [{ key: CODEX.key, who: "codex" }] : [])];
+export const deepSetup = () => config.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW;
+
+// Each reviewer of the setup on an account with room: a Claude account past 90% hands over to the one with the most
+// left, and Codex past it sits out.
+export function deepReviewers(repo, quotas, setup = deepSetup()) {
+  return setup.flatMap((r) => {
+    if (r.account === CODEX.key) return hasRoom(quotas?.[CODEX.key]) ? [{ ...r, key: CODEX.key, note: null }] : [];
+    const pick = withRoom(r.account === "repo" ? accountFor(repo) : r.account, quotas);
+    return [{ ...r, key: pick.key, note: pick.note }];
+  });
+}
+
+// What GitHub's checks say of the PR, for every reviewer: one line each.
+async function ciOf(pr) {
+  const r = await exec("gh", ["pr", "checks", String(pr.number), "--repo", pr.repo, "--json", "name,bucket"]).catch(() => null);
+  try {
+    const list = JSON.parse(r?.stdout || "[]");
+    return list.length ? list.map((c) => `${c.name}: ${c.bucket}`).join("\n").slice(0, 4000) : "None reported.";
+  } catch { return "Could not be read."; }
 }
 
 async function command(payload) {
@@ -28,23 +47,28 @@ export async function startDeepReview(pr, clone, cx) {
   noteUse("deep-review");
   const name = pr.repo.split("/").pop(), at = Date.now();
   const reviewers = deepReviewers(pr.repo, await loadClaudeQuotas().catch(() => ({})));
+  if (!reviewers.length) throw Error("Every reviewer in the deep review setup is out of quota");
   const goal = { ...newGoal(`goal-${at}-${Math.random().toString(36).slice(2, 8)}`, `Deep review · ${name} #${pr.number}`.slice(0, 240)),
     criteria: `Review pull request ${pr.url} (“${pr.title}”) as a whole against ${pr.baseRefName}: is it correct, complete, safe and ready to merge?` };
   await writeGoal(goal, 0);
   const say = (words, trust = null) => setShared(RUN_LAUNCH, { goalId: goal.id, words, trust, at });
   try {
+    const ci = await ciOf(pr);
+    let first = null;
     for (const [i, r] of reviewers.entries()) {
-      const label = accountOf(r.key).label;
+      const label = reviewerLabel(accountOf(r.key).label, r, r.key === CODEX.key ? config.RUN_CODEX_MODEL ?? "" : "");
       say(`Opening ${label} on #${pr.number}…`);
-      const tree = await command({ action: "prepare-review", root: clone, who: r.who, pr: { number: pr.number, head: pr.headRefOid, base: pr.baseRefName } });
+      const tree = await command({ action: "prepare-review", root: clone, who: ["first", "second", "third"][i], pr: { number: pr.number, head: pr.headRefOid, base: pr.baseRefName } });
       // The tests run once, in the first reviewer's worktree; the other reviewer reads their results there.
       const checks = i === 0 ? await repoChecks(tree.path) : [];
-      const agent = await openAgent({ name, folder: tree.path, tab: `${name}#${pr.number} · review ${label}`, label, cx,
-        argv: launchArgv(r.key, null, runAgentArgs(r.key, "reviewer", appHome())),
+      const agent = await openAgent({ name, folder: tree.path, tab: `${name}#${pr.number} · review ${i + 1} ${label}`, label, cx,
+        argv: launchArgv(r.key, null, modelArgs({ ...r, account: r.key }, CODEX.key, runAgentArgs(r.key, "reviewer", appHome()))),
         ask: (trust) => say(trust ? `${label} asks whether to trust ${name} before it reviews.` : `Opening ${label} on #${pr.number}…`, trust) });
-      await command({ action: "create", start: true, task: { goalId: goal.id, title: `${label} · #${pr.number} ${pr.title}`.slice(0, 240), criteria: goal.criteria,
+      const made = await command({ action: "create", start: true, task: { goalId: goal.id, title: `${label} · #${pr.number} ${pr.title}`.slice(0, 240), criteria: goal.criteria,
         root: tree.path, reviewer: { address: agent.address, label }, checks, maxRounds: 1, maxMinutes: 30, reviewOnly: true, reviewBase: tree.base,
-        pr: { url: pr.url, number: pr.number, headRef: pr.headRefName, clone } } });
+        pr: { url: pr.url, number: pr.number, headRef: pr.headRefName, clone }, prChecks: ci, ...(first ? { checksFrom: first } : {}) } });
+      first ??= made?.taskId ?? null;
+      if (r.note) notify({ title: "Deep review", body: r.note, level: "info", timeout: 5000 });
     }
   } finally {
     setShared(RUN_LAUNCH, null);

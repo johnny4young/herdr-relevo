@@ -8,6 +8,9 @@ import { SKILLS, configuredSkill, launchSkill } from "./skills.js";
 import { skillUses, openPrSession } from "./prsession.js";
 import { rankSkills, localBranch, reviewSkills } from "./lib/prmenu.js";
 import { spinner } from "./ui.js";
+import { openSettings } from "./settings.js";
+import { deepSetup } from "./deep-review.js";
+import { setupLine } from "./lib/deep-setup.js";
 
 // The ▾ beside a PR skill: one chip per account, the recommended and most used skills, and a new
 // session on the PR in its own worktree. Skills run on Claude accounts; Codex only takes the session.
@@ -143,6 +146,10 @@ export class AccountMenu {
       .children(skills.map(({ verb, uses }) => row(`menu-skill-${verb}`, this.opening === verb ? "Opening…" : SKILLS[verb].name,
         verb === p.skill ? "recommended" : uses ? `used ${uses}×` : "",
         (cx) => this.runSkill(verb, cx), claude && !this.opening && !this.busy)))
+      .when(Boolean(p.reviews), (el) => el.child(h_flex().id("menu-deep-setup").px(8).py(4).gap(6).items_center().text_size(11)
+        .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(`Deep review: ${setupLine(deepSetup(), (k) => accountOf(k).label)}`))
+        .child(div().id("menu-deep-settings").flex_none().text_color(t.accent).cursor_pointer()
+          .on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(p.overlay); openSettings(); }).child("Settings"))))
       .children(commands.map(({ name, uses }) => row(`menu-command-${name}`, `/${name}`, `used ${uses}×`, (cx) => this.runCommand(name, cx),
         claude && !this.opening && !this.busy && !p.pr.untrusted)))
       .when(Boolean(p.reviews) && this.uses && !commands.length, (el) => el.child(div().px(8).py(4).text_size(11).text_color(t.dim).child("No review skills in your history yet")))

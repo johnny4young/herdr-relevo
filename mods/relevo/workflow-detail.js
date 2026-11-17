@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, Input, TextView } from "gpui-base";
-import { agents, exec, run } from "herdr";
+import { agents, exec, notify, run } from "herdr";
 import { button, pill } from "./ui.js";
 import { openReview } from "./review.js";
 import * as config from "./config.js";
@@ -9,6 +9,9 @@ import { linkedDecision } from "./lib/goal-workflow.js";
 import { followUpAvailable, taskCaveats, changesPlan } from "./lib/run-panel.js";
 import { agentMarkdown } from "./lib/agent-markdown.js";
 import { WorkflowRuns } from "./workflow-runs.js";
+import { deepReviewView } from "./deep-review-view.js";
+import { deepReviewNotice, fixFindings, postDraftReview } from "./deep-review.js";
+import { mergedFindings } from "./lib/deep-review.js";
 import { row, taskState, reportState, verdictLine, role, count, attemptLabel, caption, reportNotes, SUMMARY_PREVIEW } from "./workflow-labels.js";
 
 const CONFIGURED_SKILLS = config.SKILLS;
@@ -113,7 +116,16 @@ export class WorkflowDetail extends WorkflowRuns {
         }))
         .when(changes, (panel) => panel.child(row(t, plan.hint))))
       .child(h_flex().w_full().min_w(0).gap(6).items_center().flex_wrap()
-        .when(!editing, (bar) => bar
+        .when(!editing && Boolean(task.pr), (bar) => {
+          const found = mergedFindings(this.prReviews(task)), must = found.filter((f) => f.level !== "minor").length;
+          return bar
+            .child(button(t, "workflow-post-review", this.posting ? "Posting…" : "Post as draft review", (cx) => this.postReview(task, cx),
+              { kind: "solid", disabled: this.busy || this.posting || !found.length }))
+            .child(button(t, "workflow-fix-findings", "Fix with a run", () => fixFindings(this.prReviews(task)).catch((e) => deepReviewNotice("Could not prepare the run", e)),
+              { disabled: this.busy || !must }))
+            .child(button(t, "workflow-decide-accept", confirming ? "Confirm ↵" : "Done", (cx) => submit("accept", cx), { kind: "ghost", disabled: this.busy }));
+        })
+        .when(!editing && !task.pr, (bar) => bar
           .child(button(t, "workflow-decide-accept", confirming ? "Confirm ↵" : draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accept and open draft PR" : "Accept", (cx) => submit("accept", cx),
             { kind: "solid", disabled: this.busy || changes, tip: "A, then Enter" })
             .when(!this.busy && !changes, (el) => el.bg(t.accent).text_color(t.accent_foreground)))
@@ -129,7 +141,7 @@ export class WorkflowDetail extends WorkflowRuns {
             this.form.decision.set_value(""); this.decisionNoteFor = null; this.requestChangesFor = null; this.h.focus(); cx.notify();
           }, { kind: "ghost", disabled: this.busy }),
         ].filter(Boolean))))
-      .when(!editing, (el) => el.child(div().w_full().min_w(0).truncate().text_size(11).text_color(t.muted).tooltip(effect).child(effect)));
+      .when(!editing && !task.pr, (el) => el.child(div().w_full().min_w(0).truncate().text_size(11).text_color(t.muted).tooltip(effect).child(effect)));
   }
 
   sendChanges(task, cx) {
@@ -179,7 +191,37 @@ export class WorkflowDetail extends WorkflowRuns {
     ].filter(Boolean));
   }
 
+  prReviews(task) {
+    return (this.tasks ?? []).filter((x) => x.pr?.url === task.pr.url && x.goalId === task.goalId);
+  }
+
+  // A deep review reads as one page: every reviewer's verdict and the findings they share, whichever is selected.
+  prOverview(t, task) {
+    const reviews = this.prReviews(task);
+    this.deepOpen ??= new Set();
+    const ui = { open: this.deepOpen, toggle: (key, cx) => { if (!this.deepOpen.delete(key)) this.deepOpen.add(key); cx.notify(); },
+      openFile: (where) => openReview(reviews[0].root, null, null, null, { from: reviews[0].reviewBase, to: "HEAD", file: where.replace(/:\d+(-\d+)?$/, "") }) };
+    return v_flex().w_full().min_w(0).gap(14)
+      .child(div().text_size(13).font_semibold().w_full().min_w(0).child(`Deep review · #${task.pr.number}`))
+      .child(deepReviewView(t, "workflow-deep", reviews, ui));
+  }
+
+  postReview(task, cx) {
+    if (this.posting) return;
+    const reviews = this.prReviews(task);
+    this.posting = true; cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const url = await postDraftReview(reviews);
+        notify({ title: `Draft review on #${task.pr.number}`, body: "Pending on GitHub until you send it", level: "success" });
+        exec("open", [url]);
+      } catch (error) { deepReviewNotice("Draft review not posted", error); }
+      this.posting = false; cx.notify();
+    });
+  }
+
   overview(t, task, cx) {
+    if (task.pr) return this.prOverview(t, task);
     const reportedAttempt = (key) => [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === key && attempt.report);
     const implementationAttempt = reportedAttempt("executor"), reviewAttempt = reportedAttempt("reviewer");
     const implementation = implementationAttempt?.report, review = reviewAttempt?.report;

@@ -982,3 +982,29 @@ test("a review without a writer still needs a real pull request and base", async
   await assert.rejects(f.runtime.command({ action: "create", task: { ...task, reviewBase: "a".repeat(40), pr: { url: "https://github.com/me/app/pull/7", number: 7, headRef: "../x", clone: f.root } } }),
     /Choose the pull request/);
 });
+
+test("a second PR reviewer reads the first one's tests, sees the PR's CI, and an undecided verdict still reaches the person", async (t) => {
+  const f = await fixture({ checkCode: 0 }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: f.root, encoding: "utf8" }).trim();
+  const pr = { url: "https://github.com/me/app/pull/7", number: 7, headRef: "feat/x", clone: f.root };
+  const common = { goalId: "g1", criteria: "Ready to merge?", root: f.root, reviewOnly: true, reviewBase: base, pr, prChecks: "test: pass\nlint: fail" };
+  const one = (await f.runtime.command({ action: "create", start: true, task: { ...common, title: "Claude", reviewer: { address: "review-agent", label: "Claude" }, checks: [["npm", "test"]] } })).result.taskId;
+  await assert.rejects(f.runtime.command({ action: "create", task: { ...common, title: "Codex", reviewer: { address: "codex-agent" }, checksFrom: "nope" } }), /another review of this pull request/);
+  const two = (await f.runtime.command({ action: "create", start: true, task: { ...common, title: "Codex", reviewer: { address: "codex-agent", label: "Codex" }, checks: [], checksFrom: one } })).result.taskId;
+  const task = (id) => f.runtime.read().tasks.find((x) => x.id === id);
+  await f.runtime.tick();
+  assert.equal(task(one).state, "needs_review");
+  await f.runtime.tick();
+  assert.deepEqual(task(two).checksResult.map((c) => c.code), [0], "the second reviewer has the first one's results");
+  await f.runtime.tick();
+  // In one test checkout the second waits for the first; each has its own worktree in a real deep review.
+  f.report("reviewer", "completed", "Fine", task(one).attempts.at(-1));
+  await f.runtime.tick(); await f.runtime.tick();
+  const prompt = f.sends.map((args) => args.at(-1)).find((text) => text.includes(task(two).attempts.at(-1)?.id ?? "x"));
+  assert.match(prompt, /The pull request's checks on GitHub: test: pass\nlint: fail/);
+  assert.match(prompt, /Missing evidence is not a reason to stop/);
+  f.report("reviewer", "blocked", "Could not tell", task(two).attempts.at(-1));
+  await f.runtime.tick();
+  assert.equal(task(two).state, "needs_you");
+  assert.equal(task(two).error, null);
+});

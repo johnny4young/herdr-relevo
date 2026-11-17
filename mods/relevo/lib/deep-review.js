@@ -18,7 +18,7 @@ export function mergedFindings(tasks) {
         if (LEVELS.indexOf(f.level) < LEVELS.indexOf(same.level)) same.level = f.level;
         continue;
       }
-      out.push({ key, level: f.level, where: f.where, issue: f.issue, fix: f.fix, by: [who(task)] });
+      out.push({ key, level: f.level, where: f.where, issue: f.issue, fix: f.fix, proof: f.proof ?? "", by: [who(task)] });
     }
   }
   return out.sort((a, b) => LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level) || b.by.length - a.by.length);
@@ -52,3 +52,23 @@ export function findingsPrompt(pr, tasks) {
     rest.length ? `Optional, if they are cheap and safe:\n${rest.map(findingLine).join("\n")}` : "",
     "Keep the change to these findings, run the repository's tests, and say which finding each change answers."].filter(Boolean).join("\n\n");
 }
+
+const counted = (findings) => LEVELS.map((level) => [level, findings.filter((f) => f.level === level).length]).filter(([, n]) => n)
+  .map(([level, n]) => `${n} ${level}`).join(", ");
+
+// One line per reviewer: what it decided, in a word and its counts.
+export function verdicts(tasks) {
+  return tasks.map((task) => {
+    const report = reportOf(task), findings = report?.findings ?? [];
+    const state = !report ? "working" : report.status === "blocked" ? "unsure" : findings.some((f) => f.level !== "minor") || report.status === "changes_requested" ? "changes" : "approve";
+    const line = state === "working" ? "reviewing…" : state === "unsure" ? `couldn't decide: ${report.summary ?? ""}`.trim()
+      : state === "approve" ? (findings.length ? `ready to merge, ${counted(findings)}` : "ready to merge, no findings") : counted(findings) || "asks for changes";
+    return { id: task.id, label: who(task), state, line, summary: report?.summary ?? "" };
+  });
+}
+
+// What no reviewer could run or prove, once each.
+export const unchecked = (tasks) => [...new Set(tasks.flatMap((t) => {
+  const r = reportOf(t);
+  return [...(r?.notRun ?? []).map((x) => `Not run: ${x}`), ...(r?.notProven ?? []).map((x) => `Not proven: ${x}`)];
+}))];
