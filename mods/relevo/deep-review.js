@@ -43,10 +43,10 @@ async function command(payload) {
   return out.result;
 }
 
-export async function startDeepReview(pr, clone, cx) {
+export async function startDeepReview(pr, clone, cx, setup = deepSetup()) {
   noteUse("deep-review");
   const name = pr.repo.split("/").pop(), at = Date.now();
-  const reviewers = deepReviewers(pr.repo, await loadClaudeQuotas().catch(() => ({})));
+  const reviewers = deepReviewers(pr.repo, await loadClaudeQuotas().catch(() => ({})), setup);
   if (!reviewers.length) throw Error("Every reviewer in the deep review setup is out of quota");
   const goal = { ...newGoal(`goal-${at}-${Math.random().toString(36).slice(2, 8)}`, reviewTitle({ url: pr.url, number: pr.number, head: pr.headRefOid }).slice(0, 240)),
     criteria: `Review pull request ${pr.url} (“${pr.title}”) as a whole against ${pr.baseRefName}: is it correct, complete, safe and ready to merge?` };

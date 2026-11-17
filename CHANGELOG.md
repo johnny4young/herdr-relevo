@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Choose a deep review's reviewers.** **Deep review** opens a dialog: one to three reviewers (two by default), each with an account from your setup (the repo's own, any Claude account, Codex when it is on), a model and an effort, with each account's quota beside it. Enter starts, 1–3 set the count, Esc cancels, and "Remember for next time" keeps your choice. Settings › Deep review stays the base default.
+- **Codex only where it is installed.** A machine without the `codex` command never offers Codex, whatever `USE_CODEX` says, so a setup with only Claude Code works out of the box.
 - **An accepted run commits like you would.** Its commit takes the writer's message, which it now writes in the repository's style (conventional commits like `fix(scope): …` when the repository uses them), or a subject from its summary with its details as the body. It was the run's title with the whole prompt as the body.
 - **A task reads at a glance.** Its detail opens on one line of where it stands ("Ready to accept · make test passed · Codex approved"), the writer's summary and, for a fix of a deep review, "3 of 4 majors handled · 1 left" with **Ask to fix** on what is left; the files, who did what and the tries fold. A deep review shows its majors and folds its minor notes. A fix of a pull request is accepted and pushed in one click. Two deep reviews of one PR name the commit each read.
 - **Runs you can tidy.** A click on a run selects it and shows Edit, Close and Plan (`e`, `c`, `p`); a second click or Enter opens it. A closed run offers **Archive** (`a`) and **Delete**, which also removes its worktrees unless one has uncommitted work, and older finished runs offer **Archive all**. Runs closed over a week ago archive themselves.

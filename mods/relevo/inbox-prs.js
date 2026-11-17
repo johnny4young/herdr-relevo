@@ -24,6 +24,7 @@ import { openWorkflow } from "./workflow-window.js";
 import { desktopKey } from "./lib/desktop.js";
 import { noteUse } from "./run-usage.js";
 import { deepReviewNotice, startDeepReview } from "./deep-review.js";
+import { DEEP_ASK, openDeepReview } from "./deep-review-dialog.js";
 
 const ADDRESSED = ".local/state/relevo/addressed.json";
 
@@ -164,7 +165,7 @@ export class PrViews {
     const current = pickAccount(pr.repo, this.quotas).key;
     openOverlay({ mod: "relevo", kind: "popup", width: 360, height: 170 + 34 * (reviews ? 6 : Object.keys(SKILLS).length),
       props: { role: "account-menu", pr: { url: pr.url, number: pr.number, repo: pr.repo, updatedAt: pr.updatedAt, title: pr.title,
-        headRefName: pr.headRefName, baseRefName: pr.baseRefName, isCrossRepository: pr.isCrossRepository, untrusted: Boolean(pr.untrusted) },
+        headRefName: pr.headRefName, baseRefName: pr.baseRefName, headRefOid: pr.headRefOid, isCrossRepository: pr.isCrossRepository, untrusted: Boolean(pr.untrusted) },
       skill, reviews, folder: this.clones[pr.repo], current } });
   }
 
@@ -212,7 +213,7 @@ export class PrViews {
         .focus((s) => s.border_2().border_color(t.accent)).flex().h_full().px(9).items_center().cursor_pointer()
         .text_size(11).text_color(busy ? t.dim : t.foreground).hover((s) => s.bg(t.hover))
         .tooltip("Claude and Codex each review the whole PR against its base after its tests run; their findings wait in Runs")
-        .on_click((_e, cx) => { cx.stop_propagation(); this.deepReview(pr, cx); })
+        .on_click((_e, cx) => { cx.stop_propagation(); openDeepReview(pr, this.clones[pr.repo]); })
         .child(busy ? "Starting review…" : "Deep review"))
       .child(Button.new(`deep-pick-${pr.url}`).id(`deep-pick-${pr.url}`).tab_index(0).accessibility_label("Choose a review skill")
         .focus((s) => s.border_2().border_color(t.accent)).h_full().px(6).flex().items_center().cursor_pointer()
@@ -222,11 +223,19 @@ export class PrViews {
         .child(icon("chevron-down", null, 10)));
   }
 
-  deepReview(pr, cx) {
+  // The deep review dialog closes on Start; the Inbox, which stays, opens the reviewers it asked for.
+  takeDeepAsk(cx) {
+    const ask = shared(DEEP_ASK);
+    if (!ask || Date.now() - ask.at > 60000) return;
+    setShared(DEEP_ASK, null);
+    this.deepReview(ask.pr, cx, ask.setup);
+  }
+
+  deepReview(pr, cx, setup = undefined) {
     if (this.deepFor) return;
     this.deepFor = pr.url; cx.notify();
     cx.spawn(async (cx) => {
-      try { await startDeepReview(pr, this.clones[pr.repo], cx); }
+      try { await startDeepReview(pr, this.clones[pr.repo], cx, setup); }
       catch (error) { deepReviewNotice("Deep review not started", error); }
       this.deepFor = null; cx.notify();
     });

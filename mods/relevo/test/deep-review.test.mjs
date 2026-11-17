@@ -115,6 +115,8 @@ test("your PR offers Deep review, with your review skills on its ▾; a PR you w
   assert.equal(els(true).some((el) => find(el, `deep-${PR.url}`)), false);
   find(deep, `deep-pick-${PR.url}`).handlers.on_click({}, { stop_propagation() {} });
   assert.equal(fake.overlays.at(-1).props.reviews, true);
+  find(deep, `deep-run-${PR.url}`).handlers.on_click({}, { stop_propagation() {} });
+  assert.equal(fake.overlays.at(-1).props.role, "deep-review", "Deep review opens its dialog first");
 });
 
 const { checkDeepReview, modelArgs, setupLine } = await import("../lib/deep-setup.js");
@@ -378,4 +380,47 @@ test("an accepted run commits with the writer's message in the repository's styl
   assert.equal(commitMessage(run({ summary: "Add a slug helper" }, null), false).subject, "Add a slug helper", "a repository without conventional commits keeps its style");
   assert.equal(commitMessage(run({ summary: "Add a slug helper" }, null), true).subject, "feat: add a slug helper");
   assert.doesNotMatch(JSON.stringify(commitMessage(run({ summary: "x" }), true)), /deep review…/);
+});
+
+test("the deep review dialog: how many reviewers, each one's account, model and effort; Start hands it to the Inbox", async () => {
+  const { DeepReviewDialog, DEEP_ASK, DEEP_LAST } = await import("../deep-review-dialog.js");
+  const pr = { url: PR.url, number: 7, title: "X", repo: "me/app", headRefOid: "a".repeat(40), baseRefName: "main", headRefName: "feat/x" };
+  fake.props = { pr, folder: "/work/app", overlay: 9 };
+  const d = new DeepReviewDialog(), cx = fakeCx();
+  d.init({}, cx); await flush();
+  let tree = d.render(cx);
+  assert.match(text(tree), /^Deep review · app #7 · aaaaaaa Reviewers 1 2 3 Reviewer 1 Account Repo's · Personal/);
+  assert.equal(d.rows.length, 2, "two by default");
+  find(tree, "deep-count-3").handlers.on_click({}, cx);
+  assert.equal(d.rows.length, 3);
+  d.key({ key: "1" }, { stop_propagation() {}, notify() {} });
+  assert.equal(d.rows.length, 1, "a digit sets the count");
+  tree = d.render(cx);
+  find(tree, "deep-0-account-codex").handlers.on_click({}, cx);
+  assert.deepEqual([d.rows[0].account, d.rows[0].model.value(), d.rows[0].effort], ["codex", "", "high"]);
+  find(d.render(cx), "deep-0-effort-xhigh").handlers.on_click({}, cx);
+  find(d.render(cx), "deep-0-account-work").handlers.on_click({}, cx);
+  assert.deepEqual([d.rows[0].account, d.rows[0].model.value(), d.rows[0].effort], ["work", "sonnet", "xhigh"]);
+  find(d.render(cx), "deep-0-model-opus").handlers.on_click({}, cx);
+  find(d.render(cx), "deep-start").handlers.on_click({}, cx);
+  assert.deepEqual(fake.stored[DEEP_ASK].setup, [{ account: "work", model: "opus", effort: "xhigh" }]);
+  assert.deepEqual(fake.stored[DEEP_LAST], [{ account: "work", model: "opus", effort: "xhigh" }], "remembered for next time");
+  assert.deepEqual(fake.runs.at(-1), ["relevo.deep-review-start", undefined]);
+  assert.deepEqual(fake.closedOverlays, [9]);
+
+  const inbox = new Inbox(), icx = fakeCx();
+  inbox.init({}, icx); await flush();
+  inbox.clones["me/app"] = "/work/app";
+  inbox.takeDeepAsk(icx);
+  assert.equal(inbox.deepFor, PR.url, "the Inbox opens the reviewers");
+  assert.equal(fake.stored[DEEP_ASK], null);
+});
+
+test("a machine without the codex command never offers Codex", async () => {
+  const { agentAccounts, codexOn, CODEX_FOUND } = await import("../accounts.js");
+  fake.stored[CODEX_FOUND] = false;
+  assert.equal(codexOn(), false);
+  assert.equal(agentAccounts().some((a) => a.key === "codex"), false);
+  fake.stored[CODEX_FOUND] = true;
+  assert.equal(codexOn(), true);
 });

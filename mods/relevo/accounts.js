@@ -13,8 +13,10 @@ export const ACCOUNTS = CONFIGURED.map(withFile);
 export const CODEX = withFile(CODEX_ACCOUNT);
 
 export const accountOf = (key) => [...ACCOUNTS, CODEX].find((p) => p.key === key) ?? ACCOUNTS[0];
-// USE_CODEX = false in config.js keeps Codex out of every list and every default.
-export const codexOn = () => config.USE_CODEX !== false;
+// USE_CODEX = false in config.js keeps Codex out of every list and every default, and so does a machine without the
+// codex command: the Inbox looks for it once (CODEX_FOUND).
+export const CODEX_FOUND = "relevo.codex.found";
+export const codexOn = () => config.USE_CODEX !== false && shared(CODEX_FOUND) !== false;
 export const agentAccounts = () => (codexOn() ? [...ACCOUNTS, CODEX] : ACCOUNTS);
 
 export { shellArgv } from "./lib/session-env.js";

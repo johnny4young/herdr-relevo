@@ -11,6 +11,7 @@ import { alertLine, spinner } from "./ui.js";
 import { openSettings } from "./settings.js";
 import { deepSetup } from "./deep-review.js";
 import { setupLine } from "./lib/deep-setup.js";
+import { openDeepReview } from "./deep-review-dialog.js";
 
 // The ▾ beside a PR skill: one chip per account, the recommended and most used skills, and a new
 // session on the PR in its own worktree. Skills run on Claude accounts; Codex only takes the session.
@@ -147,7 +148,9 @@ export class AccountMenu {
         verb === p.skill ? "recommended" : uses ? `used ${uses}×` : "",
         (cx) => this.runSkill(verb, cx), claude && !this.opening && !this.busy)))
       .when(Boolean(p.reviews), (el) => el.child(h_flex().id("menu-deep-setup").px(8).py(4).gap(6).items_center().text_size(11)
-        .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(`Deep review: ${setupLine(deepSetup(), (k) => accountOf(k).label)}`))
+        .child(div().id("menu-deep-open").flex_1().min_w(0).truncate().text_color(t.muted).cursor_pointer().hover((st) => st.text_color(t.foreground))
+          .tooltip("Choose the reviewers and start").on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(p.overlay); openDeepReview(p.pr, p.folder); })
+          .child(`Deep review: ${setupLine(deepSetup(), (k) => accountOf(k).label)} ›`))
         .child(div().id("menu-deep-settings").flex_none().text_color(t.accent).cursor_pointer()
           .on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(p.overlay); openSettings(); }).child("Settings"))))
       .children(commands.map(({ name, uses }) => row(`menu-command-${name}`, `/${name}`, `used ${uses}×`, (cx) => this.runCommand(name, cx),
