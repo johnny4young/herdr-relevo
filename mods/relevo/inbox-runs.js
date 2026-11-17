@@ -13,10 +13,11 @@ import { reviewableWork, linkedDecision, runProgress } from "./lib/goal-workflow
 import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed, draftOnAccept } from "./lib/workflow-navigation.js";
 import * as config from "./config.js";
 import { deepReviewNotice, dropReviewTrees, fixFindings, postDraftReview } from "./deep-review.js";
-import { deepReviewView, fixChecklistView } from "./deep-review-view.js";
+import { deepReviewView, fixChecklistView, notesView } from "./deep-review-view.js";
+import { caption } from "./workflow-labels.js";
 import { counted, fixChecklist, mergedFindings, reviewAdvice, reviewLead, reviewTitle, verdicts } from "./lib/deep-review.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
-  taskSummary, taskCaveats, isMerged, finishedAgents } from "./lib/run-panel.js";
+  taskSummary, taskNotes, isMerged, finishedAgents } from "./lib/run-panel.js";
 import { canCompare, diffFiles, tookWords } from "./lib/run-compare.js";
 
 // Linked PR URLs known to have merged, kept after the landing list lets them go.
@@ -25,7 +26,7 @@ const leads = (tasks, task) => !task.pr || reviewLead(tasks.filter((x) => x.pr?.
 
 export const MERGED = "relevo.runs.merged";
 const REST = "more-run-rest";
-const WHY_LINES = 4, NOTE_LINES = 4, FILE_LINES = 8;
+const WHY_LINES = 4, FILE_LINES = 8;
 const LAUNCH_SHOWN_MS = 300000;
 const LEGEND = ["me", "flight", "ready"];
 // What a step of a task is, as the lane glyph of its row.
@@ -572,17 +573,18 @@ export class RunViews {
       const reviews = tasks.filter((x) => x.pr?.url === task.pr.url);
       return [div().px(8).pb(6).child(deepReviewView(t, `deep-${goal.id}`, reviews, this.deepUi(reviews))), this.taskDecision(t, goal, task, tasks)];
     }
-    const notes = waiting ? taskCaveats(task) : [], linked = linkedDecision(goal, tasks).task?.id === task.id;
+    const notes = waiting ? taskNotes(task) : null, linked = linkedDecision(goal, tasks).task?.id === task.id;
+    // A file a finding names opens in the run's change, beside the panel.
+    const ui = { ...this.deepUi([task]), openFile: task.worktree ? (where) => this.seeDiff(task, where.replace(/:\d+(-\d+)?$/, "")) : null };
     return [
+      // Stuck: why, and the one way on, before anything else.
+      ...(taskTurn(task) === "stuck" ? [v_flex().id("task-stuck").px(8).pb(6).gap(4).children(this.stuckLines(t, goal, task))] : []),
       ...(summary ? [div().id("task-summary").px(8).pb(4).text_size(13).child(summary)] : []),
       ...(fixChecklist(task) ? [div().px(8).pb(6).child(fixChecklistView(t, "task-checklist", fixChecklist(task)))] : []),
       v_flex().id("task-legs").children(joined(t, taskLegs(task).map((leg) => this.legRow(t, leg)))),
       ...this.taskFiles(t, task),
-      ...(notes.length ? [v_flex().id("task-notes").px(8).pt(6).gap(2)
-        .child(div().text_size(11).text_color(t.dim).child("Before you accept"))
-        .children(notes.slice(0, NOTE_LINES).map((note) => div().min_w(0).text_size(11).text_color(t.muted).child(note)))
-        .when(notes.length > NOTE_LINES, (el) => el.child(div().text_size(11).text_color(t.dim).child(`+${notes.length - NOTE_LINES} more in More`)))] : []),
-      ...(linked ? [line(`Also resolves: ${goal.decision}`, t)] : []),
+      ...(notes && (notes.findings.length || notes.unchecked.length) ? [div().id("task-notes").px(8).pt(6).child(notesView(t, `notes-${task.id}`, notes, ui))] : []),
+      ...(linked ? [line(`Also resolves: ${caption(goal.decision, 120)}`, t)] : []),
       ...(canCompare(task) ? [v_flex().id("task-attempts").px(8).pt(6).gap(2).children(this.attemptLines(t, task))] : []),
       this.taskDecision(t, goal, task, tasks),
     ];

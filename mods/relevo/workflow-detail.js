@@ -6,10 +6,10 @@ import { openReview } from "./review.js";
 import * as config from "./config.js";
 import { acceptanceEffect, workflowCheckSummary, decideGuard, decidePayload, acceptArmed, draftOnAccept } from "./lib/workflow-navigation.js";
 import { linkedDecision } from "./lib/goal-workflow.js";
-import { followUpAvailable, taskCaveats, changesPlan } from "./lib/run-panel.js";
+import { followUpAvailable, taskNotes, changesPlan } from "./lib/run-panel.js";
 import { agentMarkdown } from "./lib/agent-markdown.js";
 import { WorkflowRuns } from "./workflow-runs.js";
-import { deepReviewView, fixChecklistView } from "./deep-review-view.js";
+import { deepReviewView, fixChecklistView, notesView } from "./deep-review-view.js";
 import { deepReviewNotice, dropReviewTrees, fixFindings, postDraftReview } from "./deep-review.js";
 import { fixChecklist, mergedFindings, reviewAdvice, reviewTitle } from "./lib/deep-review.js";
 import { runtimeCommand } from "./runtime-cli.js";
@@ -253,7 +253,9 @@ export class WorkflowDetail extends WorkflowRuns {
     const primaryId = (blocked && review ? reviewAttempt : implementationAttempt)?.id;
     const summary = primaryReport?.summary ?? "Report available", longSummary = summary.length > SUMMARY_PREVIEW, summaryOpen = Boolean(this.expandedReports?.[primaryId]);
     const details = this.detailsFor === task.id;
-    const caveats = taskCaveats(task);
+    const notes = taskNotes(task);
+    this.deepOpen ??= new Set();
+    const ui = { open: this.deepOpen, toggle: (key, cx) => { if (!this.deepOpen.delete(key)) this.deepOpen.add(key); cx.notify(); } };
     const statusColor = task.state === "needs_you" ? t.accent : blocked ? t.blocked : task.state === "accepted" ? t.done : t.muted;
     return v_flex().w_full().min_w(0).gap(14)
       .child(v_flex().id("workflow-outcome-header").w_full().min_w(0).gap(6)
@@ -270,9 +272,9 @@ export class WorkflowDetail extends WorkflowRuns {
           (cx) => { this.expandedReports ??= {}; this.expandedReports[primaryId] = !summaryOpen; cx.notify(); }, { kind: "ghost", size: "sm" }).self_start()))))
       .when(Boolean(fixChecklist(task)), (el) => el.child(fixChecklistView(t, "workflow-checklist", fixChecklist(task))))
       // What neither agent could verify, where the person accepts; the full reports stay in Result.
-      .when(task.state === "needs_you" && caveats.length > 0, (el) => el.child(v_flex().id("workflow-review-notes").w_full().min_w(0).gap(4)
+      .when(task.state === "needs_you" && (notes.findings.length || notes.unchecked.length) > 0, (el) => el.child(v_flex().id("workflow-review-notes").w_full().min_w(0).gap(6)
         .child(div().text_size(11).text_color(t.muted).child("Before you accept"))
-        .children(caveats.map((note) => row(t, note)))))
+        .child(notesView(t, `workflow-notes-${task.id}`, notes, ui))))
       .when(followUpAvailable(task), (el) => el
         .child(button(t, "workflow-prepare-follow-up", "Prepare follow-up", (context) => this.prepareBlockedFollowUp(task, context),
           { kind: "solid", tip: "Prefills a new task with the findings; nothing is sent until you start it" })))

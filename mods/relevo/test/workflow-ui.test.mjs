@@ -805,7 +805,9 @@ test('a result waiting on the person shows what nobody could verify beside Accep
   v.selected = 'result';
   const tree = v.render(), words = text(tree);
   assert.ok(find(tree, 'workflow-review-notes'));
-  assert.match(words, /Before you accept \[minor\] math\.js:2: Name could be clearer Not run: node --test Not proven: The output is from this state Not proven by the writer: Large numbers/);
+  assert.match(words, /Before you accept The reviewer found minor math\.js:2 Name could be clearer Not checked · 3/);
+  find(tree, 'workflow-notes-result-unchecked-head').handlers.on_click({}, { notify() {} });
+  assert.match(text(v.render()), /Not checked · 3 • node --test • The output is from this state • Large numbers/);
   assert.doesNotMatch(words, /Matches the task/);
   assert.ok(find(tree, 'workflow-decide-accept'));
   v.close();

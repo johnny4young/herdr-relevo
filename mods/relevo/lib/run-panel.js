@@ -89,10 +89,12 @@ export function taskAt(task) {
 }
 
 // The reviewer's finding on a stuck task, one line each; the task's own error when no review was recorded.
+// Why a task is stuck, short: the newest report's first line, then its findings as level, file and issue.
+const clip = (s, n) => { const one = String(s ?? "").trim().split("\n")[0]; return one.length > n ? `${one.slice(0, n - 1)}…` : one; };
 export function stuckFindings(task) {
-  const report = lastReview(task)?.report;
-  const lines = [report?.summary?.trim(), ...reportNotes(report)].filter(Boolean);
-  return lines.length ? lines : [task.error?.trim() || "No finding was recorded."];
+  const report = [...(task.attempts ?? [])].reverse().find((a) => a.report)?.report ?? lastReview(task)?.report;
+  const lines = [clip(report?.summary, 160), ...(report?.findings ?? []).map((f) => clip(`[${f.level}] ${f.where ? `${String(f.where).split("/").pop()}: ` : ""}${f.issue}`, 120))].filter(Boolean);
+  return lines.length ? lines : [clip(task.error, 160) || "No finding was recorded."];
 }
 
 // A stuck task with nothing running and no attempt or review left: only a new task moves it on.
@@ -190,10 +192,24 @@ export function taskSummary(task, limit = 260) {
   return summary.length > limit ? `${summary.slice(0, limit - 1)}…` : summary;
 }
 
-// What neither agent verified, shown where the person accepts.
+const plain = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+// What the person weighs before accepting: the findings of the review that saw the latest writing, then what nobody
+// checked, once each. A writer's note about a check the coordinator then ran and passed is no longer true, so it goes.
+export function taskNotes(task) {
+  const attempts = task.attempts ?? [], wrote = attempts.findLastIndex((a) => a.role === "executor");
+  const reviewed = attempts.findLastIndex((a) => a.role === "reviewer" && a.report);
+  const review = reviewed > wrote ? attempts[reviewed].report : null, writer = wrote >= 0 ? attempts[wrote].report : null;
+  const passed = (task.checksResult ?? []).filter((c) => c.code === 0).map((c) => plain((c.argv ?? []).join(" "))).filter(Boolean);
+  const seen = new Set(), once = (s) => { const k = plain(s); if (!k || seen.has(k)) return false; seen.add(k); return true; };
+  const writerNotes = (writer?.notProven ?? []).filter((s) => !passed.some((cmd) => plain(s).includes(cmd)));
+  return { findings: review?.findings ?? [], unchecked: [...(review?.notRun ?? []), ...(review?.notProven ?? []), ...writerNotes].filter(once) };
+}
+
+// The same, one line each, for a follow-up's prompt and the places that need text.
 export function taskCaveats(task) {
-  const writer = [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === "executor" && attempt.report)?.report;
-  return [...reportNotes(lastReview(task)?.report), ...(writer?.notProven ?? []).map((item) => `Not proven by the ${role("executor").noun}: ${item}`)];
+  const notes = taskNotes(task);
+  return [...reportNotes({ findings: notes.findings }), ...notes.unchecked];
 }
 
 // Agents Relevo opened for a run whose part is over: a deep review's reviewer once it reported, and both agents of a

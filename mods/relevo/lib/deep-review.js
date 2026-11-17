@@ -55,12 +55,15 @@ export function reviewAdvice(reviews) {
   return "No findings: Done closes the review.";
 }
 
-// A fix run's report as a checklist: its "Fixed:" and "Not fixed:" lines, each with what was done or why not.
+// A fix run's report as its verdicts: each finding Fixed, a False positive, Won't fix or Needs your call, with why.
+// "Not fixed" is how earlier runs said Won't fix.
 export function fixChecklist(task) {
   const report = [...(task.attempts ?? [])].reverse().find((a) => a.role === "executor" && a.report)?.report;
-  const items = (report?.details ?? []).map((line) => /^(Fixed|Not fixed):\s*(.+)$/i.exec(line.trim())).filter(Boolean)
-    .map(([, mark, text]) => ({ fixed: /^fixed$/i.test(mark), text }));
-  return items.length ? { items, head: `${items.filter((i) => i.fixed).length} of ${items.length} fixed` } : null;
+  const items = (report?.details ?? []).map((line) => /^(Fixed|False positive|Won't fix|Not fixed|Needs your call):\s*(.+)$/i.exec(line.trim())).filter(Boolean)
+    .map(([, mark, text]) => ({ verdict: VERDICTS.find((v) => v.toLowerCase() === mark.toLowerCase()) ?? "Won't fix", text }));
+  if (!items.length) return null;
+  const groups = VERDICTS.map((verdict) => ({ verdict, items: items.filter((i) => i.verdict === verdict) })).filter((g) => g.items.length);
+  return { groups, head: groups.map((g) => `${g.items.length} ${g.verdict.toLowerCase()}`).join(" · ") };
 }
 
 export const deepReviewDone = (tasks) => tasks.length > 0 && tasks.every((t) => reportOf(t) || ["accepted", "cancelled", "failed"].includes(t.state));
@@ -83,24 +86,32 @@ export function draftReview(tasks, inline = true) {
   return { body, comments };
 }
 
-// What a fix run is asked to do: every blocker and major, then the minor ones as optional. A task's prompt holds
-// PROMPT_MAX characters, so long findings are cut and the optional ones go first.
+// What a fix run is asked to do: a verdict on every finding, as /code-review-pr-fix gives one. A task's prompt holds
+// PROMPT_MAX characters, so long findings are cut first, and minor ones go only as a last resort.
 const PROMPT_MAX = 3900;
+export const VERDICTS = ["Needs your call", "Fixed", "False positive", "Won't fix"];
 export function findingsPrompt(pr, tasks) {
-  const findings = mergedFindings(tasks), must = findings.filter((f) => f.level !== "minor"), rest = findings.filter((f) => f.level === "minor");
-  const build = (cut, optional) => {
+  const all = mergedFindings(tasks);
+  const build = (cut, list) => {
     const short = (f) => findingLine({ ...f, issue: f.issue.length > cut ? `${f.issue.slice(0, cut).trimEnd()}…` : f.issue,
       fix: f.fix && f.fix.length > cut ? `${f.fix.slice(0, cut).trimEnd()}…` : f.fix });
+    const left = all.length - list.length;
     return [`Fix pull request #${pr.number} (${pr.url}) after a deep review by ${tasks.map(who).join(" and ")}.`,
-      must.length ? `Fix each of these:\n${must.map(short).join("\n")}` : "",
-      optional && rest.length ? `Optional, if they are cheap and safe:\n${rest.map(short).join("\n")}` : "",
-      "Keep the change to these findings and run the repository's tests. In your report's details, write one line per finding to fix, starting with \"Fixed: <file:line> — \" and what changed, or \"Not fixed: <file:line> — \" and why."].filter(Boolean).join("\n\n");
+      `Findings, most severe first:\n${list.map(short).join("\n")}${left ? `\n(and ${left} minor notes left out for length)` : ""}`,
+      "Decide every finding. Fix each blocker and major unless the code shows it is not a bug; fix a minor one when it is cheap and safe. Check a finding against the code before you trust it: reviewers are sometimes wrong. Keep the change to these findings and run the repository's tests.",
+      `In your report's details, write one line per finding, in this order, each starting with its verdict and its file:line:\n${VERDICTS.map((v) => `${v}: <file:line> — ${({ "Needs your call": "the question the person must answer", Fixed: "what changed", "False positive": "why it is not a bug, with the code that shows it", "Won't fix": "why not (out of scope, risk, cost)" })[v]}`).join("\n")}`,
+    ].join("\n\n");
   };
-  for (const [cut, optional] of [[400, true], [200, true], [400, false], [200, false], [100, false]]) {
-    const text = build(cut, optional);
+  const minors = all.filter((f) => f.level === "minor").length;
+  for (const cut of [400, 200, 120, 80, 50]) {
+    const text = build(cut, all);
     if (text.length <= PROMPT_MAX) return text;
   }
-  return build(80, false).slice(0, PROMPT_MAX);
+  for (let drop = 1; drop <= minors; drop++) {
+    const text = build(50, all.slice(0, all.length - drop));
+    if (text.length <= PROMPT_MAX) return text;
+  }
+  return build(50, all.filter((f) => f.level !== "minor")).slice(0, PROMPT_MAX);
 }
 
 export const counted = (findings) => LEVELS.map((level) => [level, findings.filter((f) => f.level === level).length]).filter(([, n]) => n)

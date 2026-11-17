@@ -58,8 +58,8 @@ test("findings from both reviewers merge on the same line at the higher level, m
   assert.match(body, /\*\*major\*\* `src\/b\.js`: No test Fix: Add one _\(Team\)_/, "a finding with no line goes in the body");
   assert.equal(draftReview([claude, codex], false).comments.length, 0);
   const prompt = findingsPrompt(PR, [claude, codex]);
-  assert.match(prompt, /Fix each of these:\n- \*\*blocker\*\*/);
-  assert.doesNotMatch(prompt, /Optional/);
+  assert.match(prompt, /Findings, most severe first:\n- \*\*blocker\*\*/);
+  assert.match(prompt, /False positive: <file:line> — why it is not a bug/);
 });
 
 test("a draft review goes to GitHub pending, and again without line comments when GitHub refuses a line", async () => {
@@ -148,7 +148,7 @@ test("the deep review reads as verdicts, then findings by level, with the long o
   assert.deepEqual(verdicts([long, unsure]).map((v) => [v.label, v.state, v.line]), [["Team", "changes", "1 major"], ["Codex", "unsure", "couldn't decide: No CI results"]]);
   const open = new Set(), ui = { open, toggle: (key) => (open.has(key) ? open.delete(key) : open.add(key)), openFile: (where) => opened.push(where) }, opened = [];
   const view = () => deepReviewView(theme(), "d", [long, unsure], ui);
-  assert.match(text(find(view(), "d-f-0")), /^major src\/a\.js:9 Team x{220}… Fix Guard it More$/);
+  assert.match(text(find(view(), "d-f-0")), /^major a\.js:9 Team x{220}… Fix Guard it More$/);
   assert.match(text(find(view(), "d-unchecked")), /^What nobody checked · 1$/);
   find(view(), "d-f-0-more").handlers.on_click({}, { notify() {} });
   assert.match(text(find(view(), "d-f-0")), /Called twice/);
@@ -251,13 +251,16 @@ test("a deep review's reviewer closes once it reported; a worktree run's agents 
   assert.deepEqual(fake.runs.filter(([n]) => n === "pane.close"), [["pane.close", { pane: "p-c" }]], "once, and never a working agent");
 });
 
-test("a fix run reports a checklist: what it fixed and why the rest stayed", () => {
-  const fix = { attempts: [{ role: "executor", report: { status: "completed", summary: "Fixed", details: ["Fixed: src/a.js:4 — guarded the null", "Not fixed: src/b.js — needs a design call", "Ran swiftlint"] } }] };
+test("a fix run answers every finding: fixed, false positive, won't fix or needs your call, what needs you first", () => {
+  const fix = { attempts: [{ role: "executor", report: { status: "completed", summary: "Fixed", details: [
+    "Fixed: src/a.js:4 — guarded the null", "False positive: src/c.js:9 — the caller already checks it", "Not fixed: src/b.js — needs a redesign",
+    "Needs your call: src/d.js:1 — should upgrades keep Fn off?", "Ran swiftlint"] } }] };
   const list = fixChecklist(fix);
-  assert.equal(list.head, "1 of 2 fixed");
-  assert.match(text(fixChecklistView(theme(), "fx", list)), /^1 of 2 fixed src\/a\.js:4 — guarded the null src\/b\.js — needs a design call$/);
+  assert.equal(list.head, "1 needs your call · 1 fixed · 1 false positive · 1 won't fix");
+  assert.match(text(fixChecklistView(theme(), "fx", list)),
+    /^1 needs your call · 1 fixed · 1 false positive · 1 won't fix Needs your call · 1 d\.js:1 should upgrades keep Fn off\? Fixed · 1 a\.js:4 guarded the null False positive · 1 c\.js:9 the caller already checks it Won't fix · 1 b\.js needs a redesign$/);
   assert.equal(fixChecklist({ attempts: [{ role: "executor", report: { details: ["Ran tests"] } }] }), null);
-  assert.match(findingsPrompt(PR, [claude]), /"Fixed: <file:line> — "/);
+  assert.match(findingsPrompt(PR, [claude]), /Needs your call: <file:line> — the question/);
 });
 
 test("Settings turns Codex off for every list and default", async () => {
@@ -268,4 +271,14 @@ test("Settings turns Codex off for every list and default", async () => {
   find(s.render(cx), "settings-use-codex-off").handlers.on_click({}, cx);
   assert.equal(s.collect().USE_CODEX, false);
   assert.equal(find(s.render(cx), `sd-account-${s.deep[0].id}-codex`), null, "a deep reviewer can't pick it");
+});
+
+test("before you accept: only the review that saw the latest writing, no note a passing check disproved, each note once", async () => {
+  const { taskNotes } = await import("../lib/run-panel.js");
+  const old = { role: "reviewer", report: { status: "changes_requested", findings: [{ level: "major", where: "a.js:1", issue: "Old" }], notRun: ["make test"] } };
+  const wrote = { role: "executor", report: { status: "completed", notProven: ["make test did not run in the sandbox", "The UI tests were not run"] } };
+  const fresh = { role: "reviewer", report: { status: "completed", findings: [{ level: "minor", where: "b.js:2", issue: "New" }], notProven: ["The UI tests were not run."] } };
+  const task = { checksResult: [{ argv: ["make", "test"], code: 0 }], attempts: [old, wrote, fresh] };
+  assert.deepEqual(taskNotes(task), { findings: [{ level: "minor", where: "b.js:2", issue: "New" }], unchecked: ["The UI tests were not run."] });
+  assert.deepEqual(taskNotes({ ...task, attempts: [old, wrote] }).findings, [], "a review before the latest writing is stale");
 });
