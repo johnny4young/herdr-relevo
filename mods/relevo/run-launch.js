@@ -1,5 +1,5 @@
 // A worktree run between Start and its task: what it waits on, shared so Runs can show it wherever the person is.
-import { agents, exec, panes, readTextFile, spaces, terminals } from "herdr";
+import { agents, appHome, exec, panes, readTextFile, spaces, terminals } from "herdr";
 import { openInFolder } from "./accounts.js";
 import { CHECK_FILES, detectChecks } from "./lib/run-checks.js";
 
@@ -16,6 +16,14 @@ export function trustKeys(screen) {
   if (/Trust this folder\?/.test(screen) && /› 1\. Trust and continue/.test(screen)) return ["enter"];
   return null;
 }
+
+// Claude Code asks before it adds a folder given with --add-dir. A run agent is given only Relevo's own reports folder,
+// so that question is answered here, and only when it names exactly that folder.
+export function ownFolderKeys(screen, folder) {
+  if (!/Adding a new directory/.test(screen) || !/Yes, add it/.test(screen) || !screen.includes(folder)) return null;
+  return /❯ Yes, add it/.test(screen) ? ["enter"] : ["down", "enter"];
+}
+export const reportsFolder = () => `${appHome()}/relevo-workflow/reports`;
 
 // Answers yes only while the terminal still shows the question: a key sent to an agent that already started would type.
 export async function answerTrust(address) {
@@ -44,6 +52,8 @@ export async function openAgent({ name, folder, tab, argv, label, ask, cx, waitM
     if (Date.now() - at < 8000) continue;
     const waiting = terminals().find((k) => k.cwd === folder && tabOf(k.address) === tab);
     const screen = waiting ? (await exec("hc", ["read", waiting.address, "--lines", "30"]).catch(() => null))?.stdout ?? "" : "";
+    const own = waiting && ownFolderKeys(screen, reportsFolder());
+    if (own) { await exec("hc", ["keys", waiting.address, ...own]).catch(() => null); continue; }
     ask(trustKeys(screen) ? { address: waiting.address } : null);
   }
 }

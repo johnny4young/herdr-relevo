@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Run agents start on new Claude Code.** It asks before adding a folder given with `--add-dir`, and a run's agents are given Relevo's reports folder, so they waited on "Adding a new directory" and the start stalled. Relevo answers that question for its own reports folder only; any other folder still waits for you.
 - **Fix with a run starts at once.** From a deep review it no longer opens the run form: the run starts with your usual writer and reviewer and the tests the repository declares, and Runs shows it starting; **Adjust…** opens the form when you want to choose. A run starting reads as steps (worktree, writer, reviewer, tests), each done, going or waiting, and one stopped on a question turns red with **Trust and continue**. The run form is tighter: the repository on one line, accounts as their colored letters with their quota, and Start on the right.
 - **The run window keeps drawing when a run is opened in it again**, instead of stopping on "FocusHandle.focus() cannot run during render". **Fix with a run** from the run window closes the deep review before it opens the fix, so the review leaves Needs me.
 - **Choose a deep review's reviewers.** **Deep review** opens a dialog with one line per reviewer, up to six (two by default): its account, with its color and a bar of how full its quota is, its model and its effort, each a menu. **+** adds a reviewer, digits set the count, Enter starts, Esc cancels, and "Remember for next time" keeps your choice. Settings › Deep review stays the base default.

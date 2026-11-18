@@ -7,7 +7,7 @@ import * as config from "./config.js";
 import { CODEX, accountOf, agentAccounts, chip, codexOn, launchArgv, openInFolder, loadClaudeQuotas, full } from "./accounts.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { accountFor } from "./context.js";
-import { RUN_LAUNCH, answerTrust, launchSteps, repoChecks, trustKeys } from "./run-launch.js";
+import { RUN_LAUNCH, answerTrust, launchSteps, ownFolderKeys, reportsFolder, repoChecks, trustKeys } from "./run-launch.js";
 import { runFolder } from "./lib/run-folder.js";
 import { checksText, parseChecks } from "./lib/run-checks.js";
 
@@ -202,6 +202,8 @@ export class WorkflowRuns extends WorkflowDraftView {
         let trust = null;
         for (const k of waiting) {
           const screen = (await exec("hc", ["read", k.address, "--lines", "30"])).stdout ?? "";
+          const own = ownFolderKeys(screen, reportsFolder());
+          if (own) { await exec("hc", ["keys", k.address, ...own]); continue; }
           const keys = trustKeys(screen);
           if (keys) trust ??= { address: k.address, keys, tab: tabName(k.address) };
           if (!codexUpdatePrompt(screen)) continue;

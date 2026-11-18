@@ -452,3 +452,13 @@ test("a fix run starts from the Inbox with no form: worktree, writer, reviewer, 
   assert.equal(fake.stored[RUN_LAUNCH], null, "the steps go once it started");
   assert.deepEqual(launchSteps([["A"], ["B"]], 1, true).map((s) => s.state), ["done", "ask"]);
 });
+
+test("Claude Code's question about the reports folder is answered, and only for that folder", async () => {
+  const { ownFolderKeys } = await import("../run-launch.js");
+  const ask = (path, cursor = "No") => ` Adding a new directory:\n\n ${path}\n\n This session hasn't worked here before.\n\n ${cursor === "No" ? "❯ No, exit\n   Yes, add it" : "  No, exit\n ❯ Yes, add it"}`;
+  const mine = "/home/test/.config/herdr-app/relevo-workflow/reports";
+  assert.deepEqual(ownFolderKeys(ask(mine), mine), ["down", "enter"]);
+  assert.deepEqual(ownFolderKeys(ask(mine, "Yes"), mine), ["enter"]);
+  assert.equal(ownFolderKeys(ask("/home/test/elsewhere"), mine), null, "any other folder waits for the person");
+  assert.equal(ownFolderKeys("❯ Yes, I trust this folder", mine), null);
+});
