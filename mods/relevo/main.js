@@ -97,6 +97,7 @@ export default class Relevo extends View {
     else if (name.startsWith("panel-")) showPanel(name.slice(6));
     else if (name.startsWith("launch-")) this.part.launch(name.slice(7));
     else if (name === "deep-review-start") this.part.takeDeepAsk?.(cx);
+    else if (name === "run-start") this.part.takeRunStart?.(cx);
   }
 
   async close(cx) {

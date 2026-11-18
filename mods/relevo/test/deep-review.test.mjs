@@ -160,7 +160,7 @@ test("the deep review reads as verdicts, then findings by level, with the long o
   assert.match(text(find(view(), "d-unchecked")), /Not run: make test/);
 });
 
-test("Settings edits the deep review: an account, a model and an effort per reviewer, three at most", async () => {
+test("Settings edits the deep review: an account, a model and an effort per reviewer, six at most", async () => {
   const { Settings } = await import("../settings.js");
   const s = new Settings(), cx = fakeCx();
   s.init({}, cx);
@@ -173,8 +173,8 @@ test("Settings edits the deep review: an account, a model and an effort per revi
   find(ui(), `sd-account-${first.id}-codex`).handlers.on_click({}, cx);
   find(ui(), `sd-effort-${first.id}-minimal`).handlers.on_click({}, cx);
   assert.deepEqual(s.collect().DEEP_REVIEW.map((r) => [r.account, r.effort]), [["codex", "minimal"], ["personal", "max"]]);
-  find(ui(), "settings-add-deep").handlers.on_click({}, cx);
-  assert.equal(s.deep.length, 3);
+  for (let i = 0; i < 4; i++) find(ui(), "settings-add-deep").handlers.on_click({}, cx);
+  assert.equal(s.deep.length, 6);
   assert.equal(find(ui(), "settings-add-deep").isDisabled, true);
 });
 
@@ -232,7 +232,12 @@ test("Fix with a run fits the goal and the task however many findings there are"
   await fixFindings([many]);
   const made = (await readGoals()).doc.goals.find((g) => g.id !== "old");
   assert.deepEqual([made.sources, made.criteria.length < 2000], [[], true], "a work item another run had stays with it");
-  assert.equal(fake.runs.findLast(([n]) => n === "pane.split")[1].props.fixPR.prompt, prompt);
+  const { RUN_START } = await import("../run-launcher.js");
+  assert.deepEqual([fake.stored[RUN_START].fields.criteria, fake.stored[RUN_START].pr.headRef], [prompt, "feat/x"], "the Inbox starts it, no form");
+  assert.deepEqual(fake.runs.at(-1), ["relevo.run-start", undefined]);
+  assert.equal(fake.runs.some(([n]) => n === "pane.split"), false);
+  await fixFindings([many], { adjust: true });
+  assert.equal(fake.runs.findLast(([n]) => n === "pane.split")[1].props.fixPR.prompt, prompt, "Adjust… opens the form");
 });
 
 const { finishedAgents } = await import("../lib/run-panel.js");
@@ -388,20 +393,24 @@ test("the deep review dialog: how many reviewers, each one's account, model and 
   fake.props = { pr, folder: "/work/app", overlay: 9 };
   const d = new DeepReviewDialog(), cx = fakeCx();
   d.init({}, cx); await flush();
-  let tree = d.render(cx);
-  assert.match(text(tree), /^Deep review · app #7 · aaaaaaa Reviewers 1 2 3 Reviewer 1 Account Repo's · Personal/);
+  const pick = (i, field, value) => { find(d.render(cx), `deep-${i}-${field}`).handlers.on_click({}, cx); find(d.render(cx), `deep-${i}-${field}-${value}`).handlers.on_click({}, cx); };
+  assert.match(text(d.render(cx)), /^Deep review · app #7 · aaaaaaa 2 reviewers 1 P Personal · repo's/);
   assert.equal(d.rows.length, 2, "two by default");
-  find(tree, "deep-count-3").handlers.on_click({}, cx);
+  find(d.render(cx), "deep-add").handlers.on_click({}, cx);
   assert.equal(d.rows.length, 3);
   d.key({ key: "1" }, { stop_propagation() {}, notify() {} });
   assert.equal(d.rows.length, 1, "a digit sets the count");
-  tree = d.render(cx);
-  find(tree, "deep-0-account-codex").handlers.on_click({}, cx);
+  for (let i = 0; i < 6; i++) d.key({ key: "+" }, { stop_propagation() {}, notify() {} });
+  assert.equal(d.rows.length, 6, "up to six");
+  find(d.render(cx), "deep-5-remove").handlers.on_click({}, cx);
+  d.count(1, cx);
+  pick(0, "account", "codex");
   assert.deepEqual([d.rows[0].account, d.rows[0].model.value(), d.rows[0].effort], ["codex", "", "high"]);
-  find(d.render(cx), "deep-0-effort-xhigh").handlers.on_click({}, cx);
-  find(d.render(cx), "deep-0-account-work").handlers.on_click({}, cx);
+  pick(0, "effort", "xhigh");
+  pick(0, "account", "work");
   assert.deepEqual([d.rows[0].account, d.rows[0].model.value(), d.rows[0].effort], ["work", "sonnet", "xhigh"]);
-  find(d.render(cx), "deep-0-model-opus").handlers.on_click({}, cx);
+  pick(0, "model", "opus");
+  assert.equal(d.menu, null, "a choice closes its menu");
   find(d.render(cx), "deep-start").handlers.on_click({}, cx);
   assert.deepEqual(fake.stored[DEEP_ASK].setup, [{ account: "work", model: "opus", effort: "xhigh" }]);
   assert.deepEqual(fake.stored[DEEP_LAST], [{ account: "work", model: "opus", effort: "xhigh" }], "remembered for next time");
@@ -423,4 +432,23 @@ test("a machine without the codex command never offers Codex", async () => {
   assert.equal(agentAccounts().some((a) => a.key === "codex"), false);
   fake.stored[CODEX_FOUND] = true;
   assert.equal(codexOn(), true);
+});
+
+test("a fix run starts from the Inbox with no form: worktree, writer, reviewer, then the task, as steps Runs shows", async () => {
+  const { launchRun } = await import("../run-launcher.js");
+  const { RUN_LAUNCH, launchSteps } = await import("../run-launch.js");
+  const seen = [], sent = [];
+  fake.agents = [{ address: "w1", tab_name: "fix-7-abc · build", status: "idle" }, { address: "r1", tab_name: "fix-7-abc · review", status: "idle" }];
+  fake.exec = (cmd, args) => {
+    if (!/cli\.mjs$/.test(args[0] ?? "")) return null;
+    const p = JSON.parse(args.at(-1)); sent.push(p.action); seen.push(fake.stored[RUN_LAUNCH]?.steps?.map((s) => s.state).join(","));
+    if (p.action === "prepare-worktree") return { stdout: JSON.stringify({ result: { path: "/w/fix", branch: "run/fix-7-abc", base: "/work/app", baseCommit: "c".repeat(40), baseBranch: "feat/x", prHead: "feat/x" } }) };
+    return { stdout: JSON.stringify({ result: { taskId: "t1" } }) };
+  };
+  await launchRun({ goalId: "g", title: "Fix #7", root: "/work/app", criteria: "Fix it" }, { url: PR.url, headRef: "feat/x" }, fakeCx());
+  assert.deepEqual(sent, ["prepare-worktree", "create"]);
+  assert.equal(seen[0], "run,wait,wait,wait");
+  assert.equal(seen[1], "done,done,done,run", "worktree and both agents done before the task is created");
+  assert.equal(fake.stored[RUN_LAUNCH], null, "the steps go once it started");
+  assert.deepEqual(launchSteps([["A"], ["B"]], 1, true).map((s) => s.state), ["done", "ask"]);
 });

@@ -1,6 +1,6 @@
 // Findings and notes laid out for a person: a card per finding (its level, its file, the problem and the fix), what
 // nobody checked folded under a count, a deep review's verdicts, and a fix run's verdict on each finding.
-import { div } from "gpui-kit";
+import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { mergedFindings, unchecked, verdicts } from "./lib/deep-review.js";
 import { LEVELS } from "./lib/run-report.js";
@@ -149,4 +149,14 @@ export function fixGlanceView(t, id, outcome, ui) {
     .children(outcome.left.map((r, i) => line(r, i, `${id}-left`, true)))
     .when(handled.length > 0, (el) => el.child(fold(`${id}-handled`, `Handled · ${handled.length}`, handled)))
     .when(minors.length > 0, (el) => el.child(fold(`${id}-minor`, `${minors.length} minor · ${minorTally}`, minors)));
+}
+
+// A run starting, as steps: done, the one going on, the ones to come, and one waiting on a question in red.
+export function launchStepsView(t, id, steps) {
+  return v_flex().id(id).w_full().min_w(0).gap(3).children(steps.map((s, i) => h_flex().id(`${id}-${i}`).w_full().min_w(0).gap(8).items_center()
+    .child(h_flex().w(14).flex_none().justify_center().child(s.state === "done" ? icon("check", t.done, 12)
+      : s.state === "run" ? svg("mods/relevo/spinner.svg").size(12).text_color(t.working).spin(900)
+      : s.state === "ask" ? icon("warn", t.blocked, 12) : div().size(6).rounded_full().border_1().border_color(t.dim)))
+    .child(div().w(70).flex_none().text_size(11).font_semibold().text_color(s.state === "wait" ? t.dim : s.state === "ask" ? t.blocked : t.foreground).child(s.label))
+    .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).tooltip(s.note ?? "").child(s.note ?? ""))));
 }

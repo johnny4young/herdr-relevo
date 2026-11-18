@@ -1,7 +1,9 @@
 // A deep review of a pull request: the reviewers DEEP_REVIEW names each review its whole change against its base, in a
 // worktree of their own, with the repository's tests and the PR's CI. Their findings meet in Runs, to post as a draft
 // review or fix with a run.
-import { appHome, exec, notify, setShared } from "herdr";
+import { appHome, exec, notify, run, setShared } from "herdr";
+import { RUN_START } from "./run-launcher.js";
+import { GOAL_MODE, GOAL_SCOPE } from "./inbox-goals.js";
 import { CODEX, accountOf, codexOn, hasRoom, launchArgv, loadClaudeQuotas, withRoom } from "./accounts.js";
 import { accountFor } from "./context.js";
 import * as config from "./config.js";
@@ -88,8 +90,9 @@ export async function postDraftReview(tasks) {
   return JSON.parse(r.stdout || "{}").html_url ?? pr.url;
 }
 
-// A run on a copy of the PR's branch, asked to fix what the reviewers found.
-export async function fixFindings(tasks) {
+// A run on a copy of the PR's branch, asked to fix what the reviewers found. It starts at once, from the Inbox, and
+// Runs shows it starting; `adjust` opens the run window's form instead, to change who works on it or its tests.
+export async function fixFindings(tasks, { adjust = false } = {}) {
   const pr = tasks[0].pr, source = `pr:${pr.url}`, prompt = findingsPrompt(pr, tasks);
   const { doc } = await readGoals();
   let goal = doc.goals.find((g) => g.state !== "completed" && g.sources.includes(source));
@@ -101,7 +104,10 @@ export async function fixFindings(tasks) {
       criteria: `Fix what the deep review of ${pr.url} found.` };
     await writeGoal(goal, 0);
   }
-  openWorkflow(goal.id, null, { fixPR: { url: pr.url, number: pr.number, headRef: pr.headRef, root: pr.clone, prompt } });
+  if (adjust) return openWorkflow(goal.id, null, { fixPR: { url: pr.url, number: pr.number, headRef: pr.headRef, root: pr.clone, prompt } });
+  setShared(RUN_START, { fields: { goalId: goal.id, title: goal.title, root: pr.clone, criteria: prompt }, pr: { url: pr.url, headRef: pr.headRef }, at: Date.now() });
+  setShared(GOAL_MODE, true); setShared(GOAL_SCOPE, null);
+  run("relevo.run-start");
 }
 
 // A closed review's worktrees hold nothing of anyone's: each goes, unless git finds a change in it.

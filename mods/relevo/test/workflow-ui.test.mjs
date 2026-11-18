@@ -748,7 +748,7 @@ test('worktree setup skips an account at its limit by default and marks it in th
   const { executor } = v.runAccounts();
   assert.notEqual(executor, 'codex');
   v.taskSetupOpen = true; v.form.title.set_value('t'); v.form.criteria.set_value('c');
-  assert.match(text(find(v.render(), 'workflow-executor-account-codex')), /Codex · 5h full/);
+  assert.match(text(find(v.render(), 'workflow-executor-account-codex')), /^X Codex 100%$/);
   v.close();
 });
 

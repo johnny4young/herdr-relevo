@@ -25,6 +25,7 @@ import { desktopKey } from "./lib/desktop.js";
 import { noteUse } from "./run-usage.js";
 import { deepReviewNotice, startDeepReview } from "./deep-review.js";
 import { DEEP_ASK, openDeepReview } from "./deep-review-dialog.js";
+import { RUN_START, launchRun } from "./run-launcher.js";
 
 const ADDRESSED = ".local/state/relevo/addressed.json";
 
@@ -221,6 +222,19 @@ export class PrViews {
         .hover((s) => s.bg(t.hover)).tooltip("Your most used review skills")
         .on_click((_e, cx) => { cx.stop_propagation(); this.openSkillMenu(pr, null, true); })
         .child(icon("chevron-down", null, 10)));
+  }
+
+  // A run asked for without its window (Fix with a run): the Inbox starts it, and Runs shows its steps.
+  takeRunStart(cx) {
+    const ask = shared(RUN_START);
+    if (!ask || Date.now() - ask.at > 60000 || this.runStarting) return;
+    setShared(RUN_START, null);
+    this.runStarting = true;
+    cx.spawn(async (cx) => {
+      try { await launchRun(ask.fields, ask.pr, cx); }
+      catch (error) { notify({ title: "The run did not start", body: String(error?.message ?? error), level: "error" }); }
+      this.runStarting = false; this.loadGoals?.(cx); cx.notify();
+    });
   }
 
   // The deep review dialog closes on Start; the Inbox, which stays, opens the reviewers it asked for.

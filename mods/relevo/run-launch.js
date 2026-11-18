@@ -5,6 +5,9 @@ import { CHECK_FILES, detectChecks } from "./lib/run-checks.js";
 
 export const RUN_LAUNCH = "relevo.runs.launch";
 
+// The steps of a start, as Runs draws them: done, the one running, or waiting; `ask` when an agent waits on a question.
+export const launchSteps = (labels, at, ask = false) => labels.map(([label, note], i) => ({ label, note, state: i < at ? "done" : i === at ? (ask ? "ask" : "run") : "wait" }));
+
 // A new worktree asks Claude and Codex whether to trust it: the keys that answer yes, or null. Pressed only on the
 // person's click, since trusting lets the folder's own settings run.
 export function trustKeys(screen) {

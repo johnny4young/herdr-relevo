@@ -4,7 +4,7 @@
 export const DEFAULT_DEEP_REVIEW = [{ account: "repo", model: "opus", effort: "high" }, { account: "repo", model: "sonnet", effort: "high" }];
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 export const CODEX_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"];
-export const MAX_REVIEWERS = 3;
+export const MAX_REVIEWERS = 6;
 
 export const effortsFor = (account, codexKey) => (account === codexKey ? CODEX_EFFORTS : CLAUDE_EFFORTS);
 

@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { agents, panes, props, theme, appHome, readTextFile, run, focused, shared, setShared, closeOverlay } from "herdr";
 import { readRunState, runtimeCommand } from "./runtime-cli.js";
-import { alertLine, button, onSubmitChord, tabButton, checkbox } from "./ui.js";
+import { alertLine, button, keycap, onSubmitChord, tabButton, checkbox } from "./ui.js";
 import { focusedCwd } from "./panelbar.js";
 import { workflowBucket, workflowItems, queueSummary, armAccept, acceptArmed } from "./lib/workflow-navigation.js";
 import { followUpAvailable, changesPlan } from "./lib/run-panel.js";
@@ -18,6 +18,7 @@ import { repoOf } from "./workflow-runs.js";
 import { WorkflowDetail } from "./workflow-detail.js";
 import { row, taskState, caption, agentLabel, role, count } from "./workflow-labels.js";
 import { noteUse } from "./run-usage.js";
+import { launchStepsView } from "./deep-review-view.js";
 
 const RUN_MODE = "relevo.runs.mode";
 export { openWorkflow } from "./workflow-window.js";
@@ -534,11 +535,18 @@ export class Workflow extends WorkflowDetail {
       }, { selected: Boolean(this.taskSetupOpen), tip: "Repository and the agents that write and review it" }))
       .when(this.taskSetupOpen, (el) => el.child(v_flex().gap(8).p(10).rounded(6).bg(t.raised)
         .child(this.setupLibrary(t))
-        .child(this.field(t, "root", "Repository path"))
-        .child(this.repositoryPicker(t))
-        .child(h_flex().gap(4)
-          .child(button(t, "workflow-mode-worktree", "Own worktree", (cx) => { setShared(RUN_MODE, "worktree"); cx.notify(); }, { kind: "ghost", size: "sm", selected: isolated }))
-          .child(button(t, "workflow-mode-sessions", "Existing sessions", (cx) => { setShared(RUN_MODE, "sessions"); cx.notify(); }, { kind: "ghost", size: "sm", selected: !isolated })))
+        // The repository as one line; its path is typed only when changing it.
+        .when(Boolean(rootName) && !this.chooseRepository, (panel) => panel.child(h_flex().id("workflow-root-line").w_full().min_w(0).gap(8).items_center()
+          .child(div().w(80).flex_none().text_size(11).text_color(t.dim).child("Repository"))
+          .child(div().flex_none().text_size(13).font_semibold().child(rootName))
+          .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).tooltip(this.form.root.value()).child(this.form.root.value()))
+          .child(button(t, "workflow-change-repository", "Change…", (cx) => { this.chooseRepository = true; cx.notify(); }, { size: "sm", kind: "ghost" }))))
+        .when(!rootName || this.chooseRepository, (panel) => panel.child(this.field(t, "root", "Repository path")).child(this.repositoryPicker(t)))
+        .child(h_flex().w_full().gap(8).items_center()
+          .child(div().w(80).flex_none().text_size(11).text_color(t.dim).child("Runs in"))
+          .child(h_flex().p(2).gap(2).rounded(7).bg(t.background)
+            .child(button(t, "workflow-mode-worktree", "Its own worktree", (cx) => { setShared(RUN_MODE, "worktree"); cx.notify(); }, { kind: "ghost", size: "sm", selected: isolated }))
+            .child(button(t, "workflow-mode-sessions", "Agents already open", (cx) => { setShared(RUN_MODE, "sessions"); cx.notify(); }, { kind: "ghost", size: "sm", selected: !isolated }))))
         .when(isolated, (panel) => panel.child(this.accountPicker(t, "executor", role("executor").pick)).child(this.accountPicker(t, "reviewer", role("reviewer").pick)))
         .when(!isolated, (panel) => panel.child(this.agentPicker(t, "executor", role("executor").pick)).child(this.agentPicker(t, "reviewer", role("reviewer").pick)))))
       .child(button(t, "workflow-task-advanced", `Tests, limits & dependencies · ${count(this.form.maxRounds.value(), "attempt")} · ${this.form.maxMinutes.value()} min`, (context) => {
@@ -559,11 +567,13 @@ export class Workflow extends WorkflowDetail {
             (context) => { this.dependsOn ??= []; this.dependsOn = this.dependsOn.includes(task.id) ? this.dependsOn.filter((id) => id !== task.id) : [...this.dependsOn, task.id]; context.notify(); },
             { selected: isPicked(this.dependsOn, task), accessibleLabel: `${pickLabel(this.dependsOn, task)}. Wait for its acceptance`, tip: `Wait for acceptance of ${task.title}` })))))
       .child(h_flex().gap(6).items_center()
-        .child(button(t, "workflow-start-new", this.busy ? "Starting…" : "Start", (context) => this.create(context, { start: true }),
+        .when(!isolated, (bar) => bar.child(button(t, "workflow-create", "Save for later", (context) => this.create(context), { kind: "ghost", disabled: this.busy })))
+        .when(!this.launch, (bar) => bar.child(div().flex_1()))
+        .child(button(t, "workflow-start-new", this.busy ? "Starting…" : [keycap(t, "⌘↵"), "Start"], (context) => this.create(context, { start: true }),
           { kind: "solid", disabled: this.busy, tip: "⌘Enter" }))
-        .when(!isolated, (bar) => bar.child(button(t, "workflow-create", "Save for later", (context) => this.create(context), { disabled: this.busy })))
-        .when(Boolean(this.launch), (bar) => bar.child(div().id("workflow-launch-status").text_size(11).text_color(t.muted)
-          .child(this.launchNotice ?? (this.launch?.stage === "preparing" ? "Creating worktree…" : "Opening agents…"))))
+        .when(Boolean(this.launch), (bar) => bar.child(v_flex().id("workflow-launch-status").flex_1().min_w(0).gap(4)
+          .child(launchStepsView(t, "workflow-launch-steps", this.launchStepsNow()))
+          .when(Boolean(this.launchNotice), (el) => el.child(div().text_size(11).text_color(t.muted).child(this.launchNotice)))))
         .when(Boolean(this.launch?.trust), (bar) => bar.child(button(t, "workflow-launch-trust", "Trust and continue", (context) => this.trustLaunch(context),
           { kind: "solid", tip: `Answers yes in “${this.launch.trust.tab ?? "its tab"}”: the agent may then read, edit and run files in ${this.launch.worktree?.path ?? "the worktree"}` }))));
   }

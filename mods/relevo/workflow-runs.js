@@ -4,11 +4,10 @@ import { agents, terminals, exec, appHome, run, panes, shared, setShared, spaces
 import { runtimeCommand } from "./runtime-cli.js";
 import { button } from "./ui.js";
 import * as config from "./config.js";
-import { CODEX, accountOf, agentAccounts, codexOn, launchArgv, openInFolder, loadClaudeQuotas, full } from "./accounts.js";
+import { CODEX, accountOf, agentAccounts, chip, codexOn, launchArgv, openInFolder, loadClaudeQuotas, full } from "./accounts.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { accountFor } from "./context.js";
-import { row } from "./workflow-labels.js";
-import { RUN_LAUNCH, answerTrust, repoChecks, trustKeys } from "./run-launch.js";
+import { RUN_LAUNCH, answerTrust, launchSteps, repoChecks, trustKeys } from "./run-launch.js";
 import { runFolder } from "./lib/run-folder.js";
 import { checksText, parseChecks } from "./lib/run-checks.js";
 
@@ -24,6 +23,18 @@ export async function repoOf(cwd) {
 export { trustKeys };
 
 const RUN_ACCOUNTS = "relevo.runs.accounts";
+
+// Who writes and who reviews a new run: the last choice, unless that account is out of quota now; else Codex first
+// when it is on, and a reviewer other than the writer, the repository's own account first.
+export function runAccountsFor(root, quotas) {
+  const saved = shared(RUN_ACCOUNTS) ?? {};
+  const all = agentAccounts().map((account) => account.key);
+  const open = (key) => all.includes(key) && !full(quotas?.[key]);
+  const executor = open(saved.executor) ? saved.executor : [...(codexOn() ? [CODEX.key] : []), ...all].find(open) ?? all[0];
+  const reviewer = open(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer
+    : [accountFor(root), ...all].find((key) => key && key !== executor && open(key)) ?? all.find((key) => key !== executor);
+  return { executor, reviewer };
+}
 // The name of the tab a terminal is shown in, if any.
 const tabName = (address) => {
   const tab = panes().find((pane) => pane.terminal === address)?.tab;
@@ -63,24 +74,24 @@ export class WorkflowRuns extends WorkflowDraftView {
   }
 
   runAccounts() {
-    const saved = shared(RUN_ACCOUNTS) ?? {};
-    const all = agentAccounts().map((account) => account.key);
-    const open = (key) => all.includes(key) && !full(this.quotas?.[key]);
-    // The last choice, unless that account is out of quota now.
-    const executor = open(saved.executor) ? saved.executor : [...(codexOn() ? [CODEX.key] : []), ...all].find(open) ?? all[0];
-    const repoAccount = accountFor(this.form.root.value().trim());
-    const reviewer = open(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer
-      : [repoAccount, ...all].find((key) => key && key !== executor && open(key)) ?? all.find((key) => key !== executor);
-    return { executor, reviewer };
+    return runAccountsFor(this.form.root.value().trim(), this.quotas);
   }
 
+  // One line per role: the label, then each account as its colored letter, its name and how full its quota is.
   accountPicker(t, role, label) {
-    const chosen = this.runAccounts();
-    return v_flex().w_full().min_w(0).gap(4).child(row(t, label))
-      .child(h_flex().flex_wrap().gap(4).children(agentAccounts().map((account) => button(t, `workflow-${role}-account-${account.key}`,
-        full(this.quotas?.[account.key]) ? `${account.label} · ${full(this.quotas[account.key])} full` : account.label,
-        (cx) => { setShared(RUN_ACCOUNTS, { ...chosen, [role]: account.key }); cx.notify(); },
-        { kind: "ghost", size: "sm", selected: chosen[role] === account.key, disabled: chosen[role === "executor" ? "reviewer" : "executor"] === account.key }))));
+    const chosen = this.runAccounts(), other = chosen[role === "executor" ? "reviewer" : "executor"];
+    return h_flex().w_full().min_w(0).gap(8).items_center()
+      .child(div().w(80).flex_none().text_size(11).text_color(t.dim).child(label))
+      .child(h_flex().flex_1().min_w(0).flex_wrap().gap(4).children(agentAccounts().map((account) => {
+        const q = this.quotas?.[account.key], pct = q ? Math.round(Math.max(q.h5?.pct ?? 0, q.d7?.pct ?? 0)) : null, on = chosen[role] === account.key, taken = other === account.key;
+        return h_flex().id(`workflow-${role}-account-${account.key}`).h(28).px(8).gap(6).items_center().rounded(7).border_1()
+          .border_color(on ? t.accent : t.border).bg(on ? t.selected : t.background)
+          .when(!taken, (el) => el.cursor_pointer().hover((st) => st.border_color(t.accent))
+            .on_click((_e, cx) => { setShared(RUN_ACCOUNTS, { ...chosen, [role]: account.key }); cx.notify(); }))
+          .when(taken, (el) => el.opacity(0.4).tooltip("Already chosen for the other role"))
+          .child(chip(div, account, 16)).child(div().text_size(13).text_color(full(q) ? t.dim : t.foreground).child(account.label))
+          .when(pct !== null, (el) => el.child(div().text_size(11).text_color(pct >= 90 ? t.blocked : t.dim).child(`${pct}%`)));
+      })));
   }
 
   // A worktree run: create the checkout, open both agents beside the repo's tabs, then start once both are ready.
@@ -215,8 +226,17 @@ export class WorkflowRuns extends WorkflowDraftView {
   }
 
   // Starting a run moves the person to its new space, away from this window: Runs shows what the launch waits on.
+  // Where the start is: the worktree, then each agent, the one waiting on a question marked.
+  launchStepsNow() {
+    const l = this.launch;
+    if (!l) return null;
+    const labels = [["Worktree", l.worktree?.branch ?? l.fields.root.split("/").pop()], ["Writer", accountOf(l.accounts.executor).label], ["Reviewer", accountOf(l.accounts.reviewer).label]];
+    const at = l.stage === "preparing" ? 0 : !l.ready?.executor ? 1 : !l.ready?.reviewer ? 2 : 3;
+    return launchSteps(labels, at, Boolean(l.trust || l.stuck));
+  }
+
   shareLaunch(words) {
-    const launch = this.launch, next = launch && words ? { goalId: launch.fields.goalId, words, trust: launch.trust ?? null, at: launch.at } : null;
+    const launch = this.launch, next = launch && words ? { goalId: launch.fields.goalId, words, trust: launch.trust ?? null, at: launch.at, steps: this.launchStepsNow() } : null;
     if (JSON.stringify(shared(RUN_LAUNCH) ?? null) !== JSON.stringify(next)) setShared(RUN_LAUNCH, next);
   }
 
@@ -239,6 +259,8 @@ export class WorkflowRuns extends WorkflowDraftView {
     // The coordinator waits for a free agent itself; here an agent only has to exist and not wait on a prompt.
     const waiting = Object.entries(found).filter(([, agent]) => !agent || !["idle", "done", "working"].includes(agent.status));
     const stuck = waiting.find(([, agent]) => agent?.status === "blocked" || (!agent && Date.now() - launch.openedAt > 10000));
+    launch.ready = Object.fromEntries(Object.entries(found).map(([role, agent]) => [role, Boolean(agent && ["idle", "done", "working"].includes(agent.status))]));
+    launch.stuck = Boolean(stuck);
     if (stuck && !stuck[1]) this.skipUpdatePrompts(launch, found, cx);
     const notice = launch.trust ? `“${launch.trust.tab ?? "A run agent"}” asks whether to trust the run's worktree before it starts.`
       : stuck ? `Answer the prompt in “${launch.tabs[stuck[0]]}” to continue.` : `Starting agents · ${2 - waiting.length}/2 ready`;

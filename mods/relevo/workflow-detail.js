@@ -135,6 +135,8 @@ export class WorkflowDetail extends WorkflowRuns {
               { kind: "solid", disabled: this.busy || this.posting || !found.length }))
             .child(button(t, "workflow-fix-findings", "Fix with a run", (cx) => { const reviews = this.prReviews(task); this.finishReviews(task, cx, "Handed to a fix run.", () => fixFindings(reviews).catch((e) => deepReviewNotice("Could not prepare the run", e))); },
               { disabled: this.busy || !must }))
+            .child(button(t, "workflow-fix-adjust", "Adjust…", (cx) => { const reviews = this.prReviews(task); this.finishReviews(task, cx, "Handed to a fix run.", () => fixFindings(reviews, { adjust: true }).catch((e) => deepReviewNotice("Could not prepare the run", e))); },
+              { kind: "ghost", disabled: this.busy || !must }))
             .child(button(t, "workflow-decide-accept", "Done", (cx) => this.finishReviews(task, cx), { kind: "ghost", disabled: this.busy, tip: "Closes the whole deep review; nothing is merged or posted" }));
         })
         .when(!editing && !task.pr, (bar) => bar

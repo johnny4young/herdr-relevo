@@ -3,7 +3,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { closeOverlay, openOverlay, props, run, setShared, shared, theme } from "herdr";
-import { CODEX, accountOf, agentAccounts, codexOn, hasRoom, loadClaudeQuotas } from "./accounts.js";
+import { CODEX, accountOf, agentAccounts, chip, codexOn, hasRoom, loadClaudeQuotas } from "./accounts.js";
 import { accountFor } from "./context.js";
 import * as config from "./config.js";
 import { CLAUDE_EFFORTS, CODEX_EFFORTS, MAX_REVIEWERS, checkDeepReview } from "./lib/deep-setup.js";
@@ -45,8 +45,17 @@ export class DeepReviewDialog {
   }
 
   count(n, cx) {
+    n = Math.max(1, Math.min(MAX_REVIEWERS, n));
     while (this.rows.length < n) this.rows.push(this.row({ ...this.setup().at(-1) }));
     while (this.rows.length > n) this.rows.pop().model.release();
+    this.menu = null;
+    cx.notify();
+  }
+
+  remove(i, cx) {
+    if (this.rows.length < 2) return;
+    this.rows.splice(i, 1)[0].model.release();
+    this.menu = null;
     cx.notify();
   }
 
@@ -72,58 +81,84 @@ export class DeepReviewDialog {
   }
 
   key(e, cx) {
-    if (e.key === "escape") { cx.stop_propagation(); return closeOverlay(props().overlay); }
+    if (e.key === "escape") { cx.stop_propagation(); if (this.menu) { this.menu = null; return cx.notify(); } return closeOverlay(props().overlay); }
     if (e.key === "enter" && !held(e)) { cx.stop_propagation(); return this.start(); }
-    const n = held(e) ? null : digit(e);
-    if (n && n <= MAX_REVIEWERS && !this.typing()) { cx.stop_propagation(); this.count(n, cx); }
+    if (this.typing() || held(e)) return;
+    const n = digit(e);
+    if (n && n <= MAX_REVIEWERS) { cx.stop_propagation(); this.count(n, cx); }
+    else if (e.key === "+" || e.key === "=") { cx.stop_propagation(); this.count(this.rows.length + 1, cx); }
+    else if (e.key === "-") { cx.stop_propagation(); this.count(this.rows.length - 1, cx); }
   }
 
   typing() {
     return this.rows.some((r) => r.model.focused?.());
   }
 
-  chips(t, id, options, current, pick) {
-    return h_flex().id(id).flex_wrap().gap(4).children(options.map(([value, label, note, dim]) => div().id(`${id}-${value}`).h(24).px(8).flex().items_center().gap(5)
-      .rounded(6).border_1().border_color(current === value ? t.accent : t.border).when(current === value, (el) => el.bg(t.selected))
-      .cursor_pointer().hover((s) => s.bg(t.hover)).text_size(11).text_color(dim ? t.dim : t.foreground)
-      .on_click((_e, cx) => pick(value, cx)).child(label)
-      .when(Boolean(note), (el) => el.child(div().text_color(t.dim).child(note)))));
+  // A pill that opens its options under the row; the open one is `this.menu`.
+  pill(t, i, field, content, width) {
+    const open = this.menu?.i === i && this.menu.field === field;
+    return h_flex().id(`deep-${i}-${field}`).w(width).flex_none().h(28).px(8).gap(6).items_center().rounded(7).border_1()
+      .border_color(open ? t.accent : t.border).bg(open ? t.selected : t.background).cursor_pointer().hover((st) => st.border_color(t.accent))
+      .on_click((_e, cx) => { this.menu = open ? null : { i, field }; cx.notify(); })
+      .child(h_flex().flex_1().min_w(0).gap(6).items_center().children(content))
+      .child(div().flex_none().text_size(11).text_color(t.dim).child("▾"));
+  }
+
+  // Each account with its letter, its color and how much of its quota is used.
+  accountChoice(t, key) {
+    const repo = key === "repo", acct = accountOf(repo ? accountFor(this.pr.repo) : key), q = this.quotas?.[acct.key], pct = q ? Math.round(used(q)) : null;
+    const full = q && !hasRoom(q);
+    return [chip(div, acct, 16), div().min_w(0).truncate().text_size(13).text_color(full ? t.dim : t.foreground).child(repo ? `${acct.label} · repo's` : acct.label),
+      ...(pct === null ? [] : [h_flex().flex_none().w(36).h(4).rounded(2).bg(t.border).child(div().h_full().rounded(2).w(Math.max(2, Math.round(36 * pct / 100)))
+        .bg(pct >= 90 ? t.blocked : pct >= 60 ? t.ansi3 : t.done)), div().flex_none().text_size(11).text_color(t.dim).child(`${pct}%`)])];
+  }
+
+  menuView(t, r, i) {
+    const field = this.menu?.field, codex = r.account === CODEX.key;
+    const option = (id, content, on, pick) => h_flex().id(id).h(28).px(8).gap(6).items_center().rounded(6).cursor_pointer()
+      .when(on, (el) => el.bg(t.selected)).hover((st) => st.bg(t.hover)).on_click((_e, cx) => { pick(cx); this.menu = null; cx.notify(); }).children(content);
+    const list = field === "account" ? ["repo", ...agentAccounts().map((a) => a.key)].map((key) => option(`deep-${i}-account-${key}`, this.accountChoice(t, key), r.account === key,
+        (cx) => this.pick(r, { account: key }, cx)))
+      : field === "model" ? [...(codex ? [""] : CLAUDE_MODELS)].map((m) => option(`deep-${i}-model-${m || "default"}`,
+        [div().text_size(13).child(m || (config.RUN_CODEX_MODEL ? `default · ${config.RUN_CODEX_MODEL}` : "default"))], r.model.value() === m, () => r.model.set_value(m)))
+      : (codex ? CODEX_EFFORTS : CLAUDE_EFFORTS).map((e) => option(`deep-${i}-effort-${e}`, [div().text_size(13).child(e)], r.effort === e, (cx) => this.pick(r, { effort: e }, cx)));
+    return v_flex().id(`deep-${i}-menu`).w_full().p(4).gap(1).rounded(8).border_1().border_color(t.border).bg(t.popover ?? t.surface)
+      .children(list)
+      .when(field === "model" && !codex, (el) => el.child(h_flex().h(28).px(8).gap(6).items_center()
+        .child(div().text_size(11).text_color(t.dim).child("Other"))
+        .child(div().flex_1().h(24).px(6).flex().items_center().rounded(6).border_1().border_color(t.border).bg(t.background).text_size(13).child(Input.new(r.model).w_full()))));
   }
 
   reviewerView(t, r, i) {
-    const repoKey = accountFor(this.pr.repo), codex = r.account === CODEX.key;
-    const note = (key) => (this.quotas?.[key] ? `${Math.round(used(this.quotas[key]))}%` : null);
-    const accounts = [["repo", `Repo's · ${accountOf(repoKey).label}`, note(repoKey), this.quotas && !hasRoom(this.quotas[repoKey])],
-      ...agentAccounts().map((a) => [a.key, a.label, note(a.key), this.quotas && !hasRoom(this.quotas[a.key])])];
-    const models = codex ? [["", config.RUN_CODEX_MODEL ? `default · ${config.RUN_CODEX_MODEL}` : "default"]] : CLAUDE_MODELS.map((m) => [m, m]);
-    const label = (s) => div().w(56).flex_none().pt(4).text_size(11).text_color(t.dim).child(s);
-    return v_flex().id(`deep-row-${i}`).w_full().min_w(0).gap(6).p(10).rounded(8).bg(t.raised)
-      .child(div().text_size(11).font_semibold().text_color(t.muted).child(`Reviewer ${i + 1}`))
-      .child(h_flex().items_start().gap(6).child(label("Account"))
-        .child(this.chips(t, `deep-${i}-account`, accounts, r.account, (account, cx) => this.pick(r, { account }, cx))))
-      .child(h_flex().items_start().gap(6).child(label("Model"))
-        .child(h_flex().flex_1().min_w(0).flex_wrap().gap(4).items_center()
-          .child(this.chips(t, `deep-${i}-model`, models, r.model.value(), (model, cx) => { r.model.set_value(model); cx.notify(); }))
-          .child(div().w(130).h(24).px(6).flex().items_center().rounded(6).border_1().border_color(t.border).bg(t.background).text_size(11)
-            .child(Input.new(r.model).w_full()))))
-      .child(h_flex().items_start().gap(6).child(label("Effort"))
-        .child(this.chips(t, `deep-${i}-effort`, (codex ? CODEX_EFFORTS : CLAUDE_EFFORTS).map((e) => [e, e]), r.effort, (effort, cx) => this.pick(r, { effort }, cx))));
+    return v_flex().id(`deep-row-${i}`).w_full().min_w(0).gap(4)
+      .child(h_flex().w_full().min_w(0).gap(8).items_center()
+        .child(div().w(18).flex_none().text_size(11).text_color(t.dim).child(String(i + 1)))
+        .child(this.pill(t, i, "account", this.accountChoice(t, r.account), 230))
+        .child(this.pill(t, i, "model", [div().text_size(13).child(r.model.value() || "default")], 110))
+        .child(this.pill(t, i, "effort", [div().text_size(13).child(r.effort)], 96))
+        .child(div().flex_1())
+        .when(this.rows.length > 1, (el) => el.child(div().id(`deep-${i}-remove`).size(24).flex().items_center().justify_center().rounded(6)
+          .text_color(t.dim).cursor_pointer().hover((st) => st.bg(t.hover).text_color(t.foreground)).tooltip("Remove this reviewer")
+          .on_click((_e, cx) => this.remove(i, cx)).child("×"))))
+      .when(this.menu?.i === i, (el) => el.child(div().pl(26).child(this.menuView(t, r, i))));
   }
 
   render() {
-    const t = theme(), errors = this.errors();
-    return v_flex().id("deep-review-dialog").w_full().p(16).gap(12).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
+    const t = theme(), errors = this.errors(), n = this.rows.length;
+    return v_flex().id("deep-review-dialog").w_full().p(18).gap(14).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
       .track_focus(this.h).on_key_down((e, cx) => this.key(e, cx))
-      .child(div().font_semibold().child(reviewTitle({ url: this.pr.url, number: this.pr.number, head: this.pr.headRefOid })))
-      .child(h_flex().gap(8).items_center().child(div().text_size(11).text_color(t.dim).child("Reviewers"))
-        .child(this.chips(t, "deep-count", [1, 2, 3].map((n) => [n, String(n)]), this.rows.length, (n, cx) => this.count(n, cx))))
-      .children(this.rows.map((r, i) => this.reviewerView(t, r, i)))
+      .child(h_flex().items_center().gap(8)
+        .child(div().flex_1().min_w(0).truncate().font_semibold().child(reviewTitle({ url: this.pr.url, number: this.pr.number, head: this.pr.headRefOid })))
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(`${n} ${n === 1 ? "reviewer" : "reviewers"}`)))
+      .child(v_flex().gap(8).children(this.rows.map((r, i) => this.reviewerView(t, r, i)))
+        .when(n < MAX_REVIEWERS, (el) => el.child(h_flex().id("deep-add").pl(26).gap(6).items_center().cursor_pointer().text_size(11).text_color(t.accent)
+          .on_click((_e, cx) => this.count(n + 1, cx)).child(keycap(t, "+")).child("Add reviewer"))))
       .children(errors.map((e, i) => div().id(`deep-error-${i}`).text_size(11).text_color(t.blocked).child(e.message)))
-      .child(h_flex().gap(8).items_center()
-        .child(h_flex().id("deep-remember").gap(6).items_center().cursor_pointer().on_click((_e, cx) => { this.remember = !this.remember; cx.notify(); })
+      .child(h_flex().gap(8).items_center().pt(4).border_t(1).border_color(t.border)
+        .child(h_flex().id("deep-remember").pt(10).gap(6).items_center().cursor_pointer().on_click((_e, cx) => { this.remember = !this.remember; cx.notify(); })
           .child(checkbox(t, this.remember)).child(div().text_size(11).text_color(t.muted).child("Remember for next time")))
         .child(div().flex_1())
-        .child(button(t, "deep-cancel", [keycap(t, "esc"), "Cancel"], () => closeOverlay(props().overlay), { kind: "ghost" }))
-        .child(button(t, "deep-start", [keycap(t, "enter"), "Start review"], () => this.start(), { kind: "solid", disabled: errors.length > 0 })));
+        .child(div().pt(10).child(button(t, "deep-cancel", [keycap(t, "esc"), "Cancel"], () => closeOverlay(props().overlay), { kind: "ghost" })))
+        .child(div().pt(10).child(button(t, "deep-start", [keycap(t, "enter"), `Start ${n} ${n === 1 ? "reviewer" : "reviewers"}`], () => this.start(), { kind: "solid", disabled: errors.length > 0 }))));
   }
 }

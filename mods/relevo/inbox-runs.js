@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, TextareaState, Textarea } from "gpui-base";
 import { agents, exec, notify, panes, run, shared, setShared } from "herdr";
-import { alertLine, button, foldRow, legHeader, legend, joined, keyBar, keycap, meTint, plusMinus, row, onSubmitChord } from "./ui.js";
+import { LANE, alertLine, button, foldRow, legHeader, legend, joined, keyBar, keycap, meTint, plusMinus, row, onSubmitChord } from "./ui.js";
 import { openReview } from "./review.js";
 import { RUN_LAUNCH, answerTrust } from "./run-launch.js";
 import { GOAL_MODE, GOAL_SCOPE, workflowCommand } from "./inbox-goals.js";
@@ -13,7 +13,7 @@ import { reviewableWork, linkedDecision, runProgress } from "./lib/goal-workflow
 import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed, draftOnAccept } from "./lib/workflow-navigation.js";
 import * as config from "./config.js";
 import { deepReviewNotice, dropReviewTrees, fixFindings, postDraftReview } from "./deep-review.js";
-import { deepReviewView, fixChecklistView, fixGlanceView, notesView } from "./deep-review-view.js";
+import { deepReviewView, fixChecklistView, fixGlanceView, launchStepsView, notesView } from "./deep-review-view.js";
 import { caption } from "./workflow-labels.js";
 import { counted, fixChecklist, fixOutcome, mergedFindings, reviewAdvice, reviewLead, reviewTitle, verdicts } from "./lib/deep-review.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
@@ -514,7 +514,10 @@ export class RunViews {
     return row(t, id, {
       // A click selects, showing Edit, Close and Plan; a second click, or Enter, opens it.
       turn: entry.turn, title: goal.title, selected: sel, onSelect: (cx) => { if (sel) this.openRun(goal, cx); else { this.sel = id; this.clicked = true; this.h.focus(); cx.notify(); } },
-      lines: [answer("goal-now", "Now", entry.now, hot ? t.blocked : t.foreground), answer("goal-shipped", "Shipped", shipped.text, shipped.any ? t.foreground : t.muted)],
+      lines: [answer("goal-now", "Now", entry.now, hot ? t.blocked : t.foreground),
+        // A run starting shows its steps instead of what it shipped.
+        ...(this.liveLaunch()?.goalId === goal.id && this.liveLaunch().steps ? [div().pl(LANE).pr(8).py(2).child(launchStepsView(t, `launch-${goal.id}`, this.liveLaunch().steps))]
+          : [answer("goal-shipped", "Shipped", shipped.text, shipped.any ? t.foreground : t.muted)])],
       // A finished run is closed from its row: it then folds into the older finished runs, which archive or delete.
       action: entry.closed ? this.closedActions(t, goal)
         : entry.group === "ready" && goalState(goal) !== "completed" && !this.openTasks(goal.id).length
@@ -676,7 +679,9 @@ export class RunViews {
         .child(button(t, "task-post-review", this.posting === goal.id ? "Posting…" : "Post as draft review", (cx) => this.postReview(goal, reviews, cx),
           { kind: "accent", disabled: busy || !found.length, tip: "A pending review on the PR, with a comment on each line found; you edit and send it on GitHub" }))
         .child(button(t, "task-fix-findings", "Fix with a run", (cx) => this.closeReview(task, cx, "Handed to a fix run.", () => fixFindings(reviews).catch((e) => deepReviewNotice("Could not prepare the run", e))),
-          { disabled: busy || !must, tip: "A run on a copy of the PR's branch, asked to fix every blocker and major" }))
+          { disabled: busy || !must, tip: "Starts now, on a copy of the PR's branch, with your usual writer and reviewer; Runs shows it starting" }))
+        .child(button(t, "task-fix-adjust", "Adjust…", (cx) => this.closeReview(task, cx, "Handed to a fix run.", () => fixFindings(reviews, { adjust: true }).catch((e) => deepReviewNotice("Could not prepare the run", e))),
+          { kind: "ghost", size: "sm", disabled: busy || !must, tip: "Choose who writes and reviews it, and its tests, before it starts" }))
         .child(button(t, "task-accept", confirming ? keyed("enter", "Confirm done") : keyed("a", "Done"), (cx) => this.acceptStep(task, cx),
           { disabled: busy, tip: "Closes the whole deep review; nothing is merged or posted" }))
         .child(diff).child(div().flex_1()).child(more))
