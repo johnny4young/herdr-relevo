@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 · 2026-11-17
 
 - **Accepting the last task of a run goes back to Runs.** Once nothing else in the run waits, the panel returns to the list on that run, with what happened ("Pushed to feat/x…") still shown. A fix of a pull request goes back once its push lands, and a run that opens a draft PR goes back once the PR is open.
 - **A stuck run can try again in place.** A run that used its tries and still has its writer offers **Try again**: its findings show as cards to mark, and one more try goes to the same writer, in the same worktree, with the same reviewer and pull request, carrying the marked findings (all of them if none is marked) and your note. **Prepare a follow-up** of a worktree run now starts from the repository instead of a worktree inside the run's worktree, which started without the run's work, and a fix of a pull request still pushes to it.
