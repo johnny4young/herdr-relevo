@@ -34,3 +34,13 @@ export const reviewerLabel = (accountLabel, r, codexModel = "") => [accountLabel
 
 // The line under Deep review's ▾: "repo · opus high + Codex · high".
 export const setupLine = (list, labelOf) => list.map((r) => reviewerLabel(r.account === "repo" ? "repo" : labelOf(r.account), r)).join(" + ");
+
+// The models an account really used, newest first, from the token scan's report: what this machine can run.
+export function recentModels(report, account) {
+  const last = new Map();
+  for (const row of report?.rows ?? []) {
+    if (row.account !== account || !row.model || /^(unknown|<synthetic>|codex)$/.test(row.model)) continue;
+    if (!last.has(row.model) || row.day > last.get(row.model)) last.set(row.model, row.day);
+  }
+  return [...last].sort((a, b) => b[1].localeCompare(a[1]) || a[0].localeCompare(b[0])).map(([model, day]) => ({ model, day }));
+}

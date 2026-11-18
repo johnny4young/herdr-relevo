@@ -8,6 +8,7 @@ import { CODEX, accountOf, agentAccounts, chip, codexOn, launchArgv, openInFolde
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { accountFor } from "./context.js";
 import { RUN_LAUNCH, answerTrust, launchSteps, ownFolderKeys, reportsFolder, repoChecks, trustKeys } from "./run-launch.js";
+import { launchStepsView } from "./deep-review-view.js";
 import { runFolder } from "./lib/run-folder.js";
 import { checksText, parseChecks } from "./lib/run-checks.js";
 
@@ -92,6 +93,47 @@ export class WorkflowRuns extends WorkflowDraftView {
           .child(chip(div, account, 16)).child(div().text_size(13).text_color(full(q) ? t.dim : t.foreground).child(account.label))
           .when(pct !== null, (el) => el.child(div().text_size(11).text_color(pct >= 90 ? t.blocked : t.dim).child(`${pct}%`)));
       })));
+  }
+
+  // The terminal of a role that has not started, to open its tab and answer what it asks.
+  launchTerminal(role) {
+    const l = this.launch;
+    return l?.worktree ? terminals().find((k) => k.cwd === l.worktree.path && tabName(k.address) === l.tabs?.[role]) ?? null : null;
+  }
+
+  keepWaiting(cx) {
+    if (!this.launch) return;
+    Object.assign(this.launch, { stage: "waiting", at: Date.now(), readAt: 0 });
+    this.busy = true; cx.notify();
+  }
+
+  // Gives up a start: its worktree has no work yet, so it goes with its run branch.
+  cancelLaunch(cx) {
+    const l = this.launch;
+    if (!l) return;
+    this.launch = null; this.launchNotice = null; this.busy = false; this.shareLaunch(null);
+    if (l.worktree) cx.spawn(async () => {
+      await exec("git", ["-C", l.worktree.base, "worktree", "remove", l.worktree.path]).catch(() => null);
+      await exec("git", ["-C", l.worktree.base, "branch", "-D", l.worktree.branch]).catch(() => null);
+    });
+    cx.notify();
+  }
+
+  // While a run starts, or stalls, this card stands in for the form: each step, why one waits, and the way on.
+  launchCard(t) {
+    const l = this.launch, steps = this.launchStepsNow() ?? [], stalled = l.stage === "stalled";
+    const stuckRole = !l.ready?.executor ? "executor" : !l.ready?.reviewer ? "reviewer" : null, term = stuckRole && this.launchTerminal(stuckRole);
+    const why = l.trust ? "asks whether to trust the run's worktree" : l.stuck ? "waits on a question in its tab" : stalled ? "has not started yet" : null;
+    return v_flex().id("workflow-launch-card").w_full().min_w(0).gap(12).p(14).rounded(10).bg(t.raised)
+      .child(div().font_semibold().child(`${stalled ? "Still starting" : "Starting"} · ${l.fields.title}`))
+      .child(launchStepsView(t, "workflow-launch-steps", steps.map((s, i) => (i === (stuckRole === "executor" ? 1 : 2) && why ? { ...s, note: `${s.note} · ${why}` } : s))))
+      .child(h_flex().gap(6).items_center().flex_wrap()
+        .when(Boolean(l.trust), (bar) => bar.child(button(t, "workflow-launch-trust", "Trust and continue", (cx) => this.trustLaunch(cx), { kind: "solid" })))
+        .when(Boolean(term), (bar) => bar.child(button(t, "workflow-launch-open", "Open its tab", () => run("agent.focus", { terminal: term.address }),
+          { kind: l.trust ? "outline" : "solid", tip: "Answer it there; the start goes on by itself" })))
+        .when(stalled, (bar) => bar.child(button(t, "workflow-launch-wait", "Keep waiting", (cx) => this.keepWaiting(cx))))
+        .child(div().flex_1())
+        .child(button(t, "workflow-launch-cancel", "Cancel start", (cx) => this.cancelLaunch(cx), { kind: "ghost", tip: "Removes the new worktree and its branch; nothing was written there" })));
   }
 
   // A worktree run: create the checkout, open both agents beside the repo's tabs, then start once both are ready.
@@ -249,8 +291,7 @@ export class WorkflowRuns extends WorkflowDraftView {
     if (this.closed || !launch?.worktree) return;
     if (launch.stage === "stalled") return;
     if (Date.now() - launch.at > LAUNCH_TIMEOUT) {
-      launch.stage = "stalled"; this.busy = false; this.launchNotice = null; this.shareLaunch(null);
-      this.error = `The agents are not ready yet. Start keeps waiting on ${launch.worktree.branch}.`; cx.notify(); return;
+      launch.stage = "stalled"; this.busy = false; this.launchNotice = null; this.shareLaunch(null); cx.notify(); return;
     }
     if (launch.stage === "opening" && Date.now() - launch.openedAt > 1500) {
       openInFolder({ name: launch.fields.root.split("/").pop(), folder: launch.worktree.path, tab: launch.tabs.reviewer, argv: launchArgv(launch.accounts.reviewer, null, runAgentArgs(launch.accounts.reviewer, "reviewer", appHome())) });

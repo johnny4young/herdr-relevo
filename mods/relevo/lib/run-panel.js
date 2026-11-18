@@ -239,3 +239,26 @@ export function statusWords(task) {
   const verdict = !review ? "review pending" : review.status === "completed" ? `${who} approved` : review.status === "blocked" ? `${who} couldn't decide` : `${who} asked for changes`;
   return { head, tone: turn === "me" ? "done" : turn === "stuck" ? "blocked" : "muted", text: [head, tests, verdict].join(" · ") };
 }
+
+// When a run finished: its last decision or report, or, closed, its last save. Milliseconds, or 0.
+export function finishedAt(goal, tasks, history = []) {
+  const times = tasks.flatMap((t) => [...(t.decisions ?? []).map((d) => d.at), ...(t.attempts ?? []).map((a) => a.endedAt)]);
+  if (goal.state === "completed") times.push(...history.filter((h) => h.goal === goal.id).map((h) => h.at));
+  return Math.max(0, ...times.filter(Boolean).map((at) => Date.parse(at)).filter(Number.isFinite));
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const finishedWords = (ms, now = Date.now()) => {
+  const s = Math.max(0, Math.floor((now - ms) / 1000)), when = s < 60 ? "just now" : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 172800 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`;
+  // Spelled out here: Herdr's runtime ignores toLocaleString's options.
+  const d = new Date(ms), two = (n) => String(n).padStart(2, "0");
+  return `${when} · ${MONTHS[d.getMonth()]} ${d.getDate()}, ${two(d.getHours())}:${two(d.getMinutes())}`;
+};
+
+// The run another run came from: the one it names, else, for a fix of a pull request, the latest deep review of it.
+export function parentRun(entry, entries, tasksOf) {
+  if (entry.goal.from) return entries.find((e) => e.goal.id === entry.goal.from) ?? null;
+  const url = tasksOf(entry.goal).find((t) => t.worktree?.prUrl)?.worktree.prUrl;
+  if (!url) return null;
+  return entries.filter((e) => e !== entry && tasksOf(e.goal).some((t) => t.pr?.url === url)).at(-1) ?? null;
+}

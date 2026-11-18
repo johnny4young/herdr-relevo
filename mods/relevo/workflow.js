@@ -18,7 +18,6 @@ import { repoOf } from "./workflow-runs.js";
 import { WorkflowDetail } from "./workflow-detail.js";
 import { row, taskState, caption, agentLabel, role, count } from "./workflow-labels.js";
 import { noteUse } from "./run-usage.js";
-import { launchStepsView } from "./deep-review-view.js";
 
 const RUN_MODE = "relevo.runs.mode";
 export { openWorkflow } from "./workflow-window.js";
@@ -498,6 +497,7 @@ export class Workflow extends WorkflowDetail {
   }
 
   taskForm(t, cx) {
+    if (this.launch?.worktree || this.launch?.stage === "preparing") return this.launchCard(t);
     if (this.pendingDraft) return row(t, "Resume or discard the saved draft above to continue.");
     const chosen = [this.executor, this.reviewer].filter(Boolean).length;
     const fromPrompt = Boolean(this.goal && !this.goal.steps?.length && !this.tasks?.length && this.form.criteria.value().trim());
@@ -568,14 +568,9 @@ export class Workflow extends WorkflowDetail {
             { selected: isPicked(this.dependsOn, task), accessibleLabel: `${pickLabel(this.dependsOn, task)}. Wait for its acceptance`, tip: `Wait for acceptance of ${task.title}` })))))
       .child(h_flex().gap(6).items_center()
         .when(!isolated, (bar) => bar.child(button(t, "workflow-create", "Save for later", (context) => this.create(context), { kind: "ghost", disabled: this.busy })))
-        .when(!this.launch, (bar) => bar.child(div().flex_1()))
+        .child(div().flex_1())
         .child(button(t, "workflow-start-new", this.busy ? "Starting…" : [keycap(t, "⌘↵"), "Start"], (context) => this.create(context, { start: true }),
-          { kind: "solid", disabled: this.busy, tip: "⌘Enter" }))
-        .when(Boolean(this.launch), (bar) => bar.child(v_flex().id("workflow-launch-status").flex_1().min_w(0).gap(4)
-          .child(launchStepsView(t, "workflow-launch-steps", this.launchStepsNow()))
-          .when(Boolean(this.launchNotice), (el) => el.child(div().text_size(11).text_color(t.muted).child(this.launchNotice)))))
-        .when(Boolean(this.launch?.trust), (bar) => bar.child(button(t, "workflow-launch-trust", "Trust and continue", (context) => this.trustLaunch(context),
-          { kind: "solid", tip: `Answers yes in “${this.launch.trust.tab ?? "its tab"}”: the agent may then read, edit and run files in ${this.launch.worktree?.path ?? "the worktree"}` }))));
+          { kind: "solid", disabled: this.busy, tip: "⌘Enter" })));
   }
 
   emptyQueue(t) {

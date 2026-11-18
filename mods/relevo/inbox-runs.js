@@ -17,7 +17,7 @@ import { deepReviewView, fixChecklistView, fixGlanceView, launchStepsView, notes
 import { caption } from "./workflow-labels.js";
 import { counted, fixChecklist, fixOutcome, mergedFindings, reviewAdvice, reviewLead, reviewTitle, verdicts } from "./lib/deep-review.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
-  taskSummary, taskNotes, isMerged, finishedAgents, statusWords } from "./lib/run-panel.js";
+  taskSummary, taskNotes, isMerged, finishedAgents, statusWords, finishedAt, finishedWords, parentRun } from "./lib/run-panel.js";
 import { canCompare, diffFiles, tookWords } from "./lib/run-compare.js";
 
 // Linked PR URLs known to have merged, kept after the landing list lets them go.
@@ -81,9 +81,24 @@ export class RunViews {
     return this.goalProjection.groups.map(({ goal, items }) => {
       const bucket = this.runBucket(goal);
       const decision = Boolean(goal.decision?.trim()) && linkedDecision(goal, bucket.all, this.workflowError).state === "separate";
-      return { goal, items, closed: goalState(goal) === "completed", shipped: runShipped(goal, this.runBucket(goal, true), items, merged),
-        ...runRow(goal, bucket, { engine: this.workflowEngine, error: this.workflowError, decision, reviewCount: reviewableWork(items, this.clones).length, launch: this.liveLaunch() }) };
+      const row = runRow(goal, bucket, { engine: this.workflowEngine, error: this.workflowError, decision, reviewCount: reviewableWork(items, this.clones).length, launch: this.liveLaunch() });
+      const closed = goalState(goal) === "completed", done = finishedAt(goal, bucket.all, this.goalDoc?.history);
+      // A finished run says when, so the list reads newest first.
+      return { goal, items, closed, shipped: runShipped(goal, this.runBucket(goal, true), items, merged), ...row, finishedAt: done,
+        ...((closed || row.group === "ready") && done ? { now: `${row.now} · ${finishedWords(done)}` } : {}) };
     });
+  }
+
+  // The runs in list order: by turn, finished ones newest first, and a run's child runs right under it.
+  runTree(runs) {
+    const newest = (a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0);
+    const tasksOf = (goal) => this.runBucket(goal).all, parent = new Map(runs.map((e) => [e, parentRun(e, runs, tasksOf)]));
+    // An open parent takes all its children; a closed one only its closed ones.
+    const nested = (e) => { const p = parent.get(e); return p && (!p.closed || e.closed) ? p : null; };
+    const kids = (p) => runs.filter((e) => nested(e) === p).sort(newest);
+    const withKids = (list) => list.filter((e) => !nested(e)).flatMap((e) => [{ entry: e, depth: 0 }, ...kids(e).map((k) => ({ entry: k, depth: 1 }))]);
+    const open = RUN_GROUPS.map(([group, label]) => ({ group, label, rows: withKids(runs.filter((e) => !e.closed && e.group === group).sort(group === "ready" ? newest : () => 0)) }));
+    return { open, closed: withKids(runs.filter((e) => e.closed).sort(newest)) };
   }
 
   // A launch the run window left behind (Herdr quit mid-start) stops showing once its wait would have timed out.
@@ -131,8 +146,9 @@ export class RunViews {
     const scope = this.goalProjection.scope;
     if (this.runTask || this.runCompare) return [];
     if (scope) return this.orderedTasks(scope).map((task) => ({ id: `task-${task.id}`, section: "goals", go: () => this.resetRun(task.id) }));
-    const closed = this.expanded["runs-closed"] ? runs.filter((entry) => entry.closed) : [];
-    return [...this.openRuns(runs), ...closed].map((entry) => ({ id: `goal-${entry.goal.id}`, section: "goals", go: () => this.enterRun(entry.goal) }));
+    const tree = this.runTree(runs);
+    return [...tree.open.flatMap((g) => g.rows), ...(this.expanded["runs-closed"] ? tree.closed : [])]
+      .map(({ entry }) => ({ id: `goal-${entry.goal.id}`, section: "goals", go: () => this.enterRun(entry.goal) }));
   }
 
   // The runs still open, in the order their groups are drawn.
@@ -478,17 +494,19 @@ export class RunViews {
   }
 
   runsGlance(t, runs) {
-    const open = this.openRuns(runs), closed = runs.filter((entry) => entry.closed);
-    const seen = (entry) => !this.hiddenIds.has(`goal-${entry.goal.id}`), draw = (entry) => this.runCard(t, entry);
+    const tree = this.runTree(runs), open = tree.open.flatMap((g) => g.rows.map((r) => r.entry)), closed = tree.closed.map((r) => r.entry);
+    const seen = ({ entry }) => !this.hiddenIds.has(`goal-${entry.goal.id}`);
+    // A child run sits under the run it came from, indented.
+    const draw = ({ entry, depth }) => (depth ? div().pl(18).child(this.runCard(t, entry, true)) : this.runCard(t, entry));
     const target = runs.find((entry) => `goal-${entry.goal.id}` === this.sel) ?? open[0];
     return [
-      ...RUN_GROUPS.flatMap(([group, label]) => {
-        const list = open.filter((entry) => entry.group === group), shown = list.filter(seen);
-        return shown.length ? [legHeader(t, `runs-leg-${group}`, label, list.length, { me: group === "me" }), ...joined(t, shown.map(draw))] : [];
+      ...tree.open.flatMap(({ group, label, rows }) => {
+        const shown = rows.filter(seen);
+        return shown.length ? [legHeader(t, `runs-leg-${group}`, label, rows.filter((r) => !r.depth).length, { me: group === "me" }), ...joined(t, shown.map(draw))] : [];
       }),
       ...(!runs.length ? [line("No runs yet", t)] : []),
       ...(closed.length ? [foldRow(this, t, "runs-closed-fold", "runs-closed", `${closed.length} older finished ${closed.length === 1 ? "run" : "runs"}`, { gap: true })] : []),
-      ...(this.expanded["runs-closed"] ? joined(t, closed.filter(seen).map(draw)) : []),
+      ...(this.expanded["runs-closed"] ? joined(t, tree.closed.filter(seen).map(draw)) : []),
       ...(this.expanded["runs-closed"] && closed.length > 1 ? [h_flex().px(8).pt(4).child(button(t, "runs-archive-all", this.archivingRuns ? "Archiving…" : `Archive all ${closed.length}`,
         (cx) => this.archiveRuns(closed.map((entry) => entry.goal), cx), { size: "sm", disabled: Boolean(this.archivingRuns), tip: "Files every closed run away; their history stays in the runs archive" }))] : []),
       ...this.setupsFold(t, target),
@@ -507,13 +525,13 @@ export class RunViews {
   }
 
   // A run answers three questions: what it is, what it does or wants now, and what it shipped.
-  runCard(t, entry) {
+  runCard(t, entry, child = false) {
     const { goal, shipped, hot } = entry, id = `goal-${goal.id}`, sel = this.selected(id);
     const answer = (key, label, value, tone) => labelled(t, `${key}-${goal.id}`, label,
       div().flex_1().min_w(0).truncate().text_size(13).text_color(tone).tooltip(value).child(value));
     return row(t, id, {
       // A click selects, showing Edit, Close and Plan; a second click, or Enter, opens it.
-      turn: entry.turn, title: goal.title, selected: sel, onSelect: (cx) => { if (sel) this.openRun(goal, cx); else { this.sel = id; this.clicked = true; this.h.focus(); cx.notify(); } },
+      turn: entry.turn, title: child ? `↳ ${goal.title}` : goal.title, selected: sel, onSelect: (cx) => { if (sel) this.openRun(goal, cx); else { this.sel = id; this.clicked = true; this.h.focus(); cx.notify(); } },
       lines: [answer("goal-now", "Now", entry.now, hot ? t.blocked : t.foreground),
         // A run starting shows its steps instead of what it shipped.
         ...(this.liveLaunch()?.goalId === goal.id && this.liveLaunch().steps ? [div().pl(LANE).pr(8).py(2).child(launchStepsView(t, `launch-${goal.id}`, this.liveLaunch().steps))]
@@ -623,8 +641,14 @@ export class RunViews {
   // Expand and fold inside a deep review, and its findings' files opened at the PR's change.
   // The run a deep review handed its findings to: the newest task working on that PR's branch in another run.
   fixOf(reviews) {
-    const url = reviews[0]?.pr?.url;
-    return url ? (this.workflowTasks ?? []).filter((x) => x.worktree?.prUrl === url).at(-1) ?? null : null;
+    return this.fixesOf(reviews).at(-1) ?? null;
+  }
+
+  // Every run that fixes this review's pull request: the latest task of each.
+  fixesOf(reviews) {
+    const url = reviews[0]?.pr?.url, byGoal = new Map();
+    for (const x of this.workflowTasks ?? []) if (url && x.worktree?.prUrl === url) byGoal.set(x.goalId, x);
+    return [...byGoal.values()];
   }
 
   deepUi(reviews) {
@@ -640,11 +664,14 @@ export class RunViews {
     const tasks = this.runBucket(goal).all, waiting = task.state === "needs_you", summary = taskSummary(task);
     if (task.pr) {
       const reviews = tasks.filter((x) => x.pr?.url === task.pr.url);
-      const fix = this.fixOf(reviews), fixGoal = fix && (this.goalDoc?.goals ?? []).find((g) => g.id === fix.goalId);
+      // The runs this review handed its findings to, each a click away.
+      const fixes = this.fixesOf(reviews).map((fix) => [fix, (this.goalDoc?.goals ?? []).find((g) => g.id === fix.goalId)]).filter(([, g]) => g);
       return [
-        ...(fixGoal ? [h_flex().id("deep-fix-run").px(8).pb(6).gap(8).items_center()
-          .child(div().flex_1().min_w(0).truncate().text_size(13).child(`Fix run: ${fixGoal.title} · ${taskReason(fix)}`))
-          .child(button(t, "deep-fix-open", "Open", (cx) => this.openRun(fixGoal, cx, fix.id), { size: "sm" }))] : []),
+        ...(fixes.length ? [v_flex().id("deep-fix-run").px(8).pb(6).gap(4)
+          .child(div().text_size(11).text_color(t.dim).child(`Runs from this review · ${fixes.length}`))
+          .children(fixes.map(([fix, fixGoal], i) => h_flex().id(`deep-fix-run-${i}`).gap(8).items_center()
+            .child(div().flex_1().min_w(0).truncate().text_size(13).child(`↳ ${fixGoal.title} · ${taskReason(fix)}`))
+            .child(button(t, i ? `deep-fix-open-${i}` : "deep-fix-open", "Open", (cx) => this.openRun(fixGoal, cx, fix.id), { size: "sm" }))))] : []),
         div().px(8).pb(6).child(deepReviewView(t, `deep-${goal.id}`, reviews, this.deepUi(reviews))), this.taskDecision(t, goal, task, tasks)];
     }
     const notes = waiting ? taskNotes(task) : null, linked = linkedDecision(goal, tasks).task?.id === task.id;

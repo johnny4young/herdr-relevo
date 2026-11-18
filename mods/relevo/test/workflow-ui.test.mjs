@@ -670,7 +670,7 @@ test('own worktree mode creates the checkout, opens both agents and starts once 
   assert.equal(opened().length, 2);
   assert.deepEqual(opened().map(([, args]) => args.tab ?? args.name), ['fix-search-abc123 · build', 'fix-search-abc123 · review']);
   fake.agents = [{ address: 't9', tab_name: 'fix-search-abc123 · build', status: 'idle' }, { address: 't10', tab_name: 'fix-search-abc123 · review', status: 'blocked' }];
-  v.launchTick(cx); assert.match(text(find(v.render(), 'workflow-launch-status')), /Answer the prompt in “fix-search-abc123 · review”/);
+  v.launchTick(cx); assert.match(text(find(v.render(), 'workflow-launch-card')), /Reviewer \S+ · waits on a question in its tab/);
   fake.agents[1].status = 'idle'; v.launchTick(cx); await flush();
   const create = payloads.find((payload) => payload.action === 'create');
   assert.equal(create.start, true); assert.equal(create.task.root, '/home/test/.herdr/worktrees/app/fix-search-abc123');
@@ -711,7 +711,7 @@ test('a worktree launch starts with no first message, accepts a working agent an
   v.create(cx, { start: true });
   assert.equal(v.launch.stage, 'waiting'); assert.equal(payloads.length, 0, 'no second worktree');
   fake.agents = [{ address: 't1', tab_name: 't-1 · build', status: 'working' }];
-  v.launchTick(cx); assert.match(text(find(v.render(), 'workflow-launch-status')), /Answer the prompt in “t-1 · review”/);
+  v.launchTick(cx); assert.match(text(find(v.render(), 'workflow-launch-card')), /Reviewer \S+ · waits on a question in its tab/);
   fake.agents.push({ address: 't2', tab_name: 't-1 · review', status: 'idle' });
   v.launchTick(cx); await flush();
   assert.equal(payloads[0].action, 'create'); assert.equal(payloads[0].task.root, '/wt');
@@ -852,7 +852,8 @@ test('a run agent asking to trust its worktree is named in the run window, and o
   const calls = [];
   fake.exec = async (cmd, args) => { calls.push([cmd, ...args].join(' ')); return args[0] === 'read' ? { stdout: claude } : null; };
   v.launchTick(cx); await flush(); v.launchTick(cx); await flush();
-  assert.match(text(find(v.render(), 'workflow-launch-status')), /“t-1 · build” asks whether to trust the run's worktree/);
+  assert.match(text(find(v.render(), 'workflow-launch-card')), /Writer \S+ · asks whether to trust the run's worktree/);
+  assert.ok(find(v.render(), 'workflow-launch-open'), "its tab is a click away");
   assert.equal(calls.some((line) => line.startsWith('hc keys')), false, 'nothing is trusted on its own');
   click(find(v.render(), 'workflow-launch-trust'), cx); await flush();
   assert.deepEqual(calls.filter((line) => line.startsWith('hc keys')), ['hc keys t1 down enter']);

@@ -101,7 +101,7 @@ export async function fixFindings(tasks, { adjust = false } = {}) {
     // the task's prompt; the goal keeps a line.
     const taken = doc.goals.some((g) => g.sources.includes(source));
     goal = { ...newGoal(`goal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, `Fix #${pr.number} · deep review`, taken ? [] : [source]),
-      criteria: `Fix what the deep review of ${pr.url} found.` };
+      criteria: `Fix what the deep review of ${pr.url} found.`, from: tasks[0].goalId };
     await writeGoal(goal, 0);
   }
   if (adjust) return openWorkflow(goal.id, null, { fixPR: { url: pr.url, number: pr.number, headRef: pr.headRef, root: pr.clone, prompt } });

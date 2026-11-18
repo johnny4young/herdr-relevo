@@ -3,10 +3,13 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { closeOverlay, openOverlay, props, run, setShared, shared, theme } from "herdr";
-import { CODEX, accountOf, agentAccounts, chip, codexOn, hasRoom, loadClaudeQuotas } from "./accounts.js";
+import { CODEX, CODEX_FOUND, accountOf, agentAccounts, chip, codexOn, hasRoom, loadClaudeQuotas } from "./accounts.js";
 import { accountFor } from "./context.js";
 import * as config from "./config.js";
-import { CLAUDE_EFFORTS, CODEX_EFFORTS, MAX_REVIEWERS, checkDeepReview } from "./lib/deep-setup.js";
+import { CLAUDE_EFFORTS, CODEX_EFFORTS, MAX_REVIEWERS, checkDeepReview, recentModels } from "./lib/deep-setup.js";
+import { readReport } from "./usage-scan.js";
+import { openSettings } from "./settings.js";
+import { ago } from "./lib/time.js";
 import { reviewTitle } from "./lib/deep-review.js";
 import { deepSetup } from "./deep-review.js";
 import { button, checkbox, digit, grabFocus, held, keycap } from "./ui.js";
@@ -32,6 +35,7 @@ export class DeepReviewDialog {
     this.h = cx.focus_handle();
     grabFocus(this.h, cx, () => !this.gone);
     cx.spawn(async (cx) => { this.quotas = await loadClaudeQuotas().catch(() => ({})); cx.notify(); });
+    cx.spawn(async (cx) => { this.report = await readReport().catch(() => null); cx.notify(); });
   }
 
   close() { this.gone = true; for (const r of this.rows) r.model.release(); }
@@ -113,14 +117,29 @@ export class DeepReviewDialog {
         .bg(pct >= 90 ? t.blocked : pct >= 60 ? t.ansi3 : t.done)), div().flex_none().text_size(11).text_color(t.dim).child(`${pct}%`)])];
   }
 
+  // Models this account used here lately, newest first, then the names its CLI takes for any of them.
+  modelOptions(r) {
+    const key = r.account === "repo" ? accountFor(this.pr.repo) : r.account, codex = key === CODEX.key;
+    const recent = recentModels(this.report, key).slice(0, 5).map(({ model, day }) => ({ model, note: `used ${ago(Date.parse(day) / 1000)}` }));
+    const names = (codex ? [""] : CLAUDE_MODELS).filter((m) => !recent.some((x) => x.model === m)).map((model) => ({ model, note: model ? "latest" : "" }));
+    return [...recent, ...names];
+  }
+
   menuView(t, r, i) {
     const field = this.menu?.field, codex = r.account === CODEX.key;
     const option = (id, content, on, pick) => h_flex().id(id).h(28).px(8).gap(6).items_center().rounded(6).cursor_pointer()
       .when(on, (el) => el.bg(t.selected)).hover((st) => st.bg(t.hover)).on_click((_e, cx) => { pick(cx); this.menu = null; cx.notify(); }).children(content);
-    const list = field === "account" ? ["repo", ...agentAccounts().map((a) => a.key)].map((key) => option(`deep-${i}-account-${key}`, this.accountChoice(t, key), r.account === key,
-        (cx) => this.pick(r, { account: key }, cx)))
-      : field === "model" ? [...(codex ? [""] : CLAUDE_MODELS)].map((m) => option(`deep-${i}-model-${m || "default"}`,
-        [div().text_size(13).child(m || (config.RUN_CODEX_MODEL ? `default · ${config.RUN_CODEX_MODEL}` : "default"))], r.model.value() === m, () => r.model.set_value(m)))
+    // Codex installed but off in Settings shows, dimmed, with the way to turn it on.
+    const codexOff = !codexOn() && config.USE_CODEX === false && shared(CODEX_FOUND) !== false;
+    const list = field === "account" ? [...["repo", ...agentAccounts().map((a) => a.key)].map((key) => option(`deep-${i}-account-${key}`, this.accountChoice(t, key), r.account === key,
+        (cx) => this.pick(r, { account: key }, cx))),
+      ...(codexOff ? [h_flex().id(`deep-${i}-account-codex-off`).h(28).px(8).gap(6).items_center().opacity(0.5)
+        .child(chip(div, CODEX, 16)).child(div().text_size(13).child("Codex"))
+        .child(div().id(`deep-${i}-codex-on`).text_size(11).text_color(t.accent).cursor_pointer().on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(props().overlay); openSettings(); })
+          .child("off in Settings · turn on"))] : [])]
+      : field === "model" ? this.modelOptions(r).map(({ model, note }) => option(`deep-${i}-model-${model || "default"}`,
+        [div().text_size(13).child(model || (config.RUN_CODEX_MODEL ? `default · ${config.RUN_CODEX_MODEL}` : "default")),
+          ...(note ? [div().text_size(11).text_color(t.dim).child(note)] : [])], r.model.value() === model, () => r.model.set_value(model)))
       : (codex ? CODEX_EFFORTS : CLAUDE_EFFORTS).map((e) => option(`deep-${i}-effort-${e}`, [div().text_size(13).child(e)], r.effort === e, (cx) => this.pick(r, { effort: e }, cx)));
     return v_flex().id(`deep-${i}-menu`).w_full().p(4).gap(1).rounded(8).border_1().border_color(t.border).bg(t.popover ?? t.surface)
       .children(list)

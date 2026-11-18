@@ -322,7 +322,7 @@ test("Fix with a run hands the deep review over: its reviewers close, and it lin
   fake.stored[GOAL_MODE] = true; v.h.is_focused = () => true; v.render(cx);
   v.enterRun(goals[0]); v.resetRun(claude.id);
   const tree = v.render(cx);
-  assert.match(text(find(tree, "deep-fix-run")), /^Fix run: Fix #7 · deep review · .+ Open$/);
+  assert.match(text(find(tree, "deep-fix-run")), /^Runs from this review · 1 ↳ Fix #7 · deep review · .+ Open$/);
   const sent = [];
   fake.exec = (cmd, args) => { if (!/cli\.mjs$/.test(args[0] ?? "")) return null; sent.push(JSON.parse(args.at(-1))); return { stdout: JSON.stringify({ doc: { tasks: [claude, codex, fixTask], engine: { enabled: true } } }) }; };
   v.closeReview(claude, cx, "Handed to a fix run.");
@@ -461,4 +461,54 @@ test("Claude Code's question about the reports folder is answered, and only for 
   assert.deepEqual(ownFolderKeys(ask(mine, "Yes"), mine), ["enter"]);
   assert.equal(ownFolderKeys(ask("/home/test/elsewhere"), mine), null, "any other folder waits for the person");
   assert.equal(ownFolderKeys("❯ Yes, I trust this folder", mine), null);
+});
+
+test("a fix run sits under the deep review it came from, and finished runs read newest first with when", async () => {
+  const { parentRun, finishedWords } = await import("../lib/run-panel.js");
+  const review = { goal: newGoal("r", "Deep review"), closed: false, group: "ready", finishedAt: 1 };
+  const fix = { goal: { ...newGoal("f", "Fix #7"), from: "r" }, closed: false, group: "flight" };
+  const legacy = { goal: newGoal("l", "Fix #7 old"), closed: true, group: "ready" };
+  const tasks = { r: [claude], f: [], l: [{ worktree: { prUrl: PR.url } }] };
+  assert.equal(parentRun(fix, [review, fix, legacy], (g) => tasks[g.id]), review, "named by the fix");
+  assert.equal(parentRun(legacy, [review, fix, legacy], (g) => tasks[g.id]), review, "an older fix is matched by its pull request");
+  assert.match(finishedWords(Date.parse("2026-11-17T16:42:00Z"), Date.parse("2026-11-17T18:42:00Z")), /^2h ago · Nov 17, \d\d:42$/);
+
+  const v = new Inbox(), cx = fakeCx(); v.init({}, cx); await flush();
+  v.runBucket = (goal) => ({ all: tasks[goal.id] ?? [] });
+  const older = { goal: newGoal("o", "Older"), closed: false, group: "ready", finishedAt: 0 };
+  const tree = v.runTree([older, review, fix, legacy]);
+  const ready = tree.open.find((g) => g.group === "ready").rows.map((r) => [r.entry.goal.id, r.depth]);
+  assert.deepEqual(ready, [["r", 0], ["f", 1], ["l", 1], ["o", 0]], "newest first, every fix under its open review");
+  assert.deepEqual(tree.open.find((g) => g.group === "flight").rows.map((r) => r.entry.goal.id), [], "the fix in flight sits under its review, not in its own group");
+});
+
+test("the dialog's models are what each account used here lately, then the names its CLI takes", async () => {
+  const { recentModels } = await import("../lib/deep-setup.js");
+  const report = { rows: [{ account: "personal", model: "claude-opus-5-5", day: "2026-11-10" }, { account: "personal", model: "claude-sonnet-5-5", day: "2026-11-17" },
+    { account: "personal", model: "<synthetic>", day: "2026-11-17" }, { account: "work", model: "claude-haiku-5-5", day: "2026-11-17" }] };
+  assert.deepEqual(recentModels(report, "personal").map((m) => m.model), ["claude-sonnet-5-5", "claude-opus-5-5"]);
+  const { DeepReviewDialog } = await import("../deep-review-dialog.js");
+  fake.props = { pr: { url: PR.url, number: 7, repo: "me/app", headRefOid: "a".repeat(40) }, folder: "/work/app", overlay: 1 };
+  const d = new DeepReviewDialog(), cx = fakeCx(); d.init({}, cx); await flush();
+  d.report = report;
+  assert.deepEqual(d.modelOptions(d.rows[0]).map((o) => o.model), ["claude-sonnet-5-5", "claude-opus-5-5", "opus", "sonnet", "haiku"]);
+});
+
+test("a stalled start shows its steps, why one waits and the way on, instead of the form", async () => {
+  const { Workflow } = await import("../workflow.js");
+  const w = new Workflow(), cx = fakeCx(); w.init({}, cx); await flush();
+  w.launch = { stage: "stalled", fields: { title: "Fix #7", root: "/work/app", goalId: "g" }, accounts: { executor: "personal", reviewer: "work" },
+    worktree: { path: "/wt", branch: "run/fix-7", base: "/work/app" }, tabs: { executor: "fix-7 · build", reviewer: "fix-7 · review" }, ready: { executor: false, reviewer: false }, stuck: true, at: Date.now() };
+  fake.terminals = [{ address: "t1", cwd: "/wt" }]; fake.panes = [{ pane: "p1", terminal: "t1", tab: "tb1" }]; fake.spaces = [{ id: "s", tabs: [{ id: "tb1", name: "fix-7 · build" }] }];
+  const card = find(w.taskForm(theme(), cx), "workflow-launch-card");
+  assert.match(text(card), /^Still starting · Fix #7 ✓? ?Worktree run\/fix-7 .*Writer Personal · waits on a question in its tab/);
+  find(card, "workflow-launch-open").handlers.on_click({}, cx);
+  assert.deepEqual(fake.runs.at(-1), ["agent.focus", { terminal: "t1" }]);
+  find(card, "workflow-launch-wait").handlers.on_click({}, cx);
+  assert.equal(w.launch.stage, "waiting");
+  find(w.taskForm(theme(), cx), "workflow-launch-cancel").handlers.on_click({}, cx);
+  await flush();
+  assert.equal(w.launch, null);
+  assert.ok(calls(/worktree remove \/wt/).length && calls(/branch -D run\/fix-7/).length, "its empty worktree and branch go");
+  w.close();
 });
