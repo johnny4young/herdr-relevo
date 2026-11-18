@@ -573,3 +573,18 @@ test('a stuck worktree run shows its findings to mark and tries again in place w
   assert.deepEqual(sent, [{ action: 'retry', taskId: 'd', text: 'Fix this finding. Check each against the code first; if one is not a bug or not worth fixing, say why in your report instead.\n\n1. [minor] nav.js — Name it\n\nAlso: Keep it short.' }]);
   assert.match(v.runNotice, /^Trying again/);
 });
+
+test('accepting the last open task of a run goes back to the runs, on that run, with what happened', async () => {
+  const wt = { path: '/wt/fix-7', base: '/work/app', baseCommit: 'b'.repeat(40), branch: 'run/fix-7', prHead: 'fix/search', prUrl: 'https://github.com/me/app/pull/7' };
+  const accepted = { ...ready('a', { worktree: wt }), state: 'accepted', worktree: { ...wt, commit: 'c'.repeat(40) } };
+  answers([accepted]);
+  const { v, cx } = await runs([ready('a', { worktree: wt })]);
+  v.navKey({ key: 'j' }, cx); v.navKey({ key: 'enter' }, cx); v.render(cx); v.navKey({ key: 'enter' }, cx); v.render(cx);
+  assert.equal(v.runTask, 'a');
+  v.navKey({ key: 'a' }, cx); v.navKey({ key: 'enter' }, cx);
+  for (let i = 0; i < 4; i++) await flush();
+  const tree = v.render(cx);
+  assert.equal(fake.stored[GOAL_SCOPE], null, 'the run list, not the task');
+  assert.equal(v.sel, 'goal-g', 'on the run just finished');
+  assert.match(text(find(tree, 'run-notice')), /^Pushed to fix\/search/);
+});

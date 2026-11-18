@@ -181,6 +181,13 @@ export class RunViews {
     this.sel = id ? `goal-${id}` : null;
   }
 
+  // Accepted with nothing else open in its run: back to the runs, on this one, keeping what was just said.
+  backToRuns(goalId) {
+    if (shared(GOAL_SCOPE) !== goalId || (this.workflowTasks ?? []).some((x) => x.goalId === goalId && !["accepted", "cancelled"].includes(x.state))) return false;
+    this.leaveRun(); this.runAt = this.runPlace();
+    return true;
+  }
+
   // From Reviews: the result opens as its task in Runs.
   showResult(task) {
     setShared(GOAL_MODE, true); setShared(GOAL_SCOPE, task.goalId);
@@ -218,7 +225,9 @@ export class RunViews {
           : task.worktree.prHead ? `Accepted and committed. Push to ${task.worktree.prHead} adds it to the pull request.`
           : response.result?.pr ? `Accepted, and the draft pull request is open: ${response.result.pr}`
           : response.result?.prError ? `Accepted and committed; the draft pull request didn't open: ${response.result.prError}` : "Accepted and committed to its run branch.";
-        if (!kept && this.runTask === task.id) {
+        // A pull request fix leaves once its push lands; a draft PR run once its PR is open.
+        const done = !kept || (outcome === "accept" && Boolean(response.result?.pr));
+        if (this.runTask === task.id && !(done && this.backToRuns(task.goalId)) && !kept) {
           this.runTask = null; this.runAt = this.runPlace();
           const next = this.orderedTasks({ id: task.goalId }, false).find((item) => item.id !== task.id);
           this.sel = next ? `task-${next.id}` : null;
@@ -240,6 +249,7 @@ export class RunViews {
       try {
         this.takeDoc(await workflowCommand({ action: "worktree-push", taskId: task.id }));
         this.runNotice = `Pushed to ${task.worktree.prHead}. The pull request's checks run again on GitHub.`;
+        if (this.runTask === task.id) this.backToRuns(task.goalId);
       } catch (e) { this.runError = `Not pushed: ${e.message ?? e}`; }
       this.runBusy = false; cx.notify();
     });
