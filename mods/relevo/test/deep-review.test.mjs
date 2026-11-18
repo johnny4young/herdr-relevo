@@ -364,7 +364,7 @@ test("the fix at a glance: majors handled and left, Ask to fix on what is left, 
   const findings = mergedFindings([claude, codex]);
   const fix = { attempts: [{ role: "executor", report: { status: "completed", details: ["Fixed: src/a.js:4 — guarded it"] } }] };
   const asked = [];
-  const ui = { ask: (list) => asked.push(list.map((f) => f.where)) };
+  const ui = { pick: (list) => asked.push(list.map((f) => f.where)), picked: () => false };
   const view = () => fixGlanceView(theme(), "fg", fixOutcome(findings, fix, []), ui);
   assert.equal(text(view()), "1 of 2 majors handled · 1 left major b.js No test Ask to fix Handled · 1 blocker a.js:4 Crashes on null Fixed");
   find(view(), "fg-left-0-ask").handlers.on_click({}, { stop_propagation() {} });
@@ -519,4 +519,14 @@ test("a stalled start shows its steps, why one waits and the way on, instead of 
   assert.equal(w.launch, null);
   assert.ok(calls(/worktree remove \/wt/).length && calls(/branch -D run\/fix-7/).length, "its empty worktree and branch go");
   w.close();
+});
+
+test("Send asks for the marked findings whole, and long ones are cut to what the coordinator keeps", async () => {
+  const { fixRequest } = await import("../lib/deep-review.js");
+  assert.equal(fixRequest([{ level: "major", where: "a.js:3", issue: "Leaks", fix: "Close it", proof: "a.js:3 never closes", by: ["Team", "Codex"] }]),
+    "Fix this finding. Check each against the code first; if one is not a bug or not worth fixing, say why in your report instead.\n\n1. [major] a.js:3 — Leaks\n   Fix: Close it\n   Proof: a.js:3 never closes\n   Found by: Team, Codex");
+  const long = Array.from({ length: 12 }, (_, i) => ({ level: "minor", where: `f${i}.js`, issue: "x".repeat(900), fix: "y".repeat(900) }));
+  const text = fixRequest(long, "Keep it small.");
+  assert.ok(text.length <= 3900, "fits what the coordinator keeps");
+  assert.match(text, /12\. \[minor\] f11\.js/); assert.match(text, /Also: Keep it small\.$/);
 });

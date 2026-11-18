@@ -16,7 +16,7 @@ import { deepReviewNotice, dropReviewTrees, fixFindings, postDraftReview } from 
 import { openReviewer } from "./run-launcher.js";
 import { deepReviewView, fixChecklistView, fixGlanceView, launchStepsView, notesView } from "./deep-review-view.js";
 import { caption } from "./workflow-labels.js";
-import { counted, fixChecklist, fixOutcome, mergedFindings, reviewAdvice, reviewLead, reviewTitle, verdicts } from "./lib/deep-review.js";
+import { counted, findingKey, fixChecklist, fixOutcome, fixRequest, mergedFindings, reviewAdvice, reviewLead, reviewTitle, verdicts } from "./lib/deep-review.js";
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, taskLegs,
   taskSummary, taskNotes, isMerged, finishedAgents, statusWords, finishedAt, finishedWords, parentRun } from "./lib/run-panel.js";
 import { canCompare, diffFiles, tookWords } from "./lib/run-compare.js";
@@ -42,6 +42,10 @@ export class RunViews {
     this.runChange = TextareaState.new({ value: "", placeholder: "What should change?" });
     this.runChange.on("change", (_e, cx) => cx.notify());
     onSubmitChord(this.runChange, (cx) => this.sendRunChanges(cx));
+    this.fixNote = TextareaState.new({ value: "", placeholder: "Anything else?" });
+    this.fixNote.on("change", (_e, cx) => cx.notify());
+    onSubmitChord(this.fixNote, (cx) => this.sendRunChanges(cx, true));
+    this.fixPicks = null;
     this.runPicked = [];
   }
 
@@ -207,6 +211,7 @@ export class RunViews {
         const response = await workflowCommand(decidePayload(task, outcome, text, { draft: config.RUN_DRAFT_PR !== false }));
         this.takeDoc(response);
         this.runChange.set_value(""); this.runChangeFor = null;
+        if (outcome === "changes") this.clearPicks();
         const kept = outcome === "accept" && Boolean(task.worktree);
         this.runNotice = outcome !== "accept" ? "Feedback saved. The next result will return for your review."
           : !kept ? "Acceptance saved."
@@ -322,12 +327,23 @@ export class RunViews {
     return (this.workflowTasks ?? []).filter((x) => x.goalId === task.goalId && x.pr?.url === task.pr?.url);
   }
 
-  // Ask to fix adds each finding to Ask for changes once, so several go out in one message.
-  askToFix(task, findings, cx) {
-    this.askRunChanges(task, cx);
-    const have = this.runChange.value().trim();
-    const add = findings.map((f) => `- [${f.level}] ${f.where ?? ""} — ${f.issue}${f.fix ? ` Fix: ${f.fix}` : ""}`).filter((l) => !have.includes(l));
-    if (add.length) this.runChange.set_value([have || "Fix these too:", ...add].join("\n"));
+  // Findings marked with Ask to fix, kept while the task waits on this same revision.
+  picksOf(task) {
+    const p = this.fixPicks;
+    return p && p.taskId === task.id && p.revision === task.revision && task.state === "needs_you" ? p.items : new Map();
+  }
+
+  // Marks the findings, or unmarks them when every one is marked already.
+  togglePicks(task, list, cx) {
+    const items = new Map(this.picksOf(task)), keys = list.map(findingKey);
+    if (keys.every((k) => items.has(k))) keys.forEach((k) => items.delete(k));
+    else list.forEach((f) => items.set(findingKey(f), f));
+    this.fixPicks = items.size ? { taskId: task.id, revision: task.revision, items } : null;
+    cx.notify();
+  }
+
+  clearPicks() {
+    this.fixPicks = null; this.fixNote.set_value("");
   }
 
   askRunChanges(task, cx) {
@@ -343,10 +359,15 @@ export class RunViews {
   }
 
   // With no attempts left the words go to a new task, prepared in the run window for the person to start.
-  sendRunChanges(cx) {
-    const task = this.shownTask(), text = this.runChange.value().trim();
-    if (!task || task.id !== this.runChangeFor || task.state !== "needs_you" || this.runBusy || !text) return;
+  // `picked`: sent from the marked findings, whose details go under the person's own words.
+  sendRunChanges(cx, picked = false) {
+    const task = this.shownTask();
+    if (!task || task.state !== "needs_you" || this.runBusy || (!picked && task.id !== this.runChangeFor)) return;
+    const picks = [...this.picksOf(task).values()], words = (picked ? this.fixNote : this.runChange).value().trim();
+    const text = picks.length ? fixRequest(picks, words) : words;
+    if (!text) return;
     if (changesPlan(task).spent) {
+      if (picks.length) this.clearPicks();
       this.runFollowUp = openWorkflow(task.goalId, task.id, { followUp: "changes", text });
       setShared(RUN_FOLLOW_UP, this.runFollowUp);
       this.runNotice = "Sent to the run window."; this.runError = null;
@@ -655,6 +676,19 @@ export class RunViews {
     ];
   }
 
+  // What Send will ask for: the count of marked findings, an optional note, Send and Clear.
+  picksBar(t, task, n, plan) {
+    return v_flex().id("task-picks").w_full().gap(6).p(8).rounded(6).bg(t.raised)
+      .child(h_flex().gap(6).items_center().child(icon("check", t.done, 12))
+        .child(div().flex_none().text_size(13).font_semibold().child(`${n} to fix`))
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(plan.hint)))
+      .child(Textarea.new(this.fixNote).id("task-picks-note").w_full().min_w(0).accessibility_label("Anything else?")
+        .h(40).px(7).rounded(5).border(1).border_color(t.border).bg(t.background))
+      .child(h_flex().gap(6)
+        .child(button(t, "task-picks-send", plan.send, (cx) => this.sendRunChanges(cx, true), { kind: "solid", disabled: Boolean(this.runBusy), tip: "⌘Enter" }))
+        .child(button(t, "task-picks-clear", "Clear", (cx) => { this.clearPicks(); cx.notify(); }, { kind: "ghost", disabled: Boolean(this.runBusy) })));
+  }
+
   // One line per leg: done, going, waiting, or your turn tinted.
   legLine(t, leg) {
     const at = Date.parse(leg.at ?? ""), [glyph, tone] = LEG_MARK[leg.state] ?? LEG_MARK.wait;
@@ -705,8 +739,9 @@ export class RunViews {
     }
     const notes = waiting ? taskNotes(task) : null, linked = linkedDecision(goal, tasks).task?.id === task.id;
     // A file a finding names opens in the run's change, beside the panel.
-    const ask = waiting && !task.pr ? (list, cx) => this.askToFix(task, list, cx) : null;
-    const ui = { ...this.deepUi([task]), ask, openFile: task.worktree ? (where) => this.seeDiff(task, where.replace(/:\d+(-\d+)?$/, "")) : null };
+    const picks = this.picksOf(task);
+    const pick = waiting && !task.pr && task.executor ? { pick: (list, cx) => this.togglePicks(task, list, cx), picked: (key) => picks.has(key) } : {};
+    const ui = { ...this.deepUi([task]), ...pick, openFile: task.worktree ? (where) => this.seeDiff(task, where.replace(/:\d+(-\d+)?$/, "")) : null };
     const outcome = this.fixOutcomeOf(task), left = outcome?.left.length ?? 0, status = statusWords(task);
     const tries = (task.attempts ?? []).filter((a) => a.role === "executor").length;
     return [
@@ -768,7 +803,9 @@ export class RunViews {
     const filesShown = !task.pr && this.taskDiff?.taskId === task.id && Boolean(this.taskDiff.result);
     const diff = filesShown ? null : button(t, "task-diff", keyed("d", "See the diff"), () => this.seeDiff(task),
       { kind: waiting ? "solid" : "ghost", tip: task.worktree ? "Opens the change in the review pane beside the panel" : "Opens the run window on this task's result and diff" });
+    const picks = waiting ? this.picksOf(task) : new Map();
     if (editing) return v_flex().id("task-decision").px(8).pt(8).gap(6)
+      .when(picks.size > 0, (el) => el.child(div().id("task-changes-picks").text_size(11).text_color(t.done).child(`With the ${picks.size} marked to fix`)))
       .child(Textarea.new(this.runChange).id("task-changes-field").w_full().min_w(0).accessibility_label("What should change?")
         .h(64).px(7).rounded(5).border(1).border_color(t.border).bg(t.background))
       .child(div().text_size(11).text_color(t.muted).child(plan.hint))
@@ -782,6 +819,7 @@ export class RunViews {
       : task.worktree ? "Accepting keeps the worktree and commits to its run branch. " : ""}${acceptanceEffect(task, tasks, this.workflowEngine)}`;
     const push = task.state === "accepted" && task.worktree?.prHead && !task.worktree.pushed && !task.worktree.removed;
     return v_flex().id("task-decision").px(8).pt(8).gap(6)
+      .when(picks.size > 0, (el) => el.child(this.picksBar(t, task, picks.size, plan)))
       .child(h_flex().flex_wrap().gap(6).items_center()
         .when(waiting, (bar) => bar
           .child(button(t, "task-accept", confirming ? keyed("enter", "Confirm accept") : keyed("a", task.worktree?.prHead ? `Accept and push to ${task.worktree.prHead}` : draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accept and open draft PR" : "Accept"), (cx) => this.acceptStep(task, cx),

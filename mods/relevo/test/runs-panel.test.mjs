@@ -519,7 +519,7 @@ test('a run whose tasks were all cancelled says so, not that it needs a plan, an
   assert.deepEqual(runCostLine(goal, runBucket([writing('e')], 'g'), { minutes: 2, total: 0 }).rest, ['1 attempt']);
 });
 
-test('a fix run says how many deep review majors are left, and Ask to fix gathers findings into one Ask for changes', async () => {
+test('a fix run says how many deep review majors are left; Ask to fix marks findings and Send asks for them in full', async () => {
   const pr = { url: 'https://github.com/me/app/pull/7', number: 7 };
   const deep = task('rv', 'needs_you', { goalId: 'other', reviewOnly: true, executor: null, pr, attempts: [reviewed('changes_requested',
     { findings: [{ level: 'major', where: 'src/b.js', issue: 'No test', fix: 'Add one' }, { level: 'major', where: 'src/c.js', issue: 'Leaks the timer' }] })] });
@@ -532,8 +532,25 @@ test('a fix run says how many deep review majors are left, and Ask to fix gather
   assert.equal(find(tree, 'task-status').ink, t.ansi3, 'in the warning tone, not as approved');
   assert.equal(text(find(tree, 'task-fix-outcome-ask-all')), 'Ask to fix all (2)');
   assert.equal(text(find(tree, 'notes-a-ask-all')), 'Ask to fix all (2)');
+  assert.equal(find(tree, 'task-picks'), null, 'nothing marked, no Send');
   click(find(tree, 'task-fix-outcome-left-0-ask'), cx); tree = v.render(cx);
-  assert.equal(v.runChangeFor, 'a', 'Ask to fix opens Ask for changes');
-  click(find(tree, 'notes-a-f-1-ask'), cx); click(find(tree, 'task-fix-outcome-left-0-ask'), cx);
-  assert.equal(v.runChange.value(), 'Fix these too:\n- [major] src/b.js — No test Fix: Add one\n- [minor] y.js — Trim it', 'each finding once, in one message');
+  assert.equal(text(find(tree, 'task-fix-outcome-left-0-ask')), 'To fix');
+  assert.equal(v.runChangeFor, null, 'marking opens no text field');
+  assert.match(text(find(tree, 'task-picks')), /^1 to fix Starts 2nd try \(last\)/);
+  click(find(tree, 'notes-a-ask-all'), cx); tree = v.render(cx);
+  assert.equal(text(find(tree, 'notes-a-ask-all')), 'All to fix (2)');
+  assert.equal(text(find(tree, 'notes-a-f-0-ask')), 'To fix', 'all marks each one');
+  click(find(tree, 'notes-a-f-0-ask'), cx); tree = v.render(cx);
+  assert.equal(text(find(tree, 'notes-a-f-0-ask')), 'Ask to fix', 'a second click unmarks');
+  assert.equal(text(find(tree, 'notes-a-ask-all')), 'Ask to fix all (2)');
+  click(find(tree, 'task-fix-outcome-ask-all'), cx); tree = v.render(cx);
+  assert.match(text(find(tree, 'task-picks')), /^3 to fix/);
+  v.fixNote.set_value('Keep the public API.');
+  answers([{ ...fix, state: 'ready' }, deep]);
+  click(find(tree, 'task-picks-send'), cx); await flush();
+  assert.equal(decided().at(-1).text, [
+    'Fix these 3 findings. Check each against the code first; if one is not a bug or not worth fixing, say why in your report instead.',
+    '1. [major] src/b.js — No test\n   Fix: Add one\n   Found by: Team Haiku', '2. [minor] y.js — Trim it', '3. [major] src/c.js — Leaks the timer\n   Found by: Team Haiku',
+    'Also: Keep the public API.'].join('\n\n'));
+  assert.equal(v.fixPicks, null, 'sent, the marks clear');
 });

@@ -2,7 +2,7 @@
 // nobody checked folded under a count, a deep review's verdicts, and a fix run's verdict on each finding.
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { mergedFindings, unchecked, verdicts } from "./lib/deep-review.js";
+import { findingKey, mergedFindings, unchecked, verdicts } from "./lib/deep-review.js";
 import { LEVELS } from "./lib/run-report.js";
 import { icon } from "./ui.js";
 
@@ -12,11 +12,17 @@ const mark = { approve: ["check", "done"], changes: ["warn", "blocked"], unsure:
 // "Sources/App/Settings/View.swift:12" reads as "View.swift:12"; the whole path is the tooltip.
 const shortWhere = (where) => String(where).split("/").pop();
 
-// A small bordered action, like Ask to fix.
-const chip = (t, id, label, onClick) => div().id(id).flex_none().px(6).h(20).flex().items_center().rounded(5).border_1().border_color(t.border)
-  .text_size(11).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); }).child(label);
+// Ask to fix marks findings for the next Send; marked, it reads "✓ To fix" and a second click unmarks.
+// `ui.picked(key)` says whether a finding is marked, `ui.pick(findings, cx)` toggles them together.
+function pickChip(t, id, list, ui, label) {
+  const on = list.length > 0 && list.every((f) => ui.picked(findingKey(f)));
+  return h_flex().id(id).flex_none().gap(4).px(6).h(20).items_center().rounded(5).border_1().border_color(on ? `${t.done}66` : t.border)
+    .when(on, (el) => el.bg(`${t.done}1f`)).text_size(11).text_color(on ? t.done : t.foreground).cursor_pointer().hover((s) => s.bg(t.hover))
+    .on_click((_e, cx) => { cx.stop_propagation(); ui.pick(list, cx); })
+    .when(on, (el) => el.child(icon("check", t.done, 10))).child(on ? (list.length > 1 ? `All to fix (${list.length})` : "To fix") : label);
+}
 
-// `ui`: { open: Set of expanded keys, toggle(key, cx), openFile?(where, cx), ask?(findings, cx) }. `f.by` names who found it.
+// `ui`: { open: Set of expanded keys, toggle(key, cx), openFile?(where, cx), pick?, picked? }. `f.by` names who found it.
 export function findingCard(t, key, f, ui) {
   const open = ui.open.has(key), long = f.issue.length > LONG || Boolean(f.proof);
   return v_flex().id(key).w_full().min_w(0).gap(4).px(10).py(8).rounded(8).bg(t.raised)
@@ -33,7 +39,7 @@ export function findingCard(t, key, f, ui) {
         .bg(`${["Fixed", "Changed"].includes(ui.outcomeOf(f)) ? t.done : t.dim}26`).text_color(["Fixed", "Changed"].includes(ui.outcomeOf(f)) ? t.done : t.muted).child(ui.outcomeOf(f))))
       .when(f.by?.length > 1, (el) => el.child(div().flex_none().px(6).h(18).flex().items_center().rounded(4).bg(t.selected).text_size(11).child("Both")))
       .when(f.by?.length === 1, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(f.by[0])))
-      .when(Boolean(ui.ask), (el) => el.child(chip(t, `${key}-ask`, "Ask to fix", (cx) => ui.ask([f], cx)))))
+      .when(Boolean(ui.pick), (el) => el.child(pickChip(t, `${key}-ask`, [f], ui, "Ask to fix"))))
     .child(div().w_full().min_w(0).text_size(13).text_color(t.foreground).child(long && !open ? `${f.issue.slice(0, LONG).trimEnd()}…` : f.issue))
     .when(open && Boolean(f.proof), (el) => el.child(div().w_full().min_w(0).text_size(11).text_color(t.muted).child(f.proof)))
     .when(Boolean(f.fix), (el) => el.child(h_flex().w_full().min_w(0).gap(6).items_start()
@@ -61,7 +67,7 @@ export function notesView(t, id, notes, ui) {
   return v_flex().id(id).w_full().min_w(0).gap(8)
     .when(findings.length > 0, (el) => el.child(h_flex().w_full().gap(6).items_center()
       .child(div().flex_1().text_size(11).font_semibold().text_color(t.muted).child("The reviewer found"))
-      .when(Boolean(ui.ask) && findings.length > 1, (h) => h.child(chip(t, `${id}-ask-all`, `Ask to fix all (${findings.length})`, (cx) => ui.ask(findings, cx))))))
+      .when(Boolean(ui.pick) && findings.length > 1, (h) => h.child(pickChip(t, `${id}-ask-all`, findings, ui, `Ask to fix all (${findings.length})`)))))
     .children(findings.map((f, i) => findingCard(t, `${id}-f-${i}`, f, ui)))
     .when(notes.unchecked.length > 0, (el) => el.child(foldList(t, `${id}-unchecked`, "Not checked", notes.unchecked, ui)));
 }
@@ -134,13 +140,13 @@ export function fixOutcomeView(t, id, outcome) {
 const OPEN = ["Not touched", "Needs your call"];
 
 // The fix at a glance: how many majors it handled, the ones left, what it handled and the minor notes, one line each.
-// Anything still open carries Ask to fix. `ui`: { ask?(findings, cx) }.
+// Anything still open carries Ask to fix. `ui`: { pick?, picked? }, as for findingCard.
 export function fixGlanceView(t, id, outcome, ui) {
   const line = (r, i, key) => h_flex().id(`${key}-${i}`).w_full().min_w(0).gap(6).items_center().tooltip(r.why || r.f.issue)
     .child(div().flex_none().text_size(11).text_color(toneOf(t, r.f.level)).child(r.f.level))
     .child(div().flex_none().max_w(170).truncate().text_size(11).font_family("JetBrains Mono").text_color(t.muted).child(shortWhere(r.f.where ?? "")))
     .child(div().flex_1().min_w(0).truncate().text_size(13).child(r.f.issue))
-    .child(ui.ask && OPEN.includes(r.outcome) ? chip(t, `${key}-${i}-ask`, "Ask to fix", (cx) => ui.ask([r.f], cx))
+    .child(ui.pick && OPEN.includes(r.outcome) ? pickChip(t, `${key}-${i}-ask`, [r.f], ui, "Ask to fix")
       : div().flex_none().text_size(11).text_color(["Fixed", "Changed"].includes(r.outcome) ? t.done : t.muted).child(r.outcome));
   const section = (key, label, rows) => v_flex().id(key).w_full().min_w(0).gap(3).pt(4)
     .child(div().text_size(11).text_color(t.dim).child(label)).children(rows.map((r, i) => line(r, i, key)));
@@ -149,7 +155,7 @@ export function fixGlanceView(t, id, outcome, ui) {
   return v_flex().id(id).w_full().min_w(0).gap(3)
     .child(h_flex().w_full().gap(6).items_center()
       .child(div().flex_1().text_size(13).font_semibold().text_color(outcome.left.length ? t.blocked : t.done).child(outcome.tally))
-      .when(Boolean(ui.ask) && open.length > 1, (el) => el.child(chip(t, `${id}-ask-all`, `Ask to fix all (${open.length})`, (cx) => ui.ask(open, cx)))))
+      .when(Boolean(ui.pick) && open.length > 1, (el) => el.child(pickChip(t, `${id}-ask-all`, open, ui, `Ask to fix all (${open.length})`))))
     .children(outcome.left.map((r, i) => line(r, i, `${id}-left`)))
     .when(handled.length > 0, (el) => el.child(section(`${id}-handled`, `Handled · ${handled.length}`, handled)))
     .when(minors.length > 0, (el) => el.child(section(`${id}-minor`, `Minor · ${minors.length}`, minors)));

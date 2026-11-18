@@ -142,6 +142,22 @@ const stem = (name) => name.replace(/\.[^.]+$/, "");
 // What a fix run did with each finding of the deep review it came from: its writer's verdict when it gave one; else
 // "Changed" when a line of its report or the run's diff names that finding's file, with the line as why; else
 // "Not touched". `changed` is the run's changed paths, when read.
+// One finding, the same wherever it shows: a deep review's glance or a run reviewer's card.
+export const findingKey = (f) => `${f.level}|${f.where ?? ""}|${f.issue}`;
+
+// What the writer gets for the findings picked with Ask to fix: each one whole, then the person's own words.
+// The coordinator keeps 4000 characters, so long parts are cut before anything is dropped.
+export function fixRequest(findings, note = "") {
+  const words = note.trim(), cut = (s, n) => (s && s.length > n ? `${s.slice(0, n).trimEnd()}…` : s);
+  const build = (n) => [`Fix ${findings.length === 1 ? "this finding" : `these ${findings.length} findings`}. Check each against the code first; if one is not a bug or not worth fixing, say why in your report instead.`,
+    ...findings.map((f, i) => [`${i + 1}. [${f.level}] ${f.where || "no file"} — ${cut(f.issue, n)}`,
+      ...(f.fix ? [`   Fix: ${cut(f.fix, n)}`] : []), ...(f.proof ? [`   Proof: ${cut(f.proof, n)}`] : []),
+      ...(f.by?.length ? [`   Found by: ${f.by.join(", ")}`] : [])].join("\n")),
+    ...(words ? [`Also: ${words}`] : [])].join("\n\n");
+  for (const n of [Infinity, 400, 200, 120, 60]) { const text = build(n); if (text.length <= PROMPT_MAX) return text; }
+  return build(60).slice(0, PROMPT_MAX);
+}
+
 export function fixOutcome(findings, task, changed = []) {
   const report = [...(task.attempts ?? [])].reverse().find((a) => a.role === "executor" && a.report)?.report;
   const said = (fixChecklist(task)?.groups ?? []).flatMap((g) => g.items.map((i) => ({ ...i, verdict: g.verdict })));

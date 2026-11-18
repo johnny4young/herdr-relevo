@@ -393,6 +393,7 @@ export class Inbox {
     if (this.preview) return this.preview.close();
     this.reply.release();
     this.runChange?.release();
+    this.fixNote?.release();
     this.shortcutHelp?.close();
     this.wanted.clear();
   }
