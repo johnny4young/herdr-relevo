@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, TextareaState, Textarea } from "gpui-base";
 import { agents, exec, notify, panes, run, shared, setShared } from "herdr";
-import { LANE, alertLine, button, foldRow, legHeader, legend, joined, keyBar, keycap, meTint, plusMinus, row, onSubmitChord } from "./ui.js";
+import { LANE, alertLine, button, foldRow, icon, legHeader, legend, joined, keyBar, keycap, meTint, plusMinus, row, onSubmitChord } from "./ui.js";
 import { openReview } from "./review.js";
 import { RUN_LAUNCH, answerTrust } from "./run-launch.js";
 import { GOAL_MODE, GOAL_SCOPE, workflowCommand } from "./inbox-goals.js";
@@ -31,7 +31,7 @@ const WHY_LINES = 4, FILE_LINES = 8;
 const LAUNCH_SHOWN_MS = 300000;
 const LEGEND = ["me", "flight", "ready"];
 // What a step of a task is, as the lane glyph of its row.
-const LEG_TURN = { ok: "ready", bad: "stuck", run: "flight", you: "me" };
+const LEG_MARK = { ok: ["check", "done"], bad: ["warn", "blocked"], run: [null, "working"], you: [null, "accent"], wait: [null, "dim"] };
 const line = (s, t, attention = false) => (attention ? alertLine(t, `alert-${String(s).length}-${String(s).slice(0, 24)}`, s).px(8).text_size(11) : div().px(8).text_size(11).text_color(t.muted).child(s));
 const labelled = (t, id, label, body, width = 56) => h_flex().id(id).gap(8).items_start().min_w(0)
   .child(div().w(width).flex_none().pt(1).text_size(11).text_color(t.dim).child(label)).child(body);
@@ -290,17 +290,17 @@ export class RunViews {
   }
 
   // A fix of a deep review reads against that review: each finding and what the fix did with it.
-  fixSummary(t, task, ui) {
+  // A fix run measured against the deep review it came from; null when it came from none.
+  fixOutcomeOf(task) {
     const reviews = task.worktree?.prUrl ? (this.workflowTasks ?? []).filter((x) => x.pr?.url === task.worktree.prUrl) : [];
     const findings = mergedFindings(reviews);
-    if (findings.length) {
-      const d = this.taskDiff?.taskId === task.id ? this.taskDiff : null;
-      const changed = d?.result ? diffFiles(d.result).list.map((f) => f.path) : [];
-      // Ask to fix writes that finding into Ask for changes, ready to send.
-      const ask = task.state === "needs_you" ? (f, cx) => { this.askRunChanges(task, cx);
-        this.runChange.set_value(`Fix this too: [${f.level}] ${f.where ?? ""} — ${f.issue}${f.fix ? ` Fix: ${f.fix}` : ""}`); } : null;
-      return [div().px(8).pb(8).child(fixGlanceView(t, "task-fix-outcome", fixOutcome(findings, task, changed), { ...ui, ask }))];
-    }
+    if (!findings.length) return null;
+    const d = this.taskDiff?.taskId === task.id ? this.taskDiff : null;
+    return fixOutcome(findings, task, d?.result ? diffFiles(d.result).list.map((f) => f.path) : []);
+  }
+
+  fixSummary(t, task, ui, outcome) {
+    if (outcome) return [div().px(8).pb(8).child(fixGlanceView(t, "task-fix-outcome", outcome, ui))];
     const list = fixChecklist(task);
     return list ? [div().px(8).pb(6).child(fixChecklistView(t, "task-checklist", list))] : [];
   }
@@ -320,6 +320,14 @@ export class RunViews {
 
   reviewsOf(task) {
     return (this.workflowTasks ?? []).filter((x) => x.goalId === task.goalId && x.pr?.url === task.pr?.url);
+  }
+
+  // Ask to fix adds each finding to Ask for changes once, so several go out in one message.
+  askToFix(task, findings, cx) {
+    this.askRunChanges(task, cx);
+    const have = this.runChange.value().trim();
+    const add = findings.map((f) => `- [${f.level}] ${f.where ?? ""} — ${f.issue}${f.fix ? ` Fix: ${f.fix}` : ""}`).filter((l) => !have.includes(l));
+    if (add.length) this.runChange.set_value([have || "Fix these too:", ...add].join("\n"));
   }
 
   askRunChanges(task, cx) {
@@ -375,8 +383,12 @@ export class RunViews {
     if (d.loading) return [line("Reading the change…", t)];
     if (d.error) return [line(d.error, t)];
     const files = diffFiles(d.result), shown = files.list.slice(0, FILE_LINES), more = files.more + files.list.length - shown.length;
-    return [v_flex().id("task-files").px(8).pt(6).gap(2)
-      .child(h_flex().gap(6).items_center().text_size(11).text_color(t.muted).child(div().child(files.head)).children(plusMinus(t, files.added, files.removed)))
+    return [v_flex().id("task-files").px(8).pt(10).gap(2)
+      .child(h_flex().gap(6).items_center().pb(2)
+        .child(div().text_size(11).font_semibold().text_color(t.muted).child(files.head)).children(plusMinus(t, files.added, files.removed))
+        .child(div().flex_1())
+        .child(button(t, "task-diff", [keycap(t, "d"), "Review"], () => this.seeDiff(task),
+          { kind: task.state === "needs_you" ? "solid" : "ghost", tip: task.worktree ? "Opens the change in the review pane beside the panel" : "Opens the run window on this task's result and diff" })))
       .children(shown.map((file, i) => h_flex().id(`task-file-${i}`).gap(6).items_center().cursor_pointer().rounded(4).hover((s) => s.bg(t.hover))
         .on_click(() => this.seeDiff(task, file.path))
         .child(div().flex_1().min_w(0).truncate().text_size(13).tooltip(file.path).child(file.path))
@@ -643,12 +655,15 @@ export class RunViews {
     ];
   }
 
-  legRow(t, leg) {
-    const at = Date.parse(leg.at ?? "");
-    const turn = LEG_TURN[leg.state] ?? "open";
-    // In a task, the one leg that is your turn stands out.
-    return row(t, `task-leg-${leg.id}`, { turn, title: leg.who, reason: leg.what, tip: leg.what,
-      age: leg.now ? "now" : Number.isFinite(at) ? ago(at / 1000, true) : null }).when(turn === "me", (el) => el.bg(meTint(t)));
+  // One line per leg: done, going, waiting, or your turn tinted.
+  legLine(t, leg) {
+    const at = Date.parse(leg.at ?? ""), [glyph, tone] = LEG_MARK[leg.state] ?? LEG_MARK.wait;
+    return h_flex().id(`task-leg-${leg.id}`).w_full().min_w(0).gap(8).px(4).py(2).items_center().rounded(4).tooltip(leg.what)
+      .when(leg.state === "you", (el) => el.bg(meTint(t)))
+      .child(h_flex().w(12).flex_none().justify_center().child(glyph ? icon(glyph, t[tone], 11) : div().size(6).rounded_full().bg(t[tone])))
+      .child(div().flex_none().text_size(13).font_semibold().text_color(leg.state === "wait" ? t.muted : t.foreground).child(leg.who))
+      .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.muted).child(leg.what))
+      .when(Boolean(leg.now) || Number.isFinite(at), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(leg.now ? "now" : ago(at / 1000, true))));
   }
 
   // A task: the writer's summary, who did what, then the decision.
@@ -690,22 +705,23 @@ export class RunViews {
     }
     const notes = waiting ? taskNotes(task) : null, linked = linkedDecision(goal, tasks).task?.id === task.id;
     // A file a finding names opens in the run's change, beside the panel.
-    const ui = { ...this.deepUi([task]), openFile: task.worktree ? (where) => this.seeDiff(task, where.replace(/:\d+(-\d+)?$/, "")) : null };
-    // Where it stands, what it did and what you decide come first; who did what, the files and the tries fold.
-    const status = statusWords(task), d = this.taskDiff?.taskId === task.id ? this.taskDiff : null, files = d?.result ? diffFiles(d.result) : null;
+    const ask = waiting && !task.pr ? (list, cx) => this.askToFix(task, list, cx) : null;
+    const ui = { ...this.deepUi([task]), ask, openFile: task.worktree ? (where) => this.seeDiff(task, where.replace(/:\d+(-\d+)?$/, "")) : null };
+    const outcome = this.fixOutcomeOf(task), left = outcome?.left.length ?? 0, status = statusWords(task);
     const tries = (task.attempts ?? []).filter((a) => a.role === "executor").length;
     return [
       ...(taskTurn(task) === "stuck" ? [v_flex().id("task-stuck").px(8).pb(6).gap(4).children(this.stuckLines(t, goal, task))] : []),
-      div().id("task-status").px(8).pb(4).text_size(13).font_semibold().text_color(t[status.tone]).child(status.text),
+      div().id("task-status").px(8).pb(4).text_size(13).font_semibold().text_color(left ? t.ansi3 : t[status.tone])
+        .child(left ? `${status.text} · ${left} ${left === 1 ? "major" : "majors"} from the deep review left` : status.text),
       ...(summary ? [div().id("task-summary").px(8).pb(6).text_size(13).child(summary)] : []),
-      ...this.fixSummary(t, task, ui),
+      ...this.fixSummary(t, task, ui, outcome),
       ...(notes && (notes.findings.length || notes.unchecked.length) ? [div().id("task-notes").px(8).pt(2).child(notesView(t, `notes-${task.id}`, notes, ui))] : []),
       ...(linked ? [line(`Also resolves: ${caption(goal.decision, 120)}`, t)] : []),
-      foldRow(this, t, "task-files-fold", `files-${task.id}`, files ? `${files.head} · +${files.added} −${files.removed}` : "Changed files", { gap: true }),
-      ...(this.expanded[`files-${task.id}`] ? this.taskFiles(t, task) : []),
-      foldRow(this, t, "task-how-fold", `how-${task.id}`, `How it went${tries > 1 ? ` · ${tries} tries` : ""}`),
-      ...(this.expanded[`how-${task.id}`] ? [v_flex().id("task-legs").children(joined(t, taskLegs(task).map((leg) => this.legRow(t, leg)))),
-        ...(canCompare(task) ? [v_flex().id("task-attempts").px(8).pt(6).gap(2).children(this.attemptLines(t, task))] : [])] : []),
+      ...this.taskFiles(t, task),
+      v_flex().id("task-how").px(8).pt(10).gap(3)
+        .child(div().text_size(11).font_semibold().text_color(t.muted).child(`How it went${tries > 1 ? ` · ${tries} tries` : ""}`))
+        .children(taskLegs(task).map((leg) => this.legLine(t, leg))),
+      ...(canCompare(task) ? [v_flex().id("task-attempts").px(8).pt(6).gap(2).children(this.attemptLines(t, task))] : []),
       this.taskDecision(t, goal, task, tasks),
     ];
   }
@@ -749,7 +765,8 @@ export class RunViews {
     const confirming = acceptArmed(this.acceptIntent, task);
     const keyed = (cap, label) => [keycap(t, cap), label];
     const more = button(t, "task-more", "More", () => openWorkflow(goal.id, task.id), { kind: "ghost", tip: "Full report, evidence and activity in the run window" });
-    const diff = button(t, "task-diff", keyed("d", "See the diff"), () => this.seeDiff(task),
+    const filesShown = !task.pr && this.taskDiff?.taskId === task.id && Boolean(this.taskDiff.result);
+    const diff = filesShown ? null : button(t, "task-diff", keyed("d", "See the diff"), () => this.seeDiff(task),
       { kind: waiting ? "solid" : "ghost", tip: task.worktree ? "Opens the change in the review pane beside the panel" : "Opens the run window on this task's result and diff" });
     if (editing) return v_flex().id("task-decision").px(8).pt(8).gap(6)
       .child(Textarea.new(this.runChange).id("task-changes-field").w_full().min_w(0).accessibility_label("What should change?")
@@ -770,14 +787,14 @@ export class RunViews {
           .child(button(t, "task-accept", confirming ? keyed("enter", "Confirm accept") : keyed("a", task.worktree?.prHead ? `Accept and push to ${task.worktree.prHead}` : draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accept and open draft PR" : "Accept"), (cx) => this.acceptStep(task, cx),
             { kind: "accent", disabled: Boolean(this.runBusy), tip: "A, then Enter" }))
           .child(button(t, "task-changes", keyed("r", "Ask for changes"), (cx) => this.askRunChanges(task, cx), { disabled: Boolean(this.runBusy) }))
-          .child(diff))
+          .when(Boolean(diff), (b) => b.child(diff)))
         .when(followUpAvailable(task), (bar) => bar.child(this.followUpButton(t, goal, task, "task-follow-up")))
         .when(Boolean(push), (bar) => bar.child(button(t, "task-push", `Push to ${task.worktree?.prHead}`, (cx) => this.pushRun(task, cx),
           { kind: "go", disabled: Boolean(this.runBusy), tip: "Adds the accepted commit to the pull request's branch on GitHub; never forced" })))
         .when(["accepted", "cancelled"].includes(task.state), (bar) => bar.child(button(t, "task-rerun", "Re-run with changes…",
           () => openWorkflow(goal.id, task.id, { followUp: "rerun" }), { tip: "Opens a new task with this one's prompt in the run window; nothing is sent until you start it" })))
         .when(canCompare(task), (bar) => bar.child(this.compareButton(t, task, "task-compare")))
-        .when(!waiting, (bar) => bar.child(diff)).child(div().flex_1()).child(more))
+        .when(!waiting && Boolean(diff), (bar) => bar.child(diff)).child(div().flex_1()).child(more))
       .when(waiting, (el) => el.child(div().id("task-effect").min_w(0).text_size(11).text_color(t.muted).child(effect)));
   }
 }

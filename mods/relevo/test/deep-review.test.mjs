@@ -358,17 +358,18 @@ test("a run row selects on a click and shows e, c and p; a second click opens it
   assert.equal(v.goalProjection.scope?.id, "g", "a second click opens");
 });
 
-test("the fix at a glance: majors handled and left, Ask to fix on what is left, the rest folded", async () => {
+test("the fix at a glance: majors handled and left, Ask to fix on what is left, what it handled in plain sight", async () => {
   const { fixGlanceView } = await import("../deep-review-view.js");
   const { fixOutcome } = await import("../lib/deep-review.js");
   const findings = mergedFindings([claude, codex]);
   const fix = { attempts: [{ role: "executor", report: { status: "completed", details: ["Fixed: src/a.js:4 — guarded it"] } }] };
-  const asked = [], open = new Set();
-  const ui = { open, toggle: (k) => (open.has(k) ? open.delete(k) : open.add(k)), ask: (f) => asked.push(f.where) };
+  const asked = [];
+  const ui = { ask: (list) => asked.push(list.map((f) => f.where)) };
   const view = () => fixGlanceView(theme(), "fg", fixOutcome(findings, fix, []), ui);
-  assert.match(text(view()), /^1 of 2 majors handled · 1 left major b\.js No test Ask to fix Handled · 1$/);
-  find(view(), "fg-left-0-ask").handlers.on_click({}, {});
-  assert.deepEqual(asked, ["src/b.js"]);
+  assert.equal(text(view()), "1 of 2 majors handled · 1 left major b.js No test Ask to fix Handled · 1 blocker a.js:4 Crashes on null Fixed");
+  find(view(), "fg-left-0-ask").handlers.on_click({}, { stop_propagation() {} });
+  assert.deepEqual(asked, [["src/b.js"]]);
+  assert.equal(find(view(), "fg-ask-all"), null, "one open finding needs no Ask to fix all");
   const { statusWords } = await import("../lib/run-panel.js");
   assert.equal(statusWords({ state: "needs_you", checks: [["make", "test"]], checksResult: [{ argv: ["make", "test"], code: 0 }], reviewer: { label: "Codex" },
     attempts: [{ role: "executor", report: { status: "completed" } }, { role: "reviewer", report: { status: "completed" } }] }).text, "Ready to accept · make test passed · Codex approved");

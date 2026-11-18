@@ -12,7 +12,11 @@ const mark = { approve: ["check", "done"], changes: ["warn", "blocked"], unsure:
 // "Sources/App/Settings/View.swift:12" reads as "View.swift:12"; the whole path is the tooltip.
 const shortWhere = (where) => String(where).split("/").pop();
 
-// `ui`: { open: Set of expanded keys, toggle(key, cx), openFile?(where, cx) }. `f.by` names who found it, when known.
+// A small bordered action, like Ask to fix.
+const chip = (t, id, label, onClick) => div().id(id).flex_none().px(6).h(20).flex().items_center().rounded(5).border_1().border_color(t.border)
+  .text_size(11).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); }).child(label);
+
+// `ui`: { open: Set of expanded keys, toggle(key, cx), openFile?(where, cx), ask?(findings, cx) }. `f.by` names who found it.
 export function findingCard(t, key, f, ui) {
   const open = ui.open.has(key), long = f.issue.length > LONG || Boolean(f.proof);
   return v_flex().id(key).w_full().min_w(0).gap(4).px(10).py(8).rounded(8).bg(t.raised)
@@ -28,7 +32,8 @@ export function findingCard(t, key, f, ui) {
       .when(Boolean(ui.outcomeOf?.(f)), (el) => el.child(div().flex_none().px(6).h(18).flex().items_center().rounded(4).text_size(11)
         .bg(`${["Fixed", "Changed"].includes(ui.outcomeOf(f)) ? t.done : t.dim}26`).text_color(["Fixed", "Changed"].includes(ui.outcomeOf(f)) ? t.done : t.muted).child(ui.outcomeOf(f))))
       .when(f.by?.length > 1, (el) => el.child(div().flex_none().px(6).h(18).flex().items_center().rounded(4).bg(t.selected).text_size(11).child("Both")))
-      .when(f.by?.length === 1, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(f.by[0]))))
+      .when(f.by?.length === 1, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(f.by[0])))
+      .when(Boolean(ui.ask), (el) => el.child(chip(t, `${key}-ask`, "Ask to fix", (cx) => ui.ask([f], cx)))))
     .child(div().w_full().min_w(0).text_size(13).text_color(t.foreground).child(long && !open ? `${f.issue.slice(0, LONG).trimEnd()}…` : f.issue))
     .when(open && Boolean(f.proof), (el) => el.child(div().w_full().min_w(0).text_size(11).text_color(t.muted).child(f.proof)))
     .when(Boolean(f.fix), (el) => el.child(h_flex().w_full().min_w(0).gap(6).items_start()
@@ -54,7 +59,9 @@ export function foldList(t, key, label, items, ui) {
 export function notesView(t, id, notes, ui) {
   const findings = [...notes.findings].sort((a, b) => LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level));
   return v_flex().id(id).w_full().min_w(0).gap(8)
-    .when(findings.length > 0, (el) => el.child(div().text_size(11).font_semibold().text_color(t.muted).child("The reviewer found")))
+    .when(findings.length > 0, (el) => el.child(h_flex().w_full().gap(6).items_center()
+      .child(div().flex_1().text_size(11).font_semibold().text_color(t.muted).child("The reviewer found"))
+      .when(Boolean(ui.ask) && findings.length > 1, (h) => h.child(chip(t, `${id}-ask-all`, `Ask to fix all (${findings.length})`, (cx) => ui.ask(findings, cx))))))
     .children(findings.map((f, i) => findingCard(t, `${id}-f-${i}`, f, ui)))
     .when(notes.unchecked.length > 0, (el) => el.child(foldList(t, `${id}-unchecked`, "Not checked", notes.unchecked, ui)));
 }
@@ -124,31 +131,28 @@ export function fixOutcomeView(t, id, outcome) {
     }));
 }
 
-// The fix at a glance: how many majors it handled, the ones left (each with Ask to fix), and the rest folded.
-// `ui`: { open, toggle, ask?(finding, cx) }.
+const OPEN = ["Not touched", "Needs your call"];
+
+// The fix at a glance: how many majors it handled, the ones left, what it handled and the minor notes, one line each.
+// Anything still open carries Ask to fix. `ui`: { ask?(findings, cx) }.
 export function fixGlanceView(t, id, outcome, ui) {
-  const line = (r, i, key, ask) => h_flex().id(`${key}-${i}`).w_full().min_w(0).gap(6).items_center().tooltip(r.why || r.f.issue)
+  const line = (r, i, key) => h_flex().id(`${key}-${i}`).w_full().min_w(0).gap(6).items_center().tooltip(r.why || r.f.issue)
     .child(div().flex_none().text_size(11).text_color(toneOf(t, r.f.level)).child(r.f.level))
     .child(div().flex_none().max_w(170).truncate().text_size(11).font_family("JetBrains Mono").text_color(t.muted).child(shortWhere(r.f.where ?? "")))
     .child(div().flex_1().min_w(0).truncate().text_size(13).child(r.f.issue))
-    .when(!ask, (el) => el.child(div().flex_none().text_size(11).text_color(["Fixed", "Changed"].includes(r.outcome) ? t.done : t.muted).child(r.outcome)))
-    .when(Boolean(ask && ui.ask), (el) => el.child(div().id(`${key}-${i}-ask`).flex_none().px(6).h(20).flex().items_center().rounded(5).border_1().border_color(t.border)
-      .text_size(11).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => ui.ask(r.f, cx)).child("Ask to fix")));
-  const fold = (key, label, rows) => {
-    const open = ui.open.has(key);
-    return v_flex().id(key).w_full().min_w(0).gap(3)
-      .child(h_flex().id(`${key}-head`).gap(6).items_center().cursor_pointer().on_click((_e, cx) => ui.toggle(key, cx))
-        .child(icon(open ? "chevron-down" : "chevron-right", t.dim, 10)).child(div().text_size(11).text_color(t.dim).child(label)))
-      .when(open, (el) => el.children(rows.map((r, i) => line(r, i, key, false).pl(16))));
-  };
+    .child(ui.ask && OPEN.includes(r.outcome) ? chip(t, `${key}-${i}-ask`, "Ask to fix", (cx) => ui.ask([r.f], cx))
+      : div().flex_none().text_size(11).text_color(["Fixed", "Changed"].includes(r.outcome) ? t.done : t.muted).child(r.outcome));
+  const section = (key, label, rows) => v_flex().id(key).w_full().min_w(0).gap(3).pt(4)
+    .child(div().text_size(11).text_color(t.dim).child(label)).children(rows.map((r, i) => line(r, i, key)));
   const handled = outcome.majors.filter((r) => !outcome.left.includes(r)), minors = outcome.rows.filter((r) => r.f.level === "minor");
-  const minorTally = ["Fixed", "Changed", "False positive", "Won't fix", "Needs your call", "Not touched"]
-    .map((o) => [o, minors.filter((r) => r.outcome === o).length]).filter(([, n]) => n).map(([o, n]) => `${n} ${o.toLowerCase()}`).join(" · ");
-  return v_flex().id(id).w_full().min_w(0).gap(5)
-    .child(div().text_size(13).font_semibold().text_color(outcome.left.length ? t.blocked : t.done).child(outcome.tally))
-    .children(outcome.left.map((r, i) => line(r, i, `${id}-left`, true)))
-    .when(handled.length > 0, (el) => el.child(fold(`${id}-handled`, `Handled · ${handled.length}`, handled)))
-    .when(minors.length > 0, (el) => el.child(fold(`${id}-minor`, `${minors.length} minor · ${minorTally}`, minors)));
+  const open = [...outcome.left, ...minors.filter((r) => OPEN.includes(r.outcome))].map((r) => r.f);
+  return v_flex().id(id).w_full().min_w(0).gap(3)
+    .child(h_flex().w_full().gap(6).items_center()
+      .child(div().flex_1().text_size(13).font_semibold().text_color(outcome.left.length ? t.blocked : t.done).child(outcome.tally))
+      .when(Boolean(ui.ask) && open.length > 1, (el) => el.child(chip(t, `${id}-ask-all`, `Ask to fix all (${open.length})`, (cx) => ui.ask(open, cx)))))
+    .children(outcome.left.map((r, i) => line(r, i, `${id}-left`)))
+    .when(handled.length > 0, (el) => el.child(section(`${id}-handled`, `Handled · ${handled.length}`, handled)))
+    .when(minors.length > 0, (el) => el.child(section(`${id}-minor`, `Minor · ${minors.length}`, minors)));
 }
 
 // A run starting, as steps: done, the one going on, the ones to come, and one waiting on a question in red.
