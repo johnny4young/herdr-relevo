@@ -105,6 +105,11 @@ export function followUpAvailable(task) {
   return !attemptsLeft(task) || (task.attempts ?? []).filter((attempt) => attempt.role === "reviewer").length >= (task.maxRounds ?? 2) + 1;
 }
 
+// A stuck run whose writer is still its own tries once more in place, instead of starting a new task.
+export function canTryAgain(task) {
+  return followUpAvailable(task) && Boolean(task.executor) && !task.pr && !task.worktree?.removed;
+}
+
 // A run row from its bucket of tasks: its group, lane glyph, what it is doing or wants, and its one action.
 export function runRow(goal, bucket, { engine = null, error = null, decision = false, reviewCount = 0, launch = null } = {}) {
   const open = { kind: "open", label: "Open" };

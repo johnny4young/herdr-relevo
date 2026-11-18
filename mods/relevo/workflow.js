@@ -225,7 +225,7 @@ export class Workflow extends WorkflowDetail {
     this.h.focus(); cx.notify();
   }
 
-  command(payload, sourceCx, afterSuccess = null) {
+  command(payload, sourceCx, afterSuccess = null, afterError = null) {
     const cx = sourceCx;
     if (this.closed || this.busy) return;
     const submittedDraft = payload.action === "create" ? this.taskDraftSnapshot() : null;
@@ -266,6 +266,7 @@ export class Workflow extends WorkflowDetail {
       await this.load(cx);
     } catch (error) {
       if (!this.closed) this.error = `Action needs attention: ${error.message ?? error}`;
+      afterError?.(error, cx);
     }
     if (!this.closed) {
       this.busy = false;
@@ -275,7 +276,7 @@ export class Workflow extends WorkflowDetail {
   }
 
   create(cx, { start = false } = {}) {
-    if (this.launch?.stage === "stalled") { Object.assign(this.launch, { stage: "waiting", at: Date.now() }); this.busy = true; this.error = null; cx.notify(); return; }
+    if (["stalled", "failed"].includes(this.launch?.stage)) { Object.assign(this.launch, { stage: "waiting", at: Date.now(), failure: null }); this.busy = true; this.error = null; cx.notify(); return; }
     if (this.pendingDraft) { this.error = "Resume or discard the saved draft before creating another task."; cx.notify(); return; }
     this.persistDraft({ now: true });
     const submittedFields = JSON.stringify(this.taskDraftSnapshot());
@@ -510,7 +511,7 @@ export class Workflow extends WorkflowDetail {
     const agentName = (address) => { const agent = agents().find((item) => item.address === address); return agent ? agentLabel(agent) : null; };
     const rootName = this.form.root.value().trim().split("/").filter(Boolean).at(-1);
     const isolated = this.runMode() === "worktree", accounts = this.runAccounts(), checks = this.checksNow();
-    const setupLabel = isolated ? [rootName, this.prTarget ? `fixes #${this.prTarget.number}` : "own worktree", `${accountOf(accounts.executor).label} → ${accountOf(accounts.reviewer).label}`, checks ? checksLabel(checks) : "custom tests"].filter(Boolean).join(" · ") : chosen === 2 ? [rootName, `${agentName(this.executor)} → ${agentName(this.reviewer)}`].filter(Boolean).join(" · ") : `Repository & agents · ${chosen}/2 selected`;
+    const setupLabel = isolated ? [rootName, this.prTarget ? (this.prTarget.number ? `fixes #${this.prTarget.number}` : `pushes to ${this.prTarget.headRef}`) : "own worktree", `${accountOf(accounts.executor).label} → ${accountOf(accounts.reviewer).label}`, checks ? checksLabel(checks) : "custom tests"].filter(Boolean).join(" · ") : chosen === 2 ? [rootName, `${agentName(this.executor)} → ${agentName(this.reviewer)}`].filter(Boolean).join(" · ") : `Repository & agents · ${chosen}/2 selected`;
     return v_flex().w_full().min_w(0).gap(12)
       .child(div().font_semibold().child(fromPrompt ? "Start run" : "New task"))
       .when(fromPrompt && !this.editRunPrompt, (el) => el.child(h_flex().gap(8).items_center()

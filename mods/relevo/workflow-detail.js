@@ -15,6 +15,7 @@ import { deepReviewView, fixChecklistView, fixOutcomeView, notesView } from "./d
 import { deepReviewNotice, dropReviewTrees, fixFindings, postDraftReview } from "./deep-review.js";
 import { fixChecklist, fixOutcome, mergedFindings, reviewAdvice, reviewTitle } from "./lib/deep-review.js";
 import { runtimeCommand } from "./runtime-cli.js";
+import { TEXT_MAX } from "./lib/run-report.js";
 import { row, taskState, reportState, verdictLine, role, count, attemptLabel, caption, reportNotes, SUMMARY_PREVIEW } from "./workflow-labels.js";
 
 const MESSAGE_STATE = { queued: "Queued", sending: "Sending", delivered: "Delivered", uncertain: "Not sure it arrived" };
@@ -68,10 +69,17 @@ export class WorkflowDetail extends WorkflowRuns {
     cx.timer.after(30, () => { if (!this.closed && this.decisionNoteFor === task.id) this.form.decision.focus(); });
   }
 
+  // A follow-up starts from the repository, not the run's worktree, and a fix of a pull request still pushes to it.
+  followUpFrom(task) {
+    const wt = task.worktree;
+    this.form.root.set_value(wt?.base ?? task.root ?? "");
+    this.prTarget = wt?.prHead ? { root: wt.base, headRef: wt.prHead, url: wt.prUrl ?? null, number: Number(/\/pull\/(\d+)/.exec(wt.prUrl ?? "")?.[1]) || null } : null;
+  }
+
   prepareFollowUp(task, cx) {
     this.form.title.set_value(`Follow up: ${task.title}`.slice(0, 240));
-    this.form.root.set_value(task.root ?? "");
-    this.form.criteria.set_value(`${task.criteria ?? ""}\nRequested changes: ${this.form.decision.value().trim()}`);
+    this.followUpFrom(task);
+    this.form.criteria.set_value(`${task.criteria ?? ""}\nRequested changes: ${this.form.decision.value().trim()}`.slice(0, TEXT_MAX));
     this.form.checks.set_value(checksText(task.checks));
     this.checkPreset = task.checks?.length ? "custom" : "none";
     this.form.maxRounds.set_value(String(task.maxRounds ?? 2));
@@ -86,8 +94,8 @@ export class WorkflowDetail extends WorkflowRuns {
     const reviewer = [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === "reviewer" && attempt.report);
     const findings = [reviewer?.report?.summary?.trim(), ...reportNotes(reviewer?.report)].filter(Boolean).join("\n");
     this.form.title.set_value(`Follow up: ${task.title}`.slice(0, 240));
-    this.form.root.set_value(task.root ?? "");
-    this.form.criteria.set_value([task.criteria, findings ? `Latest reviewer findings: ${findings}` : "Latest reviewer findings: none recorded."].filter(Boolean).join("\n\n"));
+    this.followUpFrom(task);
+    this.form.criteria.set_value([task.criteria, findings ? `Latest reviewer findings: ${findings}` : "Latest reviewer findings: none recorded."].filter(Boolean).join("\n\n").slice(0, TEXT_MAX));
     this.form.checks.set_value(checksText(task.checks));
     this.checkPreset = task.checks?.length ? "custom" : "none";
     this.form.maxRounds.set_value(String(task.maxRounds ?? 2));

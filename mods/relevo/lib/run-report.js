@@ -2,6 +2,8 @@
 // could not prove or run, and how the work is going while it lasts. Agents write it, so every field is cleaned.
 export const LEVELS = ['blocker', 'major', 'minor'];
 // An attempt's time limit when its task names none.
+// What a run's prompt or a request to its writer may hold; the agent gets it whole.
+export const TEXT_MAX = 16000;
 export const DEFAULT_MAX_MINUTES = 20;
 const LINE = 400, ITEMS = 30, STATUS_LINE = 60;
 

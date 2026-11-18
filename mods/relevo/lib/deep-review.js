@@ -1,6 +1,6 @@
 // A deep review's findings, from each reviewer's report: merged where they agree, as a GitHub draft review, and as
 // the prompt of a run that fixes them. Pure, so tests feed it tasks.
-import { LEVELS } from "./run-report.js";
+import { LEVELS, TEXT_MAX } from "./run-report.js";
 
 const reportOf = (task) => [...(task.attempts ?? [])].reverse().find((a) => a.role === "reviewer" && a.report)?.report ?? null;
 const who = (task) => task.reviewer?.label ?? task.reviewer?.address ?? "Reviewer";
@@ -89,7 +89,7 @@ export function draftReview(tasks, inline = true) {
 
 // What a fix run is asked to do: a verdict on every finding, as /code-review-pr-fix gives one. A task's prompt holds
 // PROMPT_MAX characters, so long findings are cut first, and minor ones go only as a last resort.
-const PROMPT_MAX = 3900;
+const PROMPT_MAX = TEXT_MAX - 100;
 export const VERDICTS = ["Needs your call", "Fixed", "False positive", "Won't fix"];
 export function findingsPrompt(pr, tasks) {
   const all = mergedFindings(tasks);
@@ -146,7 +146,7 @@ const stem = (name) => name.replace(/\.[^.]+$/, "");
 export const findingKey = (f) => `${f.level}|${f.where ?? ""}|${f.issue}`;
 
 // What the writer gets for the findings picked with Ask to fix: each one whole, then the person's own words.
-// The coordinator keeps 4000 characters, so long parts are cut before anything is dropped.
+// The coordinator keeps TEXT_MAX characters, so long parts are cut before anything is dropped.
 export function fixRequest(findings, note = "") {
   const words = note.trim(), cut = (s, n) => (s && s.length > n ? `${s.slice(0, n).trimEnd()}…` : s);
   const build = (n) => [`Fix ${findings.length === 1 ? "this finding" : `these ${findings.length} findings`}. Check each against the code first; if one is not a bug or not worth fixing, say why in your report instead.`,

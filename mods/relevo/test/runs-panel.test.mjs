@@ -169,7 +169,7 @@ test('a stuck task, selected, says why in the reviewer words and offers the foll
   click(find(tree, 'task-why-d'), cx); tree = v.render(cx);
   assert.equal(v.sel, 'task-d');
   assert.equal(text(find(tree, 'task-why-text-d')), 'Why The nav row still overflows. [major] ui.js: row is cut');
-  assert.equal(text(find(tree, 'task-next-d')), 'Next Prepare a follow-up');
+  assert.equal(text(find(tree, 'task-next-d')), 'Next Try again… Prepare a follow-up', 'its writer is still its own, so it can try again in place');
   click(find(tree, 'task-follow-up-d'), cx);
   assert.deepEqual(windows(), [{ role: 'workflow', goalId: 'g', taskId: 'd', followUp: 'blocked' }]);
   assert.equal(calls(/cli\.mjs/).length, 0, 'preparing sends nothing');
@@ -553,4 +553,23 @@ test('a fix run says how many deep review majors are left; Ask to fix marks find
     '1. [major] src/b.js — No test\n   Fix: Add one\n   Found by: Team Haiku', '2. [minor] y.js — Trim it', '3. [major] src/c.js — Leaks the timer\n   Found by: Team Haiku',
     'Also: Keep the public API.'].join('\n\n'));
   assert.equal(v.fixPicks, null, 'sent, the marks clear');
+});
+
+test('a stuck worktree run shows its findings to mark and tries again in place with them', async () => {
+  const wt = { branch: 'run/d', base: '/work/app', path: '/work/app' };
+  const { v, cx } = await runs([stuck('d', { worktree: wt, attempts: [wrote(), reviewed('changes_requested', { summary: 'Two left.',
+    findings: [{ level: 'major', where: 'ui.js', issue: 'row is cut', fix: 'Wrap it' }, { level: 'minor', where: 'nav.js', issue: 'Name it' }] })] })]);
+  v.navKey({ key: 'j' }, cx); v.navKey({ key: 'enter' }, cx); v.render(cx); v.navKey({ key: 'enter' }, cx);
+  let tree = v.render(cx);
+  assert.equal(text(find(tree, 'task-why-text-d')), 'Why Two left.', 'the findings show as cards, not again here');
+  assert.match(text(find(tree, 'task-picks')), /^All 2 findings to fix One more try in its worktree/);
+  assert.equal(find(tree, 'task-picks-clear'), null);
+  click(find(tree, 'notes-d-f-1-ask'), cx); tree = v.render(cx);
+  assert.match(text(find(tree, 'task-picks')), /^1 to fix/);
+  v.fixNote.set_value('Keep it short.');
+  answers([{ ...stuck('d', { worktree: wt }), state: 'ready' }]);
+  click(find(tree, 'task-picks-send'), cx); await flush();
+  const sent = calls(/"action":"retry"/).map((line) => JSON.parse(line.slice(line.indexOf('{'))));
+  assert.deepEqual(sent, [{ action: 'retry', taskId: 'd', text: 'Fix this finding. Check each against the code first; if one is not a bug or not worth fixing, say why in your report instead.\n\n1. [minor] nav.js — Name it\n\nAlso: Keep it short.' }]);
+  assert.match(v.runNotice, /^Trying again/);
 });

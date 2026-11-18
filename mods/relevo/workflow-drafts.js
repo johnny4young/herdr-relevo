@@ -1,5 +1,6 @@
 import { shared, setShared, agents as liveAgents, panes as livePanes } from 'herdr';
 import { role as roleWords } from './lib/run-words.js';
+import { TEXT_MAX } from './lib/run-report.js';
 
 const VERSION = 1;
 const KEY_PREFIX = 'relevo.workflow.draft.v1.';
@@ -21,7 +22,7 @@ export function normalizeWorkflowDraft(goalId, input) {
   if (!plainObject(input) || Object.keys(input).some((key) => !FIELD_KEYS.includes(key))) return null;
   const { title, root, criteria, checks, maxRounds, maxMinutes, checkPreset, executor, reviewer, dependsOn } = input;
   if (typeof title !== 'string' || title.length > 240 || typeof root !== 'string' || root.length > 4096 ||
-      typeof criteria !== 'string' || criteria.length > 4000 || typeof checks !== 'string' || checks.length > MAX_RECORD_CHARS ||
+      typeof criteria !== 'string' || criteria.length > TEXT_MAX || typeof checks !== 'string' || checks.length > MAX_RECORD_CHARS ||
       typeof maxRounds !== 'string' || maxRounds.length > 8 || typeof maxMinutes !== 'string' || maxMinutes.length > 8 ||
       !PRESETS.has(checkPreset) || typeof executor !== 'string' || executor.length > 256 ||
       typeof reviewer !== 'string' || reviewer.length > 256 || !Array.isArray(dependsOn) || dependsOn.length > 200 ||

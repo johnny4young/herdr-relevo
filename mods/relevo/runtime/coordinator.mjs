@@ -10,7 +10,7 @@ import { proposePreference, updatePreference, deletePreference, preferencesFor, 
 import * as config from '../config.js';
 import { renderRole } from './roles.mjs';
 import { draftBody } from '../lib/workflow-navigation.js';
-import { LEVELS, DEFAULT_MAX_MINUTES, CONVENTIONAL, cleanReport, commitMessage, reviewStatus, feedbackOf, cleanProgress } from '../lib/run-report.js';
+import { LEVELS, TEXT_MAX, DEFAULT_MAX_MINUTES, CONVENTIONAL, cleanReport, commitMessage, reviewStatus, feedbackOf, cleanProgress } from '../lib/run-report.js';
 
 // Older config.js files lack the newer names; a missing named import would stop the coordinator.
 const SKILLS = config.SKILLS ?? {};
@@ -90,7 +90,7 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     } catch (error) { return { code: 1, stderr: error.message }; }
   };
   function validateTask(input, doc, allowedNewDependencies = []) {
-    if (!input || !text(input.goalId, 100) || !text(input.title, 240) || !text(input.criteria, 4000) || !path.isAbsolute(input.root ?? '')) throw Error('Choose a goal, title, repository and expected outcome');
+    if (!input || !text(input.goalId, 100) || !text(input.title, 240) || !text(input.criteria, TEXT_MAX) || !path.isAbsolute(input.root ?? '')) throw Error('Choose a goal, title, repository and expected outcome');
     const goals = JSON.parse(fs.readFileSync(path.join(home, 'relevo-goals.json'), 'utf8'));
     if (!goals.goals?.some((g) => g.id === input.goalId && g.state !== 'completed')) throw Error('Choose an open goal');
     // A pull request's review has no writer here: its findings go to a draft review or a fix run, not to an agent.
@@ -400,6 +400,19 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       await removeArtifact(dir, artifact);
       return update((doc) => { const task = taskById(doc, before.id); task.evidence = task.evidence.filter((e) => e.id !== artifact.id); log(doc, task, 'Evidence removed', artifact.label || artifact.kind, 'Human'); });
     }
+    // A stuck run tries once more in place: same worktree, writer and reviewer, with what to fix.
+    if (action === 'retry') {
+      if (!text(payload.text, TEXT_MAX)) throw Error('Say what the next try should fix');
+      return update((doc) => {
+        const task = taskById(doc, before.id);
+        if (!['blocked', 'failed'].includes(task.state) || !task.executor || task.pr || task.worktree?.removed) throw Error('Only a stuck run with its writer can try again');
+        if (task.attempts.at(-1)?.state === 'running') throw Error('An attempt is still running');
+        task.maxRounds = Math.max(task.maxRounds, task.round + 1); task.error = null;
+        task.decisions.push({ id: uid(), outcome: 'retry', text: payload.text.slice(0, TEXT_MAX), revision: task.revision, at: new Date(clock()).toISOString() });
+        task.state = 'ready'; task.nextRole = 'executor'; task.feedback = payload.text; task.paused = false; doc.engine.enabled = true;
+        log(doc, task, 'Human decision', `retry: ${payload.text}`, 'Human');
+      });
+    }
     if (action === 'decide') {
       const current = await fp(before);
       const decided = update((doc) => decide(doc, taskById(doc, before.id), payload, current));
@@ -555,9 +568,9 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (issue) throw Error(issue);
     }
     if (payload.outcome === 'changes' && !task.executor) throw Error('A pull request review has no agent to send changes to; fix it with a run');
-    if (payload.outcome === 'changes' && !text(payload.text)) throw Error('Explain the requested changes');
+    if (payload.outcome === 'changes' && !text(payload.text, TEXT_MAX)) throw Error('Explain the requested changes');
     if (payload.outcome === 'changes' && task.round >= task.maxRounds) throw Error('Attempt budget exhausted. Create a new bounded task for further changes.');
-    task.decisions.push({ id: uid(), outcome: payload.outcome, text: String(payload.text ?? '').slice(0, 4000), revision: task.revision, at: new Date(clock()).toISOString() });
+    task.decisions.push({ id: uid(), outcome: payload.outcome, text: String(payload.text ?? '').slice(0, TEXT_MAX), revision: task.revision, at: new Date(clock()).toISOString() });
     if (payload.outcome === 'accept') { task.state = 'accepted'; task.paused = false; }
     else if (payload.outcome === 'changes') { task.state = 'ready'; task.nextRole = 'executor'; task.feedback = payload.text; task.paused = false; doc.engine.enabled = true; }
     else task.paused = true;

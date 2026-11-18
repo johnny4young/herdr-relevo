@@ -960,3 +960,34 @@ test('a new task shows saved setups and prerequisites only when there are some, 
   v.close();
   void cx;
 });
+
+test('a follow-up of a worktree run starts from the repository and still pushes to its pull request', async () => {
+  const { v } = await setup();
+  v.prepareBlockedFollowUp({ id: 'f', title: 'Fix #7', root: '/home/test/.herdr/worktrees/app/fix-7-abc123', criteria: 'x'.repeat(15990), checks: [],
+    worktree: { path: '/home/test/.herdr/worktrees/app/fix-7-abc123', branch: 'run/fix-7-abc123', base: '/work/app', prHead: 'feat/x', prUrl: 'https://github.com/me/app/pull/7' },
+    attempts: [{ role: 'reviewer', report: { status: 'changes_requested', summary: 'Two left', findings: [] } }] }, null);
+  assert.equal(v.form.root.value(), '/work/app', 'never a worktree inside the run worktree');
+  assert.deepEqual(v.prTarget, { root: '/work/app', headRef: 'feat/x', url: 'https://github.com/me/app/pull/7', number: 7 });
+  const { TEXT_MAX } = await import('../lib/run-report.js');
+  assert.ok(v.form.criteria.value().length <= TEXT_MAX, 'fits what the coordinator keeps');
+  v.close();
+});
+
+test('a start the coordinator refuses says why on the card and in a toast; Cancel start closes the tab it opened', async () => {
+  fake.stored['relevo.runs.mode'] = 'worktree';
+  const { v, cx } = await setup();
+  v.launch = { stage: 'waiting', fields: { goalId: 'g', title: 'Follow up', root: '/work/app', criteria: 'c', checks: [] }, accounts: { executor: 'codex', reviewer: 'personal' },
+    at: Date.now(), openedAt: Date.now(), worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 'Writer · t' } };
+  fake.agents = [{ address: 't1', tab_name: 'Writer · t', status: 'idle' }];
+  fake.exec = async (cmd, args) => (cmd === 'git' ? { code: 0, stdout: '' } : { code: 1, stdout: JSON.stringify({ error: 'Choose a goal, title, repository and expected outcome' }) });
+  v.launchTick(cx); await flush();
+  assert.equal(v.launch.stage, 'failed');
+  assert.match(text(find(v.render(), 'workflow-launch-card')), /^Did not start · Follow up Choose a goal, title, repository and expected outcome/);
+  assert.equal(fake.notices.at(-1).level, 'error'); assert.match(fake.notices.at(-1).title, /“Follow up” did not start/);
+  assert.ok(find(v.render(), 'workflow-launch-again'));
+  fake.spaces = [{ id: 's', tabs: [{ id: 'tb1', name: 'Writer · t' }, { id: 'tb2', name: 'app' }] }];
+  click(find(v.render(), 'workflow-launch-cancel'), cx); await flush();
+  assert.deepEqual(fake.runs.filter(([name]) => name === 'tab.close').map(([, args]) => args.id), ['tb1']);
+  assert.equal(v.launch, null);
+  v.close();
+});

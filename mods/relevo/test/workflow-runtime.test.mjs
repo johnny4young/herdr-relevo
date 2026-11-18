@@ -209,6 +209,25 @@ test("a second reviewer correction exhausts the bounded retry budget", async (t)
   assert.deepEqual(task.attempts.filter((attempt) => attempt.role === "executor").map((attempt) => attempt.tests), [{ passed: 1, total: 1 }, { passed: 1, total: 1 }], "each attempt keeps its own test count");
 });
 
+test("a stuck run tries once more in place, with what to fix, and a long prompt is kept whole", async (t) => {
+  const f = await fixture({ maxRounds: 1 }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await assert.rejects(f.runtime.command({ action: "retry", taskId: f.taskId, text: "Fix it" }), /Only a stuck run/);
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  f.report("executor", "completed", "Initial work"); await f.runtime.tick();
+  f.report("reviewer", "changes_requested", "First finding"); await f.runtime.tick();
+  assert.equal(f.runtime.read().tasks[0].state, "blocked");
+  await assert.rejects(f.runtime.command({ action: "retry", taskId: f.taskId, text: " " }), /what the next try should fix/);
+  const ask = `Fix these findings.\n\n${"1. [major] a.js:3 — It leaks. ".repeat(300)}`;
+  assert.ok(ask.length > 4000);
+  await f.runtime.command({ action: "retry", taskId: f.taskId, text: ask });
+  const task = f.runtime.read().tasks[0];
+  assert.deepEqual([task.state, task.maxRounds, task.error, task.decisions.at(-1).outcome], ["ready", 2, null, "retry"]);
+  await f.runtime.tick();
+  assert.equal(f.runtime.read().tasks[0].attempts.at(-1).role, "executor", "the same writer, in the same checkout");
+  const sent = f.sends.at(-1).at(-1);
+  assert.ok(sent.includes(ask.trim()), "the request reaches the writer whole");
+});
+
 test("a failed required check at the attempt cap blocks acceptance and further dispatch", async (t) => {
   const f = await fixture({ checkCode: 1, maxRounds: 1 }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
   await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();

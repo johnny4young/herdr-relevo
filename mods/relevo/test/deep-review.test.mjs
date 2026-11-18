@@ -224,7 +224,8 @@ test("a deep review is one row in its run, and Done closes every reviewer's part
 test("Fix with a run fits the goal and the task however many findings there are", async () => {
   const many = review("m", "Opus", Array.from({ length: 14 }, (_, i) => ({ level: i < 4 ? "major" : "minor", where: `src/f${i}.swift:${i * 40 + 1}`, issue: "Long issue ".repeat(60), fix: "Long fix ".repeat(40) })));
   const prompt = findingsPrompt(PR, [many]);
-  assert.ok(prompt.length <= 3900, `${prompt.length}`);
+  const { TEXT_MAX } = await import("../lib/run-report.js");
+  assert.ok(prompt.length <= TEXT_MAX - 100, `${prompt.length}`);
   assert.equal((prompt.match(/\*\*major\*\*/g) ?? []).length, 4, "every finding to fix stays");
   const { fixFindings } = await import("../deep-review.js");
   const { readGoals } = await import("../goals-store.js");
@@ -525,8 +526,9 @@ test("Send asks for the marked findings whole, and long ones are cut to what the
   const { fixRequest } = await import("../lib/deep-review.js");
   assert.equal(fixRequest([{ level: "major", where: "a.js:3", issue: "Leaks", fix: "Close it", proof: "a.js:3 never closes", by: ["Team", "Codex"] }]),
     "Fix this finding. Check each against the code first; if one is not a bug or not worth fixing, say why in your report instead.\n\n1. [major] a.js:3 — Leaks\n   Fix: Close it\n   Proof: a.js:3 never closes\n   Found by: Team, Codex");
-  const long = Array.from({ length: 12 }, (_, i) => ({ level: "minor", where: `f${i}.js`, issue: "x".repeat(900), fix: "y".repeat(900) }));
+  const { TEXT_MAX } = await import("../lib/run-report.js");
+  const long = Array.from({ length: 30 }, (_, i) => ({ level: "minor", where: `f${i}.js`, issue: "x".repeat(900), fix: "y".repeat(900) }));
   const text = fixRequest(long, "Keep it small.");
-  assert.ok(text.length <= 3900, "fits what the coordinator keeps");
-  assert.match(text, /12\. \[minor\] f11\.js/); assert.match(text, /Also: Keep it small\.$/);
+  assert.ok(text.length <= TEXT_MAX - 100, "fits what the coordinator keeps");
+  assert.match(text, /30\. \[minor\] f29\.js/); assert.match(text, /Also: Keep it small\.$/);
 });

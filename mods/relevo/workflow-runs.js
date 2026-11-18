@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { agents, terminals, exec, appHome, run, panes, shared, setShared, spaces } from "herdr";
+import { agents, terminals, exec, appHome, notify, run, panes, shared, setShared, spaces } from "herdr";
 import { runtimeCommand } from "./runtime-cli.js";
 import { button } from "./ui.js";
 import * as config from "./config.js";
@@ -111,7 +111,9 @@ export class WorkflowRuns extends WorkflowDraftView {
   cancelLaunch(cx) {
     const l = this.launch;
     if (!l) return;
-    this.launch = null; this.launchNotice = null; this.busy = false; this.shareLaunch(null);
+    this.launch = null; this.launchNotice = null; this.busy = false; this.error = null; this.shareLaunch(null);
+    const opened = new Set(Object.values(l.tabs ?? {}));
+    for (const tab of spaces().flatMap((space) => space.tabs ?? []).filter((tab) => opened.has(tab.name))) run("tab.close", { id: tab.id, confirmed: true });
     if (l.worktree) cx.spawn(async () => {
       await exec("git", ["-C", l.worktree.base, "worktree", "remove", l.worktree.path]).catch(() => null);
       await exec("git", ["-C", l.worktree.base, "branch", "-D", l.worktree.branch]).catch(() => null);
@@ -121,17 +123,19 @@ export class WorkflowRuns extends WorkflowDraftView {
 
   // While a run starts, or stalls, this card stands in for the form: each step, why one waits, and the way on.
   launchCard(t) {
-    const l = this.launch, steps = this.launchStepsNow() ?? [], stalled = l.stage === "stalled";
+    const l = this.launch, steps = this.launchStepsNow() ?? [], stalled = l.stage === "stalled", failed = l.stage === "failed";
     const stuckRole = !l.ready?.executor ? "executor" : null, term = stuckRole && this.launchTerminal(stuckRole);
     const why = l.trust ? "asks whether to trust the run's worktree" : l.stuck ? "waits on a question in its tab" : stalled ? "has not started yet" : null;
     return v_flex().id("workflow-launch-card").w_full().min_w(0).gap(12).p(14).rounded(10).bg(t.raised)
-      .child(div().font_semibold().child(`${stalled ? "Still starting" : "Starting"} · ${l.fields.title}`))
+      .child(div().font_semibold().child(`${failed ? "Did not start" : stalled ? "Still starting" : "Starting"} · ${l.fields.title}`))
+      .when(failed, (el) => el.child(div().id("workflow-launch-failure").text_size(13).text_color(t.blocked).child(l.failure)))
       .child(launchStepsView(t, "workflow-launch-steps", steps.map((s, i) => (i === 1 && stuckRole && why ? { ...s, note: `${s.note} · ${why}` } : s))))
       .child(h_flex().gap(6).items_center().flex_wrap()
         .when(Boolean(l.trust), (bar) => bar.child(button(t, "workflow-launch-trust", "Trust and continue", (cx) => this.trustLaunch(cx), { kind: "solid" })))
         .when(Boolean(term), (bar) => bar.child(button(t, "workflow-launch-open", "Open its tab", () => run("agent.focus", { terminal: term.address }),
           { kind: l.trust ? "outline" : "solid", tip: "Answer it there; the start goes on by itself" })))
         .when(stalled, (bar) => bar.child(button(t, "workflow-launch-wait", "Keep waiting", (cx) => this.keepWaiting(cx))))
+        .when(failed, (bar) => bar.child(button(t, "workflow-launch-again", "Start again", (cx) => this.create(cx, { start: true }), { kind: "solid", tip: "Asks the coordinator again with the same writer" })))
         .child(div().flex_1())
         .child(button(t, "workflow-launch-cancel", "Cancel start", (cx) => this.cancelLaunch(cx), { kind: "ghost", tip: "Removes the new worktree and its branch; nothing was written there" })));
   }
@@ -289,7 +293,7 @@ export class WorkflowRuns extends WorkflowDraftView {
     if (this.composing()) this.detectChecks(cx);
     const launch = this.launch;
     if (this.closed || !launch?.worktree) return;
-    if (launch.stage === "stalled") return;
+    if (["stalled", "failed"].includes(launch.stage)) return;
     if (Date.now() - launch.at > LAUNCH_TIMEOUT) {
       launch.stage = "stalled"; this.busy = false; this.launchNotice = null; this.shareLaunch(null); cx.notify(); return;
     }
@@ -318,6 +322,11 @@ export class WorkflowRuns extends WorkflowDraftView {
       worktree: { branch: launch.worktree.branch, base: launch.worktree.base, baseCommit: launch.worktree.baseCommit, baseBranch: launch.worktree.baseBranch,
         ...(launch.worktree.prHead ? { prHead: launch.worktree.prHead, prUrl: launch.prUrl } : {}) } } }, cx, (response) => {
       this.explicitNew = false; this.selected = response.result?.taskId ?? null; this.filter = "In progress";
+    }, (error) => {
+      // The writer is open and waiting: the card says why the run did not start, and a toast says it wherever you are.
+      const failure = String(error.message ?? error);
+      this.launch = { ...launch, stage: "failed", failure }; this.error = null;
+      notify({ title: `“${launch.fields.title}” did not start`, body: failure, level: "error" });
     });
   }
 }
