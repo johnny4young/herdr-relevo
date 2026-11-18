@@ -75,6 +75,7 @@ export class GoalViews {
           this.rememberMerged();
           runResultAlerts(this.workflowTasks);
           this.closeDoneAgents(this.workflowTasks);
+          this.openPendingReviewers(this.workflowTasks, cx);
           this.archiveStale(cx);
         }
       } catch (e) { this.goalsError = `Runs: ${e.message ?? e}. Reviews is still available.`; }

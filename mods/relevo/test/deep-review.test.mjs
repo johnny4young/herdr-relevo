@@ -434,21 +434,28 @@ test("a machine without the codex command never offers Codex", async () => {
   assert.equal(codexOn(), true);
 });
 
-test("a fix run starts from the Inbox with no form: worktree, writer, reviewer, then the task, as steps Runs shows", async () => {
+test("a fix run starts from the Inbox with no form: worktree, writer, then the task; its reviewer opens when the review comes", async () => {
   const { launchRun } = await import("../run-launcher.js");
   const { RUN_LAUNCH, launchSteps } = await import("../run-launch.js");
   const seen = [], sent = [];
-  fake.agents = [{ address: "w1", tab_name: "fix-7-abc · build", status: "idle" }, { address: "r1", tab_name: "fix-7-abc · review", status: "idle" }];
+  let created = null;
+  fake.agents = [{ address: "w1", tab_name: "Writer · fix-7", status: "idle" }, { address: "r1", tab_name: "Reviewer · fix-7", status: "idle" }];
   fake.exec = (cmd, args) => {
     if (!/cli\.mjs$/.test(args[0] ?? "")) return null;
     const p = JSON.parse(args.at(-1)); sent.push(p.action); seen.push(fake.stored[RUN_LAUNCH]?.steps?.map((s) => s.state).join(","));
-    if (p.action === "prepare-worktree") return { stdout: JSON.stringify({ result: { path: "/w/fix", branch: "run/fix-7-abc", base: "/work/app", baseCommit: "c".repeat(40), baseBranch: "feat/x", prHead: "feat/x" } }) };
+    if (p.action === "prepare-worktree") return { stdout: JSON.stringify({ result: { path: "/w/fix", branch: "run/fix-7-a1b2c3", base: "/work/app", baseCommit: "c".repeat(40), baseBranch: "feat/x", prHead: "feat/x" } }) };
+    if (p.action === "create") created = p.task;
     return { stdout: JSON.stringify({ result: { taskId: "t1" } }) };
   };
   await launchRun({ goalId: "g", title: "Fix #7", root: "/work/app", criteria: "Fix it" }, { url: PR.url, headRef: "feat/x" }, fakeCx());
   assert.deepEqual(sent, ["prepare-worktree", "create"]);
   assert.equal(seen[0], "run,wait,wait,wait");
-  assert.equal(seen[1], "done,done,done,run", "worktree and both agents done before the task is created");
+  assert.equal(seen[1], "done,done,run,wait", "only the writer opens before the task is created");
+  assert.deepEqual([created.executor.address, created.reviewer, created.reviewLater.account], ["w1", undefined, "personal"]);
+  const { openReviewer } = await import("../run-launcher.js");
+  sent.length = 0;
+  await openReviewer({ id: "t1", goalId: "g", root: "/w/fix", executor: { label: "Personal" }, worktree: { branch: "run/fix-7-a1b2c3" }, reviewLater: { account: "work", label: "Work" } }, fakeCx());
+  assert.deepEqual(sent, ["assign-reviewer"], "the reviewer opens in its Reviewer tab and is named to the task");
   assert.equal(fake.stored[RUN_LAUNCH], null, "the steps go once it started");
   assert.deepEqual(launchSteps([["A"], ["B"]], 1, true).map((s) => s.state), ["done", "ask"]);
 });

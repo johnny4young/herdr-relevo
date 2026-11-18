@@ -1031,3 +1031,21 @@ test("a writer that changed nothing and says blocked stays blocked", async (t) =
   await f.runtime.tick();
   assert.equal(task().state, "blocked");
 });
+
+test("a run whose reviewer opens late waits for it after the checks, then reviews once it is named", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const created = await f.runtime.command({ action: "create", start: true, task: { goalId: "g1", title: "Late review", criteria: "Works", root: f.root,
+    executor: { address: "exec-late", label: "Team" }, reviewLater: { account: "personal", label: "Personal" }, checks: [["npm", "test"]] } });
+  const id = created.result.taskId, task = () => f.runtime.read().tasks.find((x) => x.id === id);
+  assert.deepEqual([task().reviewer, task().reviewLater.account], [null, "personal"]);
+  await f.runtime.tick();
+  f.report("executor", "completed", "Done", task().attempts.at(-1)); await f.runtime.tick(); await f.runtime.tick();
+  assert.equal(task().state, "needs_review");
+  assert.equal(task().waitsFor, "Opening its reviewer");
+  assert.equal(f.sends.filter((args) => args.at(-2) !== "exec-late").length, 0, "nothing goes to a reviewer not opened yet");
+  await assert.rejects(f.runtime.command({ action: "assign-reviewer", taskId: id, reviewer: { address: "exec-late" } }), /another agent/);
+  await f.runtime.command({ action: "assign-reviewer", taskId: id, reviewer: { address: "review-late", label: "Personal" } });
+  await f.runtime.tick();
+  assert.equal(f.sends.at(-1).at(-2), "review-late");
+  await assert.rejects(f.runtime.command({ action: "assign-reviewer", taskId: id, reviewer: { address: "other" } }), /already has its reviewer/);
+});

@@ -23,6 +23,8 @@ export function ownFolderKeys(screen, folder) {
   if (!/Adding a new directory/.test(screen) || !/Yes, add it/.test(screen) || !screen.includes(folder)) return null;
   return /❯ Yes, add it/.test(screen) ? ["enter"] : ["down", "enter"];
 }
+// A run's tabs say their role first, so a cut name still tells the writer from the reviewer.
+export const runTab = (role, branch) => `${role === "reviewer" ? "Reviewer" : "Writer"} · ${branch.replace(/^run\//, "").replace(/-[0-9a-f]{6}$/, "")}`;
 export const reportsFolder = () => `${appHome()}/relevo-workflow/reports`;
 
 // Answers yes only while the terminal still shows the question: a key sent to an agent that already started would type.
@@ -47,7 +49,9 @@ export async function openAgent({ name, folder, tab, argv, label, ask, cx, waitM
   for (;;) {
     if (Date.now() - at > waitMs) throw Error(`${label} did not start in ${tab}`);
     await cx.sleep(1500);
-    const found = agents().find((a) => a.tab_name === tab && READY.includes(a.status));
+    // Two runs can share a tab name: the one in this folder wins.
+    const named = agents().filter((a) => a.tab_name === tab && READY.includes(a.status));
+    const found = named.find((a) => terminals().find((k) => k.address === a.address)?.cwd === folder) ?? named[0];
     if (found) return found;
     if (Date.now() - at < 8000) continue;
     const waiting = terminals().find((k) => k.cwd === folder && tabOf(k.address) === tab);

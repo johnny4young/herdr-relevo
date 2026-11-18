@@ -668,8 +668,8 @@ test('own worktree mode creates the checkout, opens both agents and starts once 
   assert.equal(opened().length, 1);
   v.launch.openedAt -= 2000; v.launchTick(cx);
   assert.equal(opened().length, 2);
-  assert.deepEqual(opened().map(([, args]) => args.tab ?? args.name), ['fix-search-abc123 · build', 'fix-search-abc123 · review']);
-  fake.agents = [{ address: 't9', tab_name: 'fix-search-abc123 · build', status: 'idle' }, { address: 't10', tab_name: 'fix-search-abc123 · review', status: 'blocked' }];
+  assert.deepEqual(opened().map(([, args]) => args.tab ?? args.name), ['Writer · fix-search', 'Reviewer · fix-search'], 'the role first, so a cut name still tells them apart');
+  fake.agents = [{ address: 't9', tab_name: 'Writer · fix-search', status: 'idle' }, { address: 't10', tab_name: 'Reviewer · fix-search', status: 'blocked' }];
   v.launchTick(cx); assert.match(text(find(v.render(), 'workflow-launch-card')), /Reviewer \S+ · waits on a question in its tab/);
   fake.agents[1].status = 'idle'; v.launchTick(cx); await flush();
   const create = payloads.find((payload) => payload.action === 'create');

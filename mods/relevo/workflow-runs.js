@@ -7,7 +7,7 @@ import * as config from "./config.js";
 import { CODEX, accountOf, agentAccounts, chip, codexOn, launchArgv, openInFolder, loadClaudeQuotas, full } from "./accounts.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { accountFor } from "./context.js";
-import { RUN_LAUNCH, answerTrust, launchSteps, ownFolderKeys, reportsFolder, repoChecks, trustKeys } from "./run-launch.js";
+import { RUN_LAUNCH, answerTrust, launchSteps, ownFolderKeys, reportsFolder, repoChecks, runTab, trustKeys } from "./run-launch.js";
 import { launchStepsView } from "./deep-review-view.js";
 import { runFolder } from "./lib/run-folder.js";
 import { checksText, parseChecks } from "./lib/run-checks.js";
@@ -146,8 +146,7 @@ export class WorkflowRuns extends WorkflowDraftView {
         const result = await runtimeCommand({ action: "prepare-worktree", root: fields.root, title: fields.title, ...(pr ? { pr: { headRef: pr.headRef } } : {}) });
         const response = JSON.parse(result.stdout || "{}");
         if (response.error || result.code !== 0) throw Error(response.error || result.stderr || "Could not create the worktree");
-        const slug = response.result.branch.replace(/^run\//, "");
-        this.launch = { ...this.launch, stage: "opening", worktree: response.result, prUrl: pr?.url ?? null, tabs: { executor: `${slug} · build`, reviewer: `${slug} · review` } };
+        this.launch = { ...this.launch, stage: "opening", worktree: response.result, prUrl: pr?.url ?? null, tabs: { executor: runTab("executor", response.result.branch), reviewer: runTab("reviewer", response.result.branch) } };
         openInFolder({ name: fields.root.split("/").pop(), folder: response.result.path, tab: this.launch.tabs.executor, argv: launchArgv(accounts.executor, null, runAgentArgs(accounts.executor, "executor", appHome())) });
         this.launch.openedAt = Date.now();
       } catch (error) {
@@ -298,7 +297,11 @@ export class WorkflowRuns extends WorkflowDraftView {
       launch.stage = "waiting";
     }
     if (launch.stage !== "waiting") return;
-    const found = Object.fromEntries(["executor", "reviewer"].map((role) => [role, agents().find((agent) => agent.tab_name === launch.tabs[role])]));
+    const inTree = (agent) => terminals().find((k) => k.address === agent.address)?.cwd === launch.worktree.path;
+    const found = Object.fromEntries(["executor", "reviewer"].map((role) => {
+      const named = agents().filter((agent) => agent.tab_name === launch.tabs[role]);
+      return [role, named.find(inTree) ?? named[0]];
+    }));
     // The coordinator waits for a free agent itself; here an agent only has to exist and not wait on a prompt.
     const waiting = Object.entries(found).filter(([, agent]) => !agent || !["idle", "done", "working"].includes(agent.status));
     const stuck = waiting.find(([, agent]) => agent?.status === "blocked" || (!agent && Date.now() - launch.openedAt > 10000));

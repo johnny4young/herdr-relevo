@@ -32,7 +32,7 @@ export function slotWait(doc, task, actor) {
   const active = doc.tasks.filter((other) => other.id !== task.id && holdsCheckout(other));
   const same = active.find((other) => other.root === task.root);
   if (same) return `Waits for “${same.title}”, which works in the same checkout.`;
-  const busy = active.find((other) => [other.executor?.address, other.reviewer.address].includes(actor.address));
+  const busy = active.find((other) => [other.executor?.address, other.reviewer?.address].includes(actor.address));
   if (busy) return `Waits for ${agentName(actor)}, which works on “${busy.title}”.`;
   const max = doc.engine.maxConcurrent;
   if (active.filter((other) => !terminalStates.has(other.state)).length < max) return null;
@@ -98,7 +98,9 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (prReview && input.prChecks !== undefined && (typeof input.prChecks !== 'string' || input.prChecks.length > 4000)) throw Error('PR checks are a short text');
     if (prReview && input.checksFrom !== undefined && !doc.tasks.some((t) => t.id === input.checksFrom && t.goalId === input.goalId && t.pr?.url === input.pr.url)) throw Error('Tests can come only from another review of this pull request');
     if (prReview && (!Number.isInteger(input.pr.number) || !BASE_BRANCH.test(input.pr.headRef ?? '') || input.pr.headRef.includes('..') || !path.isAbsolute(input.pr.clone ?? ''))) throw Error('Choose the pull request to review');
-    if (!recipient(input.reviewer) || (!prReview && (!recipient(input.executor) || input.executor.address === input.reviewer.address))) throw Error('Select different executor and reviewer agents');
+    // A reviewer opened later, when the writing is done: the task names its account until then.
+    const later = !input.reviewer && !prReview && input.reviewLater && text(input.reviewLater.account, 100) ? { account: input.reviewLater.account, label: String(input.reviewLater.label ?? input.reviewLater.account).slice(0, 100) } : null;
+    if ((!later && !recipient(input.reviewer)) || (!prReview && (!recipient(input.executor) || input.executor.address === input.reviewer?.address))) throw Error('Select different executor and reviewer agents');
     if ([prReview ? null : input.executor, input.reviewer].filter(Boolean).some((actor) => actor.address.includes('/'))) throw Error('This workflow requires local agents in the selected checkout');
     if (!Array.isArray(input.checks ?? []) || (input.checks?.length ?? 0) > 10 || (input.checks ?? []).some((args) => !Array.isArray(args) || !args.length || args.length > 30 || args.some((a) => typeof a !== 'string' || a.length > 2000 || a.includes('\0')))) throw Error('Checks must be JSON arrays of command arguments');
     const dependencies = input.dependsOn ?? [];
@@ -108,7 +110,8 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
     if (input.worktree && (!RUN_BRANCH.test(input.worktree.branch ?? '') || !path.isAbsolute(input.worktree.base ?? ''))) throw Error('A worktree run needs its run/ branch and repository');
     if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5 || !Number.isInteger(maxMinutes) || maxMinutes < 1 || maxMinutes > 120) throw Error('Use 1–5 attempts and a 1–120 minute limit');
     return { id: uid(), goalId: input.goalId, title: input.title.trim(), criteria: input.criteria.trim(), root: fs.realpathSync(input.root),
-      executor: prReview ? null : { address: input.executor.address, label: input.executor.label || input.executor.address }, reviewer: { address: input.reviewer.address, label: input.reviewer.label || input.reviewer.address },
+      executor: prReview ? null : { address: input.executor.address, label: input.executor.label || input.executor.address },
+      reviewer: later ? null : { address: input.reviewer.address, label: input.reviewer.label || input.reviewer.address }, ...(later ? { reviewLater: later } : {}),
       checks: input.checks ?? [], dependsOn: dependencies, maxRounds, maxMinutes, round: 0, state: 'planned', paused: false,
       ...(input.reviewOnly === true && !input.worktree ? { reviewOnly: true } : {}),
       ...(prReview ? { reviewBase: input.reviewBase, pr: { url: input.pr.url, number: input.pr.number, headRef: input.pr.headRef, clone: input.pr.clone, ...(/^[0-9a-f]{40}$/.test(input.pr.head ?? '') ? { head: input.pr.head } : {}) },
@@ -178,13 +181,25 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
       if (payload.goalId !== undefined && !text(payload.goalId, 100)) throw Error('Choose a run to archive');
       return archiveFinished({ days, goalId: payload.goalId, preview: payload.preview === true });
     }
+    if (action === 'assign-reviewer') {
+      if (!recipient(payload.reviewer) || payload.reviewer.address.includes('/')) throw Error('Choose a local reviewer');
+      return update((doc) => {
+        const task = taskById(doc, payload.taskId);
+        if (!task.reviewLater || task.reviewer) throw Error('This task already has its reviewer');
+        if (task.executor?.address === payload.reviewer.address) throw Error('The reviewer must be another agent');
+        task.reviewer = { address: payload.reviewer.address, label: payload.reviewer.label || task.reviewLater.label };
+        task.waitsFor = null; doc.engine.enabled = true;
+        log(doc, task, 'Reviewer opened', task.reviewer.label);
+        return { taskId: task.id };
+      });
+    }
     if (action === 'prepare-review') return { result: await prepareReview({ root: payload.root, pr: payload.pr ?? null, who: payload.who }) };
     if (action === 'prepare-worktree') return { result: await prepareWorktree({ root: payload.root, title: payload.title, pr: payload.pr ?? null }) };
     if (action === 'create') {
       const task = validateTask(payload.task, readState(home));
       await fp(task);
       if (task.executor) await getActor(task.executor, task.root);
-      await getActor(task.reviewer, task.root);
+      if (task.reviewer) await getActor(task.reviewer, task.root);
       await makeRoom(1);
       return update((doc) => {
         validateTask(payload.task, doc); roomFor(doc, 1); doc.tasks.push(task); log(doc, task, 'Task created', 'Existing agents linked; no message sent', 'Human');
@@ -641,6 +656,11 @@ export function createRuntime({ home, runCommand = run, clock = Date.now, finger
   }
   async function dispatch(taskId) {
     const doc = readState(home), task = taskById(doc, taskId), role = task.nextRole || (task.state === 'needs_review' ? 'reviewer' : 'executor'), actor = task[role];
+    // Its reviewer opens only now; the Inbox opens it and names it with assign-reviewer.
+    if (role === 'reviewer' && !actor && task.reviewLater && task.state === 'needs_review') {
+      if (task.waitsFor !== 'Opening its reviewer') update((next) => { const t = taskById(next, task.id); if (t.state === 'needs_review') t.waitsFor = 'Opening its reviewer'; });
+      return;
+    }
     if (!doc.engine.enabled || task.paused || !['ready', 'needs_review'].includes(task.state)) return;
     if (task.reviewOnly && task.state === 'ready' && task.nextRole === 'checks') { await precheck(task); return; }
     const scopeIssue = planScopeIssue(task, doc);

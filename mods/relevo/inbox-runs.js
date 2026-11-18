@@ -13,6 +13,7 @@ import { reviewableWork, linkedDecision, runProgress } from "./lib/goal-workflow
 import { acceptanceEffect, decideGuard, decidePayload, armAccept, acceptArmed, draftOnAccept } from "./lib/workflow-navigation.js";
 import * as config from "./config.js";
 import { deepReviewNotice, dropReviewTrees, fixFindings, postDraftReview } from "./deep-review.js";
+import { openReviewer } from "./run-launcher.js";
 import { deepReviewView, fixChecklistView, fixGlanceView, launchStepsView, notesView } from "./deep-review-view.js";
 import { caption } from "./workflow-labels.js";
 import { counted, fixChecklist, fixOutcome, mergedFindings, reviewAdvice, reviewLead, reviewTitle, verdicts } from "./lib/deep-review.js";
@@ -302,6 +303,19 @@ export class RunViews {
     }
     const list = fixChecklist(task);
     return list ? [div().px(8).pb(6).child(fixChecklistView(t, "task-checklist", list))] : [];
+  }
+
+  // A run that opens its reviewer late: when its writing is done and checked, the reviewer opens here.
+  openPendingReviewers(tasks, cx) {
+    this.openingReviewer ??= new Set();
+    for (const task of tasks ?? []) {
+      if (!task.reviewLater || task.reviewer || task.state !== "needs_review" || this.openingReviewer.has(task.id)) continue;
+      this.openingReviewer.add(task.id);
+      cx.spawn(async () => {
+        try { await openReviewer(task, cx); }
+        catch (error) { this.openingReviewer.delete(task.id); notify({ title: "The reviewer did not open", body: String(error?.message ?? error), level: "error" }); }
+      });
+    }
   }
 
   reviewsOf(task) {
