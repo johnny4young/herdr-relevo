@@ -650,7 +650,7 @@ test('a run pane reloaded with the mod finds its registered pane even without fo
   assert.equal(v.pane, 'kept-pane'); assert.ok(find(v.render(), 'workflow-close')); v.close();
 });
 
-test('own worktree mode creates the checkout, opens both agents and starts once they are ready', async () => {
+test('own worktree mode creates the checkout, opens its writer and starts once it is ready; the reviewer opens later', async () => {
   fake.stored['relevo.runs.mode'] = 'worktree';
   const { v, cx } = await setup();
   v.form.title.set_value('Fix search'); v.form.root.set_value('/work/app'); v.form.criteria.set_value('Search works');
@@ -665,18 +665,20 @@ test('own worktree mode creates the checkout, opens both agents and starts once 
   click(find(v.render(), 'workflow-start-new'), cx); await flush();
   assert.deepEqual(payloads[0], { action: 'prepare-worktree', root: '/work/app', title: 'Fix search' });
   const opened = () => fake.runs.filter(([name, args]) => ['tab.new', 'space.new'].includes(name) && args.folder === '/home/test/.herdr/worktrees/app/fix-search-abc123');
-  assert.equal(opened().length, 1);
   v.launch.openedAt -= 2000; v.launchTick(cx);
-  assert.equal(opened().length, 2);
-  assert.deepEqual(opened().map(([, args]) => args.tab ?? args.name), ['Writer · fix-search', 'Reviewer · fix-search'], 'the role first, so a cut name still tells them apart');
-  fake.agents = [{ address: 't9', tab_name: 'Writer · fix-search', status: 'idle' }, { address: 't10', tab_name: 'Reviewer · fix-search', status: 'blocked' }];
-  v.launchTick(cx); assert.match(text(find(v.render(), 'workflow-launch-card')), /Reviewer \S+ · waits on a question in its tab/);
-  fake.agents[1].status = 'idle'; v.launchTick(cx); await flush();
+  assert.deepEqual(opened().map(([, args]) => args.tab ?? args.name), ['Writer · fix-search'], 'one tab; the role first, so a cut name still tells them apart');
+  fake.agents = [{ address: 't9', tab_name: 'Writer · fix-search', status: 'blocked' }];
+  v.launchTick(cx);
+  const card = text(find(v.render(), 'workflow-launch-card'));
+  assert.match(card, /Writer \S+ · waits on a question in its tab/); assert.match(card, /Reviewer \S+ · opens to review/);
+  fake.agents[0].status = 'idle'; v.launchTick(cx); await flush();
   const create = payloads.find((payload) => payload.action === 'create');
   assert.equal(create.start, true); assert.equal(create.task.root, '/home/test/.herdr/worktrees/app/fix-search-abc123');
   assert.deepEqual(create.task.worktree, { branch: 'run/fix-search-abc123', base: '/work/app' });
-  assert.deepEqual([create.task.executor.address, create.task.reviewer.address], ['t9', 't10']);
-  assert.equal(create.task.executor.label, 'Codex');
+  assert.equal(create.task.executor.address, 't9'); assert.equal(create.task.executor.label, 'Codex');
+  const { accountOf } = await import('../accounts.js');
+  assert.equal(create.task.reviewer, undefined); assert.equal(create.task.reviewLater.label, accountOf(create.task.reviewLater.account).label);
+  assert.equal(opened().length, 1, 'the reviewer is not opened at the start');
   v.close();
 });
 
@@ -705,14 +707,13 @@ test('a worktree launch starts with no first message, accepts a working agent an
   const { v, cx } = await setup();
   v.launch = { stage: 'stalled', fields: { goalId: 'g', title: 'T', root: '/work/app', criteria: 'c', checks: [], dependsOn: [], maxRounds: 2, maxMinutes: 5 },
     accounts: { executor: 'codex', reviewer: 'personal' }, at: 0, openedAt: 0,
-    worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 't-1 · build', reviewer: 't-1 · review' } };
+    worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 't-1 · build' } };
   const payloads = [];
-  fake.exec = async (_cmd, args) => { payloads.push(JSON.parse(args.at(-1))); return { code: 0, stdout: '{"doc":{},"result":{"taskId":"new"}}' }; };
+  fake.exec = async (cmd, args) => { if (cmd === 'hc') return null; payloads.push(JSON.parse(args.at(-1))); return { code: 0, stdout: '{"doc":{},"result":{"taskId":"new"}}' }; };
   v.create(cx, { start: true });
   assert.equal(v.launch.stage, 'waiting'); assert.equal(payloads.length, 0, 'no second worktree');
+  v.launchTick(cx); assert.match(text(find(v.render(), 'workflow-launch-card')), /Writer \S+ · waits on a question in its tab/);
   fake.agents = [{ address: 't1', tab_name: 't-1 · build', status: 'working' }];
-  v.launchTick(cx); assert.match(text(find(v.render(), 'workflow-launch-card')), /Reviewer \S+ · waits on a question in its tab/);
-  fake.agents.push({ address: 't2', tab_name: 't-1 · review', status: 'idle' });
   v.launchTick(cx); await flush();
   assert.equal(payloads[0].action, 'create'); assert.equal(payloads[0].task.root, '/wt');
   v.close();
@@ -771,16 +772,15 @@ test('a run terminal stuck on the Codex update prompt is skipped once, and other
   assert.equal(codexUpdatePrompt(update), true);
   assert.equal(codexUpdatePrompt('Do you trust the files in this folder?\n  enter continue · esc skip'), false);
   v.launch = { stage: 'waiting', fields: { goalId: 'g', title: 'T', root: '/work/app' }, accounts: { executor: 'codex', reviewer: 'personal' }, at: Date.now(), openedAt: 0,
-    worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 't-1 · build', reviewer: 't-1 · review' } };
-  fake.agents = [{ address: 't2', tab_name: 't-1 · review', status: 'idle' }];
-  fake.terminals = [{ address: 't1', cwd: '/wt' }, { address: 't2', cwd: '/wt' }, { address: 't7', cwd: '/wt' }, { address: 't9', cwd: '/elsewhere' }];
+    worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 't-1 · build' } };
+  fake.terminals = [{ address: 't1', cwd: '/wt' }, { address: 't7', cwd: '/wt' }, { address: 't9', cwd: '/elsewhere' }];
   const calls = [];
   fake.exec = async (cmd, args) => { calls.push([cmd, ...args].join(' '));
     return args[0] === 'read' ? { stdout: args[1] === 't1' ? update : 'Do you trust the files in this folder?' } : null; };
   v.launchTick(cx); await flush();
   v.launchTick(cx); await flush();
   assert.deepEqual(calls.filter((line) => line.startsWith('hc keys')), ['hc keys t1 esc'], 'only the update prompt, only once');
-  assert.equal(calls.some((line) => /read t2|read t9/.test(line)), false, 'registered agents and other folders are not read');
+  assert.equal(calls.some((line) => /read t9/.test(line)), false, 'other folders are not read');
   v.close();
 });
 

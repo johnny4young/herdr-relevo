@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **A run opens one tab until it needs two.** A fix run started from Runs opens its writer only; its reviewer opens when the writing is done and checked, and a trust question it asks then shows in Runs. Run tabs name their role first ("Writer · fix-138-deep-review", "Reviewer · …"), so a cut name still tells them apart.
+- **A run opens one tab until it needs two.** A run opens its writer only, whether it starts from the run window or as a fix from Runs; its reviewer opens when the writing is done and checked, and a trust question it asks then shows in Runs. Run tabs name their role first ("Writer · fix-138-deep-review", "Reviewer · …"), so a cut name still tells them apart.
 - **Runs keep their family together.** A fix run started from a deep review sits under it in Runs, indented, and the review lists every run it handed its findings to; older fixes are matched by their pull request. A finished run says when ("3h ago · Nov 17, 16:45") and finished runs read newest first.
 - **A start that stalls says why.** While a run starts, the run window shows its steps instead of the form: the one waiting says what on (a trust question, a question in its tab, or not opened yet), with **Open its tab**, **Trust and continue**, **Keep waiting** and **Cancel start**, which removes the empty worktree and its branch.
 - **The deep review dialog offers what this machine runs.** Each account's model menu lists the models it used here lately, newest first, then the names its CLI takes; Codex installed but off in Settings shows dimmed with the way to turn it on.

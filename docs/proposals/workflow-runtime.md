@@ -31,7 +31,7 @@ Checks are **No automated checks**, **npm test** or **Custom** (JSON argument li
 
 ## Worktree runs
 
-By default a run gets its own worktree. **Start** creates the branch `run/<slug>` from HEAD under `~/.herdr/worktrees/<repo>/`, opens the implementer and reviewer accounts you chose in two tabs there, and starts once both exist. **Existing sessions** uses agents already open in the repository instead.
+By default a run gets its own worktree. **Start** creates the branch `run/<slug>` from HEAD under `~/.herdr/worktrees/<repo>/`, opens the implementer account you chose in a tab there, and starts once it exists. The reviewer account opens in a second tab when the implementer has reported and the checks have run; the Inbox opens it and assigns it to the task (`assign-reviewer`). **Existing sessions** uses agents already open in the repository instead.
 
 - **`.worktreeinclude`** at the repository root lists ignored files the run needs, in `.gitignore` syntax. They are copied into the worktree; a path is never written outside it through `..` or a symlinked directory.
 - **Accepting** commits exactly the tree the reviewer saw to the run branch, without running hooks. The tree is recorded between two fingerprints of the checkout, so it is used only if the checkout did not change while it was read. Anything changed after the review stays uncommitted.

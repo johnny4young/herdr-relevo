@@ -122,11 +122,11 @@ export class WorkflowRuns extends WorkflowDraftView {
   // While a run starts, or stalls, this card stands in for the form: each step, why one waits, and the way on.
   launchCard(t) {
     const l = this.launch, steps = this.launchStepsNow() ?? [], stalled = l.stage === "stalled";
-    const stuckRole = !l.ready?.executor ? "executor" : !l.ready?.reviewer ? "reviewer" : null, term = stuckRole && this.launchTerminal(stuckRole);
+    const stuckRole = !l.ready?.executor ? "executor" : null, term = stuckRole && this.launchTerminal(stuckRole);
     const why = l.trust ? "asks whether to trust the run's worktree" : l.stuck ? "waits on a question in its tab" : stalled ? "has not started yet" : null;
     return v_flex().id("workflow-launch-card").w_full().min_w(0).gap(12).p(14).rounded(10).bg(t.raised)
       .child(div().font_semibold().child(`${stalled ? "Still starting" : "Starting"} · ${l.fields.title}`))
-      .child(launchStepsView(t, "workflow-launch-steps", steps.map((s, i) => (i === (stuckRole === "executor" ? 1 : 2) && why ? { ...s, note: `${s.note} · ${why}` } : s))))
+      .child(launchStepsView(t, "workflow-launch-steps", steps.map((s, i) => (i === 1 && stuckRole && why ? { ...s, note: `${s.note} · ${why}` } : s))))
       .child(h_flex().gap(6).items_center().flex_wrap()
         .when(Boolean(l.trust), (bar) => bar.child(button(t, "workflow-launch-trust", "Trust and continue", (cx) => this.trustLaunch(cx), { kind: "solid" })))
         .when(Boolean(term), (bar) => bar.child(button(t, "workflow-launch-open", "Open its tab", () => run("agent.focus", { terminal: term.address }),
@@ -136,7 +136,8 @@ export class WorkflowRuns extends WorkflowDraftView {
         .child(button(t, "workflow-launch-cancel", "Cancel start", (cx) => this.cancelLaunch(cx), { kind: "ghost", tip: "Removes the new worktree and its branch; nothing was written there" })));
   }
 
-  // A worktree run: create the checkout, open both agents beside the repo's tabs, then start once both are ready.
+  // A worktree run: create the checkout, open its writer beside the repo's tabs, then start once it is ready.
+  // The reviewer opens when the review comes (openReviewer), as for a run started from the Inbox.
   launchWorktreeRun(fields, cx) {
     const accounts = this.runAccounts();
     this.busy = true; this.error = null; this.launch = { stage: "preparing", fields, accounts, at: Date.now() }; cx.notify();
@@ -146,7 +147,7 @@ export class WorkflowRuns extends WorkflowDraftView {
         const result = await runtimeCommand({ action: "prepare-worktree", root: fields.root, title: fields.title, ...(pr ? { pr: { headRef: pr.headRef } } : {}) });
         const response = JSON.parse(result.stdout || "{}");
         if (response.error || result.code !== 0) throw Error(response.error || result.stderr || "Could not create the worktree");
-        this.launch = { ...this.launch, stage: "opening", worktree: response.result, prUrl: pr?.url ?? null, tabs: { executor: runTab("executor", response.result.branch), reviewer: runTab("reviewer", response.result.branch) } };
+        this.launch = { ...this.launch, stage: "waiting", worktree: response.result, prUrl: pr?.url ?? null, tabs: { executor: runTab("executor", response.result.branch) } };
         openInFolder({ name: fields.root.split("/").pop(), folder: response.result.path, tab: this.launch.tabs.executor, argv: launchArgv(accounts.executor, null, runAgentArgs(accounts.executor, "executor", appHome())) });
         this.launch.openedAt = Date.now();
       } catch (error) {
@@ -273,8 +274,8 @@ export class WorkflowRuns extends WorkflowDraftView {
   launchStepsNow() {
     const l = this.launch;
     if (!l) return null;
-    const labels = [["Worktree", l.worktree?.branch ?? l.fields.root.split("/").pop()], ["Writer", accountOf(l.accounts.executor).label], ["Reviewer", accountOf(l.accounts.reviewer).label]];
-    const at = l.stage === "preparing" ? 0 : !l.ready?.executor ? 1 : !l.ready?.reviewer ? 2 : 3;
+    const labels = [["Worktree", l.worktree?.branch ?? l.fields.root.split("/").pop()], ["Writer", accountOf(l.accounts.executor).label], ["Reviewer", `${accountOf(l.accounts.reviewer).label} · opens to review`]];
+    const at = l.stage === "preparing" ? 0 : !l.ready?.executor ? 1 : 2;
     return launchSteps(labels, at, Boolean(l.trust || l.stuck));
   }
 
@@ -292,13 +293,9 @@ export class WorkflowRuns extends WorkflowDraftView {
     if (Date.now() - launch.at > LAUNCH_TIMEOUT) {
       launch.stage = "stalled"; this.busy = false; this.launchNotice = null; this.shareLaunch(null); cx.notify(); return;
     }
-    if (launch.stage === "opening" && Date.now() - launch.openedAt > 1500) {
-      openInFolder({ name: launch.fields.root.split("/").pop(), folder: launch.worktree.path, tab: launch.tabs.reviewer, argv: launchArgv(launch.accounts.reviewer, null, runAgentArgs(launch.accounts.reviewer, "reviewer", appHome())) });
-      launch.stage = "waiting";
-    }
     if (launch.stage !== "waiting") return;
     const inTree = (agent) => terminals().find((k) => k.address === agent.address)?.cwd === launch.worktree.path;
-    const found = Object.fromEntries(["executor", "reviewer"].map((role) => {
+    const found = Object.fromEntries(["executor"].map((role) => {
       const named = agents().filter((agent) => agent.tab_name === launch.tabs[role]);
       return [role, named.find(inTree) ?? named[0]];
     }));
@@ -309,7 +306,7 @@ export class WorkflowRuns extends WorkflowDraftView {
     launch.stuck = Boolean(stuck);
     if (stuck && !stuck[1]) this.skipUpdatePrompts(launch, found, cx);
     const notice = launch.trust ? `“${launch.trust.tab ?? "A run agent"}” asks whether to trust the run's worktree before it starts.`
-      : stuck ? `Answer the prompt in “${launch.tabs[stuck[0]]}” to continue.` : `Starting agents · ${2 - waiting.length}/2 ready`;
+      : stuck ? `Answer the prompt in “${launch.tabs[stuck[0]]}” to continue.` : `Opening ${accountOf(launch.accounts.executor).label}…`;
     if (this.launchNotice !== notice) { this.launchNotice = notice; cx.notify(); }
     this.shareLaunch(notice);
     if (waiting.length) return;
@@ -317,7 +314,7 @@ export class WorkflowRuns extends WorkflowDraftView {
     this.launch = null; this.launchNotice = null; this.busy = false;
     const label = (role) => accountOf(launch.accounts[role]).label;
     this.command({ action: "create", start: true, task: { ...launch.fields, root: launch.worktree.path,
-      executor: { address: found.executor.address, label: label("executor") }, reviewer: { address: found.reviewer.address, label: label("reviewer") },
+      executor: { address: found.executor.address, label: label("executor") }, reviewLater: { account: launch.accounts.reviewer, label: label("reviewer") },
       worktree: { branch: launch.worktree.branch, base: launch.worktree.base, baseCommit: launch.worktree.baseCommit, baseBranch: launch.worktree.baseBranch,
         ...(launch.worktree.prHead ? { prHead: launch.worktree.prHead, prUrl: launch.prUrl } : {}) } } }, cx, (response) => {
       this.explicitNew = false; this.selected = response.result?.taskId ?? null; this.filter = "In progress";
