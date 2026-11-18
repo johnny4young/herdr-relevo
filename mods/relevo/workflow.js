@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { agents, panes, props, theme, appHome, readTextFile, run, focused, shared, setShared, closeOverlay } from "herdr";
 import { readRunState, runtimeCommand } from "./runtime-cli.js";
-import { button, onSubmitChord, tabButton, checkbox } from "./ui.js";
+import { alertLine, button, keycap, onSubmitChord, tabButton, checkbox } from "./ui.js";
 import { focusedCwd } from "./panelbar.js";
 import { workflowBucket, workflowItems, queueSummary, armAccept, acceptArmed } from "./lib/workflow-navigation.js";
 import { followUpAvailable, changesPlan } from "./lib/run-panel.js";
@@ -13,7 +13,7 @@ import { ShortcutHelp } from "./shortcut-help.js";
 import { savedSetups } from "./workflow-setups.js";
 import { RUN_PANES, RUN_REQUEST, RUN_FOLLOW_UP, liveRunPanes, takeAsk } from "./workflow-window.js";
 import { accountOf } from "./accounts.js";
-import { checksLabel } from "./lib/run-checks.js";
+import { checksLabel, checksText, parseChecks } from "./lib/run-checks.js";
 import { repoOf } from "./workflow-runs.js";
 import { WorkflowDetail } from "./workflow-detail.js";
 import { row, taskState, caption, agentLabel, role, count } from "./workflow-labels.js";
@@ -83,6 +83,7 @@ export class Workflow extends WorkflowDetail {
     this.loadQuotas(cx);
     cx.timer.every(60000, (cx) => this.loadQuotas(cx));
     cx.timer.every(1000, (cx) => { this.launchTick(cx); if (this.draftWaiting) this.persistDraft({ now: true }); });
+    cx.timer.every(100, (cx) => { if (!this.focusSoon || this.closed) return; this.focusSoon = false; this.h.focus(); cx.notify(); });
     cx.timer.after(30, (cx) => {
       if (this.closed) return;
       this.h.focus();
@@ -110,7 +111,8 @@ export class Workflow extends WorkflowDetail {
     if (request?.goalId !== this.goalId || !(request.at > this.lastRequest)) return;
     this.lastRequest = request.at;
     this.applyRequest(request);
-    this.h.focus();
+    // Called from render, where focus can't move: the next tick focuses.
+    this.focusSoon = true;
   }
 
   // What the panel asked for: a task on one of its tabs, a follow-up form, the saved setups, or a new task from one.
@@ -223,7 +225,7 @@ export class Workflow extends WorkflowDetail {
     this.h.focus(); cx.notify();
   }
 
-  command(payload, sourceCx, afterSuccess = null) {
+  command(payload, sourceCx, afterSuccess = null, afterError = null) {
     const cx = sourceCx;
     if (this.closed || this.busy) return;
     const submittedDraft = payload.action === "create" ? this.taskDraftSnapshot() : null;
@@ -264,6 +266,7 @@ export class Workflow extends WorkflowDetail {
       await this.load(cx);
     } catch (error) {
       if (!this.closed) this.error = `Action needs attention: ${error.message ?? error}`;
+      afterError?.(error, cx);
     }
     if (!this.closed) {
       this.busy = false;
@@ -273,7 +276,7 @@ export class Workflow extends WorkflowDetail {
   }
 
   create(cx, { start = false } = {}) {
-    if (this.launch?.stage === "stalled") { Object.assign(this.launch, { stage: "waiting", at: Date.now() }); this.busy = true; this.error = null; cx.notify(); return; }
+    if (["stalled", "failed"].includes(this.launch?.stage)) { Object.assign(this.launch, { stage: "waiting", at: Date.now(), failure: null }); this.busy = true; this.error = null; cx.notify(); return; }
     if (this.pendingDraft) { this.error = "Resume or discard the saved draft before creating another task."; cx.notify(); return; }
     this.persistDraft({ now: true });
     const submittedFields = JSON.stringify(this.taskDraftSnapshot());
@@ -298,11 +301,11 @@ export class Workflow extends WorkflowDetail {
     let checks = [];
     try {
       checks = this.checkPreset === "npm-test" ? [["npm", "test"]]
-        : this.checkPreset === "custom" ? (this.form.checks.value().trim() ? JSON.parse(this.form.checks.value()) : []) : [];
+        : this.checkPreset === "custom" ? parseChecks(this.form.checks.value()) : [];
       if (!Array.isArray(checks) || checks.some((args) => !Array.isArray(args) || !args.length || args.some((arg) => typeof arg !== "string"))) throw Error();
     } catch {
       this.taskAdvancedOpen = true;
-      this.error = 'Tests must be JSON argv lists, such as [["npm","test"]]. Leave empty to run no tests.';
+      this.error = 'Write test commands as you would type them, separated by ";": npm test; make lint. Close every quote, or leave it empty to run no tests.';
       cx.notify();
       return;
     }
@@ -381,7 +384,7 @@ export class Workflow extends WorkflowDetail {
     const checks = task.checks ?? [];
     if (!checks.length) { this.checkPreset = "none"; this.form.checks.set_value(""); }
     else if (checks.length === 1 && checks[0]?.length === 2 && checks[0][0] === "npm" && checks[0][1] === "test") { this.checkPreset = "npm-test"; this.form.checks.set_value(""); }
-    else { this.checkPreset = "custom"; this.form.checks.set_value(JSON.stringify(checks)); }
+    else { this.checkPreset = "custom"; this.form.checks.set_value(checksText(checks)); }
     this.taskSetupOpen = !quiet || !this.executor || !this.reviewer; this.taskAdvancedOpen = !quiet && this.checkPreset === "custom";
     this.checksPicked = true;
     this.setupReuseNotice = quiet ? null : "Previous setup applied. Review repository and agents before creating.";
@@ -495,6 +498,7 @@ export class Workflow extends WorkflowDetail {
   }
 
   taskForm(t, cx) {
+    if (this.launch?.worktree || this.launch?.stage === "preparing") return this.launchCard(t);
     if (this.pendingDraft) return row(t, "Resume or discard the saved draft above to continue.");
     const chosen = [this.executor, this.reviewer].filter(Boolean).length;
     const fromPrompt = Boolean(this.goal && !this.goal.steps?.length && !this.tasks?.length && this.form.criteria.value().trim());
@@ -507,7 +511,7 @@ export class Workflow extends WorkflowDetail {
     const agentName = (address) => { const agent = agents().find((item) => item.address === address); return agent ? agentLabel(agent) : null; };
     const rootName = this.form.root.value().trim().split("/").filter(Boolean).at(-1);
     const isolated = this.runMode() === "worktree", accounts = this.runAccounts(), checks = this.checksNow();
-    const setupLabel = isolated ? [rootName, this.prTarget ? `fixes #${this.prTarget.number}` : "own worktree", `${accountOf(accounts.executor).label} → ${accountOf(accounts.reviewer).label}`, checks ? checksLabel(checks) : "custom tests"].filter(Boolean).join(" · ") : chosen === 2 ? [rootName, `${agentName(this.executor)} → ${agentName(this.reviewer)}`].filter(Boolean).join(" · ") : `Repository & agents · ${chosen}/2 selected`;
+    const setupLabel = isolated ? [rootName, this.prTarget ? (this.prTarget.number ? `fixes #${this.prTarget.number}` : `pushes to ${this.prTarget.headRef}`) : "own worktree", `${accountOf(accounts.executor).label} → ${accountOf(accounts.reviewer).label}`, checks ? checksLabel(checks) : "custom tests"].filter(Boolean).join(" · ") : chosen === 2 ? [rootName, `${agentName(this.executor)} → ${agentName(this.reviewer)}`].filter(Boolean).join(" · ") : `Repository & agents · ${chosen}/2 selected`;
     return v_flex().w_full().min_w(0).gap(12)
       .child(div().font_semibold().child(fromPrompt ? "Start run" : "New task"))
       .when(fromPrompt && !this.editRunPrompt, (el) => el.child(h_flex().gap(8).items_center()
@@ -532,11 +536,18 @@ export class Workflow extends WorkflowDetail {
       }, { selected: Boolean(this.taskSetupOpen), tip: "Repository and the agents that write and review it" }))
       .when(this.taskSetupOpen, (el) => el.child(v_flex().gap(8).p(10).rounded(6).bg(t.raised)
         .child(this.setupLibrary(t))
-        .child(this.field(t, "root", "Repository path"))
-        .child(this.repositoryPicker(t))
-        .child(h_flex().gap(4)
-          .child(button(t, "workflow-mode-worktree", "Own worktree", (cx) => { setShared(RUN_MODE, "worktree"); cx.notify(); }, { kind: "ghost", size: "sm", selected: isolated }))
-          .child(button(t, "workflow-mode-sessions", "Existing sessions", (cx) => { setShared(RUN_MODE, "sessions"); cx.notify(); }, { kind: "ghost", size: "sm", selected: !isolated })))
+        // The repository as one line; its path is typed only when changing it.
+        .when(Boolean(rootName) && !this.chooseRepository, (panel) => panel.child(h_flex().id("workflow-root-line").w_full().min_w(0).gap(8).items_center()
+          .child(div().w(80).flex_none().text_size(11).text_color(t.dim).child("Repository"))
+          .child(div().flex_none().text_size(13).font_semibold().child(rootName))
+          .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).tooltip(this.form.root.value()).child(this.form.root.value()))
+          .child(button(t, "workflow-change-repository", "Change…", (cx) => { this.chooseRepository = true; cx.notify(); }, { size: "sm", kind: "ghost" }))))
+        .when(!rootName || this.chooseRepository, (panel) => panel.child(this.field(t, "root", "Repository path")).child(this.repositoryPicker(t)))
+        .child(h_flex().w_full().gap(8).items_center()
+          .child(div().w(80).flex_none().text_size(11).text_color(t.dim).child("Runs in"))
+          .child(h_flex().p(2).gap(2).rounded(7).bg(t.background)
+            .child(button(t, "workflow-mode-worktree", "Its own worktree", (cx) => { setShared(RUN_MODE, "worktree"); cx.notify(); }, { kind: "ghost", size: "sm", selected: isolated }))
+            .child(button(t, "workflow-mode-sessions", "Agents already open", (cx) => { setShared(RUN_MODE, "sessions"); cx.notify(); }, { kind: "ghost", size: "sm", selected: !isolated }))))
         .when(isolated, (panel) => panel.child(this.accountPicker(t, "executor", role("executor").pick)).child(this.accountPicker(t, "reviewer", role("reviewer").pick)))
         .when(!isolated, (panel) => panel.child(this.agentPicker(t, "executor", role("executor").pick)).child(this.agentPicker(t, "reviewer", role("reviewer").pick)))))
       .child(button(t, "workflow-task-advanced", `Tests, limits & dependencies · ${count(this.form.maxRounds.value(), "attempt")} · ${this.form.maxMinutes.value()} min`, (context) => {
@@ -546,9 +557,9 @@ export class Workflow extends WorkflowDetail {
         .child(h_flex().gap(6).child(this.field(t, "maxRounds", "Maximum attempts"))
           .child(this.field(t, "maxMinutes", "Minutes per attempt")))
         .children([["none", "No tests"], ["npm-test", "npm test"], ["custom", "Custom"]].map(([value, label]) => button(t, `workflow-check-preset-${value}`, label,
-          (context) => { this.checkPreset = value; this.checksPicked = true; context.notify(); }, { selected: this.checkPreset === value, tip: value === "custom" ? "Enter custom test commands as JSON argv lists" : `Use ${label}` })))
-        .when(this.checkPreset === "custom", (el) => el.child(row(t, "Advanced: enter JSON argument lists, for example [[\"npm\",\"test\"]]."))
-          .child(this.field(t, "checks", "Custom test commands (JSON)")))
+          (context) => { this.checkPreset = value; this.checksPicked = true; context.notify(); }, { selected: this.checkPreset === value, tip: value === "custom" ? "Type your test commands, separated by \";\"" : `Use ${label}` })))
+        .when(this.checkPreset === "custom", (el) => el
+          .child(this.field(t, "checks", "Test commands, like npm test; make lint")))
         // Prerequisites appear once the run has a task to wait for.
         .when(earlier.length > 0, (el) => el.child(div().font_semibold().child("Wait for earlier tasks"))
           .child(row(t, "Only selected prerequisites must be accepted before this task can start.")))
@@ -557,13 +568,10 @@ export class Workflow extends WorkflowDetail {
             (context) => { this.dependsOn ??= []; this.dependsOn = this.dependsOn.includes(task.id) ? this.dependsOn.filter((id) => id !== task.id) : [...this.dependsOn, task.id]; context.notify(); },
             { selected: isPicked(this.dependsOn, task), accessibleLabel: `${pickLabel(this.dependsOn, task)}. Wait for its acceptance`, tip: `Wait for acceptance of ${task.title}` })))))
       .child(h_flex().gap(6).items_center()
-        .child(button(t, "workflow-start-new", this.busy ? "Starting…" : "Start", (context) => this.create(context, { start: true }),
-          { kind: "solid", disabled: this.busy, tip: "⌘Enter" }))
-        .when(!isolated, (bar) => bar.child(button(t, "workflow-create", "Save for later", (context) => this.create(context), { disabled: this.busy })))
-        .when(Boolean(this.launch), (bar) => bar.child(div().id("workflow-launch-status").text_size(11).text_color(t.muted)
-          .child(this.launchNotice ?? (this.launch?.stage === "preparing" ? "Creating worktree…" : "Opening agents…"))))
-        .when(Boolean(this.launch?.trust), (bar) => bar.child(button(t, "workflow-launch-trust", "Trust and continue", (context) => this.trustLaunch(context),
-          { kind: "solid", tip: `Answers yes in “${this.launch.trust.tab ?? "its tab"}”: the agent may then read, edit and run files in ${this.launch.worktree?.path ?? "the worktree"}` }))));
+        .when(!isolated, (bar) => bar.child(button(t, "workflow-create", "Save for later", (context) => this.create(context), { kind: "ghost", disabled: this.busy })))
+        .child(div().flex_1())
+        .child(button(t, "workflow-start-new", this.busy ? "Starting…" : [keycap(t, "⌘↵"), "Start"], (context) => this.create(context, { start: true }),
+          { kind: "solid", disabled: this.busy, tip: "⌘Enter" })));
   }
 
   emptyQueue(t) {
@@ -647,7 +655,7 @@ export class Workflow extends WorkflowDetail {
           .child(button(t, "workflow-tab-Preferences", "Preferences", (cx) => { this.tab = "Preferences"; this.h.focus(); cx.notify(); }, { kind: "ghost", size: "sm", tip: "5" }))
           .when(Boolean(this.engine?.enabled), (controls) => controls.child(button(t, "workflow-engine-stop", "Pause automation", (cx) => this.command({ action: "stop" }, cx), { kind: "ghost", size: "sm", disabled: this.busy, tip: "Stops new dispatches; running sessions continue" })))))
         .when(Boolean(this.notice), (el) => el.child(div().role("status").child(row(t, this.notice))))
-        .when(Boolean(this.error), (el) => el.child(div().id("workflow-error").role("alert").text_color(t.blocked).child(this.error)))
+        .when(Boolean(this.error), (el) => el.child(alertLine(t, "workflow-error", this.error)))
         .when(Boolean(this.pendingDraft), (el) => el.child(this.draftRecovery(t)))
         .when(this.showHelp && Boolean(this.shortcutHelp), (el) => el.child(this.shortcutHelp.render(t)))
         .when(this.compact && Boolean(this.tasks?.length || this.goal?.steps?.length), (el) => el.child(button(t, "workflow-queue-toggle", this.compactQueueOpen ? "← Back to work" : `Tasks · ${this.filter === "Completed" ? "History" : this.filter} ${workflowItems(this.tasks ?? [], this.filter).length}`, (cx) => {

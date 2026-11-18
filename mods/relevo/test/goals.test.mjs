@@ -334,7 +334,7 @@ test('decision-only goals are keyboard reachable and completed goals never hide 
   assert.equal(find(tree, 'goal-g1'), null);
   assert.match(text(find(tree, 'runs-closed-fold')), /1 older finished run/);
   click(find(tree, 'runs-closed-fold'), cx);
-  assert.equal(text(find(view.render(cx), 'goal-now-g1')), 'Now closed');
+  assert.match(text(find(view.render(cx), 'goal-now-g1')), /^Now closed · (just now|\d+[mhd] ago) · \w{3} \d+, \d\d:\d\d$/, 'a closed run says when');
 });
 
 test('closing a run cancels its open tasks after confirmation and folds it', async () => {

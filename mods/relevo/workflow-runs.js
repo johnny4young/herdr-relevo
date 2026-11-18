@@ -1,15 +1,16 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { agents, terminals, exec, appHome, run, panes, shared, setShared, spaces } from "herdr";
+import { agents, terminals, exec, appHome, notify, run, panes, shared, setShared, spaces } from "herdr";
 import { runtimeCommand } from "./runtime-cli.js";
 import { button } from "./ui.js";
 import * as config from "./config.js";
-import { ACCOUNTS, CODEX, accountOf, launchArgv, openInFolder, loadClaudeQuotas, full } from "./accounts.js";
+import { CODEX, accountOf, agentAccounts, chip, codexOn, launchArgv, openInFolder, loadClaudeQuotas, full } from "./accounts.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { accountFor } from "./context.js";
-import { row } from "./workflow-labels.js";
-import { RUN_LAUNCH, answerTrust, repoChecks, trustKeys } from "./run-launch.js";
+import { RUN_LAUNCH, answerTrust, launchSteps, ownFolderKeys, reportsFolder, repoChecks, runTab, trustKeys } from "./run-launch.js";
+import { launchStepsView } from "./deep-review-view.js";
 import { runFolder } from "./lib/run-folder.js";
+import { checksText, parseChecks } from "./lib/run-checks.js";
 
 
 // The repository a folder belongs to: a run's own worktree gives the repository it was made from.
@@ -23,6 +24,18 @@ export async function repoOf(cwd) {
 export { trustKeys };
 
 const RUN_ACCOUNTS = "relevo.runs.accounts";
+
+// Who writes and who reviews a new run: the last choice, unless that account is out of quota now; else Codex first
+// when it is on, and a reviewer other than the writer, the repository's own account first.
+export function runAccountsFor(root, quotas) {
+  const saved = shared(RUN_ACCOUNTS) ?? {};
+  const all = agentAccounts().map((account) => account.key);
+  const open = (key) => all.includes(key) && !full(quotas?.[key]);
+  const executor = open(saved.executor) ? saved.executor : [...(codexOn() ? [CODEX.key] : []), ...all].find(open) ?? all[0];
+  const reviewer = open(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer
+    : [accountFor(root), ...all].find((key) => key && key !== executor && open(key)) ?? all.find((key) => key !== executor);
+  return { executor, reviewer };
+}
 // The name of the tab a terminal is shown in, if any.
 const tabName = (address) => {
   const tab = panes().find((pane) => pane.terminal === address)?.tab;
@@ -33,22 +46,24 @@ const LAUNCH_TIMEOUT = 180000;
 export const codexUpdatePrompt = (screen) => /Update available · \S+ → \S+/.test(screen) && /esc skip/.test(screen);
 
 // Agents write only their checkout and the reports folder. Codex gets that from workspace-write; Claude runs
-// Bash in the OS sandbox and its file tools may not edit the app (its state, locks, mods or settings).
+// A run agent's file tools may not edit the app (its state, locks, mods or settings). It works in auto mode in its
+// own worktree; RUN_SANDBOX = true also keeps its Bash in the OS sandbox, where builds that need the network or a
+// cache outside the checkout (SwiftPM, a first npm install) fail.
 export function runAgentArgs(key, role, home) {
   const reports = `${home}/relevo-workflow/reports`;
   // A Codex reviewer never asks: what its hooks or global instructions start outside the sandbox fails and it goes on
   // reviewing. Its hooks can't be turned off here: that would ask to restart Codex's shared server for every session.
-  if (key === CODEX.key) return ["-m", config.RUN_CODEX_MODEL ?? "gpt-6-luna", "--sandbox", "workspace-write",
+  const sandboxed = config.RUN_SANDBOX === true;
+  if (key === CODEX.key) return ["-m", config.RUN_CODEX_MODEL ?? "gpt-6-luna", "--sandbox", role === "executor" && !sandboxed ? "danger-full-access" : "workspace-write",
     "--ask-for-approval", role === "reviewer" ? "never" : "on-request", "--add-dir", reports];
   // A bare "*" would also match the reports folder: app files all carry an extension, folders are listed.
   const deny = ["*.*", "relevo-workflow/*.*", ...["mods", "data", "layouts", "themes", "icons", "frame", "telemetry", "relevo-workflow/artifacts", "relevo-workflow/archive"].map((dir) => `${dir}/**`)]
     .map((glob) => `Edit(/${home}/${glob})`);
   // Its status and report files are written without asking; nothing else is granted.
-  // Bash runs in the OS sandbox and can't leave it, so a run's writer doesn't stop to ask for each command it runs there.
-  const settings = { sandbox: { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true, autoAllowBashIfSandboxed: true },
+  const settings = { ...(sandboxed ? { sandbox: { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true, autoAllowBashIfSandboxed: true } } : {}),
     // A Claude reviewer starts without the person's hooks: one that asks for something else pulls it off the review.
     permissions: { allow: [`Edit(/${reports}/*.json)`], deny }, ...(role === "reviewer" ? { disableAllHooks: true } : {}) };
-  return ["--add-dir", reports, "--permission-mode", "acceptEdits", "--settings", JSON.stringify(settings), ...(role === "reviewer" ? ["--tools", "Read,Write,Grep,Glob"] : [])];
+  return ["--add-dir", reports, "--permission-mode", "auto", "--settings", JSON.stringify(settings), ...(role === "reviewer" ? ["--tools", "Read,Write,Grep,Glob"] : [])];
 }
 
 export class WorkflowRuns extends WorkflowDraftView {
@@ -60,27 +75,73 @@ export class WorkflowRuns extends WorkflowDraftView {
   }
 
   runAccounts() {
-    const saved = shared(RUN_ACCOUNTS) ?? {};
-    const all = [...ACCOUNTS, CODEX].map((account) => account.key);
-    const open = (key) => all.includes(key) && !full(this.quotas?.[key]);
-    // The last choice, unless that account is out of quota now.
-    const executor = open(saved.executor) ? saved.executor : [CODEX.key, ...all].find(open) ?? CODEX.key;
-    const repoAccount = accountFor(this.form.root.value().trim());
-    const reviewer = open(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer
-      : [repoAccount, ...all].find((key) => key && key !== executor && open(key)) ?? all.find((key) => key !== executor);
-    return { executor, reviewer };
+    return runAccountsFor(this.form.root.value().trim(), this.quotas);
   }
 
+  // One line per role: the label, then each account as its colored letter, its name and how full its quota is.
   accountPicker(t, role, label) {
-    const chosen = this.runAccounts();
-    return v_flex().w_full().min_w(0).gap(4).child(row(t, label))
-      .child(h_flex().flex_wrap().gap(4).children([...ACCOUNTS, CODEX].map((account) => button(t, `workflow-${role}-account-${account.key}`,
-        full(this.quotas?.[account.key]) ? `${account.label} · ${full(this.quotas[account.key])} full` : account.label,
-        (cx) => { setShared(RUN_ACCOUNTS, { ...chosen, [role]: account.key }); cx.notify(); },
-        { kind: "ghost", size: "sm", selected: chosen[role] === account.key, disabled: chosen[role === "executor" ? "reviewer" : "executor"] === account.key }))));
+    const chosen = this.runAccounts(), other = chosen[role === "executor" ? "reviewer" : "executor"];
+    return h_flex().w_full().min_w(0).gap(8).items_center()
+      .child(div().w(80).flex_none().text_size(11).text_color(t.dim).child(label))
+      .child(h_flex().flex_1().min_w(0).flex_wrap().gap(4).children(agentAccounts().map((account) => {
+        const q = this.quotas?.[account.key], pct = q ? Math.round(Math.max(q.h5?.pct ?? 0, q.d7?.pct ?? 0)) : null, on = chosen[role] === account.key, taken = other === account.key;
+        return h_flex().id(`workflow-${role}-account-${account.key}`).h(28).px(8).gap(6).items_center().rounded(7).border_1()
+          .border_color(on ? t.accent : t.border).bg(on ? t.selected : t.background)
+          .when(!taken, (el) => el.cursor_pointer().hover((st) => st.border_color(t.accent))
+            .on_click((_e, cx) => { setShared(RUN_ACCOUNTS, { ...chosen, [role]: account.key }); cx.notify(); }))
+          .when(taken, (el) => el.opacity(0.4).tooltip("Already chosen for the other role"))
+          .child(chip(div, account, 16)).child(div().text_size(13).text_color(full(q) ? t.dim : t.foreground).child(account.label))
+          .when(pct !== null, (el) => el.child(div().text_size(11).text_color(pct >= 90 ? t.blocked : t.dim).child(`${pct}%`)));
+      })));
   }
 
-  // A worktree run: create the checkout, open both agents beside the repo's tabs, then start once both are ready.
+  // The terminal of a role that has not started, to open its tab and answer what it asks.
+  launchTerminal(role) {
+    const l = this.launch;
+    return l?.worktree ? terminals().find((k) => k.cwd === l.worktree.path && tabName(k.address) === l.tabs?.[role]) ?? null : null;
+  }
+
+  keepWaiting(cx) {
+    if (!this.launch) return;
+    Object.assign(this.launch, { stage: "waiting", at: Date.now(), readAt: 0 });
+    this.busy = true; cx.notify();
+  }
+
+  // Gives up a start: its worktree has no work yet, so it goes with its run branch.
+  cancelLaunch(cx) {
+    const l = this.launch;
+    if (!l) return;
+    this.launch = null; this.launchNotice = null; this.busy = false; this.error = null; this.shareLaunch(null);
+    const opened = new Set(Object.values(l.tabs ?? {}));
+    for (const tab of spaces().flatMap((space) => space.tabs ?? []).filter((tab) => opened.has(tab.name))) run("tab.close", { id: tab.id, confirmed: true });
+    if (l.worktree) cx.spawn(async () => {
+      await exec("git", ["-C", l.worktree.base, "worktree", "remove", l.worktree.path]).catch(() => null);
+      await exec("git", ["-C", l.worktree.base, "branch", "-D", l.worktree.branch]).catch(() => null);
+    });
+    cx.notify();
+  }
+
+  // While a run starts, or stalls, this card stands in for the form: each step, why one waits, and the way on.
+  launchCard(t) {
+    const l = this.launch, steps = this.launchStepsNow() ?? [], stalled = l.stage === "stalled", failed = l.stage === "failed";
+    const stuckRole = !l.ready?.executor ? "executor" : null, term = stuckRole && this.launchTerminal(stuckRole);
+    const why = l.trust ? "asks whether to trust the run's worktree" : l.stuck ? "waits on a question in its tab" : stalled ? "has not started yet" : null;
+    return v_flex().id("workflow-launch-card").w_full().min_w(0).gap(12).p(14).rounded(10).bg(t.raised)
+      .child(div().font_semibold().child(`${failed ? "Did not start" : stalled ? "Still starting" : "Starting"} · ${l.fields.title}`))
+      .when(failed, (el) => el.child(div().id("workflow-launch-failure").text_size(13).text_color(t.blocked).child(l.failure)))
+      .child(launchStepsView(t, "workflow-launch-steps", steps.map((s, i) => (i === 1 && stuckRole && why ? { ...s, note: `${s.note} · ${why}` } : s))))
+      .child(h_flex().gap(6).items_center().flex_wrap()
+        .when(Boolean(l.trust), (bar) => bar.child(button(t, "workflow-launch-trust", "Trust and continue", (cx) => this.trustLaunch(cx), { kind: "solid" })))
+        .when(Boolean(term), (bar) => bar.child(button(t, "workflow-launch-open", "Open its tab", () => run("agent.focus", { terminal: term.address }),
+          { kind: l.trust ? "outline" : "solid", tip: "Answer it there; the start goes on by itself" })))
+        .when(stalled, (bar) => bar.child(button(t, "workflow-launch-wait", "Keep waiting", (cx) => this.keepWaiting(cx))))
+        .when(failed, (bar) => bar.child(button(t, "workflow-launch-again", "Start again", (cx) => this.create(cx, { start: true }), { kind: "solid", tip: "Asks the coordinator again with the same writer" })))
+        .child(div().flex_1())
+        .child(button(t, "workflow-launch-cancel", "Cancel start", (cx) => this.cancelLaunch(cx), { kind: "ghost", tip: "Removes the new worktree and its branch; nothing was written there" })));
+  }
+
+  // A worktree run: create the checkout, open its writer beside the repo's tabs, then start once it is ready.
+  // The reviewer opens when the review comes (openReviewer), as for a run started from the Inbox.
   launchWorktreeRun(fields, cx) {
     const accounts = this.runAccounts();
     this.busy = true; this.error = null; this.launch = { stage: "preparing", fields, accounts, at: Date.now() }; cx.notify();
@@ -90,8 +151,7 @@ export class WorkflowRuns extends WorkflowDraftView {
         const result = await runtimeCommand({ action: "prepare-worktree", root: fields.root, title: fields.title, ...(pr ? { pr: { headRef: pr.headRef } } : {}) });
         const response = JSON.parse(result.stdout || "{}");
         if (response.error || result.code !== 0) throw Error(response.error || result.stderr || "Could not create the worktree");
-        const slug = response.result.branch.replace(/^run\//, "");
-        this.launch = { ...this.launch, stage: "opening", worktree: response.result, prUrl: pr?.url ?? null, tabs: { executor: `${slug} · build`, reviewer: `${slug} · review` } };
+        this.launch = { ...this.launch, stage: "waiting", worktree: response.result, prUrl: pr?.url ?? null, tabs: { executor: runTab("executor", response.result.branch) } };
         openInFolder({ name: fields.root.split("/").pop(), folder: response.result.path, tab: this.launch.tabs.executor, argv: launchArgv(accounts.executor, null, runAgentArgs(accounts.executor, "executor", appHome())) });
         this.launch.openedAt = Date.now();
       } catch (error) {
@@ -117,14 +177,14 @@ export class WorkflowRuns extends WorkflowDraftView {
   useChecks(checks) {
     const npm = checks.length === 1 && checks[0].length === 2 && checks[0][0] === "npm" && checks[0][1] === "test";
     this.checkPreset = !checks.length ? "none" : npm ? "npm-test" : "custom";
-    this.form.checks.set_value(this.checkPreset === "custom" ? JSON.stringify(checks) : "");
+    this.form.checks.set_value(this.checkPreset === "custom" ? checksText(checks) : "");
   }
 
   // The checks the form holds now, as the coordinator will get them; null when the custom ones don't parse.
   checksNow() {
     if (this.checkPreset === "npm-test") return [["npm", "test"]];
     if (this.checkPreset !== "custom") return [];
-    try { const checks = JSON.parse(this.form.checks.value() || "[]"); return Array.isArray(checks) ? checks : null; } catch { return null; }
+    try { const checks = parseChecks(this.form.checks.value()); return Array.isArray(checks) ? checks : null; } catch { return null; }
   }
 
   // A finished run's worktree state is read once per task and again after each worktree action.
@@ -188,6 +248,8 @@ export class WorkflowRuns extends WorkflowDraftView {
         let trust = null;
         for (const k of waiting) {
           const screen = (await exec("hc", ["read", k.address, "--lines", "30"])).stdout ?? "";
+          const own = ownFolderKeys(screen, reportsFolder());
+          if (own) { await exec("hc", ["keys", k.address, ...own]); continue; }
           const keys = trustKeys(screen);
           if (keys) trust ??= { address: k.address, keys, tab: tabName(k.address) };
           if (!codexUpdatePrompt(screen)) continue;
@@ -212,8 +274,17 @@ export class WorkflowRuns extends WorkflowDraftView {
   }
 
   // Starting a run moves the person to its new space, away from this window: Runs shows what the launch waits on.
+  // Where the start is: the worktree, then each agent, the one waiting on a question marked.
+  launchStepsNow() {
+    const l = this.launch;
+    if (!l) return null;
+    const labels = [["Worktree", l.worktree?.branch ?? l.fields.root.split("/").pop()], ["Writer", accountOf(l.accounts.executor).label], ["Reviewer", `${accountOf(l.accounts.reviewer).label} · opens to review`]];
+    const at = l.stage === "preparing" ? 0 : !l.ready?.executor ? 1 : 2;
+    return launchSteps(labels, at, Boolean(l.trust || l.stuck));
+  }
+
   shareLaunch(words) {
-    const launch = this.launch, next = launch && words ? { goalId: launch.fields.goalId, words, trust: launch.trust ?? null, at: launch.at } : null;
+    const launch = this.launch, next = launch && words ? { goalId: launch.fields.goalId, words, trust: launch.trust ?? null, at: launch.at, steps: this.launchStepsNow() } : null;
     if (JSON.stringify(shared(RUN_LAUNCH) ?? null) !== JSON.stringify(next)) setShared(RUN_LAUNCH, next);
   }
 
@@ -222,23 +293,24 @@ export class WorkflowRuns extends WorkflowDraftView {
     if (this.composing()) this.detectChecks(cx);
     const launch = this.launch;
     if (this.closed || !launch?.worktree) return;
-    if (launch.stage === "stalled") return;
+    if (["stalled", "failed"].includes(launch.stage)) return;
     if (Date.now() - launch.at > LAUNCH_TIMEOUT) {
-      launch.stage = "stalled"; this.busy = false; this.launchNotice = null; this.shareLaunch(null);
-      this.error = `The agents are not ready yet. Start keeps waiting on ${launch.worktree.branch}.`; cx.notify(); return;
-    }
-    if (launch.stage === "opening" && Date.now() - launch.openedAt > 1500) {
-      openInFolder({ name: launch.fields.root.split("/").pop(), folder: launch.worktree.path, tab: launch.tabs.reviewer, argv: launchArgv(launch.accounts.reviewer, null, runAgentArgs(launch.accounts.reviewer, "reviewer", appHome())) });
-      launch.stage = "waiting";
+      launch.stage = "stalled"; this.busy = false; this.launchNotice = null; this.shareLaunch(null); cx.notify(); return;
     }
     if (launch.stage !== "waiting") return;
-    const found = Object.fromEntries(["executor", "reviewer"].map((role) => [role, agents().find((agent) => agent.tab_name === launch.tabs[role])]));
+    const inTree = (agent) => terminals().find((k) => k.address === agent.address)?.cwd === launch.worktree.path;
+    const found = Object.fromEntries(["executor"].map((role) => {
+      const named = agents().filter((agent) => agent.tab_name === launch.tabs[role]);
+      return [role, named.find(inTree) ?? named[0]];
+    }));
     // The coordinator waits for a free agent itself; here an agent only has to exist and not wait on a prompt.
     const waiting = Object.entries(found).filter(([, agent]) => !agent || !["idle", "done", "working"].includes(agent.status));
     const stuck = waiting.find(([, agent]) => agent?.status === "blocked" || (!agent && Date.now() - launch.openedAt > 10000));
+    launch.ready = Object.fromEntries(Object.entries(found).map(([role, agent]) => [role, Boolean(agent && ["idle", "done", "working"].includes(agent.status))]));
+    launch.stuck = Boolean(stuck);
     if (stuck && !stuck[1]) this.skipUpdatePrompts(launch, found, cx);
     const notice = launch.trust ? `“${launch.trust.tab ?? "A run agent"}” asks whether to trust the run's worktree before it starts.`
-      : stuck ? `Answer the prompt in “${launch.tabs[stuck[0]]}” to continue.` : `Starting agents · ${2 - waiting.length}/2 ready`;
+      : stuck ? `Answer the prompt in “${launch.tabs[stuck[0]]}” to continue.` : `Opening ${accountOf(launch.accounts.executor).label}…`;
     if (this.launchNotice !== notice) { this.launchNotice = notice; cx.notify(); }
     this.shareLaunch(notice);
     if (waiting.length) return;
@@ -246,10 +318,15 @@ export class WorkflowRuns extends WorkflowDraftView {
     this.launch = null; this.launchNotice = null; this.busy = false;
     const label = (role) => accountOf(launch.accounts[role]).label;
     this.command({ action: "create", start: true, task: { ...launch.fields, root: launch.worktree.path,
-      executor: { address: found.executor.address, label: label("executor") }, reviewer: { address: found.reviewer.address, label: label("reviewer") },
+      executor: { address: found.executor.address, label: label("executor") }, reviewLater: { account: launch.accounts.reviewer, label: label("reviewer") },
       worktree: { branch: launch.worktree.branch, base: launch.worktree.base, baseCommit: launch.worktree.baseCommit, baseBranch: launch.worktree.baseBranch,
         ...(launch.worktree.prHead ? { prHead: launch.worktree.prHead, prUrl: launch.prUrl } : {}) } } }, cx, (response) => {
       this.explicitNew = false; this.selected = response.result?.taskId ?? null; this.filter = "In progress";
+    }, (error) => {
+      // The writer is open and waiting: the card says why the run did not start, and a toast says it wherever you are.
+      const failure = String(error.message ?? error);
+      this.launch = { ...launch, stage: "failed", failure }; this.error = null;
+      notify({ title: `“${launch.fields.title}” did not start`, body: failure, level: "error" });
     });
   }
 }

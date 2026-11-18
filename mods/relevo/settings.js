@@ -5,11 +5,12 @@ import { ACCOUNTS, CODEX, CONTEXTS, FALLBACK, REPOS_ROOT, SKILLS } from "./confi
 import * as config from "./config.js";
 import { WRITE_SCRIPT, renderConfig, validate, slug, parseList, isHex } from "./lib/settings.js";
 import { chip } from "./accounts.js";
+import { DEFAULT_DEEP_REVIEW, MAX_REVIEWERS, effortsFor } from "./lib/deep-setup.js";
 import { replies } from "./replies.js";
 import { button, spinner } from "./ui.js";
 
 const COLORS = ["ansi2", "ansi4", "ansi5", "ansi6", "ansi3", "ansi1"];
-const COLS = { label: 104, letter: 40, dir: 116, color: 76, ctxLabel: 140 };
+const COLS = { label: 104, letter: 40, dir: 116, color: 76, ctxLabel: 140, model: 150 };
 
 export function openSettings() {
   openOverlay({ mod: "relevo", kind: "dialog", width: 800, height: 700, props: { role: "settings" } });
@@ -25,12 +26,58 @@ export class Settings {
     this.errors = [];
     this.accounts = ACCOUNTS.map((a) => this.accountRow(a));
     this.codex = this.input(CODEX.launcher, "codex");
+    this.useCodex = config.USE_CODEX !== false;
     this.contexts = CONTEXTS.map((c) => this.contextRow(c));
     this.fallback = this.input(FALLBACK.join(", "), "personal, work");
     this.reposRoot = this.input(REPOS_ROOT, "code");
     this.backupsRoot = this.input(config.BACKUPS_ROOT ?? "relevo-backups", "relevo-backups");
     this.skills = Object.fromEntries(["review", "fix", "comments", "conflicts"].map((k) => [k, this.input(SKILLS[k] ?? "", k === "conflicts" ? "built-in prompt" : k)]));
     this.replies = replies().map((r) => this.replyRow(r));
+    this.deep = (config.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW).map((r) => this.deepRow(r));
+  }
+
+  deepRow(r = { account: "repo", model: "", effort: "high" }) {
+    return { id: ++this.seq, account: r.account, effort: r.effort ?? "", inputs: { model: this.input(r.model ?? "", "default model") } };
+  }
+
+  changeDeep(row, change, cx) {
+    Object.assign(row, change);
+    if (!effortsFor(row.account, CODEX.key).includes(row.effort)) row.effort = "high";
+    if (this.tried) this.errors = validate(this.collect());
+    cx.notify();
+  }
+
+  addDeep(cx) {
+    if (this.deep.length >= MAX_REVIEWERS) return;
+    this.deep.push(this.deepRow());
+    cx.notify();
+  }
+
+  removeDeep(row, cx) {
+    this.deep = this.deep.filter((r) => r !== row);
+    this.drop(row);
+    if (this.tried) this.errors = validate(this.collect());
+    cx.notify();
+  }
+
+  // One segmented choice: who reviews, or how hard it thinks.
+  choice(t, id, options, current, pick, bad = false) {
+    return h_flex().id(id).h(26).p(2).gap(2).flex_none().rounded(6).bg(t.raised).text_size(11)
+      .when(bad, (el) => el.border_1().border_color(t.blocked))
+      .children(options.map(([value, label]) => div().id(`${id}-${value}`).h_full().px(7).flex().items_center().rounded(4).cursor_pointer()
+        .text_color(current === value ? t.foreground : t.dim).when(current === value, (el) => el.bg(t.selected))
+        .hover((s) => s.text_color(t.foreground)).on_click((_e, cx) => pick(value, cx)).child(label)));
+  }
+
+  deepRowView(t, row, i) {
+    const accounts = [["repo", "Repo's"], ...this.accounts.map((a) => [this.keyOf(a), text(a.inputs.label) || "?"]), ...(this.useCodex || row.account === CODEX.key ? [[CODEX.key, "Codex"]] : [])];
+    return h_flex().id(`settings-deep-${row.id}`).gap(6).items_center()
+      .child(this.choice(t, `sd-account-${row.id}`, accounts, row.account, (account, cx) => this.changeDeep(row, { account }, cx), this.bad(`deepReview.${i}.account`)))
+      .child(this.field(t, `sd-model-${row.id}`, row.inputs.model, `deepReview.${i}.model`, COLS.model))
+      .child(this.choice(t, `sd-effort-${row.id}`, effortsFor(row.account, CODEX.key).map((e) => [e, e]), row.effort, (effort, cx) => this.changeDeep(row, { effort }, cx),
+        this.bad(`deepReview.${i}.effort`)))
+      .child(div().flex_1())
+      .child(button(t, `sd-remove-${row.id}`, "×", (cx) => this.removeDeep(row, cx), { size: "sm", tip: "Remove reviewer", disabled: this.deep.length < 2 }));
   }
 
   replyRow(value = "") {
@@ -114,12 +161,14 @@ export class Settings {
         ...Object.fromEntries(Object.entries(r.inputs).map(([k, s]) => [k, text(s)])),
       })),
       CODEX: { ...CODEX, launcher: text(this.codex) },
+      USE_CODEX: this.useCodex,
       CONTEXTS: contexts,
       FALLBACK: parseList(this.fallback.value()),
       REPOS_ROOT: text(this.reposRoot),
       BACKUPS_ROOT: text(this.backupsRoot),
       SKILLS: Object.fromEntries(Object.entries(this.skills).map(([k, s]) => [k, text(s)]).filter(([k, v]) => k !== "conflicts" || v)),
       REPLIES: this.replies.map((r) => text(r.inputs.text)).filter(Boolean),
+      DEEP_REVIEW: this.deep.map((r) => ({ account: r.account, model: text(r.inputs.model), effort: r.effort })),
     };
   }
 
@@ -264,7 +313,10 @@ export class Settings {
         h_flex().child(button(t, "settings-add-account", "+ Account", (cx) => this.addAccount(cx), { size: "sm" })),
       ]))
       .child(this.section(t, "settings-codex", "CODEX", ["codex"], [
-        this.labeled(t, "Launcher", this.field(t, "settings-codex-launcher", this.codex, "codex.launcher")),
+        h_flex().gap(12).items_end()
+          .child(this.labeled(t, "Launcher", this.field(t, "settings-codex-launcher", this.codex, "codex.launcher")))
+          .child(this.choice(t, "settings-use-codex", [["on", "Use Codex"], ["off", "Off"]], this.useCodex ? "on" : "off",
+            (v, cx) => { this.useCodex = v === "on"; cx.notify(); })),
       ]))
       .child(this.section(t, "settings-contexts", "CONTEXTS", ["contexts"], [
         ...this.contexts.map((r, i) => this.contextRowView(t, r, i)),
@@ -279,6 +331,10 @@ export class Settings {
       .child(this.section(t, "settings-skills", "SKILLS", ["skills"], [
         h_flex().gap(12).children([["review", "Review"], ["fix", "CI fix"], ["comments", "Review comments"], ["conflicts", "Merge conflicts"]].map(([k, label]) =>
           this.labeled(t, label, this.field(t, `settings-skill-${k}`, this.skills[k], `skills.${k}`)))),
+      ]))
+      .child(this.section(t, "settings-deep", "DEEP REVIEW", ["deepReview"], [
+        ...this.deep.map((r, i) => this.deepRowView(t, r, i)),
+        h_flex().child(button(t, "settings-add-deep", "+ Reviewer", (cx) => this.addDeep(cx), { size: "sm", disabled: this.deep.length >= MAX_REVIEWERS })),
       ]))
       .child(this.section(t, "settings-replies", "QUICK REPLIES", ["replies"], [
         ...this.replies.map((r) => h_flex().id(`settings-reply-${r.id}`).gap(6).items_center()

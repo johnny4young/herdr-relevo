@@ -37,7 +37,7 @@ The panel has two views. **Reviews** is the Inbox described below. **Runs** is f
 
 1. **New run** (`n`) takes a prompt. Its first line names the run.
 2. Check the repository, the tests, who writes it and who reviews it; they come filled in. The repository is the one you are in (a run's worktree gives the repository it came from), the tests are what it declares (the `test` script of `package.json` with npm, pnpm, yarn or bun, `go test ./...`, `cargo test`, `pytest` or `make test`), and the agents are the ones you used last unless one is out of quota. The line above the setup reads it all, for example "app · own worktree · Team → Codex · npm test".
-3. **Start**. By default the run gets its own worktree, `run/<slug>` under `~/.herdr/worktrees/<repo>/`, and both agents open there in two tabs. If an agent asks whether to trust the new folder, Runs shows it under Needs me with **Trust and continue**. **Existing sessions** uses agents you already have open in the repository instead.
+3. **Start**. By default the run gets its own worktree, `run/<slug>` under `~/.herdr/worktrees/<repo>/`, and its writer opens there in a tab. The reviewer opens in a second tab when the writing is done and its tests have run. If an agent asks whether to trust the new folder, Runs shows it under Needs me with **Trust and continue**. **Existing sessions** uses agents you already have open in the repository instead.
 4. The result appears under **Needs me**, in Reviews with its agents, attempt, tests, verdict and age, and in Runs on its run. Open it to read the writer's summary, who did what and the files it changed, then see the diff (**D**, or a click on a file, opens it beside the panel), accept (**A**, then Enter: **Accept and open draft PR**) or ask for changes (**R**). A run the agents could not finish shows as **Stuck**; **See why** opens it on the reviewer's finding.
 
 **Fix a pull request with a run.** On a PR of yours with failing CI, changes requested or unresolved comments, **Fix with a run** writes the prompt from GitHub (the failing checks and each unresolved comment with its file and line, since the agents work offline) and opens the run window on a copy of the PR's branch. You check it and press Start. Once you accept, **Push to <branch>** adds the commit to the pull request; it is never forced, so a branch that moved on GitHub refuses it.
@@ -46,7 +46,7 @@ The panel has two views. **Reviews** is the Inbox described below. **Runs** is f
 
 **Runs at a glance.** Each run is one row that answers three questions: what it is, what it is doing or wants **Now** ("3 results wait for your review", "stuck: the reviewer rejected it twice", "an agent is writing …", "needs a plan before agents start") and what it **Shipped** ("2 pull requests merged: #38, #42", "nothing yet"). Runs are grouped Needs me, In flight, Ready and Not started, with the counts as a legend and one action at the edge: **Review 3**, **See why**, **Open** or **Plan**. Closed runs fold under "N older finished runs", and **Saved setups** opens in place with one row per setup (name, repository, agents, attempts): **Start** fills a new task in the run window with it, and **×** removes it.
 
-**A run opens in the panel.** Enter or a click shows its tasks under Needs me, Stuck and In flight, with the ones not started or done folded. A stuck task, selected, says **Why** in the reviewer's words and offers **Prepare a follow-up**. Enter on a task shows the summary, each step with its check (who wrote it, the tests, who reviewed it, then you) and the decision, with one line on what accepting does. Esc goes back a level.
+**A run opens in the panel.** Enter or a click shows its tasks under Needs me, Stuck and In flight, with the ones not started or done folded. A stuck task, selected, says **Why** in the reviewer's words. One whose writer is still its own offers **Try again**: one more try in the same worktree, with the findings you mark (all of them if you mark none) and a note. **Prepare a follow-up** starts a new task from the repository instead. Enter on a task shows the summary, each step with its check (who wrote it, the tests, who reviewed it, then you) and the decision, with one line on what accepting does. Esc goes back a level.
 
 **What a run cost.** Under the summary of an open run, one line: agent minutes and tokens, each against the run's cap when it has one (a band that turns red at the cap; a cap never stops anything), attempts used, checks passed and pull requests shipped, with **Pause automation** or **Resume automation** at the edge. Tokens are counted for worktree runs, from the same report as the Tokens dialog.
 
@@ -161,6 +161,14 @@ shows only what the agent changed after your last look, and **Viewed** marks fil
 ![A selected PR names the check that failed, with Land on l](screenshots/land.png)
 
 ![Since I looked, with one file marked viewed](screenshots/since.png)
+
+### Deep review a pull request
+
+**Deep review** on a PR of yours has the reviewers you set in Settings (an account, a model and an effort each; by
+default two Claude Code sessions, Opus and Sonnet) review the whole PR against its base, in a worktree of its exact head, with the
+repository's tests and the PR's checks on GitHub. Their findings meet in Runs as one page, merged where they agree: **Post as draft
+review** leaves them on GitHub as a pending review for you to edit and send, and **Fix with a run** fixes the blockers
+and majors. The ▾ beside it runs the review skills you use most, such as `/code-review`, on the PR.
 
 ### Resolve conflicts, and see what each turn cost
 

@@ -127,13 +127,13 @@ test('Pause automation stops the engine; Resume automation resumes only this run
 test('attempt history: who passed to whom, how long it took and how it ended', () => {
   assert.deepEqual(taskRounds(twice()).map((round) => [round.n, round.writer.id, round.reviewer.id]), [[1, 'w-1', 'r-1'], [2, 'w-2', 'r-2']]);
   assert.deepEqual(attemptHistory(twice()).map((line) => line.text),
-    ['attempt 1: Codex Luna → Team Haiku · 18 min · asked for changes', 'attempt 2: Codex Luna → Team Haiku · 9 min · approved']);
+    ['1st try: Codex Luna → Team Haiku · 18 min · asked for changes', '2nd try: Codex Luna → Team Haiku · 9 min · approved']);
   assert.deepEqual(attemptHistory(twice()).map((line) => line.ok), [false, true]);
   const now = Date.parse(at('10:04'));
   assert.deepEqual(attemptHistory(task('e', 'running', { maxMinutes: 20, attempts: [{ id: 'a1', role: 'executor', state: 'running', at: at('10:00') }] }), now).map((line) => line.text),
-    ['attempt 1: Codex Luna · 4 min · writing']);
+    ['1st try: Codex Luna · 4 min · writing']);
   assert.equal(attemptHistory(task('f', 'blocked', { attempts: [{ id: 'a1', role: 'executor', state: 'reported', at: at('10:00'), endedAt: at('10:20'), timedOut: true }] }))[0].text,
-    'attempt 1: Codex Luna · 20 min · timed out');
+    '1st try: Codex Luna · 20 min · timed out');
   assert.deepEqual(attemptHistory(task('p', 'planned')), []);
   assert.equal(canCompare(twice()), true); assert.equal(canCompare(ready('a')), false);
 });
@@ -143,11 +143,11 @@ test('a selected task lists its attempts; the task shows them above the decision
   let tree = v.render(cx);
   assert.equal(v.sel, 'task-t');
   assert.deepEqual([1, 2].map((n) => text(find(tree, `task-attempt-t-${n}`))),
-    ['attempt 1: Codex Luna → Team Haiku · 18 min · asked for changes', 'attempt 2: Codex Luna → Team Haiku · 9 min · approved']);
+    ['1st try: Codex Luna → Team Haiku · 18 min · asked for changes', '2nd try: Codex Luna → Team Haiku · 9 min · approved']);
   assert.equal(find(tree, 'task-attempt-t-1').ink, t.blocked); assert.equal(find(tree, 'task-attempt-t-2').ink, t.muted);
   assert.equal(find(tree, 'task-attempt-a-1'), null, 'only the selected row opens');
-  v.navKey({ key: 'enter' }, cx); tree = v.render(cx);
-  assert.equal(text(find(tree, 'task-attempts')), 'attempt 1: Codex Luna → Team Haiku · 18 min · asked for changes attempt 2: Codex Luna → Team Haiku · 9 min · approved');
+  v.navKey({ key: 'enter' }, cx); v.expanded['how-t'] = true; tree = v.render(cx);
+  assert.equal(text(find(tree, 'task-attempts')), '1st try: Codex Luna → Team Haiku · 18 min · asked for changes 2nd try: Codex Luna → Team Haiku · 9 min · approved');
   assert.equal(text(find(tree, 'task-compare')), 'c Compare attempts');
   assert.equal(text(find(tree, 'list-keys')), 'a accept r changes d diff c compare esc tasks ? keys');
   v.navKey({ key: 'escape' }, cx); v.render(cx); v.navKey({ key: 'j' }, cx); v.navKey({ key: 'enter' }, cx); tree = v.render(cx);
@@ -326,7 +326,7 @@ test('an accepted or cancelled task offers Re-run with changes, which the run wi
   const win = new Workflow(), wcx = fakeCx(); win.init({}, wcx); await flush();
   assert.equal(win.form.title.value(), 'Follow up: Task x');
   assert.equal(win.form.criteria.value(), 'Rows fit\nRequested changes: ');
-  assert.deepEqual([win.form.root.value(), win.form.maxRounds.value(), win.form.maxMinutes.value(), win.form.checks.value()], ['/work/app', '3', '30', '[["npm","test"]]']);
+  assert.deepEqual([win.form.root.value(), win.form.maxRounds.value(), win.form.maxMinutes.value(), win.form.checks.value()], ['/work/app', '3', '30', 'npm test']);
   assert.equal(win.explicitNew, true); assert.equal(win.selected, null); assert.equal(calls(/cli\.mjs/).length, 0);
   win.close();
   const again = new Workflow(); again.init({}, fakeCx()); await flush();

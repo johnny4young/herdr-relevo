@@ -1,4 +1,5 @@
 // config.js as data: rendering it back to source and checking a setup before it is written.
+import { DEFAULT_DEEP_REVIEW, checkDeepReview } from "./deep-setup.js";
 
 const WIDTH = 130;
 const SKILL_KEYS = ["review", "fix", "comments"];
@@ -53,11 +54,12 @@ const flat = (name, v) => {
 };
 
 // What Settings edits; anything else config.js exports is written back as it was.
-const EDITED = ["ACCOUNTS", "CODEX", "CONTEXTS", "FALLBACK", "REPOS_ROOT", "BACKUPS_ROOT", "SKILLS", "REPLIES"];
+const EDITED = ["ACCOUNTS", "CODEX", "USE_CODEX", "CONTEXTS", "FALLBACK", "REPOS_ROOT", "BACKUPS_ROOT", "SKILLS", "REPLIES", "DEEP_REVIEW"];
 const NOTES = {
   RUN_CODEX_MODEL: "// The model a run's Codex agent uses.",
   RUN_MUST_FIX: "// A run's reviewer sends the work back only for findings at this level or above: \"blocker\", \"major\" or \"minor\".",
   RUN_DRAFT_PR: "// false: accepting a run in its own worktree only commits to its branch, without opening the draft pull request.",
+  RUN_SANDBOX: "// true: a run's agents also keep Bash in the OS sandbox, where builds that need the network fail.",
 };
 
 function others(c) {
@@ -75,6 +77,8 @@ export function renderConfig(c) {
     list("ACCOUNTS", c.ACCOUNTS),
     "",
     block(c.CODEX, 0, "export const CODEX = ", ";"),
+    "// false: Codex stays out of every account list and every default (runs, second opinions, deep reviews, handoffs).",
+    flat("USE_CODEX", c.USE_CODEX ?? true),
     "",
     "// The first context is the default. The others claim the repos whose GitHub owner is in `orgs`,",
     "// and each gets a space folder with that key.",
@@ -94,6 +98,9 @@ export function renderConfig(c) {
     "",
     "// What the quick replies menu offers to send an agent (⌥⌘S, or ↩ beside an agent).",
     flat("REPLIES", c.REPLIES ?? []),
+    "",
+    "// Who reviews a PR in Deep review: an account (\"repo\" is the repo's own), its model (empty: the default) and effort.",
+    list("DEEP_REVIEW", c.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW),
     "",
     ...others(c),
   ].join("\n");
@@ -146,5 +153,6 @@ export function validate(c) {
   if (keys.sort().join() !== [...SKILL_KEYS].sort().join()) fail("skills", "Skills: review, fix and comments");
   for (const k of SKILL_KEYS) if (k in skills && !skills[k]?.trim()) fail(`skills.${k}`, `Skills: ${k} is required`);
   if (new Set(c.REPLIES ?? []).size !== (c.REPLIES ?? []).length) fail("replies", "Replies: each one once");
+  errors.push(...checkDeepReview(c.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW, [...seen], c.CODEX?.key));
   return errors;
 }

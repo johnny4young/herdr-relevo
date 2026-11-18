@@ -1,5 +1,6 @@
 import { home, readTextFile, run, spaces, shared } from "herdr";
 import { ACCOUNTS as CONFIGURED, CODEX as CODEX_ACCOUNT, FALLBACK } from "./config.js";
+import * as config from "./config.js";
 import { FIVE_HOURS, WEEK, windowOf, windowLabel } from "./lib/time.js";
 import { accountFor } from "./context.js";
 import { shellArgv } from "./lib/session-env.js";
@@ -12,6 +13,11 @@ export const ACCOUNTS = CONFIGURED.map(withFile);
 export const CODEX = withFile(CODEX_ACCOUNT);
 
 export const accountOf = (key) => [...ACCOUNTS, CODEX].find((p) => p.key === key) ?? ACCOUNTS[0];
+// USE_CODEX = false in config.js keeps Codex out of every list and every default, and so does a machine without the
+// codex command: the Inbox looks for it once (CODEX_FOUND).
+export const CODEX_FOUND = "relevo.codex.found";
+export const codexOn = () => config.USE_CODEX !== false && shared(CODEX_FOUND) !== false;
+export const agentAccounts = () => (codexOn() ? [...ACCOUNTS, CODEX] : ACCOUNTS);
 
 export { shellArgv } from "./lib/session-env.js";
 
@@ -67,11 +73,14 @@ export const full = (q) => (q?.h5?.pct >= 100 ? "5h" : q?.d7?.pct >= 100 ? windo
 // Past this share of either window a new agent starts on another account: the rest goes in minutes.
 export const NEAR_FULL = 90;
 const used = (q) => Math.max(q?.h5?.pct ?? 0, q?.d7?.pct ?? 0);
+export const hasRoom = (q) => used(q) < NEAR_FULL;
 const tightWindow = (q) => ((q?.h5?.pct ?? 0) >= (q?.d7?.pct ?? 0) ? "5h" : windowLabel(q.d7, "7d"));
 
 // The repo's account unless it is nearly out of quota; then the fallback with the most left, known before unknown.
-export function pickAccount(repo, quotas) {
-  const key = accountFor(repo), q = quotas?.[key];
+export const pickAccount = (repo, quotas) => withRoom(accountFor(repo), quotas);
+
+export function withRoom(key, quotas) {
+  const q = quotas?.[key];
   if (used(q) < NEAR_FULL) return { key, note: null };
   const alt = FALLBACK.filter((k) => k !== key && used(quotas?.[k]) < NEAR_FULL)
     .map((k, i) => ({ k, i, rank: quotas?.[k] ? used(quotas[k]) : 100 }))

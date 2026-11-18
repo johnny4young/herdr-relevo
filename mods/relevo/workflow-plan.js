@@ -6,6 +6,7 @@ import { projectGoalPlan, defaultPlanStepIds } from "./lib/goal-plan.js";
 import { workflowBucket } from "./lib/workflow-navigation.js";
 import { STATES, role, count } from "./lib/run-words.js";
 import { noteUse } from "./run-usage.js";
+import { parseChecks } from "./lib/run-checks.js";
 
 const labels = { ...STATES, todo: "Not started", working: "In progress", needs_review: "In review", review: "Needs review", accepted: "Accepted", done: "Validated" };
 const row = (t, value) => div().w_full().min_w(0).text_size(13).text_color(t.muted).child(value);
@@ -44,9 +45,9 @@ export class WorkflowPlan {
     let checks;
     try {
       checks = this.checkPreset === "npm-test" ? [["npm", "test"]]
-        : this.checkPreset === "custom" ? (this.form.checks.value().trim() ? JSON.parse(this.form.checks.value()) : []) : [];
+        : this.checkPreset === "custom" ? parseChecks(this.form.checks.value()) : [];
       if (!Array.isArray(checks) || checks.some((args) => !Array.isArray(args) || !args.length || args.some((arg) => typeof arg !== "string"))) throw Error();
-    } catch { this.planMoreOpen = true; this.planConfigOpen = true; this.error = 'Tests must be JSON argv lists, such as [["npm","test"]].'; cx.notify(); return; }
+    } catch { this.planMoreOpen = true; this.planConfigOpen = true; this.error = 'Write test commands as you would type them, separated by ";": npm test; make lint. Close every quote.'; cx.notify(); return; }
     const payload = { action: "create-plan", goalId: goal.id, goalVersion: goal.version,
       stepIds: goal.steps.filter((step) => this.planStepIds.includes(step.id)).map((step) => step.id), root,
       executor: { address: executor.address, label: executor.title || executor.address },
@@ -189,9 +190,9 @@ export class WorkflowPlan {
           .child(row(t, "Tests run after each attempt. Nothing runs until you start the plan."))
           .children([["none", "No tests"], ["npm-test", "npm test"], ["custom", "Custom"]].map(([value, label]) => button(t, `workflow-plan-check-${value}`, label,
             (cx) => { this.checkPreset = value; this.checksPicked = true; cx.notify(); }, { selected: (this.checkPreset ?? "none") === value,
-              tip: value === "custom" ? "Enter custom test commands as JSON argv lists" : `Use ${label}` })))
-          .when(this.checkPreset === "custom", (el) => el.child(row(t, 'Advanced: JSON argument lists, for example [["npm","test"]].'))
-            .child(this.field(t, "checks", "Custom test commands (JSON)")))
+              tip: value === "custom" ? "Type your test commands, separated by \";\"" : `Use ${label}` })))
+          .when(this.checkPreset === "custom", (el) => el
+            .child(this.field(t, "checks", "Test commands, like npm test; make lint")))
           .child(row(t, "Limits apply to each task. Saving creates a preview; Start plan is what authorizes agents to begin.")))
         .child(button(t, "workflow-create-plan", "Save plan preview", (cx) => this.createPlan(cx), { kind: "solid", disabled: this.busy || stale || !active || !goal.criteria?.trim(), tip: "Atomically create all selected tasks and their dependencies without running agents" })))
       .when(!active, (el) => el.child(row(t, "This goal is not active. Its history remains available; reopen the goal before planning new work."))));

@@ -4,7 +4,7 @@ import { PreviewInbox } from "./decision-preview.js";
 import { SnapshotInbox } from "./snapshot-preview.js";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { theme, exec, run, notify, settings, agents, panes, terminals, shared, setShared, home } from "herdr";
-import { loadClaudeQuotas } from "./accounts.js";
+import { CODEX_FOUND, loadClaudeQuotas } from "./accounts.js";
 import { accountFor, contextOfPath, inFocus } from "./context.js";
 import { ago, nextSince } from "./lib/time.js";
 import { today, duration } from "./ledger.js";
@@ -129,6 +129,7 @@ export class Inbox {
     this.scanTrees(cx);
     this.startLand(cx);
     // These feed alerts, so they keep running behind other apps.
+    cx.spawn(async () => { const r = await exec("sh", ["-c", "command -v codex"]).catch(() => null); setShared(CODEX_FOUND, r?.code === 0); });
     cx.timer.every(180000, (cx) => this.scanPRs(cx));
     cx.timer.every(60000, (cx) => this.loadQuotas(cx));
   }
@@ -392,6 +393,7 @@ export class Inbox {
     if (this.preview) return this.preview.close();
     this.reply.release();
     this.runChange?.release();
+    this.fixNote?.release();
     this.shortcutHelp?.close();
     this.wanted.clear();
   }

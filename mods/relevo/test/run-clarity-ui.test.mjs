@@ -135,5 +135,5 @@ test('a ready result card carries its meta line', async () => {
   const { view, cx } = await load(Inbox, newGoal('g', 'Search'), [{ ...task, executor: { label: 'Codex' }, reviewer: { label: 'Claude' } }]);
   assert.equal(find(view.render(cx), 'meta-result-t'), null);
   view.sel = 'result-t';
-  assert.match(text(find(view.render(cx), 'meta-result-t')), /^Codex → Claude · attempt 1 of 3/);
+  assert.match(text(find(view.render(cx), 'meta-result-t')), /^Codex → Claude · 1st try of 3/);
 });

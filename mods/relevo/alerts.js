@@ -89,7 +89,7 @@ export class BackgroundWatch {
       playSound("sounds/bg-done.mp3");
       notify({
         title: "Background work finished",
-        body: `${before.where ?? address}: ${before.labels?.["agent.bg"] ?? ""}`.trim(),
+        body: `${before.where ?? (String(k.cwd ?? "").split("/").pop() || "An agent")}: ${before.labels?.["agent.bg"] ?? ""}`.trim(),
         level: "success",
         action: { name: "agent.focus", args: { terminal: address } },
       });

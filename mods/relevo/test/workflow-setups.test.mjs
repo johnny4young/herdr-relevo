@@ -67,7 +67,7 @@ test('invalid stored setups and invalid check commands are not applied or saved'
   const { v, cx } = await setup();
   assert.deepEqual(savedSetups(), []);
   v.form.root.set_value('/work/app'); v.executor = 'build'; v.reviewer = 'review'; v.form.setupName.set_value('Check');
-  v.checkPreset = 'custom'; v.form.checks.set_value('not JSON'); v.saveSetup(cx);
+  v.checkPreset = 'custom'; v.form.checks.set_value('npm "test'); v.saveSetup(cx);
   assert.match(v.setupError, /Fix the custom test commands/); assert.deepEqual(savedSetups(), []);
   assert.equal(fake.execs.length, 0); v.close();
 });

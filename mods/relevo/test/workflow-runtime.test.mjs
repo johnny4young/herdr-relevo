@@ -209,6 +209,25 @@ test("a second reviewer correction exhausts the bounded retry budget", async (t)
   assert.deepEqual(task.attempts.filter((attempt) => attempt.role === "executor").map((attempt) => attempt.tests), [{ passed: 1, total: 1 }, { passed: 1, total: 1 }], "each attempt keeps its own test count");
 });
 
+test("a stuck run tries once more in place, with what to fix, and a long prompt is kept whole", async (t) => {
+  const f = await fixture({ maxRounds: 1 }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await assert.rejects(f.runtime.command({ action: "retry", taskId: f.taskId, text: "Fix it" }), /Only a stuck run/);
+  await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
+  f.report("executor", "completed", "Initial work"); await f.runtime.tick();
+  f.report("reviewer", "changes_requested", "First finding"); await f.runtime.tick();
+  assert.equal(f.runtime.read().tasks[0].state, "blocked");
+  await assert.rejects(f.runtime.command({ action: "retry", taskId: f.taskId, text: " " }), /what the next try should fix/);
+  const ask = `Fix these findings.\n\n${"1. [major] a.js:3 — It leaks. ".repeat(300)}`;
+  assert.ok(ask.length > 4000);
+  await f.runtime.command({ action: "retry", taskId: f.taskId, text: ask });
+  const task = f.runtime.read().tasks[0];
+  assert.deepEqual([task.state, task.maxRounds, task.error, task.decisions.at(-1).outcome], ["ready", 2, null, "retry"]);
+  await f.runtime.tick();
+  assert.equal(f.runtime.read().tasks[0].attempts.at(-1).role, "executor", "the same writer, in the same checkout");
+  const sent = f.sends.at(-1).at(-1);
+  assert.ok(sent.includes(ask.trim()), "the request reaches the writer whole");
+});
+
 test("a failed required check at the attempt cap blocks acceptance and further dispatch", async (t) => {
   const f = await fixture({ checkCode: 1, maxRounds: 1 }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
   await f.runtime.command({ action: "start", taskId: f.taskId }); await f.runtime.tick();
@@ -521,7 +540,7 @@ test("accepting a worktree run commits exactly the reviewed tree to its branch",
   await f.runtime.command({ action: "decide", taskId: id, outcome: "accept", revision: current().revision });
   assert.equal(current().state, "accepted");
   assert.match(current().worktree.commit, /^[0-9a-f]{40}$/);
-  assert.equal(execFileSync("git", ["-C", f.root, "log", "-1", "--format=%s"], { encoding: "utf8" }).trim(), "Add notes");
+  assert.equal(execFileSync("git", ["-C", f.root, "log", "-1", "--format=%s"], { encoding: "utf8" }).trim(), "Done", "the writer's words, not the run title or its prompt");
   const committed = execFileSync("git", ["-C", f.root, "show", "--name-only", "--format=", "HEAD"], { encoding: "utf8" });
   assert.match(committed, /NOTES\.md/); assert.doesNotMatch(committed, /LATE\.md/, "an edit after review stays out");
   assert.equal(execFileSync("git", ["-C", f.root, "status", "--porcelain"], { encoding: "utf8" }), "?? LATE.md\n");
@@ -952,4 +971,100 @@ test("a second opinion checks the work as it is, sends it only to the reviewer, 
   await f.runtime.tick();
   assert.equal(f.sends.at(-1).at(-2), "exec-agent", "asked to, the person's changes go to the agent whose work it was");
   assert.match(f.sends.at(-1).at(-1), /Please fix the tests/);
+});
+
+test("a pull request's review has no writer: its diff is against the PR's base and its findings never go back to an agent", async (t) => {
+  const f = await fixture({ checkCode: 0 }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: f.root, encoding: "utf8" }).trim();
+  const pr = { url: "https://github.com/me/app/pull/7", number: 7, headRef: "feat/x", clone: f.root };
+  const created = await f.runtime.command({ action: "create", start: true, task: { goalId: "g1", title: "Claude · #7", criteria: "Ready to merge?", root: f.root,
+    reviewer: { address: "review-agent", label: "Claude" }, checks: [["npm", "test"]], reviewOnly: true, reviewBase: base, pr } });
+  const id = created.result.taskId, task = () => f.runtime.read().tasks.find((x) => x.id === id);
+  assert.deepEqual([task().executor, task().reviewBase, task().pr.number], [null, base, 7]);
+  await f.runtime.tick();
+  await f.runtime.tick();
+  assert.deepEqual(f.sends.map((args) => args.at(-2)), ["review-agent"]);
+  assert.match(f.sends[0].at(-1), new RegExp(`against ${base.slice(0, 12)}`));
+  f.report("reviewer", "changes_requested", "One bug", task().attempts.at(-1), { findings: [{ level: "major", where: "a.js:1", issue: "Broken", fix: "Fix it" }] });
+  await f.runtime.tick();
+  assert.equal(task().state, "needs_you");
+  await assert.rejects(f.runtime.command({ action: "decide", taskId: id, outcome: "changes", text: "Fix it", revision: task().revision }), /no agent to send changes to/);
+  await assert.rejects(f.runtime.command({ action: "message", taskId: id, text: "hi" }), /no agent to message/);
+  await f.runtime.command({ action: "decide", taskId: id, outcome: "accept", revision: task().revision });
+  assert.equal(task().state, "accepted");
+});
+
+test("a review without a writer still needs a real pull request and base", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const task = { goalId: "g1", title: "No PR", criteria: "?", root: f.root, reviewer: { address: "review-agent" }, reviewOnly: true };
+  await assert.rejects(f.runtime.command({ action: "create", task }), /different executor and reviewer/);
+  await assert.rejects(f.runtime.command({ action: "create", task: { ...task, reviewBase: "a".repeat(40), pr: { url: "https://github.com/me/app/pull/7", number: 7, headRef: "../x", clone: f.root } } }),
+    /Choose the pull request/);
+});
+
+test("a second PR reviewer reads the first one's tests, sees the PR's CI, and an undecided verdict still reaches the person", async (t) => {
+  const f = await fixture({ checkCode: 0 }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const base = execFileSync("git", ["rev-parse", "HEAD"], { cwd: f.root, encoding: "utf8" }).trim();
+  const pr = { url: "https://github.com/me/app/pull/7", number: 7, headRef: "feat/x", clone: f.root };
+  const common = { goalId: "g1", criteria: "Ready to merge?", root: f.root, reviewOnly: true, reviewBase: base, pr, prChecks: "test: pass\nlint: fail" };
+  const one = (await f.runtime.command({ action: "create", start: true, task: { ...common, title: "Claude", reviewer: { address: "review-agent", label: "Claude" }, checks: [["npm", "test"]] } })).result.taskId;
+  await assert.rejects(f.runtime.command({ action: "create", task: { ...common, title: "Codex", reviewer: { address: "codex-agent" }, checksFrom: "nope" } }), /another review of this pull request/);
+  const two = (await f.runtime.command({ action: "create", start: true, task: { ...common, title: "Codex", reviewer: { address: "codex-agent", label: "Codex" }, checks: [], checksFrom: one } })).result.taskId;
+  const task = (id) => f.runtime.read().tasks.find((x) => x.id === id);
+  await f.runtime.tick();
+  assert.equal(task(one).state, "needs_review");
+  await f.runtime.tick();
+  assert.deepEqual(task(two).checksResult.map((c) => c.code), [0], "the second reviewer has the first one's results");
+  await f.runtime.tick();
+  // In one test checkout the second waits for the first; each has its own worktree in a real deep review.
+  f.report("reviewer", "completed", "Fine", task(one).attempts.at(-1));
+  await f.runtime.tick(); await f.runtime.tick();
+  const prompt = f.sends.map((args) => args.at(-1)).find((text) => text.includes(task(two).attempts.at(-1)?.id ?? "x"));
+  assert.match(prompt, /The pull request's checks on GitHub: test: pass\nlint: fail/);
+  assert.match(prompt, /Missing evidence is not a reason to stop/);
+  f.report("reviewer", "blocked", "Could not tell", task(two).attempts.at(-1));
+  await f.runtime.tick();
+  assert.equal(task(two).state, "needs_you");
+  assert.equal(task(two).error, null);
+});
+
+test("a writer that changed the checkout but couldn't verify it in its sandbox goes on to the checks and the review", async (t) => {
+  let revision = "r1";
+  const f = await fixture({ fingerprintImpl: async () => revision }); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId });
+  await f.runtime.tick();
+  const task = () => f.runtime.read().tasks.find((x) => x.id === f.taskId);
+  revision = "r2";
+  f.report("executor", "blocked", "Fixed it", task().attempts.at(-1), { details: ["Closed the guide"], notProven: ["swift test did not run in the sandbox"] });
+  await f.runtime.tick();
+  assert.notEqual(task().state, "blocked");
+  assert.equal(task().checksResult.length, 1, "the configured checks ran");
+});
+
+test("a writer that changed nothing and says blocked stays blocked", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  await f.runtime.command({ action: "start", taskId: f.taskId });
+  await f.runtime.tick();
+  const task = () => f.runtime.read().tasks.find((x) => x.id === f.taskId);
+  f.report("executor", "blocked", "Scope unclear", task().attempts.at(-1), { details: ["Read the code"] });
+  await f.runtime.tick();
+  assert.equal(task().state, "blocked");
+});
+
+test("a run whose reviewer opens late waits for it after the checks, then reviews once it is named", async (t) => {
+  const f = await fixture(); t.after(() => fs.rmSync(f.base, { recursive: true, force: true }));
+  const created = await f.runtime.command({ action: "create", start: true, task: { goalId: "g1", title: "Late review", criteria: "Works", root: f.root,
+    executor: { address: "exec-late", label: "Team" }, reviewLater: { account: "personal", label: "Personal" }, checks: [["npm", "test"]] } });
+  const id = created.result.taskId, task = () => f.runtime.read().tasks.find((x) => x.id === id);
+  assert.deepEqual([task().reviewer, task().reviewLater.account], [null, "personal"]);
+  await f.runtime.tick();
+  f.report("executor", "completed", "Done", task().attempts.at(-1)); await f.runtime.tick(); await f.runtime.tick();
+  assert.equal(task().state, "needs_review");
+  assert.equal(task().waitsFor, "Opening its reviewer");
+  assert.equal(f.sends.filter((args) => args.at(-2) !== "exec-late").length, 0, "nothing goes to a reviewer not opened yet");
+  await assert.rejects(f.runtime.command({ action: "assign-reviewer", taskId: id, reviewer: { address: "exec-late" } }), /another agent/);
+  await f.runtime.command({ action: "assign-reviewer", taskId: id, reviewer: { address: "review-late", label: "Personal" } });
+  await f.runtime.tick();
+  assert.equal(f.sends.at(-1).at(-2), "review-late");
+  await assert.rejects(f.runtime.command({ action: "assign-reviewer", taskId: id, reviewer: { address: "other" } }), /already has its reviewer/);
 });

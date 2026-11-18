@@ -84,7 +84,7 @@ test('reuse never silently restores disconnected agents and accepts a reviewed r
   click(find(v.render(), 'workflow-use-previous-setup'), cx);
   assert.equal(v.executor, ''); assert.equal(v.reviewer, 'reviewer');
   assert.match(v.setupReuseWarning, /Old builder.*unavailable/);
-  assert.equal(v.checkPreset, 'custom'); assert.equal(v.form.checks.value(), '[["pnpm","lint"]]');
+  assert.equal(v.checkPreset, 'custom'); assert.equal(v.form.checks.value(), 'pnpm lint');
   assert.equal(v.taskAdvancedOpen, true, 'custom checks open for direct review');
   v.form.root.type('/work/other', cx);
   assert.equal(v.setupReuseNotice, null); assert.equal(v.setupReuseWarning, null);
@@ -194,7 +194,7 @@ test('exhausted blocked work offers a review and a follow-up draft without retry
   assert.equal(v.form.root.value(), '/repo');
   assert.match(v.form.criteria.value(), /Search works/);
   assert.match(v.form.criteria.value(), /Latest reviewer findings: Latest finding: preserve the query/);
-  assert.equal(v.form.checks.value(), '[["npm","test"]]');
+  assert.equal(v.form.checks.value(), 'npm test');
   assert.equal(v.form.maxRounds.value(), '1'); assert.equal(v.form.maxMinutes.value(), '12');
   assert.equal(v.executor, 'builder'); assert.equal(v.reviewer, 'reviewer');
   assert.deepEqual(v.dependsOn, ['prerequisite'], 'preserve prior prerequisites and never make the blocked source its own prerequisite');
@@ -227,7 +227,7 @@ test('preferences stay pending until accepted and show unavailable metrics with 
     { id: 'p1', status: 'pending', scope: 'goal', scopeId: 'g', text: 'Keep changes focused' },
   ] });
   const { v } = await setup(); v.tab = 'Preferences'; const tree = v.render();
-  assert.match(text(tree), /unavailable/); assert.match(text(tree), /pending · goal/); assert.match(text(tree), /Accepted guidance applies/); v.close();
+  assert.match(text(tree), /unavailable/); assert.match(text(tree), /Undecided · Keep changes focused Edit Use Don't use/); assert.match(text(tree), /Accepted guidance applies/); v.close();
 });
 
 test('reopening selects the first goal task, while explicit New task survives refresh polling', async () => {
@@ -296,7 +296,7 @@ test('requesting changes previews the next effect and requires explicit feedback
   v.tasks = [{ id: 'result', goalId: 'g', title: 'Search', state: 'needs_you', round: 1, maxRounds: 2, revision: 'current' }];
   v.selected = 'result'; click(find(v.render(), 'workflow-decide-changes'), cx);
   let tree = v.render(); assert.equal(fake.execs.length, 0);
-  assert.match(text(tree), /Starts attempt 2 of 2: write, then review/);
+  assert.match(text(tree), /Starts 2nd try \(last\): write, then review/);
   assert.equal(find(tree, 'workflow-send-changes').isDisabled, true);
   assert.equal(find(tree, 'workflow-decide-accept'), null, 'the change request replaces the decision buttons');
   v.form.decision.set_value('Handle empty results');
@@ -411,7 +411,7 @@ test('task creation discloses setup only when needed and keeps the draft through
   assert.ok(find(v.render(), 'workflow-root')); assert.equal(v.form.title.value(), 'Add search');
   assert.equal(fake.execs.length, 0);
   fake.agents = [agent('a', 'A'), agent('b', 'B')];
-  v.form.root.set_value('/work'); v.executor = 'a'; v.reviewer = 'b'; v.checkPreset = 'custom'; v.form.checks.set_value('invalid json');
+  v.form.root.set_value('/work'); v.executor = 'a'; v.reviewer = 'b'; v.checkPreset = 'custom'; v.form.checks.set_value('npm "test');
   v.create(cx); assert.ok(find(v.render(), 'workflow-checks'));
   assert.equal(v.form.criteria.value(), 'Find matching items'); assert.equal(fake.execs.length, 0); v.close();
 });
@@ -637,7 +637,7 @@ test('the decision bar sits outside the scrolling content and the summary render
   assert.ok(find(tree, 'workflow-decision-card'));
   assert.equal(find(scroll, 'workflow-decision-card'), null);
   assert.equal(find(tree, 'workflow-summary-x').kind, 'textview');
-  assert.match(text(find(tree, 'workflow-status-chips')), /Codex → Claude · attempt 1 of 2/);
+  assert.match(text(find(tree, 'workflow-status-chips')), /Codex → Claude · 1st try of 2/);
   v.close();
 });
 
@@ -650,7 +650,7 @@ test('a run pane reloaded with the mod finds its registered pane even without fo
   assert.equal(v.pane, 'kept-pane'); assert.ok(find(v.render(), 'workflow-close')); v.close();
 });
 
-test('own worktree mode creates the checkout, opens both agents and starts once they are ready', async () => {
+test('own worktree mode creates the checkout, opens its writer and starts once it is ready; the reviewer opens later', async () => {
   fake.stored['relevo.runs.mode'] = 'worktree';
   const { v, cx } = await setup();
   v.form.title.set_value('Fix search'); v.form.root.set_value('/work/app'); v.form.criteria.set_value('Search works');
@@ -665,34 +665,36 @@ test('own worktree mode creates the checkout, opens both agents and starts once 
   click(find(v.render(), 'workflow-start-new'), cx); await flush();
   assert.deepEqual(payloads[0], { action: 'prepare-worktree', root: '/work/app', title: 'Fix search' });
   const opened = () => fake.runs.filter(([name, args]) => ['tab.new', 'space.new'].includes(name) && args.folder === '/home/test/.herdr/worktrees/app/fix-search-abc123');
-  assert.equal(opened().length, 1);
   v.launch.openedAt -= 2000; v.launchTick(cx);
-  assert.equal(opened().length, 2);
-  assert.deepEqual(opened().map(([, args]) => args.tab ?? args.name), ['fix-search-abc123 · build', 'fix-search-abc123 · review']);
-  fake.agents = [{ address: 't9', tab_name: 'fix-search-abc123 · build', status: 'idle' }, { address: 't10', tab_name: 'fix-search-abc123 · review', status: 'blocked' }];
-  v.launchTick(cx); assert.match(text(find(v.render(), 'workflow-launch-status')), /Answer the prompt in “fix-search-abc123 · review”/);
-  fake.agents[1].status = 'idle'; v.launchTick(cx); await flush();
+  assert.deepEqual(opened().map(([, args]) => args.tab ?? args.name), ['Writer · fix-search'], 'one tab; the role first, so a cut name still tells them apart');
+  fake.agents = [{ address: 't9', tab_name: 'Writer · fix-search', status: 'blocked' }];
+  v.launchTick(cx);
+  const card = text(find(v.render(), 'workflow-launch-card'));
+  assert.match(card, /Writer \S+ · waits on a question in its tab/); assert.match(card, /Reviewer \S+ · opens to review/);
+  fake.agents[0].status = 'idle'; v.launchTick(cx); await flush();
   const create = payloads.find((payload) => payload.action === 'create');
   assert.equal(create.start, true); assert.equal(create.task.root, '/home/test/.herdr/worktrees/app/fix-search-abc123');
   assert.deepEqual(create.task.worktree, { branch: 'run/fix-search-abc123', base: '/work/app' });
-  assert.deepEqual([create.task.executor.address, create.task.reviewer.address], ['t9', 't10']);
-  assert.equal(create.task.executor.label, 'Codex');
+  assert.equal(create.task.executor.address, 't9'); assert.equal(create.task.executor.label, 'Codex');
+  const { accountOf } = await import('../accounts.js');
+  assert.equal(create.task.reviewer, undefined); assert.equal(create.task.reviewLater.label, accountOf(create.task.reviewLater.account).label);
+  assert.equal(opened().length, 1, 'the reviewer is not opened at the start');
   v.close();
 });
 
-test('run agents start with their model, sandbox and access to the report folder', async () => {
+test('run agents start with their model, in auto mode and with access to the report folder', async () => {
   const { runAgentArgs } = await import('../workflow.js');
   const reports = '/h/relevo-workflow/reports';
-  assert.deepEqual(runAgentArgs('codex', 'executor', '/h'), ['-m', 'gpt-6-luna', '--sandbox', 'workspace-write', '--ask-for-approval', 'on-request', '--add-dir', reports]);
+  assert.deepEqual(runAgentArgs('codex', 'executor', '/h'), ['-m', 'gpt-6-luna', '--sandbox', 'danger-full-access', '--ask-for-approval', 'on-request', '--add-dir', reports]);
+  assert.equal(runAgentArgs('codex', 'reviewer', '/h')[3], 'workspace-write', 'a reviewer writes only its report');
   const reviewer = runAgentArgs('personal', 'reviewer', '/h'), executor = runAgentArgs('personal', 'executor', '/h');
   assert.deepEqual(reviewer.slice(-2), ['--tools', 'Read,Write,Grep,Glob']);
   assert.equal(executor.includes('--tools'), false);
   const settings = JSON.parse(executor[executor.indexOf('--settings') + 1]);
-  assert.deepEqual(settings.sandbox, { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true, autoAllowBashIfSandboxed: true },
-    'Bash cannot leave the sandbox, and inside it runs without asking');
+  assert.equal(settings.sandbox, undefined, 'builds that need the network or a cache outside the worktree run; RUN_SANDBOX turns it back on');
   assert.ok(settings.permissions.deny.includes('Edit(//h/relevo-workflow/*.*)'), 'state and locks are not editable');
   assert.ok(!settings.permissions.deny.some((rule) => rule.includes('reports')), 'reports stay writable');
-  assert.deepEqual(executor.slice(0, 4), ['--add-dir', reports, '--permission-mode', 'acceptEdits']);
+  assert.deepEqual(executor.slice(0, 4), ['--add-dir', reports, '--permission-mode', 'auto']);
 });
 
 test('a worktree launch starts with no first message, accepts a working agent and Start resumes a stalled wait', async () => {
@@ -705,14 +707,13 @@ test('a worktree launch starts with no first message, accepts a working agent an
   const { v, cx } = await setup();
   v.launch = { stage: 'stalled', fields: { goalId: 'g', title: 'T', root: '/work/app', criteria: 'c', checks: [], dependsOn: [], maxRounds: 2, maxMinutes: 5 },
     accounts: { executor: 'codex', reviewer: 'personal' }, at: 0, openedAt: 0,
-    worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 't-1 · build', reviewer: 't-1 · review' } };
+    worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 't-1 · build' } };
   const payloads = [];
-  fake.exec = async (_cmd, args) => { payloads.push(JSON.parse(args.at(-1))); return { code: 0, stdout: '{"doc":{},"result":{"taskId":"new"}}' }; };
+  fake.exec = async (cmd, args) => { if (cmd === 'hc') return null; payloads.push(JSON.parse(args.at(-1))); return { code: 0, stdout: '{"doc":{},"result":{"taskId":"new"}}' }; };
   v.create(cx, { start: true });
   assert.equal(v.launch.stage, 'waiting'); assert.equal(payloads.length, 0, 'no second worktree');
+  v.launchTick(cx); assert.match(text(find(v.render(), 'workflow-launch-card')), /Writer \S+ · waits on a question in its tab/);
   fake.agents = [{ address: 't1', tab_name: 't-1 · build', status: 'working' }];
-  v.launchTick(cx); assert.match(text(find(v.render(), 'workflow-launch-status')), /Answer the prompt in “t-1 · review”/);
-  fake.agents.push({ address: 't2', tab_name: 't-1 · review', status: 'idle' });
   v.launchTick(cx); await flush();
   assert.equal(payloads[0].action, 'create'); assert.equal(payloads[0].task.root, '/wt');
   v.close();
@@ -748,7 +749,7 @@ test('worktree setup skips an account at its limit by default and marks it in th
   const { executor } = v.runAccounts();
   assert.notEqual(executor, 'codex');
   v.taskSetupOpen = true; v.form.title.set_value('t'); v.form.criteria.set_value('c');
-  assert.match(text(find(v.render(), 'workflow-executor-account-codex')), /Codex · 5h full/);
+  assert.match(text(find(v.render(), 'workflow-executor-account-codex')), /^X Codex 100%$/);
   v.close();
 });
 
@@ -771,16 +772,15 @@ test('a run terminal stuck on the Codex update prompt is skipped once, and other
   assert.equal(codexUpdatePrompt(update), true);
   assert.equal(codexUpdatePrompt('Do you trust the files in this folder?\n  enter continue · esc skip'), false);
   v.launch = { stage: 'waiting', fields: { goalId: 'g', title: 'T', root: '/work/app' }, accounts: { executor: 'codex', reviewer: 'personal' }, at: Date.now(), openedAt: 0,
-    worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 't-1 · build', reviewer: 't-1 · review' } };
-  fake.agents = [{ address: 't2', tab_name: 't-1 · review', status: 'idle' }];
-  fake.terminals = [{ address: 't1', cwd: '/wt' }, { address: 't2', cwd: '/wt' }, { address: 't7', cwd: '/wt' }, { address: 't9', cwd: '/elsewhere' }];
+    worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 't-1 · build' } };
+  fake.terminals = [{ address: 't1', cwd: '/wt' }, { address: 't7', cwd: '/wt' }, { address: 't9', cwd: '/elsewhere' }];
   const calls = [];
   fake.exec = async (cmd, args) => { calls.push([cmd, ...args].join(' '));
     return args[0] === 'read' ? { stdout: args[1] === 't1' ? update : 'Do you trust the files in this folder?' } : null; };
   v.launchTick(cx); await flush();
   v.launchTick(cx); await flush();
   assert.deepEqual(calls.filter((line) => line.startsWith('hc keys')), ['hc keys t1 esc'], 'only the update prompt, only once');
-  assert.equal(calls.some((line) => /read t2|read t9/.test(line)), false, 'registered agents and other folders are not read');
+  assert.equal(calls.some((line) => /read t9/.test(line)), false, 'other folders are not read');
   v.close();
 });
 
@@ -805,7 +805,9 @@ test('a result waiting on the person shows what nobody could verify beside Accep
   v.selected = 'result';
   const tree = v.render(), words = text(tree);
   assert.ok(find(tree, 'workflow-review-notes'));
-  assert.match(words, /Before you accept \[minor\] math\.js:2: Name could be clearer Not run: node --test Not proven: The output is from this state Not proven by the writer: Large numbers/);
+  assert.match(words, /Before you accept The reviewer found minor math\.js:2 Name could be clearer Not checked · 3/);
+  find(tree, 'workflow-notes-result-unchecked-head').handlers.on_click({}, { notify() {} });
+  assert.match(text(v.render()), /Not checked · 3 • node --test • The output is from this state • Large numbers/);
   assert.doesNotMatch(words, /Matches the task/);
   assert.ok(find(tree, 'workflow-decide-accept'));
   v.close();
@@ -850,7 +852,8 @@ test('a run agent asking to trust its worktree is named in the run window, and o
   const calls = [];
   fake.exec = async (cmd, args) => { calls.push([cmd, ...args].join(' ')); return args[0] === 'read' ? { stdout: claude } : null; };
   v.launchTick(cx); await flush(); v.launchTick(cx); await flush();
-  assert.match(text(find(v.render(), 'workflow-launch-status')), /“t-1 · build” asks whether to trust the run's worktree/);
+  assert.match(text(find(v.render(), 'workflow-launch-card')), /Writer \S+ · asks whether to trust the run's worktree/);
+  assert.ok(find(v.render(), 'workflow-launch-open'), "its tab is a click away");
   assert.equal(calls.some((line) => line.startsWith('hc keys')), false, 'nothing is trusted on its own');
   click(find(v.render(), 'workflow-launch-trust'), cx); await flush();
   assert.deepEqual(calls.filter((line) => line.startsWith('hc keys')), ['hc keys t1 down enter']);
@@ -956,4 +959,35 @@ test('a new task shows saved setups and prerequisites only when there are some, 
   assert.ok(fake.stored[RUN_USES].plan.first <= fake.stored[RUN_USES].plan.last);
   v.close();
   void cx;
+});
+
+test('a follow-up of a worktree run starts from the repository and still pushes to its pull request', async () => {
+  const { v } = await setup();
+  v.prepareBlockedFollowUp({ id: 'f', title: 'Fix #7', root: '/home/test/.herdr/worktrees/app/fix-7-abc123', criteria: 'x'.repeat(15990), checks: [],
+    worktree: { path: '/home/test/.herdr/worktrees/app/fix-7-abc123', branch: 'run/fix-7-abc123', base: '/work/app', prHead: 'feat/x', prUrl: 'https://github.com/me/app/pull/7' },
+    attempts: [{ role: 'reviewer', report: { status: 'changes_requested', summary: 'Two left', findings: [] } }] }, null);
+  assert.equal(v.form.root.value(), '/work/app', 'never a worktree inside the run worktree');
+  assert.deepEqual(v.prTarget, { root: '/work/app', headRef: 'feat/x', url: 'https://github.com/me/app/pull/7', number: 7 });
+  const { TEXT_MAX } = await import('../lib/run-report.js');
+  assert.ok(v.form.criteria.value().length <= TEXT_MAX, 'fits what the coordinator keeps');
+  v.close();
+});
+
+test('a start the coordinator refuses says why on the card and in a toast; Cancel start closes the tab it opened', async () => {
+  fake.stored['relevo.runs.mode'] = 'worktree';
+  const { v, cx } = await setup();
+  v.launch = { stage: 'waiting', fields: { goalId: 'g', title: 'Follow up', root: '/work/app', criteria: 'c', checks: [] }, accounts: { executor: 'codex', reviewer: 'personal' },
+    at: Date.now(), openedAt: Date.now(), worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 'Writer · t' } };
+  fake.agents = [{ address: 't1', tab_name: 'Writer · t', status: 'idle' }];
+  fake.exec = async (cmd, args) => (cmd === 'git' ? { code: 0, stdout: '' } : { code: 1, stdout: JSON.stringify({ error: 'Choose a goal, title, repository and expected outcome' }) });
+  v.launchTick(cx); await flush();
+  assert.equal(v.launch.stage, 'failed');
+  assert.match(text(find(v.render(), 'workflow-launch-card')), /^Did not start · Follow up Choose a goal, title, repository and expected outcome/);
+  assert.equal(fake.notices.at(-1).level, 'error'); assert.match(fake.notices.at(-1).title, /“Follow up” did not start/);
+  assert.ok(find(v.render(), 'workflow-launch-again'));
+  fake.spaces = [{ id: 's', tabs: [{ id: 'tb1', name: 'Writer · t' }, { id: 'tb2', name: 'app' }] }];
+  click(find(v.render(), 'workflow-launch-cancel'), cx); await flush();
+  assert.deepEqual(fake.runs.filter(([name]) => name === 'tab.close').map(([, args]) => args.id), ['tb1']);
+  assert.equal(v.launch, null);
+  v.close();
 });

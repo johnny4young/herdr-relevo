@@ -6,7 +6,7 @@ The run window opens on work that needs you. The result shows the agent's summar
 
 Accepting saves the decision and opens the next pending result. When nothing is waiting, the queue says what is still running, paused or finished. Accepted tasks stay in **History**. Before you accept, the window says whether a follow-up task will continue. Tasks that were already started and not paused continue through the coordinator; acceptance can restart a coordinator whose process was lost. It does not start tasks that were only planned, and it does not override a stop. The run's own criteria and any GitHub approval stay separate from accepting a task.
 
-**Request changes** opens a draft before anything is sent. If the round limit is used up, **Prepare follow-up** prefills a separate task for you to review and start; the existing result stays pending. A decision note can be discarded without sending, and drafts are kept per task.
+**Request changes** opens a draft before anything is sent. If the round limit is used up, **Prepare follow-up** prefills a separate task for you to review and start; the existing result stays pending. A follow-up of a worktree run starts from the repository, never the run's worktree, and a fix of a pull request still pushes to its branch. A stuck run whose writer is its own can instead **Try again** (`retry`): its attempt limit grows by one and the writer gets what to fix, in the same worktree. A task's criteria and a request for changes hold up to 16,000 characters. A decision note can be discarded without sending, and drafts are kept per task.
 
 A blocked task leads with the latest review findings. **Retry** and **Resume** appear only when the recorded budget and attempt state allow them, and the coordinator checks the live checkout again. An attempt whose delivery is uncertain must be inspected and reconciled first.
 
@@ -31,7 +31,7 @@ Checks are **No automated checks**, **npm test** or **Custom** (JSON argument li
 
 ## Worktree runs
 
-By default a run gets its own worktree. **Start** creates the branch `run/<slug>` from HEAD under `~/.herdr/worktrees/<repo>/`, opens the implementer and reviewer accounts you chose in two tabs there, and starts once both exist. **Existing sessions** uses agents already open in the repository instead.
+By default a run gets its own worktree. **Start** creates the branch `run/<slug>` from HEAD under `~/.herdr/worktrees/<repo>/`, opens the implementer account you chose in a tab there, and starts once it exists. The reviewer account opens in a second tab when the implementer has reported and the checks have run; the Inbox opens it and assigns it to the task (`assign-reviewer`). **Existing sessions** uses agents already open in the repository instead.
 
 - **`.worktreeinclude`** at the repository root lists ignored files the run needs, in `.gitignore` syntax. They are copied into the worktree; a path is never written outside it through `..` or a symlinked directory.
 - **Accepting** commits exactly the tree the reviewer saw to the run branch, without running hooks. The tree is recorded between two fingerprints of the checkout, so it is used only if the checkout did not change while it was read. Anything changed after the review stays uncommitted.

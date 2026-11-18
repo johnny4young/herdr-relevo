@@ -19,6 +19,13 @@ export function rankSkills(recommended, skills, uses, also = []) {
   return [...(Object.hasOwn(skills, recommended) ? [recommended] : []), ...others].map((verb) => ({ verb, uses: uses[skills[verb].name] ?? 0 }));
 }
 
+// The review skills you type most, for a PR of yours: any slash command whose name says it reviews, fixes or checks.
+const REVIEWISH = /review|fix|preflight|security|simplify|audit/i;
+export function reviewSkills(uses, limit = 6) {
+  return Object.entries(uses ?? {}).filter(([name, n]) => n > 0 && REVIEWISH.test(name))
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, limit).map(([name, uses]) => ({ name, uses }));
+}
+
 // Same layout as the worktree mod: <home>/.herdr/worktrees/<repo>/<branch, unsafe characters as dashes>.
 export const slug = (branch) => branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
 export const worktreePath = (home, repo, branch) => `${home}/.herdr/worktrees/${repo.split("/").pop()}/${slug(branch)}`;

@@ -63,11 +63,13 @@ function roundVerdict({ writer, reviewer }) {
 }
 
 // "attempt 2: Codex Luna → Team Haiku · 9 min · approved", one line per attempt.
+const ordinalTry = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th"} try`;
+
 export function attemptHistory(task, now = Date.now()) {
   return taskRounds(task).map((round) => {
     const verdict = roundVerdict(round);
     return { n: round.n, ok: verdict.ok,
-      text: [`attempt ${round.n}: ${person(task, "executor")}${round.reviewer ? ` → ${person(task, "reviewer")}` : ""}`, minutes(roundMs(round, task, now)), verdict.word]
+      text: [`${ordinalTry(round.n)}: ${person(task, "executor")}${round.reviewer ? ` → ${person(task, "reviewer")}` : ""}`, minutes(roundMs(round, task, now)), verdict.word]
         .filter(Boolean).join(" · ") };
   });
 }

@@ -18,4 +18,6 @@ export const count = (n, word) => {
   return `${Number.isFinite(k) ? k : "?"} ${k === 1 ? word : `${word}s`}`;
 };
 // Null before the first attempt starts, so nothing reads "attempt 0 of 2".
-export const attemptLabel = (round, max, { capital = false } = {}) => Number(round) > 0 ? `${capital ? "Attempt" : "attempt"} ${Number(round)} of ${Number(max ?? 2)}` : null;
+const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
+// "1st try", "2nd try (last)": which try this is, and whether another is left.
+export const attemptLabel = (round, max, _options = {}) => (Number(round) > 0 ? `${ordinal(Number(round))} try${Number(round) >= Number(max ?? 2) ? " (last)" : ` of ${Number(max ?? 2)}`}` : null);

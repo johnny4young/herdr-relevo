@@ -93,6 +93,28 @@ export async function prepareWorktree({ root, title, home, pr = null }) {
   return { path: fs.realpathSync(dest), branch, base: top, baseCommit, baseBranch, copied, ...(pr ? { prHead: pr.headRef } : {}) };
 }
 
+// A pull request's exact head in a detached worktree of its own, for a review that changes nothing. Forks too.
+export async function prepareReview({ root, pr, who, home }) {
+  if (!path.isAbsolute(root ?? '')) throw Error('Choose a repository');
+  const top = (await git(root, ['rev-parse', '--show-toplevel'])).stdout.trim();
+  if (fs.realpathSync(top) !== fs.realpathSync(root)) throw Error('Choose the repository root');
+  if (!Number.isInteger(pr?.number) || pr.number < 1 || !SHA.test(pr.head ?? '') || !BASE_BRANCH.test(pr.base ?? '') || pr.base.includes('..')
+    || !/^[a-z]{1,20}$/.test(who ?? '')) throw Error("This pull request can't be reviewed here");
+  const ref = `refs/relevo/pr/${pr.number}`, baseRef = `refs/remotes/origin/${pr.base}`;
+  await git(top, [...QUIET, 'fetch', '--no-tags', 'origin', `+refs/pull/${pr.number}/head:${ref}`, `+refs/heads/${pr.base}:${baseRef}`]);
+  if ((await git(top, ['rev-parse', ref])).stdout.trim() !== pr.head) throw Error('The pull request has new commits; refresh and review again');
+  const base = (await git(top, ['merge-base', baseRef, pr.head])).stdout.trim();
+  const dest = worktreePath(top, `review-${pr.number}-${pr.head.slice(0, 7)}-${who}`, home);
+  if (fs.existsSync(dest)) {
+    if ((await git(dest, ['rev-parse', 'HEAD'])).stdout.trim() !== pr.head) throw Error(`${dest} holds other work; remove it first`);
+  } else {
+    fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
+    await git(top, ['worktree', 'add', '--detach', dest, pr.head]);
+    await copyIncluded(top, dest);
+  }
+  return { path: fs.realpathSync(dest), head: pr.head, base };
+}
+
 const ahead = async (wt) => wt.baseCommit ? Number((await wtGit(wt, ['rev-list', '--count', `${wt.baseCommit}..HEAD`])).stdout.trim()) : null;
 
 export async function worktreeStatus(wt) {

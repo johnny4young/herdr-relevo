@@ -2,12 +2,16 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, Button } from "gpui-base";
 import { theme, props, closeOverlay } from "herdr";
 import { windowLabel } from "./lib/time.js";
-import { ACCOUNTS, CODEX, accountOf, chip, loadClaudeQuotas } from "./accounts.js";
+import { ACCOUNTS, CODEX, accountOf, agentAccounts, chip, loadClaudeQuotas } from "./accounts.js";
 import { accountFor } from "./context.js";
 import { SKILLS, configuredSkill, launchSkill } from "./skills.js";
 import { skillUses, openPrSession } from "./prsession.js";
-import { rankSkills, localBranch } from "./lib/prmenu.js";
-import { spinner } from "./ui.js";
+import { rankSkills, localBranch, reviewSkills } from "./lib/prmenu.js";
+import { alertLine, spinner } from "./ui.js";
+import { openSettings } from "./settings.js";
+import { deepSetup } from "./deep-review.js";
+import { setupLine } from "./lib/deep-setup.js";
+import { openDeepReview } from "./deep-review-dialog.js";
 
 // The ▾ beside a PR skill: one chip per account, the recommended and most used skills, and a new
 // session on the PR in its own worktree. Skills run on Claude accounts; Codex only takes the session.
@@ -70,7 +74,14 @@ export class AccountMenu {
     });
   }
 
-  session(cx) {
+  // Any review skill from your history, on the PR in a worktree of its branch.
+  runCommand(name, cx) {
+    if (this.closed || this.opening || this.busy || this.account === CODEX.key) return;
+    const p = props();
+    this.session(cx, { prompt: `/${name} ${p.pr.url}`, tab: `${p.pr.repo.split("/").pop()}#${p.pr.number} · ${name}`, purpose: name });
+  }
+
+  session(cx, ask = {}) {
     if (this.closed || this.busy || this.opening) return;
     const p = props(), account = this.account;
     if (p.pr.untrusted) return;
@@ -79,7 +90,7 @@ export class AccountMenu {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const error = await openPrSession(p.pr, p.folder, account);
+        const error = await openPrSession(p.pr, p.folder, account, ask);
         if (this.closed) return;
         if (!error) return closeOverlay(p.overlay);
         this.error = error;
@@ -120,26 +131,36 @@ export class AccountMenu {
       .child(div().flex_1().min_w(0).truncate().child(label))
       .when(Boolean(note), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(note)));
     // For conflicts the full PR fix is the other way to go.
-    const skills = rankSkills(p.skill, SKILLS, this.uses ?? {}, p.skill === "conflicts" ? ["fix"] : []);
+    const skills = p.reviews ? [] : rankSkills(p.skill, SKILLS, this.uses ?? {}, p.skill === "conflicts" ? ["fix"] : []);
+    const commands = p.reviews ? reviewSkills(this.uses) : [];
     return v_flex().id("account-menu").w_full().p(4).gap(1).bg(t.popover ?? t.surface).text_color(t.foreground)
       .child(h_flex().px(8).pt(4).pb(4).gap(6).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(`${p.pr.repo.split("/").pop()} #${p.pr.number} with`))
-        .children([...ACCOUNTS, CODEX].map(pickChip)))
+        .children(agentAccounts().map(pickChip)))
       .child(div().id("menu-usage").px(8).pb(4).text_size(11).text_color(t.muted)
         .child(this.quotaError ? `${acct.label} · Usage unavailable` : this.quotas ? `${acct.label}${usage ? ` · ${usage}` : ""}` : spinner(t.dim, 10)))
       .child(div().h(1).mx(6).my(2).bg(t.border))
-      .when(!configuredSkill(p.skill), (el) => el.child(div().id("menu-skill-unavailable").role("status").px(8).py(4).text_size(11).text_color(t.muted)
+      .when(!p.reviews && !configuredSkill(p.skill), (el) => el.child(div().id("menu-skill-unavailable").role("status").px(8).py(4).text_size(11).text_color(t.muted)
         .child("Recommended action is not configured. Choose another listed action or open a session.")))
       .when(this.historyError, (el) => el.child(div().id("menu-history-unavailable").role("status").px(8).py(4).text_size(11).text_color(t.muted)
         .child("Skill history unavailable. Showing configured suggestions.")))
       .children(skills.map(({ verb, uses }) => row(`menu-skill-${verb}`, this.opening === verb ? "Opening…" : SKILLS[verb].name,
         verb === p.skill ? "recommended" : uses ? `used ${uses}×` : "",
         (cx) => this.runSkill(verb, cx), claude && !this.opening && !this.busy)))
+      .when(Boolean(p.reviews), (el) => el.child(h_flex().id("menu-deep-setup").px(8).py(4).gap(6).items_center().text_size(11)
+        .child(div().id("menu-deep-open").flex_1().min_w(0).truncate().text_color(t.muted).cursor_pointer().hover((st) => st.text_color(t.foreground))
+          .tooltip("Choose the reviewers and start").on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(p.overlay); openDeepReview(p.pr, p.folder); })
+          .child(`Deep review: ${setupLine(deepSetup(), (k) => accountOf(k).label)} ›`))
+        .child(div().id("menu-deep-settings").flex_none().text_color(t.accent).cursor_pointer()
+          .on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(p.overlay); openSettings(); }).child("Settings"))))
+      .children(commands.map(({ name, uses }) => row(`menu-command-${name}`, `/${name}`, `used ${uses}×`, (cx) => this.runCommand(name, cx),
+        claude && !this.opening && !this.busy && !p.pr.untrusted)))
+      .when(Boolean(p.reviews) && this.uses && !commands.length, (el) => el.child(div().px(8).py(4).text_size(11).text_color(t.dim).child("No review skills in your history yet")))
       .when(!claude, (el) => el.child(div().px(8).pb(2).text_size(11).text_color(t.dim).child("Skills run on Claude accounts")))
       .child(div().h(1).mx(6).my(2).bg(t.border))
       .child(row("menu-session", this.busy ? "Creating the worktree…" : `New session in a worktree of ${localBranch(p.pr)}`,
         null, (cx) => this.session(cx), !this.busy && !this.opening && !p.pr.untrusted))
       .when(Boolean(p.pr.untrusted), (el) => el.child(div().px(8).pb(4).text_size(11).text_color(t.dim).child("Someone else's fork: check it out yourself")))
-      .when(Boolean(this.error), (el) => el.child(div().id("menu-launch-error").role("alert").px(8).pb(4).text_size(11).text_color(t.blocked).child(this.error)));
+      .when(Boolean(this.error), (el) => el.child(alertLine(t, "menu-launch-error", this.error).px(8).pb(4).text_size(11)));
   }
 }

@@ -2,6 +2,7 @@
 import { count, role, verdictLine, attemptLabel } from "./run-words.js";
 import { lastReview, workflowCheckSummary } from "./workflow-navigation.js";
 import { reportNotes } from "./run-report.js";
+import { counted, mergedFindings } from "./deep-review.js";
 
 const DONE = ["accepted", "cancelled"], STUCK = ["blocked", "failed"];
 const TIMES = ["", "once", "twice"], ORDINAL = ["", "1st", "2nd", "3rd"];
@@ -89,10 +90,12 @@ export function taskAt(task) {
 }
 
 // The reviewer's finding on a stuck task, one line each; the task's own error when no review was recorded.
+// Why a task is stuck, short: the newest report's first line, then its findings as level, file and issue.
+const clip = (s, n) => { const one = String(s ?? "").trim().split("\n")[0]; return one.length > n ? `${one.slice(0, n - 1)}…` : one; };
 export function stuckFindings(task) {
-  const report = lastReview(task)?.report;
-  const lines = [report?.summary?.trim(), ...reportNotes(report)].filter(Boolean);
-  return lines.length ? lines : [task.error?.trim() || "No finding was recorded."];
+  const report = [...(task.attempts ?? [])].reverse().find((a) => a.report)?.report ?? lastReview(task)?.report;
+  const lines = [clip(report?.summary, 160), ...(report?.findings ?? []).map((f) => clip(`[${f.level}] ${f.where ? `${String(f.where).split("/").pop()}: ` : ""}${f.issue}`, 120))].filter(Boolean);
+  return lines.length ? lines : [clip(task.error, 160) || "No finding was recorded."];
 }
 
 // A stuck task with nothing running and no attempt or review left: only a new task moves it on.
@@ -100,6 +103,11 @@ export function followUpAvailable(task) {
   const latest = task.attempts?.at(-1);
   if (!STUCK.includes(task.state) || latest?.state === "running" || ["uncertain", "sending"].includes(latest?.delivery)) return false;
   return !attemptsLeft(task) || (task.attempts ?? []).filter((attempt) => attempt.role === "reviewer").length >= (task.maxRounds ?? 2) + 1;
+}
+
+// A stuck run whose writer is still its own tries once more in place, instead of starting a new task.
+export function canTryAgain(task) {
+  return followUpAvailable(task) && Boolean(task.executor) && !task.pr && !task.worktree?.removed;
 }
 
 // A run row from its bucket of tasks: its group, lane glyph, what it is doing or wants, and its one action.
@@ -111,6 +119,14 @@ export function runRow(goal, bucket, { engine = null, error = null, decision = f
     : { group: "flight", turn: "flight", now: launch.words, action: open };
   if (error) return { group: "me", turn: "stuck", now: "status unavailable", hot: true, action: open };
   const c = { me: bucket.me.length, open: bucket.open.length };
+  // A deep review reads as what its reviewers found, not as results to accept one by one.
+  const deep = bucket.all.length > 0 && bucket.all.every((task) => task.pr);
+  if (deep && (c.me || bucket.flight.length)) {
+    const working = bucket.all.filter((task) => !["needs_you", "accepted", "cancelled", "blocked", "failed"].includes(task.state)).length;
+    const found = mergedFindings(bucket.all);
+    return working ? { group: "flight", turn: "flight", now: `${bucket.all.length - working} of ${bucket.all.length} reviewers done`, action: open }
+      : { group: "me", turn: "me", hot: true, now: found.length ? `${counted(found)} to look at` : "no findings", action: { kind: "review", label: "Review" } };
+  }
   if (c.me) return { group: "me", turn: "me", hot: true, now: `${count(c.me, "result")} ${c.me === 1 ? "waits" : "wait"} for your review`,
     action: { kind: "review", label: `Review ${c.me}` } };
   if (bucket.stuck.length) {
@@ -167,9 +183,9 @@ export function taskLegs(task) {
   const reviewer = reviewerAt > writerAt ? attempts[reviewerAt] : null, verdict = reviewer?.report;
   const findings = verdict?.findings?.length ?? 0;
   const legs = [
-    { id: "writer", who: person(task, "executor"), at: writer?.at ?? null,
+    ...(task.pr ? [] : [{ id: "writer", who: person(task, "executor"), at: writer?.at ?? null,
       state: !writer ? "wait" : !writer.report ? "run" : writer.report.status === "completed" ? "ok" : "bad",
-      what: !writer ? "writes it" : !writer.report ? "is writing it" : writer.report.status === "completed" ? `wrote it${task.worktree ? " in its own worktree" : ""}` : "could not finish it" },
+      what: !writer ? "writes it" : !writer.report ? "is writing it" : writer.report.status === "completed" ? `wrote it${task.worktree ? " in its own worktree" : ""}` : "could not finish it" }]),
     { id: "tests", who: "Tests", at: null, state: checks.tone === "normal" ? "ok" : checks.tone === "failure" ? "bad" : "wait", what: checks.label.toLowerCase() },
     { id: "reviewer", who: person(task, "reviewer"), at: reviewer?.at ?? null,
       state: !reviewer ? "wait" : !verdict ? "run" : verdict.status === "completed" ? "ok" : "bad",
@@ -190,8 +206,64 @@ export function taskSummary(task, limit = 260) {
   return summary.length > limit ? `${summary.slice(0, limit - 1)}…` : summary;
 }
 
-// What neither agent verified, shown where the person accepts.
+const plain = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+// What the person weighs before accepting: the findings of the review that saw the latest writing, then what nobody
+// checked, once each. A writer's note about a check the coordinator then ran and passed is no longer true, so it goes.
+export function taskNotes(task) {
+  const attempts = task.attempts ?? [], wrote = attempts.findLastIndex((a) => a.role === "executor");
+  const reviewed = attempts.findLastIndex((a) => a.role === "reviewer" && a.report);
+  const review = reviewed > wrote ? attempts[reviewed].report : null, writer = wrote >= 0 ? attempts[wrote].report : null;
+  const passed = (task.checksResult ?? []).filter((c) => c.code === 0).map((c) => plain((c.argv ?? []).join(" "))).filter(Boolean);
+  const seen = new Set(), once = (s) => { const k = plain(s); if (!k || seen.has(k)) return false; seen.add(k); return true; };
+  const writerNotes = (writer?.notProven ?? []).filter((s) => !passed.some((cmd) => plain(s).includes(cmd)));
+  return { findings: review?.findings ?? [], unchecked: [...(review?.notRun ?? []), ...(review?.notProven ?? []), ...writerNotes].filter(once) };
+}
+
+// The same, one line each, for a follow-up's prompt and the places that need text.
 export function taskCaveats(task) {
-  const writer = [...(task.attempts ?? [])].reverse().find((attempt) => attempt.role === "executor" && attempt.report)?.report;
-  return [...reportNotes(lastReview(task)?.report), ...(writer?.notProven ?? []).map((item) => `Not proven by the ${role("executor").noun}: ${item}`)];
+  const notes = taskNotes(task);
+  return [...reportNotes({ findings: notes.findings }), ...notes.unchecked];
+}
+
+// Agents Relevo opened for a run whose part is over: a deep review's reviewer once it reported, and both agents of a
+// run in its own worktree once it is accepted or cancelled. Agents a run borrowed from your own sessions stay.
+export function finishedAgents(tasks) {
+  return tasks.flatMap((task) => {
+    const over = ["accepted", "cancelled"].includes(task.state);
+    if (task.pr) return over || (task.attempts ?? []).some((a) => a.role === "reviewer" && a.report) ? [task.reviewer?.address] : [];
+    return task.worktree && over ? [task.executor?.address, task.reviewer?.address] : [];
+  }).filter(Boolean);
+}
+
+// One line for where a task stands: "Ready to accept · make test passed · Codex approved".
+export function statusWords(task) {
+  const turn = taskTurn(task), checks = workflowCheckSummary(task), review = lastReview(task)?.report, who = person(task, "reviewer");
+  const head = turn === "me" ? "Ready to accept" : turn === "stuck" ? "Stuck" : task.state === "accepted" ? "Accepted" : task.state === "cancelled" ? "Cancelled" : "In progress";
+  const tests = checks.tone === "muted" ? `tests ${checks.label.toLowerCase()}` : checks.label.toLowerCase().replace(/^/, checks.label.includes(" ") ? "" : "tests ");
+  const verdict = !review ? "review pending" : review.status === "completed" ? `${who} approved` : review.status === "blocked" ? `${who} couldn't decide` : `${who} asked for changes`;
+  return { head, tone: turn === "me" ? "done" : turn === "stuck" ? "blocked" : "muted", text: [head, tests, verdict].join(" · ") };
+}
+
+// When a run finished: its last decision or report, or, closed, its last save. Milliseconds, or 0.
+export function finishedAt(goal, tasks, history = []) {
+  const times = tasks.flatMap((t) => [...(t.decisions ?? []).map((d) => d.at), ...(t.attempts ?? []).map((a) => a.endedAt)]);
+  if (goal.state === "completed") times.push(...history.filter((h) => h.goal === goal.id).map((h) => h.at));
+  return Math.max(0, ...times.filter(Boolean).map((at) => Date.parse(at)).filter(Number.isFinite));
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const finishedWords = (ms, now = Date.now()) => {
+  const s = Math.max(0, Math.floor((now - ms) / 1000)), when = s < 60 ? "just now" : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 172800 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`;
+  // Spelled out here: Herdr's runtime ignores toLocaleString's options.
+  const d = new Date(ms), two = (n) => String(n).padStart(2, "0");
+  return `${when} · ${MONTHS[d.getMonth()]} ${d.getDate()}, ${two(d.getHours())}:${two(d.getMinutes())}`;
+};
+
+// The run another run came from: the one it names, else, for a fix of a pull request, the latest deep review of it.
+export function parentRun(entry, entries, tasksOf) {
+  if (entry.goal.from) return entries.find((e) => e.goal.id === entry.goal.from) ?? null;
+  const url = tasksOf(entry.goal).find((t) => t.worktree?.prUrl)?.worktree.prUrl;
+  if (!url) return null;
+  return entries.filter((e) => e !== entry && tasksOf(e.goal).some((t) => t.pr?.url === url)).at(-1) ?? null;
 }

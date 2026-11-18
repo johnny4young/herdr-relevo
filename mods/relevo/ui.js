@@ -55,6 +55,10 @@ export function button(t, id, label, onClick, { kind = "outline", size = "md", t
 }
 
 // A small status label; tone colors the text, the surface stays neutral.
+// An error as one line: its first line, cut to fit, with the whole text on hover.
+export const firstLine = (text, max = 160) => { const one = String(text ?? "").trim().split("\n")[0]; return one.length > max ? `${one.slice(0, max - 1)}…` : one; };
+export const alertLine = (t, id, message) => div().id(id).role("alert").w_full().min_w(0).truncate().text_color(t.blocked).tooltip(String(message)).child(firstLine(message));
+
 export const pill = (t, id, label, tone = t.muted) =>
   div().id(id).h(20).px(8).flex().flex_none().items_center().rounded(10).bg(t.raised).text_size(11).text_color(tone).child(label);
 

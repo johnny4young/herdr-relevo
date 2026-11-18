@@ -11,6 +11,8 @@ export const ACCOUNTS = [
 ];
 
 export const CODEX = { key: "codex", label: "Codex", letter: "X", launcher: "codex", bg: "#4fd6be", fg: "#1e2030" };
+// false: Codex stays out of every account list and every default (runs, second opinions, deep reviews, handoffs).
+export const USE_CODEX = true;
 
 // The first context is the default. The others claim the repos whose GitHub owner is in `orgs`,
 // and each gets a space folder with that key.
@@ -33,3 +35,9 @@ export const SKILLS = { review: "review", fix: "fix-ci", comments: "address-comm
 
 // What the quick replies menu offers to send an agent (⌥⌘S, or ↩ beside an agent).
 export const REPLIES = ["Continue", "Tested and it works: commit and push", "Fix all of it"];
+
+// Who reviews a PR in Deep review: an account ("repo" is the repo's own), its model (empty: the default) and effort.
+export const DEEP_REVIEW = [
+  { account: "repo", model: "opus", effort: "high" },
+  { account: "repo", model: "sonnet", effort: "high" },
+];
