@@ -16,6 +16,7 @@ export const PANELS = [
   ["maintenance", "maintenance", "380x638"], ["checks", "inbox-checks", "380x638", { SEL: "pr-https://github.com/acme/web/pull/318" }],
   ["spaces", "spaces", "268x638"], ["agents638", "agents-today", "268x638"],
   ["runs-run", "runs", "400x638", { RUN: "g1" }], ["runs-task", "runs", "400x638", { RUN: "g1", TASK: "t1", TWICE: "1" }],
+  ["deep-review", "deep-review", "400x638"], ["deep-fix", "deep-review", "400x638", { VIEW: "fix" }],
 ];
 // Pictures: file in the repo, page size, frames (a panel at its size, or a drawn terminal).
 export const PICTURES = [
@@ -27,6 +28,7 @@ export const PICTURES = [
   ["screenshots/worktrees.png", "428x688", ["maintenance:380x640"]],
   ["screenshots/land.png", "428x688", ["checks:380x640"]],
   ["screenshots/runs.png", "888x688", ["runs-run:400x640", "runs-task:400x640"]],
+  ["screenshots/deep-review.png", "888x688", ["deep-review:400x640", "deep-fix:400x640"]],
   ["screenshots/spaces.png", "624x688", ["spaces:268x640", "agents638:268x640"]],
 ];
 
