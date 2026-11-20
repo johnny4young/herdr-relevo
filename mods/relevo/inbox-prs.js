@@ -12,7 +12,7 @@ import { CI_WORDS, ciRunning, prName, prReason, prTurn } from "./lib/lanes.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
-import { MINE_PAGES, OTHERS_QUERY, joinPRs, mineQuery, cancelledRuns, checksCut, checksOf, ciOf, seconds, mapDrafts, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
+import { MINE_PAGES, ORGS_QUERY, adminOrgs, othersQuery, joinPRs, mineQuery, cancelledRuns, checksCut, checksOf, ciOf, seconds, mapDrafts, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
 import { mergeFlag, prMoves } from "./lib/land.js";
 import { keepListed } from "./lib/addressed.js";
 import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
@@ -102,18 +102,25 @@ export class PrViews {
   }
 
   async loadPRs() {
-    const [first, others] = await Promise.all([this.graphql(mineQuery()), this.graphql(OTHERS_QUERY)]);
+    const others = async () => {
+      if (!this.adminOrgs) {
+        const orgs = await this.graphql(ORGS_QUERY);
+        if (!orgs.error) this.adminOrgs = adminOrgs(orgs.data);
+      }
+      return this.graphql(othersQuery(this.adminOrgs ?? []));
+    };
+    const [first, rest] = await Promise.all([this.graphql(mineQuery()), others()]);
     const pages = [first];
     while (pages.length < MINE_PAGES && pages.at(-1).data?.viewer?.pullRequests?.pageInfo?.hasNextPage) {
       pages.push(await this.graphql(mineQuery(pages.at(-1).data.viewer.pullRequests.pageInfo.endCursor)));
     }
-    const failed = [...pages, others].find((r) => r.error);
+    const failed = [...pages, rest].find((r) => r.error);
     if (failed) {
       this.error = failed.error;
       return;
     }
     this.error = null;
-    const data = joinPRs(pages.map((r) => r.data), others.data);
+    const data = joinPRs(pages.map((r) => r.data), rest.data);
     // gh reads one login; a later failure is that login's, so its row can name it.
     this.prLogin = data.viewer.login ?? this.prLogin;
     this.mine = mapMine(data);

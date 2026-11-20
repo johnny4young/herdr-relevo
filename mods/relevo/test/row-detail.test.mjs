@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { resetFake } from "./fake/herdr.mjs";
 import { find, text, fakeCx, flush } from "./fake/ui.mjs";
 
-const { checksOf, mapDrafts, mineQuery, OTHERS_QUERY } = await import("../lib/github.js");
+const { checksOf, mapDrafts, mineQuery, othersQuery } = await import("../lib/github.js");
 const { Inbox } = await import("../inbox.js");
 beforeEach(resetFake);
 
@@ -15,7 +15,7 @@ test("the query asks each check's name and state, and how many files changed", (
   assert.match(mineQuery(), /CheckRun \{ name status conclusion \}/);
   assert.match(mineQuery(), /StatusContext \{ context state \}/);
   assert.match(mineQuery(), /changedFiles/);
-  assert.match(OTHERS_QUERY, /changedFiles/);
+  assert.match(othersQuery(), /changedFiles/);
 });
 
 test("each check reads as passed, failed, running or cancelled, in GitHub's order", () => {

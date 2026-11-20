@@ -18,13 +18,22 @@ export const mineQuery = (after = null) => `query {
     pageInfo { hasNextPage endCursor } nodes { ${MINE_FIELDS} } } }
 }`;
 
-export const OTHERS_QUERY = `query {
+const OTHER_FIELDS = `number title url isDraft createdAt updatedAt headRefName baseRefName isCrossRepository headRefOid additions deletions changedFiles author { login __typename } repository { nameWithOwner }
+      commits(last: 1) { nodes { commit { committedDate ${ROLLUP} } } }
+      reviewThreads(first: 50) { nodes { isResolved } }`;
+
+export const ORGS_QUERY = "query { viewer { organizations(first: 50) { nodes { login viewerCanAdminister } } } }";
+export const adminOrgs = (data) => (data?.viewer?.organizations?.nodes ?? []).filter((o) => o.viewerCanAdminister).map((o) => o.login);
+
+// Contributors to your repos and the orgs you administer rarely ask for a review; bots crowd that search, so it reads more than it keeps.
+export const othersQuery = (orgs = []) => `query {
   viewer { login merged: pullRequests(states: MERGED, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
     url number headRefName isCrossRepository repository { nameWithOwner } } } }
   search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 20) { nodes {
-    ... on PullRequest { number title url createdAt updatedAt headRefName baseRefName isCrossRepository headRefOid additions deletions changedFiles author { login } repository { nameWithOwner }
-      commits(last: 1) { nodes { commit { ${ROLLUP} } } }
-      reviewThreads(first: 50) { nodes { isResolved } } } } }
+    ... on PullRequest { ${OTHER_FIELDS} } } }
+  contributed: search(query: "is:open is:pr user:@me${orgs.map((o) => ` org:${o}`).join("")} -author:@me archived:false sort:updated-desc", type: ISSUE, first: 50) { nodes {
+    ... on PullRequest { ${OTHER_FIELDS}
+      reviews(last: 10) { nodes { author { login } state submittedAt } } } } }
 }`;
 
 // The pages and the rest, in the one shape the mappers read.
@@ -40,6 +49,7 @@ export function joinPRs(pages, others) {
   return {
     viewer: { login: others?.viewer?.login, merged: others?.viewer?.merged ?? { nodes: [] }, pullRequests: { nodes } },
     search: others?.search ?? { nodes: [] },
+    contributed: others?.contributed ?? { nodes: [] },
   };
 }
 
@@ -139,8 +149,20 @@ export function mapReady(data) {
     .sort(newest);
 }
 
+// A person's PR on a repo of yours, until you review it; a push after your review brings it back.
+export function contributedPRs(data) {
+  const me = data.viewer?.login;
+  return (data.contributed?.nodes ?? []).filter((p) => {
+    if (!p.url || p.isDraft || p.author?.__typename === "Bot") return false;
+    const since = seconds(p.commits?.nodes[0]?.commit?.committedDate ?? 0) || 0;
+    return !(p.reviews?.nodes ?? []).some((r) => r.author?.login === me && r.state !== "PENDING" && seconds(r.submittedAt) >= since);
+  });
+}
+
 export function mapRequested(data) {
-  const list = data.search.nodes.filter((p) => p.url).map((p) => ({
+  const asked = new Set(data.search.nodes.map((p) => p.url));
+  const unasked = contributedPRs(data).filter((p) => !asked.has(p.url)).map((p) => ({ ...p, unasked: true }));
+  const list = [...data.search.nodes.filter((p) => p.url), ...unasked].map((p) => ({
     ...p, repo: p.repository.nameWithOwner, skills: ["review"], threads: unresolved(p), untrusted: p.isCrossRepository,
   }));
   return list.sort(newest);
@@ -149,7 +171,7 @@ export function mapRequested(data) {
 // Every open PR of yours or asking your review, drafts and quiet ones too: an agent's row shows any of them.
 export function openPRs(data) {
   const seen = new Map();
-  for (const p of [...data.viewer.pullRequests.nodes, ...data.search.nodes.filter((x) => x.url)]) {
+  for (const p of [...data.viewer.pullRequests.nodes, ...data.search.nodes.filter((x) => x.url), ...contributedPRs(data)]) {
     if (!seen.has(p.url)) seen.set(p.url, { ...p, repo: p.repository.nameWithOwner, ci: ciOf(p) });
   }
   return [...seen.values()];

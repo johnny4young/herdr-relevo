@@ -480,8 +480,8 @@ function holdPRs() {
   return answer;
 }
 
-// One query per scan asks for review requests; your own PRs come in pages beside it.
-const PRS = /^gh api graphql[\s\S]*review-requested/;
+// One query per scan asks for review requests, after the orgs you administer until those are known; your own PRs come in pages beside it.
+const PRS = /^gh api graphql[\s\S]*(review-requested|organizations)/;
 
 test("a first PR scan spins while pending and stops when gh fails", async () => {
   const answer = holdPRs();

@@ -22,6 +22,7 @@ test("whose turn a PR is comes from its state, not from how its reason is worded
 
 test("the reason says why a PR is here in plain words", () => {
   assert.equal(prReason(pr({ author: { login: "mlopez" }, threads: 1 }), { requested: true }), "mlopez asks for your review · 1 comment");
+  assert.equal(prReason(pr({ author: { login: "ana" }, unasked: true }), { requested: true }), "ana opened a PR");
   assert.equal(prReason(pr({ reasons: ["CI failing", "changes requested"], threads: 2 })), "CI failing · changes requested · 2 comments");
   assert.equal(prReason(pr(), { ready: true }), "CI passed, ready to merge");
   assert.equal(prReason(pr({ ...ci("PENDING") })), "CI running");

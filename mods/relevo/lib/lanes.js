@@ -19,7 +19,7 @@ export function prTurn(pr, { requested = false, seen = false, busy = false, read
 
 export function prReason(pr, { requested = false, ready = false } = {}) {
   const threads = pr.threads ? `${pr.threads} ${pr.threads === 1 ? "comment" : "comments"}` : null;
-  if (requested) return [`${pr.author?.login ?? "someone"} asks for your review`, threads].filter(Boolean).join(" · ");
+  if (requested) return [`${pr.author?.login ?? "someone"} ${pr.unasked ? "opened a PR" : "asks for your review"}`, threads].filter(Boolean).join(" · ");
   if (ready) return "CI passed, ready to merge";
   return [...(pr.reasons ?? []), threads].filter(Boolean).join(" · ") || CI_WORDS[ciOf(pr)] || "open";
 }
