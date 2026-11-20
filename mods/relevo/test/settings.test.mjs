@@ -34,7 +34,7 @@ test("renderConfig: odd strings survive and long entries wrap under 130 columns"
   assert.deepEqual(await roundTrip(c), c);
   const lines = renderConfig(plain(example)).split("\n");
   assert.ok(lines.every((l) => l.length <= 130));
-  assert.equal(lines.filter((l) => l.startsWith("export const ")).length, 10);
+  assert.equal(lines.filter((l) => l.startsWith("export const ")).length, 11);
 });
 
 test("renderConfig: what Settings doesn't edit is written back, with its note", async () => {
@@ -82,6 +82,8 @@ test("validate: catches each rule", () => {
   assert.ok(!broken((c) => { delete c.BACKUPS_ROOT; }).includes("backupsRoot"));
   assert.ok(broken((c) => { c.SKILLS.fix = ""; }).includes("skills.fix"));
   assert.ok(broken((c) => { delete c.SKILLS.comments; }).includes("skills"));
+  assert.ok(broken((c) => { c.REVIEW_OWNERS = ["@me", "a b"]; }).includes("reviewOwners"));
+  assert.ok(!broken((c) => { c.REVIEW_OWNERS = []; }).includes("reviewOwners"));
 });
 
 test("slug and parseList", () => {

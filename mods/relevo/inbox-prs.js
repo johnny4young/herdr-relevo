@@ -6,13 +6,14 @@ import { accountOf, pickAccount, chip } from "./accounts.js";
 import { contextFor } from "./context.js";
 import { reviewAlerts, prAlerts, mergedAlert } from "./alerts.js";
 import { REPOS_ROOT } from "./config.js";
+import * as config from "./config.js";
 import { LAUNCHED, SKILLS, configuredSkill, launched, launchSkill } from "./skills.js";
 import { spinner, withKey, icon, seg, diffRatio } from "./ui.js";
 import { CI_WORDS, ciRunning, prName, prReason, prTurn } from "./lib/lanes.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
-import { MINE_PAGES, ORGS_QUERY, adminOrgs, othersQuery, joinPRs, mineQuery, cancelledRuns, checksCut, checksOf, ciOf, seconds, mapDrafts, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
+import { MINE_PAGES, OWNER, othersQuery, joinPRs, mineQuery, cancelledRuns, checksCut, checksOf, ciOf, seconds, mapDrafts, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
 import { mergeFlag, prMoves } from "./lib/land.js";
 import { keepListed } from "./lib/addressed.js";
 import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
@@ -102,14 +103,8 @@ export class PrViews {
   }
 
   async loadPRs() {
-    const others = async () => {
-      if (!this.adminOrgs) {
-        const orgs = await this.graphql(ORGS_QUERY);
-        if (!orgs.error) this.adminOrgs = adminOrgs(orgs.data);
-      }
-      return this.graphql(othersQuery(this.adminOrgs ?? []));
-    };
-    const [first, rest] = await Promise.all([this.graphql(mineQuery()), others()]);
+    const owners = (config.REVIEW_OWNERS ?? ["@me"]).filter((o) => OWNER.test(o));
+    const [first, rest] = await Promise.all([this.graphql(mineQuery()), this.graphql(othersQuery(owners))]);
     const pages = [first];
     while (pages.length < MINE_PAGES && pages.at(-1).data?.viewer?.pullRequests?.pageInfo?.hasNextPage) {
       pages.push(await this.graphql(mineQuery(pages.at(-1).data.viewer.pullRequests.pageInfo.endCursor)));

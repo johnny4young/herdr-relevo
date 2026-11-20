@@ -41,3 +41,6 @@ export const DEEP_REVIEW = [
   { account: "repo", model: "opus", effort: "high" },
   { account: "repo", model: "sonnet", effort: "high" },
 ];
+
+// GitHub users or orgs whose repos' open PRs by others show in Reviews, asked or not; "@me" is you, [] only review requests.
+export const REVIEW_OWNERS = ["@me"];

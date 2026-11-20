@@ -1,5 +1,6 @@
 // config.js as data: rendering it back to source and checking a setup before it is written.
 import { DEFAULT_DEEP_REVIEW, checkDeepReview } from "./deep-setup.js";
+import { OWNER } from "./github.js";
 
 const WIDTH = 130;
 const SKILL_KEYS = ["review", "fix", "comments"];
@@ -54,7 +55,7 @@ const flat = (name, v) => {
 };
 
 // What Settings edits; anything else config.js exports is written back as it was.
-const EDITED = ["ACCOUNTS", "CODEX", "USE_CODEX", "CONTEXTS", "FALLBACK", "REPOS_ROOT", "BACKUPS_ROOT", "SKILLS", "REPLIES", "DEEP_REVIEW"];
+const EDITED = ["ACCOUNTS", "CODEX", "USE_CODEX", "CONTEXTS", "FALLBACK", "REPOS_ROOT", "BACKUPS_ROOT", "SKILLS", "REPLIES", "DEEP_REVIEW", "REVIEW_OWNERS"];
 const NOTES = {
   RUN_CODEX_MODEL: "// The model a run's Codex agent uses.",
   RUN_MUST_FIX: "// A run's reviewer sends the work back only for findings at this level or above: \"blocker\", \"major\" or \"minor\".",
@@ -101,6 +102,9 @@ export function renderConfig(c) {
     "",
     "// Who reviews a PR in Deep review: an account (\"repo\" is the repo's own), its model (empty: the default) and effort.",
     list("DEEP_REVIEW", c.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW),
+    "",
+    "// GitHub users or orgs whose repos' open PRs by others show in Reviews, asked or not; \"@me\" is you, [] only review requests.",
+    flat("REVIEW_OWNERS", c.REVIEW_OWNERS ?? ["@me"]),
     "",
     ...others(c),
   ].join("\n");
@@ -152,6 +156,7 @@ export function validate(c) {
   const keys = Object.keys(skills).filter((k) => k !== "conflicts");
   if (keys.sort().join() !== [...SKILL_KEYS].sort().join()) fail("skills", "Skills: review, fix and comments");
   for (const k of SKILL_KEYS) if (k in skills && !skills[k]?.trim()) fail(`skills.${k}`, `Skills: ${k} is required`);
+  for (const o of c.REVIEW_OWNERS ?? []) if (!OWNER.test(o)) fail("reviewOwners", `Reviews: "${o}" is not a GitHub user or org`);
   if (new Set(c.REPLIES ?? []).size !== (c.REPLIES ?? []).length) fail("replies", "Replies: each one once");
   errors.push(...checkDeepReview(c.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW, [...seen], c.CODEX?.key));
   return errors;
