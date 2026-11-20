@@ -129,7 +129,7 @@ export function quotaAlerts(quotas) {
   if (changed) setShared(ALERTED, seen);
 }
 
-// New review requests since the last look.
+// New review requests and contributors' PRs since the last look.
 export function reviewAlerts(requested, contextOf) {
   const stored = shared(KNOWN), known = new Set(stored ?? []);
   const fresh = requested.filter((p) => !known.has(p.url));
@@ -138,7 +138,7 @@ export function reviewAlerts(requested, contextOf) {
     if (shown.length) {
       playSound("sounds/review.mp3");
       notify({
-        title: shown.length === 1 ? "Review requested" : `${shown.length} reviews requested`,
+        title: shown.length > 1 ? `${shown.length} PRs to review` : shown[0].unasked ? "New pull request" : "Review requested",
         body: shown.map((p) => `${p.repo.split("/")[1]} #${p.number} · ${p.title}`).join("\n"),
         level: "info",
         action: { name: "layout.show", args: { id: "panel" } },

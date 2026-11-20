@@ -263,6 +263,25 @@ test("mapRequested: newest first, with unresolved threads", () => {
   assert.equal(unresolved({}), 0);
 });
 
+test("mapRequested: a person's PR on your repos joins until you review it; bots, drafts and asked ones stay out", async () => {
+  const { adminOrgs, othersQuery } = await import("../lib/github.js");
+  const pr = (url, more = {}) => ({ url, updatedAt: "2026-11-20T00:00:00Z", author: { login: "ana", __typename: "User" }, repository: { nameWithOwner: "me/app" },
+    commits: { nodes: [{ commit: { committedDate: "2026-11-19T00:00:00Z" } }] }, ...more });
+  const review = (at, login = "me") => ({ reviews: { nodes: [{ author: { login }, state: "COMMENTED", submittedAt: at }] } });
+  const data = { viewer: { login: "me", pullRequests: { nodes: [] } }, search: { nodes: [pr("asked")] }, contributed: { nodes: [
+    pr("asked"), pr("fork", { isCrossRepository: true }), pr("bot", { author: { login: "dependabot", __typename: "Bot" } }), pr("draft", { isDraft: true }),
+    pr("reviewed", review("2026-11-19T12:00:00Z")), pr("pushed", review("2026-11-18T00:00:00Z")), pr("other", review("2026-11-19T12:00:00Z", "bo")), {},
+  ] } };
+  const list = mapRequested(data);
+  assert.deepEqual(list.map((p) => p.url).sort(), ["asked", "fork", "other", "pushed"]);
+  assert.equal(list.find((p) => p.url === "asked").unasked, undefined);
+  assert.deepEqual([list.find((p) => p.url === "fork").unasked, list.find((p) => p.url === "fork").untrusted], [true, true]);
+  assert.ok(openPRs(data).some((p) => p.url === "pushed"));
+  assert.deepEqual(adminOrgs({ viewer: { organizations: { nodes: [{ login: "a", viewerCanAdminister: true }, { login: "b", viewerCanAdminister: false }] } } }), ["a"]);
+  assert.match(othersQuery(["a", "c"]), /user:@me org:a org:c -author:@me/);
+  assert.match(othersQuery(), /user:@me -author:@me/);
+});
+
 const at = (y, m, d, h = 0, min = 0) => new Date(y, m - 1, d, h, min).getTime() / 1000;
 
 test("weekStart: the Monday at midnight, local time", () => {
