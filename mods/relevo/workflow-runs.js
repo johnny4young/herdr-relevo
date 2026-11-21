@@ -11,6 +11,7 @@ import { RUN_LAUNCH, answerTrust, launchSteps, ownFolderKeys, reportsFolder, rep
 import { launchStepsView } from "./deep-review-view.js";
 import { runFolder } from "./lib/run-folder.js";
 import { checksText, parseChecks } from "./lib/run-checks.js";
+import { REMOVE_TIMEOUT } from "./worktrees.js";
 
 
 // The repository a folder belongs to: a run's own worktree gives the repository it was made from.
@@ -115,7 +116,7 @@ export class WorkflowRuns extends WorkflowDraftView {
     const opened = new Set(Object.values(l.tabs ?? {}));
     for (const tab of spaces().flatMap((space) => space.tabs ?? []).filter((tab) => opened.has(tab.name))) run("tab.close", { id: tab.id, confirmed: true });
     if (l.worktree) cx.spawn(async () => {
-      await exec("git", ["-C", l.worktree.base, "worktree", "remove", l.worktree.path]).catch(() => null);
+      await exec("git", ["-C", l.worktree.base, "worktree", "remove", l.worktree.path], { timeout: REMOVE_TIMEOUT }).catch(() => null);
       await exec("git", ["-C", l.worktree.base, "branch", "-D", l.worktree.branch]).catch(() => null);
     });
     cx.notify();

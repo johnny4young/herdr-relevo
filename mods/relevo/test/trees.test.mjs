@@ -10,7 +10,7 @@ import { fake, resetFake, calls } from "./fake/herdr.mjs";
 import { fakeCx, flush, text } from "./fake/ui.mjs";
 
 const { TreeViews } = await import("../inbox-trees.js");
-const { removalCheck } = await import("../worktrees.js");
+const { removalCheck, REMOVE_TIMEOUT } = await import("../worktrees.js");
 const PATH = "/work/wt", REMOVE = /worktree remove/;
 const tree = (over = {}) => ({ main: "/work/app", path: PATH, branch: "feat", repo: "app", name: "wt", merged: true, at: 1, ...over });
 
@@ -375,6 +375,27 @@ test("real git: a tool's clones don't stop it, wherever its folder sits, and are
   const check = await removalCheck(w);
   assert.equal(check.error, undefined);
   assert.deepEqual(check.ignored, ["vendor"]);
+});
+
+test("real git: Xcode's package clones don't stop it", async (t) => {
+  const { w, path } = realTree(t, "build/\n");
+  const clone = join(path, "build", "mac-ui", "SourcePackages", "checkouts", "GRDB.swift");
+  mkdirSync(clone, { recursive: true });
+  execFileSync("git", ["init", "-q"], { cwd: clone });
+  assert.equal((await removalCheck(w)).error, undefined);
+});
+
+test("a big checkout gets longer than exec's default to be removed", async () => {
+  const seen = [];
+  const base = fake.exec;
+  fake.exec = (cmd, args, options) => {
+    if (args.includes("remove")) seen.push(options?.timeout);
+    return base(cmd, args, options);
+  };
+  const v = view(), w = tree(), cx = fakeCx();
+  await clickRemove(v, w, cx);
+  await clickRemove(v, w, cx);
+  assert.deepEqual(seen, [REMOVE_TIMEOUT]);
 });
 
 test("real git: a repo beside a tool's folder still stops it", async (t) => {

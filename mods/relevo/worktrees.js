@@ -84,7 +84,7 @@ export async function scanWorktrees(force = false) {
 }
 
 // Only what an install or a tool always brings back. "build" or "out" can hold someone's work, so those get named.
-const REBUILT = new Set(["node_modules", ".build", "__pycache__", ".pytest_cache", ".next", ".nuxt", ".turbo", ".gradle", ".venv", "DerivedData", ".DS_Store"]);
+const REBUILT = new Set(["node_modules", ".build", "SourcePackages", "__pycache__", ".pytest_cache", ".next", ".nuxt", ".turbo", ".gradle", ".venv", "DerivedData", ".DS_Store"]);
 const ignoredFiles = async (w) => {
   const r = await exec("git", [...GIT_READ, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], { cwd: w.path });
   return { ...r, paths: r.stdout.split("\0").filter(Boolean).map((l) => l.replace(/\/$/, "")) };
@@ -209,10 +209,13 @@ export async function removalCheck(w) {
 // Every local branch delete goes through here. -d unless the caller proved the branch can't hold work git still needs.
 export const deleteLocalBranch = (main, name, force = false) => exec("git", ["-C", main, "branch", force ? "-D" : "-d", name]);
 
+// A build folder of many GB takes git longer than exec's 30 s default to delete.
+export const REMOVE_TIMEOUT = 600_000;
+
 // Never forced: git keeps a worktree with changes, and -d keeps a branch with unmerged commits. A branch whose
 // tip is the PR head that merged goes with -D, since a squash or rebase merge leaves it looking unmerged.
 export async function removeWorktree(w, merged = null) {
-  const r = await exec("git", ["-C", w.main, "worktree", "remove", w.path]);
+  const r = await exec("git", ["-C", w.main, "worktree", "remove", w.path], { timeout: REMOVE_TIMEOUT });
   if (r.code !== 0) return r.stderr.trim().split("\n")[0] || "git worktree remove failed";
   if (w.branch) {
     const tip = merged ? (await exec("git", ["-C", w.main, "rev-parse", `refs/heads/${w.branch}`])).stdout.trim() : "";

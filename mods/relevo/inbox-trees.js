@@ -424,7 +424,8 @@ export class TreeViews {
   // Remove, or its Confirm once asked. `keyed` is the selected row's: with its key, and named for what it costs.
   removeButton(t, w, { sure = false, keyed = false } = {}) {
     const lost = w.ignored?.length > 0, words = keyed ? [keycap(t, "d"), lost ? "Delete forever" : "Remove"] : "Remove";
-    return button(t, `wt-rm-${w.path}`, sure ? "Confirm" : words, (cx) => this.removeTree(w, cx), {
+    const confirm = keyed ? [keycap(t, "enter", { tone: t.blocked }), "Confirm"] : "Confirm";
+    return button(t, `wt-rm-${w.path}`, sure ? confirm : words, (cx) => this.removeTree(w, cx), {
       size: "sm", tip: w.group === "pushed" ? TIPS.pushed : TIPS.remove, kind: sure || (keyed && lost) ? "danger" : "outline", disabled: this.treeBusy?.has(w.path),
     });
   }
@@ -434,7 +435,7 @@ export class TreeViews {
   }
 
   // Under a selected row: the question before a push or a delete, else every action with its key.
-  actionsLine(t, w, moves, { open = true, remove = true } = {}) {
+  actionsLine(t, w, moves, { open = true, remove = true, sure = false } = {}) {
     const id = (name) => `wt-${name}-${w.path}`, busy = this.treeBusy?.has(w.path);
     const line = (children) => h_flex().pt(2).gap(5).flex_wrap().items_center().children(children.filter(Boolean));
     const cancel = (key) => button(t, id("cancel"), "Cancel", (cx) => {
@@ -461,7 +462,7 @@ export class TreeViews {
       open && this.openButton(t, w),
       act("folder", [keycap(t, "o"), "Open folder"], moves.folder),
       remove && moves.forever && button(t, id("delete"), [keycap(t, "d"), "Delete forever"], moves.remove, { size: "sm", tip: TIPS.forever, kind: "danger", disabled: busy }),
-      remove && moves.offers && this.removeButton(t, w, { keyed: true }),
+      remove && moves.offers && this.removeButton(t, w, { keyed: true, sure }),
     ]);
   }
 
@@ -485,21 +486,23 @@ export class TreeViews {
     if (this.removing.has(w.path)) return this.removingRow(t, w);
     const lane = w.lane ?? laneOf(w, now), sel = this.selected(id), err = this.wtError[w.path], sure = this.confirm === w.path;
     const warn = sure ? [w.space && "closes its space", w.ignored?.length && deletes(w.ignored)].filter(Boolean).join(", ") : "";
-    const asking = this.deleteAsk?.path === w.path || this.pushAsk?.path === w.path, moves = this.rowMoves(w, now);
+    const moves = this.rowMoves(w, now);
+    // Confirm shows where its Remove was: in the edge for a direct row, else in the actions line.
+    const asking = this.deleteAsk?.path === w.path || this.pushAsk?.path === w.path || (sure && !moves.direct);
     const edge = this.marked?.size ? this.markBox(t, w)
-      : sure || moves.direct ? this.removeButton(t, w, { sure })
+      : moves.direct ? this.removeButton(t, w, { sure })
         : lane === "quiet" ? this.openButton(t, w)
           : sel || asking ? null
             : w.group === "pushed" ? this.openButton(t, w)
               : button(t, `wt-look-${w.path}`, "Look", (cx) => this.pick(id, cx), { size: "sm", tip: "What removing it would lose" });
     const below = [
       err || warn ? div().id(`wt-note-${w.path}`).min_w(0).text_size(11).text_color(t.blocked).child(err ?? warn) : null,
-      ...(sel || asking ? [...this.loseLines(t, w), this.actionsLine(t, w, moves, { open: lane !== "quiet", remove: !sure && !moves.direct })] : []),
+      ...(sel || asking ? [...this.loseLines(t, w), this.actionsLine(t, w, moves, { open: lane !== "quiet", remove: !moves.direct, sure })] : []),
     ].filter(Boolean);
     return row(t, id, {
       turn: !w.merged && !w.group ? "flight" : TURN[lane], kind: "tree", title: w.repo,
       reason: `${w.branch ?? `${w.name} (detached)`} · ${reasonOf(w, now)}`,
-      age: w.kb && !this.tightInbox ? sizeOf(w.kb) : null, action: edge, selected: sel, tip: w.path,
+      age: w.kb && !this.tightInbox ? sizeOf(w.kb) : null, action: edge, selected: sel, tip: below.length ? null : w.path,
       onSelect: this.pick ? (cx) => this.pick(id, cx) : null, below: below.length ? below : null,
     });
   }

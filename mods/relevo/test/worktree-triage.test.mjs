@@ -13,7 +13,7 @@ import { actionsOf, groupOf, whyOf, sizeOf } from "../lib/trees.js";
 import { githubRepo, withoutLogin } from "../lib/git.js";
 
 const { TreeViews } = await import("../inbox-trees.js");
-const { removalCheck, treeState } = await import("../worktrees.js");
+const { REMOVE_TIMEOUT, removalCheck, treeState } = await import("../worktrees.js");
 const { backupsSize, deleteCheck, deleteWorktree, logRemoval, pushBackup, pushPlan, savedState, saveCommits, savePatch } = await import("../worktree-actions.js");
 const settled = async () => { for (let i = 0; i < 12; i++) await flush(); };
 
@@ -457,6 +457,16 @@ test("real git: Delete says what goes, refuses what's in use, then takes everyth
   assert.equal(existsSync(path), false);
   assert.equal(spawnSync("git", ["rev-parse", "-q", "--verify", "refs/heads/feat"], { cwd: w.main }).status, 1);
   assert.equal(spawnSync("git", ["rev-parse", "-q", "--verify", "refs/heads/main"], { cwd: w.main }).status, 0);
+});
+
+test("Delete gives a big checkout longer than exec's default", async () => {
+  const seen = [];
+  fake.exec = (cmd, args, options) => {
+    if (args.includes("remove")) seen.push(options?.timeout);
+    return null;
+  };
+  assert.equal(await deleteWorktree({ main: "/w/app", path: "/w/big", branch: null }), null);
+  assert.deepEqual(seen, [REMOVE_TIMEOUT]);
 });
 
 test("real git: Delete through the row logs what it said, and the commit restores the branch", async (t) => {

@@ -186,6 +186,8 @@ test("Delete forever on a merged row with ignored files names them and asks agai
   assert.equal(inbox.confirm, "/w/env");
   assert.match(text(find(ui(), "wt-note-/w/env")), /deletes \.env\.local/);
   assert.equal(text(find(ui(), "wt-rm-/w/env")), "Confirm");
+  const line = (root) => (root?.items?.some((k) => k?.key === "wt-rm-/w/env") ? root : root?.items?.map(line).find(Boolean));
+  assert.ok(find(line(ui()), "wt-folder-/w/env"), "Confirm takes Delete forever's place, beside Open folder");
   // A second d is not an answer.
   key("d");
   await settled();
