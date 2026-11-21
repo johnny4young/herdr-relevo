@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.0 · 2026-11-21
+
+- **Review opens a PR on its description.** A PR review lists **Description** above the files and starts there, with the PR's title and body as markdown, so the reason comes before the diff. `]` goes to the files and `[` on the first file comes back. Others' PRs show without HTML or images, and their links are plain text.
+- **Turn panels on or off.** Settings › Panels shows or hides Spaces, Agents, Tabs, Files, and Reviews and Runs. A panel turned off is hidden at once and its mod no longer starts at the next launch. `./install.sh --only spaces,agents` makes the same choice at install, later installs keep it, and `--only all` brings everything back.
+- **Relevo checks itself after Herdr updates.** A minute after the window opens on a new herdr-app or hc, Relevo loads each of its mods and tries the `hc` calls it reads, once per version, and shows an error only when something no longer works. `node scripts/relevo.mjs smoke` runs it by hand, and `doctor` warns while the installed versions are untested.
+
 ## 0.12.0 · 2026-11-21
 
 - **While you were away says when.** Each PR change shows its age at the row's edge, `25m` or `1h`, and the list puts the newest first; it used to run oldest first. A merge takes GitHub's merge time, other changes the time Relevo saw them.
