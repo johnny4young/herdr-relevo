@@ -1,5 +1,5 @@
 import { div, list } from "gpui-kit";
-import { h_flex, v_flex, InputState, Input, Scrollbar } from "gpui-base";
+import { h_flex, v_flex, InputState, Input, Scrollbar, TextView } from "gpui-base";
 import { theme, exec, run, agents, panes, focused, props, settings, notify, shared, setShared, window } from "herdr";
 import { focusedCwd } from "./panelbar.js";
 import { button, checkbox, icon, tag, diffRatio, keycap } from "./ui.js";
@@ -11,6 +11,7 @@ import { openWorkflow } from "./workflow-window.js";
 import { GIT_READ as READ } from "./lib/git.js";
 import { diffRows, lineKey, selectRange, lineComment, fileComment, commentId, commentLabel, rangeRows, reviewMessage } from "./lib/diff.js";
 import { highlightRows, languageFor } from "./lib/highlight.js";
+import { agentMarkdown } from "./lib/agent-markdown.js";
 
 const MAX_ROWS = 4000;
 // Open review panes by checkout, so a second Review focuses the first.
@@ -145,6 +146,7 @@ export class ReviewDiff {
     this.input = InputState.new({ value: "", placeholder: "Comment for the agent · Enter saves, Esc cancels" });
     this.input.on("submit", (_e, cx) => this.save(cx));
     if (this.root) this.load(cx);
+    if (this.pr && !this.range) this.readAbout(cx);
     // The agent keeps working while you read; pick up its changes unless you are typing.
     // Behind another app nobody reads it, so it waits until the window is back.
     cx.timer.every(10000, (cx) => {
@@ -247,6 +249,33 @@ export class ReviewDiff {
     const key = open ? JSON.stringify([this.from, this.to, open.path, this.hashes.get(open.path) ?? null]) : null;
     if (open && (key !== this.openKey || [undefined, "-"].includes(this.hashes.get(open.path)))) await this.pick(open, cx, key);
     else if (!open) Object.assign(this, { rows: [], open: null, diffSign: null, openKey: null });
+  }
+
+  // Why the PR exists, shown before its files. Others' PRs are untrusted text, so it goes through agentMarkdown.
+  readAbout(cx) {
+    cx.spawn(async (cx) => {
+      const r = await exec("gh", ["pr", "view", String(this.pr.number), "--repo", this.pr.repo, "--json", "title,body"], { timeout: 20000 }).catch(() => null);
+      let about = null;
+      try { about = JSON.parse(r?.stdout ?? ""); } catch { /* no gh or no access: files only */ }
+      if (this.closed || !about?.body?.trim()) return;
+      this.about = { title: about.title ?? "", body: agentMarkdown(about.body) };
+      if (!this.chose) this.reading = true;
+      cx.notify();
+    });
+  }
+
+  // A file the person picked; read() picks on its own too, which must not leave the description.
+  async showFile(file, cx) {
+    this.chose = true;
+    this.reading = false;
+    cx.notify();
+    if (file) await this.pick(file, cx);
+  }
+
+  showAbout(cx) {
+    this.editing = null;
+    this.reading = true;
+    cx.notify();
   }
 
   async pick(file, cx, key = null) {
@@ -483,11 +512,19 @@ export class ReviewDiff {
   // While no comment is open: c comments on the file, v marks it viewed, [ and ] go to the previous or next file.
   paneKey(e, cx) {
     const m = e.modifiers ?? {};
-    if (this.editing !== null || m.platform || m.control || m.alt || !this.open) return false;
+    if (this.editing !== null || m.platform || m.control || m.alt) return false;
+    if (this.reading) {
+      if (e.key !== "]" || !this.files.length) return false;
+      cx.spawn(async (cx) => { await this.showFile(this.files.find((f) => f.path === this.open?.path) ?? this.files[0], cx); });
+      cx.stop_propagation();
+      return true;
+    }
+    if (!this.open) return false;
     const at = (this.files ?? []).findIndex((f) => f.path === this.open.path), step = e.key === "[" ? -1 : e.key === "]" ? 1 : 0;
     if (e.key === "c") this.edit("file", cx);
     else if (e.key === "v" && this.hashes?.get(this.open.path)) this.toggleViewed(this.open.path, cx);
-    else if (step && this.files[at + step]) cx.spawn(async (cx) => { await this.pick(this.files[at + step], cx); });
+    else if (step < 0 && at === 0 && this.about) this.showAbout(cx);
+    else if (step && this.files[at + step]) cx.spawn(async (cx) => { await this.showFile(this.files[at + step], cx); });
     else return false;
     cx.stop_propagation();
     return true;
@@ -602,16 +639,23 @@ export class ReviewDiff {
   fileList(t) {
     const counts = new Map();
     for (const c of this.comments) counts.set(c.file, (counts.get(c.file) ?? 0) + 1);
-    return v_flex().id("rv-files").flex_none().h(Math.min(150, Math.max(40, this.files.length * 24 + 9))).overflow_y_scrollbar().p(4).border_b(1).border_color(t.border)
+    const rows = this.files.length + (this.about ? 1 : 0);
+    return v_flex().id("rv-files").flex_none().h(Math.min(150, Math.max(40, rows * 24 + 9))).overflow_y_scrollbar().p(4).border_b(1).border_color(t.border)
+      .when(Boolean(this.about), (el) => el.child(h_flex().id("rv-about-row").h(24).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer()
+        .when(Boolean(this.reading), (r) => r.bg(t.selected))
+        .hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => this.showAbout(cx))
+        .child(icon("note", this.reading ? t.foreground : t.muted, 14))
+        .child(div().flex_1().min_w(0).truncate().text_size(13).child("Description"))))
       .when(!this.files.length, (el) => el.child(div().p(8).text_color(t.dim).child(this.pr ? "No changes" : this.empty())))
       .children(this.files.slice(0, FILES_SHOWN).map((f) => {
         const count = counts.get(f.path) ?? 0;
         const seen = this.viewed(f.path), cut = f.path.lastIndexOf("/") + 1;
         return h_flex().id(`rv-file-${f.path}`).h(24).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer()
-          .when(this.open?.path === f.path, (el) => el.bg(t.selected))
+          .when(!this.reading && this.open?.path === f.path, (el) => el.bg(t.selected))
           .hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => cx.spawn(async (cx) => {
-            await this.pick(f, cx);
+            await this.showFile(f, cx);
           }))
           .child(button(t, `rv-viewed-${f.path}`, [checkbox(t, seen)], (cx) => this.toggleViewed(f.path, cx),
             { size: "sm", selected: seen, disabled: !this.hashes.get(f.path), accessibleLabel: `${seen ? "Mark unviewed" : "Mark viewed"}: ${f.path}`, tip: "Viewed files become unviewed if their contents change" }))
@@ -668,6 +712,12 @@ export class ReviewDiff {
       .child(Scrollbar.vertical("rv-diff").absolute().inset_0());
   }
 
+  description(t) {
+    return v_flex().id("rv-about").flex_1().min_h(0).overflow_y_scrollbar().px(16).py(12).gap(10)
+      .child(div().font_semibold().text_size(13).child(this.about.title))
+      .child(TextView.markdown("rv-about-body", this.about.body).selectable(true).on_link_click(() => {}).w_full().text_size(13).text_color(t.foreground));
+  }
+
   footer(t, agent, n, ready) {
     return h_flex().h(44).flex_none().px(10).gap(8).items_center().border_t(1).border_color(t.border)
       .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted)
@@ -703,10 +753,11 @@ export class ReviewDiff {
       .on_key_up((e, cx) => this.escapeKey(e, cx))
       .child(this.header(t))
       .child(this.fileList(t))
-      .when(Boolean(this.open), (el) => el.child(this.fileBar(t, font, mine)))
-      .child(this.diff(t, font))
-      .when(mine.length > 0, (el) => el.child(this.savedStrip(t, font, mine)))
-      .when(this.editing !== null, (el) => el.child(this.commentEditor(t, font)))
+      .when(Boolean(this.reading), (el) => el.child(this.description(t)))
+      .when(!this.reading && Boolean(this.open), (el) => el.child(this.fileBar(t, font, mine)))
+      .when(!this.reading, (el) => el.child(this.diff(t, font)))
+      .when(!this.reading && mine.length > 0, (el) => el.child(this.savedStrip(t, font, mine)))
+      .when(!this.reading && this.editing !== null, (el) => el.child(this.commentEditor(t, font)))
       // A run's change has no agent to send comments to.
       .when(!this.range, (el) => el.child(this.footer(t, agent, n, ready)));
   }
