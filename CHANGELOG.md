@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.0 · 2026-11-20
+
+- **Contributors' PRs show in Reviews.** A collaborator's PR on your repos rarely asks for your review, so it never showed. Reviews now lists people's open PRs on your repos as "<author> opened a PR", with a "New pull request" alert, until you review their last push; a new push brings it back. Bots and drafts stay out, and a PR from a fork stays untrusted.
+- **Choose whose repos Reviews watches.** Settings › Reviews (`REVIEW_OWNERS`) takes GitHub users and orgs: `@me`, the default, is whoever runs Relevo, an org adds its repos, and an empty list keeps only review requests.
+
 ## 0.10.0 · 2026-11-17
 
 - **Accepting the last task of a run goes back to Runs.** Once nothing else in the run waits, the panel returns to the list on that run, with what happened ("Pushed to feat/x…") still shown. A fix of a pull request goes back once its push lands, and a run that opens a draft PR goes back once the PR is open.
