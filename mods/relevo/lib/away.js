@@ -14,11 +14,13 @@ const RESTING = new Set(["done", "idle"]);
 export function awaySummary({ since, now, agents, worked, events, quotasBefore, quotasNow, labels = {} }) {
   const finished = agents.filter((a) => worked.has(a.address) && RESTING.has(a.status)).map((a) => a.address);
   const waiting = agents.filter((a) => a.status === "blocked").map((a) => a.address);
+  // Newest first; a tie keeps the later push on top, so a poll's merge sits above its CI change.
+  const newest = [...events].reverse().sort((x, y) => (y.at ?? 0) - (x.at ?? 0));
   const seen = new Set(), prs = [];
-  for (const e of events) {
+  for (const e of newest) {
     if (seen.has(e.title)) continue;
     seen.add(e.title);
-    prs.push({ title: e.title, url: e.url, kind: e.kind });
+    prs.push({ title: e.title, url: e.url, kind: e.kind, at: e.at ?? null });
   }
   const quota = [];
   for (const [key, q] of Object.entries(quotasNow ?? {})) {

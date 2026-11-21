@@ -12,8 +12,8 @@ test("leftAt: behind other apps, or a gap in the ticks because the Mac slept", (
 test("awaySummary: what finished, waits, changed on your PRs and was spent, or nothing", () => {
   const agents = [{ address: "t1", status: "done" }, { address: "t2", status: "working" }, { address: "t3", status: "blocked" },
     { address: "t4", status: "idle" }];
-  const events = [{ title: "CI failed · api #1", url: "u1", kind: "ci-failed" }, { title: "CI failed · api #1", url: "u1", kind: "ci-failed" },
-    { title: "Merged · api #2", url: "u2", kind: "merged" }];
+  const events = [{ title: "CI failed · api #1", url: "u1", kind: "ci-failed", at: 10 }, { title: "Merged · api #2", url: "u2", kind: "merged", at: 30 },
+    { title: "CI failed · api #1", url: "u1", kind: "ci-failed", at: 20 }, { title: "CI passed · api #3", url: "u3", kind: "ci-passed", at: 30 }];
   const s = awaySummary({
     since: 0, now: 1, agents, worked: new Set(["t1", "t2"]), events, labels: { p: "Personal" },
     quotasBefore: { p: { h5: { pct: 10 }, d7: { pct: 40 } }, t: { h5: { pct: 5 } } },
@@ -21,7 +21,8 @@ test("awaySummary: what finished, waits, changed on your PRs and was spent, or n
   });
   assert.deepEqual(s.finished, ["t1"]);
   assert.deepEqual(s.waiting, ["t3"]);
-  assert.deepEqual(s.prs.map((p) => p.title), ["CI failed · api #1", "Merged · api #2"]);
+  // Newest first, the newest of a repeat, and a tie keeps the later push on top.
+  assert.deepEqual(s.prs.map((p) => [p.title, p.at]), [["CI passed · api #3", 30], ["Merged · api #2", 30], ["CI failed · api #1", 20]]);
   assert.deepEqual(s.quota, [{ key: "p", label: "Personal", h5: 12, d7: 0 }]);
   assert.equal(awaySummary({ since: 0, now: 1, agents: [{ address: "t4", status: "idle" }], worked: new Set(), events: [] }), null);
 });
