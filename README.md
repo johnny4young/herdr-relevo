@@ -208,6 +208,10 @@ worktrees that are safe to remove go in one Confirm. When your PR merges, the to
 3. Switch to the layout (`ctrl-shift-l`) and open Settings (the gear beside ACCOUNTS): your accounts, the GitHub
    orgs that use each one, and where your clones live. It writes `mods/relevo/config.js`, which you can also edit.
 
+Only want some of it? Settings → Panels turns Spaces, Agents, Tabs, Files, and Reviews and Runs on or off. A panel
+turned off is hidden at once and its mod no longer starts at the next launch. `./install.sh --only spaces,agents`
+makes the same choice at install; later installs keep it, and `--only all` brings everything back.
+
 It needs `git` and the GitHub CLI (`gh auth login`) on your PATH, and `claude` and optionally `codex`.
 `node scripts/relevo.mjs doctor` checks the installed files, the keys and those programs, and says what is missing.
 

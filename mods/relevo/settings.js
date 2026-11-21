@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { theme, exec, appHome, props, openOverlay, closeOverlay } from "herdr";
+import { theme, exec, appHome, props, openOverlay, closeOverlay, layout, run, readTextFile, writeTextFile } from "herdr";
 import { ACCOUNTS, CODEX, CONTEXTS, FALLBACK, REPOS_ROOT, SKILLS } from "./config.js";
 import * as config from "./config.js";
 import { WRITE_SCRIPT, renderConfig, validate, slug, parseList, isHex } from "./lib/settings.js";
@@ -8,6 +8,7 @@ import { chip } from "./accounts.js";
 import { DEFAULT_DEEP_REVIEW, MAX_REVIEWERS, effortsFor } from "./lib/deep-setup.js";
 import { replies } from "./replies.js";
 import { button, spinner } from "./ui.js";
+import { PANELS, PANELS_FILE, findNode, panelCommands, panelShown, panelsText } from "./lib/panels.js";
 
 const COLORS = ["ansi2", "ansi4", "ansi5", "ansi6", "ansi3", "ansi1"];
 const COLS = { label: 104, letter: 40, dir: 116, color: 76, ctxLabel: 140, model: 150 };
@@ -35,6 +36,10 @@ export class Settings {
     this.replies = replies().map((r) => this.replyRow(r));
     this.reviewOwners = this.input((config.REVIEW_OWNERS ?? ["@me"]).join(", "), "@me, your-org");
     this.deep = (config.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW).map((r) => this.deepRow(r));
+    // Only in a layout that has Relevo's blocks; elsewhere there is nothing to show or hide.
+    const tree = layout();
+    this.panels = PANELS.every((p) => p.nodes.every((id) => findNode(tree, id)))
+      ? Object.fromEntries(PANELS.map((p) => [p.key, panelShown(tree, p)])) : null;
   }
 
   deepRow(r = { account: "repo", model: "", effort: "high" }) {
@@ -218,6 +223,7 @@ export class Settings {
     cx.notify();
     const path = `${appHome()}/mods/relevo/config.js`;
     cx.spawn(async (cx) => {
+      if (this.panels) await this.applyPanels();
       const r = await exec("sh", ["-c", WRITE_SCRIPT, "sh", path, renderConfig({ ...config, ...this.collect() })])
         .catch((e) => ({ code: 1, stderr: String(e) }));
       if (r.code === 0) return closeOverlay(props()?.overlay);
@@ -225,6 +231,14 @@ export class Settings {
       this.errors = [{ at: "write", message: r.stderr.trim() || "Could not write config.js" }];
       cx.notify();
     });
+  }
+
+  // The window changes now; the file is what the next install writes into the layout.
+  async applyPanels() {
+    const on = PANELS.filter((p) => this.panels[p.key]).map((p) => p.key);
+    for (const [name, args] of panelCommands(layout(), on)) run(name, args);
+    const file = `${appHome()}/${PANELS_FILE}`, was = await readTextFile(file);
+    if (was !== panelsText(on)) await writeTextFile(file, panelsText(on), was).catch(() => {});
   }
 
   close() {
@@ -308,6 +322,11 @@ export class Settings {
         .child(label)));
     const keys = this.accounts.map((r) => this.keyOf(r)).filter(Boolean).join(", ");
     const body = v_flex().id("settings-body").flex_1().min_h(0).overflow_y_scrollbar().px(16).py(14).gap(18)
+      .when(Boolean(this.panels), (el) => el.child(this.section(t, "settings-panels", "PANELS", ["panels"], [
+        h_flex().gap(12).flex_wrap().children(PANELS.map((p) => this.labeled(t, p.label,
+          this.choice(t, `settings-panel-${p.key}`, [["on", "On"], ["off", "Off"]], this.panels[p.key] ? "on" : "off",
+            (v, cx) => { this.panels[p.key] = v === "on"; cx.notify(); })))),
+      ])))
       .child(this.section(t, "settings-accounts", "ACCOUNTS", ["accounts"], [
         head([["", 20], ["Label", COLS.label], ["Letter", COLS.letter], ["Launcher", 0], ["Claude dir", COLS.dir],
           ["Background", COLS.color], ["Text", COLS.color], ["", 20]]),
