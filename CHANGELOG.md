@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.0 · 2026-11-21
+
+- **While you were away says when.** Each PR change shows its age at the row's edge, `25m` or `1h`, and the list puts the newest first; it used to run oldest first. A merge takes GitHub's merge time, other changes the time Relevo saw them.
+
 ## 0.11.1 · 2026-11-20
 
 - **Big worktrees come off.** Remove and Delete forever give git up to 10 minutes, so a checkout with a build folder of several GB is deleted instead of failing after 30 seconds. Xcode's `SourcePackages` counts as a rebuilt folder, so its package clones no longer stop a removal with "holds a repo".
