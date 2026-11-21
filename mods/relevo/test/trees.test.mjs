@@ -451,7 +451,7 @@ test("a worktree in the Trash or with its folder gone is listed to forget, and n
   assert.equal(calls(/status|ls-files/).length, 0);
   const v = view(), cx = fakeCx(), w = { ...list[0], repo: "app" };
   v.worktrees = [w];
-  assert.match(text(v.treeRow({}, w)), /in the Trash Forget$/);
+  assert.match(text(v.treeRow({}, w)), /app in the Trash · x Forget$/);
   fake.exec = (cmd, args) => (args.includes("--git-common-dir") ? { stdout: `${main}/.git\n` } : null);
   v.removeTree(w, cx);
   for (let i = 0; i < 12; i++) await flush();

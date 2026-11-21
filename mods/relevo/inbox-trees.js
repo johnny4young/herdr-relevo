@@ -506,7 +506,7 @@ export class TreeViews {
     ].filter(Boolean);
     return row(t, id, {
       turn: !w.merged && !w.group ? "flight" : TURN[lane], kind: "tree", title: w.repo,
-      reason: `${w.branch ?? `${w.name} (detached)`} · ${reasonOf(w, now)}`,
+      reason: w.gone ? `${w.gone} · ${w.branch ?? `${w.name} (detached)`}` : `${w.branch ?? `${w.name} (detached)`} · ${reasonOf(w, now)}`,
       age: w.kb && !this.tightInbox ? sizeOf(w.kb) : null, action: edge, selected: sel, tip: below.length ? null : w.path,
       onSelect: this.pick ? (cx) => this.pick(id, cx) : null, below: below.length ? below : null,
     });
