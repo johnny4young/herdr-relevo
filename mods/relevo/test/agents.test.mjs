@@ -456,3 +456,21 @@ test("a row that waits on me keeps its first line for the reason: ticket and age
   assert.match(text(find(drawn, "acct-t1")), /ABC-142/);
   assert.equal(find(drawn, "meta-t1"), null);
 });
+
+test("a remote agent wears its machine's color, as in Spaces, and an offline one says so and offers no reply", async () => {
+  fake.machines = [{ name: null, layout: "ready" }, { name: "box", layout: "ready" }, { name: "lab", layout: "unavailable" }];
+  const { cx, ui } = await open([agent("t1"), agent("box/t2"), agent("lab/t3")]);
+  const { machineLook } = await import("../../relevo-spaces/folders.js");
+  assert.equal(find(ui(), "machine-t1"), null);
+  const marks = (node) => (node?.key === "machine-box/t2" ? 1 : 0) + (node?.items ?? []).reduce((n, c) => n + marks(c), 0);
+  assert.equal(marks(ui()), 1, "one machine dot per row");
+  assert.equal(find(ui(), "machine-box/t2").fill, machineLook("box", fake.machines).color);
+  assert.equal(find(ui(), "machine-lab/t3").fill, machineLook("lab", fake.machines).color);
+  assert.notEqual(find(ui(), "machine-box/t2").fill, find(ui(), "machine-lab/t3").fill);
+  assert.equal(find(ui(), "offline-box/t2"), null);
+  assert.ok(find(ui(), "offline-lab/t3"));
+  find(ui(), "ag-lab/t3").handlers.on_hover(true, cx);
+  assert.equal(find(ui(), "reply-lab/t3"), null);
+  find(ui(), "ag-box/t2").handlers.on_hover(true, cx);
+  assert.ok(find(ui(), "reply-box/t2"));
+});
