@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.1 · 2026-11-20
+
+- **Big worktrees come off.** Remove and Delete forever give git up to 10 minutes, so a checkout with a build folder of several GB is deleted instead of failing after 30 seconds. Xcode's `SourcePackages` counts as a rebuilt folder, so its package clones no longer stop a removal with "holds a repo".
+- **A pushed worktree is checked fairly.** A commit that sits under a newer branch tip on GitHub counts as pushed, so its worktree no longer says "not on GitHub anymore".
+- **Confirm stays where you clicked.** Remove and Delete forever turn into Confirm in place, and the row's path tooltip no longer covers its note.
+- **An unmerged branch can go, after a Confirm.** **Delete branch** on a branch git calls not fully merged says what deleting would lose, "its commits are already in main" or "3 commits only on this branch", and turns into **Confirm**, which deletes it only if it hasn't moved and writes its commit to `deletions.log`. Other refusals show git's first line.
+- **Trashed worktrees can be forgotten.** A worktree moved to the Trash, which macOS keeps unreadable, or whose folder is gone, sat in "recent" forever. It now shows "in the Trash" or "folder is gone" in Safe to remove, with **Forget**, which drops git's record of it and its merged branch and leaves the files where they are.
+
 ## 0.11.0 · 2026-11-20
 
 - **Contributors' PRs show in Reviews.** A collaborator's PR on your repos rarely asks for your review, so it never showed. Reviews now lists people's open PRs on your repos as "<author> opened a PR", with a "New pull request" alert, until you review their last push; a new push brings it back. Bots and drafts stay out, and a PR from a fork stays untrusted.
