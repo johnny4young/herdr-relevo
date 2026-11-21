@@ -14,7 +14,7 @@ folder, handoffs between accounts, alerts when a PR's CI or reviews change, and 
 
 Relevo answers one question across every agent, run and pull request: **whose turn is it?**
 
-- **Needs me**: an agent asked, a result or decision waits, someone asked for your review, your PR is failing.
+- **Needs me**: an agent asked, a result or decision waits, someone asked for your review or opened a PR on your repos, your PR is failing.
 - **In flight**: agents are working, CI is running, a merge is landing. Nothing to do.
 - **Ready**: one key from done: land the PR, open the Desktop session.
 - **Maintenance**: everything that can wait: merged worktrees, old PRs, stale branches, agent time.
@@ -33,7 +33,7 @@ Spanish for relay: the work passes between you and your agents, and the list alw
 
 ## Runs: hand a task to two agents
 
-The panel has two views. **Reviews** is the Inbox described below. **Runs** is for work you hand off: one agent writes it, your tests run, a second agent reviews it, and the result waits for your decision.
+The panel has two views. **Reviews** is the Inbox described below. Besides review requests, it lists people's open PRs on your repos, asked or not, until you review their last push; Settings › Reviews adds orgs or other owners (`REVIEW_OWNERS`), and bots stay out. **Runs** is for work you hand off: one agent writes it, your tests run, a second agent reviews it, and the result waits for your decision.
 
 1. **New run** (`n`) takes a prompt. Its first line names the run.
 2. Check the repository, the tests, who writes it and who reviews it; they come filled in. The repository is the one you are in (a run's worktree gives the repository it came from), the tests are what it declares (the `test` script of `package.json` with npm, pnpm, yarn or bun, `go test ./...`, `cargo test`, `pytest` or `make test`), and the agents are the ones you used last unless one is out of quota. The line above the setup reads it all, for example "app · own worktree · Team → Codex · npm test".
