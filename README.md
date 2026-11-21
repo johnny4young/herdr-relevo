@@ -237,6 +237,14 @@ you copied by hand replaces them, with that backup. `node scripts/relevo.mjs uni
 command), and the space-folders mod, which Spaces replaces since 0.8.0 with the same folders. This is the way to update
 any earlier install, including one made with `scripts/live-relevo.mjs`, which installs only `mods/relevo`.
 
+### After Herdr updates
+
+Herdr's mod API and `hc` still change between releases. A minute after the window opens on a new herdr-app or hc
+version, Relevo loads each of its installed mods with `herdr-app check` and tries the read-only `hc` calls it relies
+on (`ls`, `get`, `read`). It stays quiet when that passes and shows an error naming the first problem when it doesn't.
+It runs once per version pair; `node scripts/relevo.mjs smoke` runs it by hand, and `doctor` warns while the
+installed versions are untested. It catches mods that no longer load and changed JSON, not changes in behavior.
+
 Relevo's keys live in a `layout:relevo` section; if yours are under `global`, move them so they only act while Relevo
 shows.
 

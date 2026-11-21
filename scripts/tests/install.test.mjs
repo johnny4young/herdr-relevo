@@ -7,7 +7,7 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { setTimeout as wait } from "node:timers/promises";
-import { install, uninstall, doctor, plan, readManifest, main } from "../relevo.mjs";
+import { install, uninstall, doctor, plan, readManifest, main, smokeTest } from "../relevo.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 let base, source, root, lines;
@@ -182,6 +182,32 @@ test("doctor names the space-folders mod and how to set up an outdated hook", ()
   assert.ok(lines.includes(`warn  the space-folders mod is no longer needed: Spaces keeps the same folders. Remove ${path.join(root, "mods/space-folders")}`));
   const hook = path.join(root, "mods/relevo/hooks/relevo-labels.sh");
   assert.ok(lines.some((l) => l.startsWith("warn  the optional hook") && l.includes("personal (.claude): outdated") && l.endsWith(`To set it up: bash ${hook} --install (see hooks/HOOK.md)`)));
+});
+
+test("smoke records what it found, fails with nothing installed, and doctor asks for it after an update", async () => {
+  const run = async (command, args) => ({ code: 0, stderr: "", stdout: {
+    "herdr-app --version": "herdr-app 0.1.16\n", "hc --version": "hc 0.1.21\n", "herdr-app status": '{"errors":[]}',
+    "hc ls": '{"terminals":[]}' }[`${command} ${args[0]}`] ?? "" });
+  const empty = await smokeTest({ root, run, log });
+  assert.equal(empty.failed, 1, "no mods: a failure, never an empty pass");
+  assert.equal(JSON.parse(get("relevo-install/smoke.json")).passed, false);
+
+  install({ source, root });
+  lines = [];
+  assert.equal((await smokeTest({ root, run, log })).failed, 0);
+  assert.ok(lines.includes("ok    mod relevo-tabs loads") && lines.at(-1) === "Smoke passed.");
+  assert.deepEqual(JSON.parse(get("relevo-install/smoke.json")), { ...JSON.parse(get("relevo-install/smoke.json")), app: "0.1.16", core: "0.1.21", passed: true });
+
+  const bin = path.join(base, "bin"); fs.mkdirSync(bin);
+  const version = (name, v) => fs.writeFileSync(path.join(bin, name), `#!/bin/sh\necho "${name} ${v}"\n`, { mode: 0o755 });
+  version("herdr-app", "0.1.16"); version("hc", "0.1.21");
+  lines = [];
+  doctor({ source, root, env: { PATH: bin, HOME: base }, log });
+  assert.ok(lines.includes("ok    smoke passed on herdr-app 0.1.16 / hc 0.1.21"));
+  version("hc", "0.1.22");
+  lines = [];
+  doctor({ source, root, env: { PATH: bin, HOME: base }, log });
+  assert.ok(lines.includes("warn  herdr-app 0.1.16 / hc 0.1.22 not smoke-tested yet: run smoke"));
 });
 
 test("--only hides the other panels in the installed layout, and later installs keep the choice", () => {

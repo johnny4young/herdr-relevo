@@ -24,6 +24,7 @@ import { DesktopWatch } from "./desktop.js";
 import { ElsewhereWatch } from "./elsewhere.js";
 import { AliveWatch } from "./alive.js";
 import { TurnWatch } from "./turns.js";
+import { smokeAfterUpdate } from "./smoke-watch.js";
 
 // Chip and label; wide enough for an 8-letter account name.
 const NAME_W = 92;
@@ -78,6 +79,8 @@ export class Sidebar {
     cx.timer.every(10000, readAlive);
     this.readTokens(cx);
     cx.timer.every(300000, (cx) => this.readTokens(cx));
+    // After the window settles, so mods still loading don't count as errors.
+    cx.timer.after(60000, (cx) => cx.spawn(async () => { await smokeAfterUpdate(); }));
     cx.timer.every(20000, (cx) => cx.spawn(async () => {
       await this.contexts.tick();
     }));

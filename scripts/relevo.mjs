@@ -8,18 +8,20 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { needsEngine } from '../mods/relevo/lib/engine.js';
+import { RELEVO_MODS, SMOKE_FILE, smoke, smokeDue, smokeRecord } from '../mods/relevo/lib/smoke.js';
 import { PANELS_FILE, PANEL_KEYS, applyPanels, panelsText, parsePanels, readPanels } from '../mods/relevo/lib/panels.js';
 
-const MODS = ['relevo', 'relevo-agents', 'relevo-files', 'relevo-spaces', 'relevo-tabs'];
+const MODS = RELEVO_MODS;
 const LAYOUTS = ['layouts/relevo.json', 'layouts/relevo.svg'];
 // The person's own settings: created once from the example, then never read, replaced or recorded.
 const CONFIG = 'mods/relevo/config.js';
 const STATE = 'relevo-install';
 const COMMUNITY = ['issues'];
-const HELP = `Usage: relevo.mjs <install|doctor|uninstall> [options]
+const HELP = `Usage: relevo.mjs <install|doctor|smoke|uninstall> [options]
 
   install     Install Relevo, or update it. A file you changed is kept, with the new one beside it as <file>.new.
   doctor      Check the installed files, the keys and the programs Relevo runs. Exits 1 when something is wrong.
+  smoke       Load each installed mod in Herdr and try the hc calls Relevo reads. Run it after Herdr updates.
   uninstall   Remove the files install wrote and you did not change. Your config.js, keys and data stay.
 
   --dry-run        Say what would change and write nothing
@@ -223,6 +225,26 @@ function walkDirs(dir) {
 
 const onPath = (name, env = process.env) => (env.PATH ?? '').split(path.delimiter).some((dir) => { try { fs.accessSync(path.join(dir, name), fs.constants.X_OK); return true; } catch { return false; } });
 
+const readSmoke = (root) => { try { return JSON.parse(fs.readFileSync(path.join(root, SMOKE_FILE), 'utf8')); } catch { return null; } };
+const versionOut = (name, env) => onPath(name, env) ? /\d+\.\d+\.\d+\S*/.exec(spawnSync(name, ['--version'], { env, encoding: 'utf8' }).stdout ?? '')?.[0] ?? null : null;
+const currentVersions = (env) => ({ app: versionOut('herdr-app', env), core: versionOut('hc', env) });
+
+// Records the result whatever it is, so the mod does not run it again for the same Herdr.
+export async function smokeTest({ root, env = process.env, log = () => {}, run }) {
+  run ??= async (command, args) => {
+    const r = spawnSync(command, args, { env, encoding: 'utf8', timeout: 120000 });
+    if (r.error) throw r.error;
+    return { code: r.status ?? -1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+  };
+  const modsDir = path.join(root, 'mods');
+  const installed = MODS.filter((mod) => fs.existsSync(path.join(modsDir, mod, 'mod.json')));
+  const result = await smoke({ run, modsDir, installed });
+  for (const r of result.results) log(`${r.level === 'fail' ? 'FAIL' : r.level.padEnd(4)}  ${r.text}`);
+  if (result.app && result.core) writeAtomic(path.join(root, SMOKE_FILE), `${JSON.stringify(smokeRecord(result), null, 2)}\n`);
+  log(result.failed ? `Smoke failed: ${result.failed} ${result.failed === 1 ? 'problem' : 'problems'}.` : 'Smoke passed.');
+  return result;
+}
+
 export function doctor({ source, root, filesOnly = false, env = process.env, log = () => {} }) {
   let failed = 0;
   const ok = (text) => log(`ok    ${text}`), warn = (text) => log(`warn  ${text}`), fail = (text) => { failed++; log(`FAIL  ${text}`); };
@@ -252,6 +274,10 @@ export function doctor({ source, root, filesOnly = false, env = process.env, log
   if (filesOnly) return { failed };
 
   for (const mod of COMMUNITY) if (fs.existsSync(path.join(root, 'mods', mod))) ok(`mod ${mod}`); else fail(`mod ${mod} is missing: install it from herdr.dev`);
+  const herdr = currentVersions(env), record = readSmoke(root);
+  if (smokeDue(record, herdr)) warn(`herdr-app ${herdr.app} / hc ${herdr.core} not smoke-tested yet: run smoke`);
+  else if (record && !record.passed) fail(`smoke failed on herdr-app ${record.app} / hc ${record.core}: ${record.failures[0] ?? 'see smoke'}`);
+  else if (record) ok(`smoke passed on herdr-app ${record.app} / hc ${record.core}`);
   if (fs.existsSync(path.join(root, 'mods/space-folders'))) warn(`the space-folders mod is no longer needed: Spaces keeps the same folders. Remove ${path.join(root, 'mods/space-folders')}`);
   if (source) {
     const keys = missingKeys(source, root);
@@ -288,9 +314,10 @@ export function main(argv, { log = console.log, env = process.env } = {}) {
     if (command === 'install') install({ ...options, log });
     else if (command === 'uninstall') uninstall({ ...options, log });
     else if (command === 'doctor') return doctor({ ...options, env, log }).failed ? 1 : 0;
+    else if (command === 'smoke') return smokeTest({ root: options.root, env, log }).then((r) => (r.failed ? 1 : 0), (error) => { log(`relevo: ${error.message}`); return 1; });
     else { log(HELP); return command === 'help' || command === '--help' || command === '-h' ? 0 : 2; }
     return 0;
   } catch (error) { log(`relevo: ${error.message}`); return 1; }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main(process.argv.slice(2));
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) Promise.resolve(main(process.argv.slice(2))).then((code) => { process.exitCode = code; });
