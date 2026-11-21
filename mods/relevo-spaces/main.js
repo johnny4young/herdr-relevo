@@ -4,8 +4,8 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { agents, exec, home, spaces, terminals, panes, run, openOverlay, closeOverlay, props, theme, shared, setShared, watchFolder, window, layout, pickFolder } from "herdr";
-import { COLORS, folderData, folderFor, loadFolders, newSpace, openSpaceIn, paint, updateFolders } from "./folders.js";
+import { agents, exec, home, machines, spaces, terminals, panes, run, openOverlay, closeOverlay, props, theme, shared, setShared, watchFolder, window, layout, pickFolder } from "herdr";
+import { COLORS, folderData, folderFor, loadFolders, machineLook, newSpace, openSpaceIn, paint, updateFolders } from "./folders.js";
 import { readGit } from "./git.js";
 import { aliveBySpace, branchNote, buildModel, movesTo, mostUrgent, portsIn, quietSpaces, spaceTurn, where } from "./model.js";
 
@@ -259,6 +259,7 @@ export default class Spaces extends View {
 
   folderHeader(t, g, m, ghosts = 0) {
     const f = g.folder, open = this.groupOpen(g);
+    const look = g.id.startsWith("machine:") ? this.look(g.id.slice(8)) : null;
     const top = mostUrgent(g.rows.map((r) => r.w.status));
     const target = { folder: g.id };
     const hot = this.pressed !== null && this.over === JSON.stringify(target);
@@ -274,15 +275,25 @@ export default class Spaces extends View {
       })
       .when(Boolean(f), (el) => el.on_mouse_down("right", () => openOverlay({ mod: "relevo-spaces", kind: "popup", width: 200, height: 160, props: { folderMenu: f.id } })))
       .child(svg(ICON(`chevron-${open ? "down" : "right"}`)).size(10).flex_none().text_color(t.dim))
-      .child(svg(ICON("folder")).size(12).flex_none().text_color(paint(f?.color, t.dim)))
+      .child(svg(ICON(look ? "server" : "folder")).size(12).flex_none().text_color(look?.color ?? paint(f?.color, t.dim)))
       .child(div().min_w(0).truncate().text_size(11).font_medium().text_color(t.muted).child((g.label ?? "No folder").toUpperCase()))
       .child(div().flex_none().text_size(11).text_color(t.dim).child(String(g.rows.filter((r) => !r.tree).length + ghosts)))
+      .when(Boolean(look?.away), (el) => el.child(div().flex_none().text_size(11).text_color(t.blocked).child("offline")))
       .child(div().flex_1())
       .when(!open && Boolean(spaceTurn(top)), (el) => el.child(laneGlyph(t, spaceTurn(top))))
       .when(Boolean(f?.path), (el) => el.child(div().id(`folder-new-${g.id}`).flex_none().px(4).rounded(4).text_size(13).text_color(t.dim)
         .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(`New space in ${f.path}`)
         .on_click((_e, cx) => { cx.stop_propagation(); openSpaceIn(f.path); })
         .child("+"))), target, m);
+  }
+
+  look(machine) {
+    return machine ? machineLook(machine, this.frame?.machines) : null;
+  }
+
+  // A remote space's avatar carries its machine's color.
+  machineDot(t, look, size) {
+    return div().absolute().right(-3).bottom(-3).size(size).rounded_full().bg(look.color).border_1().border_color(t.chrome);
   }
 
   // A machine's group has no folder to keep it folded, so it folds like a space's row.
@@ -405,19 +416,20 @@ export default class Spaces extends View {
     const repo = (g?.name ?? w.name ?? "").toLowerCase(), prs = (this.frame?.prs ?? shared(REPO_PRS) ?? {})[repo] ?? null;
     const target = { space: w.id };
     const hot = this.pressed !== null && this.pressed !== w.id && this.over === JSON.stringify(target);
-    const gone = this.gone.has(JSON.stringify([w.machine ?? null, r.path]));
-    const tip = [r.path, gone ? "folder moved or deleted" : g?.branch && `on ${g.branch}`].filter(Boolean).join(" · ");
+    const gone = this.gone.has(JSON.stringify([w.machine ?? null, r.path])), look = this.look(w.machine);
+    const tip = [w.machine && `${w.machine}${look.away ? " (offline)" : ""}`, r.path, gone ? "folder moved or deleted" : g?.branch && `on ${g.branch}`].filter(Boolean).join(" · ");
     return this.dragHandlers(h_flex().id(`space-${w.id}`).relative().h(tree ? 26 : 30).px(6).gap(8).flex_none().items_center().rounded(6)
       .when(w.active, (el) => el.bg(t.selected))
       .when(!w.active, (el) => el.hover((s) => s.bg(t.hover)))
-      .when(this.pressed === w.id && this.over !== JSON.stringify(target), (el) => el.opacity(0.5))
+      .when((this.pressed === w.id && this.over !== JSON.stringify(target)) || Boolean(look?.away), (el) => el.opacity(0.5))
       .when(hot, (el) => el.child(div().absolute().left(0).right(0).top(0).h(2).bg(t.accent)))
       .when(Boolean(tip), (el) => el.tooltip(tip))
       .on_mouse_down("left", () => { this.pressed = w.id; this.over = JSON.stringify(target); })
       .on_mouse_down("right", () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: w.id } } }))
       .when(Boolean(tree), (el) => el.pl(28).child(svg(ICON("tree")).size(11).flex_none().text_color(t.dim)))
-      .when(!tree, (el) => el.child(h_flex().size(18).flex_none().rounded(5).bg(paint(color, t.accent)).items_center().justify_center()
-        .text_size(11).font_bold().text_color("#ffffff").child([...w.name][0]?.toUpperCase() ?? "?")))
+      .when(!tree, (el) => el.child(h_flex().id(`avatar-${w.id}`).relative().size(18).flex_none().rounded(5).bg(paint(color, t.accent)).items_center().justify_center()
+        .text_size(11).font_bold().text_color("#ffffff").child([...w.name][0]?.toUpperCase() ?? "?")
+        .when(Boolean(look), (a) => a.child(this.machineDot(t, look, 8)))))
       .child(div().flex_shrink(0).max_w(tree ? 120 : 130).truncate().font_medium().text_color(t.foreground).child(tree && g?.branch ? g.branch : w.name))
       .child(h_flex().flex_1().min_w(0).gap(5).justify_end().items_center().text_size(11).text_color(t.dim)
         .when(gone, (el) => el.child(div().flex_none().text_color(t.blocked).child("folder gone")))
@@ -432,8 +444,10 @@ export default class Spaces extends View {
   }
 
   compact(t, r, i) {
-    const { w } = r, turn = spaceTurn(w.status);
+    const { w } = r, turn = spaceTurn(w.status), look = this.look(w.machine);
     return h_flex().flex_none().justify_center().child(h_flex().id(`space-${w.id}`).relative().w(RAIL_CELL).h(26).rounded(6).justify_center().items_center()
+      .when(Boolean(look), (el) => el.tooltip(`${w.name} · ${w.machine}${look.away ? " (offline)" : ""}`).opacity(look.away ? 0.5 : 1)
+        .child(div().absolute().left(4).bottom(4).size(6).rounded_full().bg(look.color)))
       .when(w.active, (el) => el.bg(t.selected))
       .when(!w.active, (el) => el.hover((s) => s.bg(t.hover)))
       .on_click(() => run("space.select", { id: w.id }))
@@ -447,7 +461,7 @@ export default class Spaces extends View {
     if (p.editFolder !== undefined) return this.editor(t, cx);
     this.keepColors();
     // Every row reads these; once per draw is enough.
-    this.frame = { colors: shared("space.colors") ?? {}, prs: shared(REPO_PRS) ?? {} };
+    this.frame = { colors: shared("space.colors") ?? {}, prs: shared(REPO_PRS) ?? {}, machines: machines() };
     const collapsed = narrow(), m = this.model();
     const count = m.groups.reduce((n, g) => n + g.rows.filter((r) => !r.tree).length, 0);
     let i = 0;

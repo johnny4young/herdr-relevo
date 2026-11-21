@@ -97,6 +97,15 @@ export function folderFor(spaceId, path, data) {
 }
 
 export const COLORS = ["ansi4", "ansi2", "ansi3", "ansi5", "ansi6", "ansi1"];
+// Machines start where folders end, and away from red, which says offline or needs you.
+const MACHINE_COLORS = ["ansi5", "ansi6", "ansi3", "ansi2", "ansi4"];
 // One strong color per name, light and dark alike, as Herdr paints space avatars.
 export const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b7cf6", ansi2: "#3fae6a", ansi1: "#d9649a" };
 export const paint = (color, fallback) => (color ? MARK[color] ?? color : fallback);
+
+// Each other machine keeps one color, by its place in Herdr's machine list; away: its layout can't be reached.
+export function machineLook(name, list = machines()) {
+  const others = list.filter((m) => m.name), at = others.findIndex((m) => m.name === name);
+  const i = at >= 0 ? at : [...String(name)].reduce((n, c) => n + c.charCodeAt(0), 0);
+  return { color: paint(MACHINE_COLORS[i % MACHINE_COLORS.length]), away: others[at]?.layout === "unavailable" };
+}

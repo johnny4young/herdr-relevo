@@ -249,3 +249,18 @@ test("another machine's group folds and opens again from its header", async () =
   find(ui(), "folder-machine:box").handlers.on_click({}, cx);
   assert.ok(find(ui(), "space-box/b"));
 });
+
+test("each other machine gets its own color on its group and its spaces, and says when it's offline", async () => {
+  fake.machines = [{ name: null, layout: "ready" }, { name: "box", layout: "ready" }, { name: "lab", layout: "unavailable" }];
+  const { ui } = await open([
+    space("a", "blog", "/home/test/code/blog"),
+    space("box/b", "api", "/srv/api", { machine: "box" }),
+    space("lab/c", "web", "/srv/web", { machine: "lab" }),
+  ]);
+  const dot = (id) => find(ui(), `avatar-${id}`).items.find((c) => typeof c === "object")?.fill;
+  assert.equal(dot("a"), undefined, "a local space has no machine mark");
+  assert.ok(dot("box/b") && dot("lab/c") && dot("box/b") !== dot("lab/c"));
+  assert.equal(find(ui(), "folder-machine:box").items[1].ink, dot("box/b"), "the group's icon wears the machine's color");
+  assert.doesNotMatch(text(find(ui(), "folder-machine:box")), /offline/);
+  assert.match(text(find(ui(), "folder-machine:lab")), /offline/);
+});

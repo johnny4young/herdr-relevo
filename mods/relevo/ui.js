@@ -91,7 +91,7 @@ export const spinner = (color, size = 11) => svg("mods/relevo/spinner.svg").size
 
 // A glyph from icons/ on a 12 px grid; with no colour it takes the text colour, so it follows button states.
 export const ICONS = ["agent", "ask", "check", "chevron-down", "chevron-right", "clock", "comment", "desktop", "down", "enter", "file",
-  "folder", "gear", "handoff", "land", "more", "note", "pr", "refresh", "relay", "relevo", "review", "run", "search", "tree", "up", "warn", "x"];
+  "folder", "gear", "handoff", "land", "more", "note", "pr", "refresh", "relay", "relevo", "review", "run", "search", "server", "tree", "up", "warn", "x"];
 export const icon = (name, color = null, size = 12) => svg(`mods/relevo/icons/${name}.svg`).size(size).flex_none()
   .when(Boolean(color), (el) => el.text_color(color));
 export const chevron = (open, color = null, size = 12) => icon(open ? "chevron-down" : "chevron-right", color, size);
