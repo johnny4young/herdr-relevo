@@ -95,7 +95,9 @@ task to another account.
     merged worktree and every worktree without a space as a row: repo, branch and the one reason, its size (`du -sk`)
     and one action. SAFE TO REMOVE holds merged worktrees that are clean, unlocked, unused for a day and have no
     ignored files to keep ("merged #38"); its header shows the group's total size and **Remove N** when more than
-    one has no space. Each row has **Remove** → **Confirm** ("closes its space" when it has one). NEEDS A LOOK holds
+    one has no space. Each row has **Remove** → **Confirm** ("closes its space" when it has one). A worktree "in the Trash" or whose
+    "folder is gone" sits here with **Forget**, which drops git's record of it and its branch with `-d`; its files
+    stay where they are. NEEDS A LOOK holds
     everything else that is not in use: "not merged, nothing to lose" (no changes, no commits outside the main
     branch, no ignored files to keep, 7 days unused; its own **Remove** on the row, never part of a batch), "merged, but has files git ignores", "merged,
     but has uncommitted changes", "work that is not saved anywhere" (uncommitted or unpushed), "work saved in
@@ -124,7 +126,9 @@ task to another account.
   - "▸ N branches nobody touched in 30 days" closes OLD, with **Show**. Opened (and on ↻ while open) it reads each
     clone's local branches with `git for-each-ref`, 15 minutes per repo, and lists those whose last commit is older
     than 30 days and that are not the default branch nor checked out anywhere: branch, "last commit 52 days ago",
-    "gone upstream". **Delete branch** runs `git branch -d`, never `-D`, and shows git's refusal as git wrote it. Clones are read four at a time; one git
+    "gone upstream". **Delete branch** runs `git branch -d`. On an unmerged branch it says what `-D` would lose ("its commits are
+    already in main" or "N commits only on this branch") and turns into a red **Confirm**, which runs `-D` only if the
+    tip is unchanged and logs it to `deletions.log`; any other refusal shows git's first line. Clones are read four at a time; one git
     can't read gets its own line, "Couldn't read branches in <repo>" with **Retry**, and is never counted as having none.
   - Backups go to `~/<BACKUPS_ROOT>/<repo>/<worktree>/<time>/`, private, with `latest.json` telling whether what's
     here is saved. A **Backups** row shows the folder's size and **Open**, once it exists. Each worktree Remove or

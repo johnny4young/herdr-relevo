@@ -10,7 +10,8 @@ import { fake, resetFake, calls } from "./fake/herdr.mjs";
 import { fakeCx, flush, text } from "./fake/ui.mjs";
 
 const { TreeViews } = await import("../inbox-trees.js");
-const { removalCheck, REMOVE_TIMEOUT } = await import("../worktrees.js");
+const { removalCheck, forgetWorktree, scanWorktrees, REMOVE_TIMEOUT } = await import("../worktrees.js");
+const { laneOf, reasonOf } = await import("../lib/trees.js");
 const PATH = "/work/wt", REMOVE = /worktree remove/;
 const tree = (over = {}) => ({ main: "/work/app", path: PATH, branch: "feat", repo: "app", name: "wt", merged: true, at: 1, ...over });
 
@@ -417,4 +418,44 @@ test("real git: a search that can't finish stops it", async (t) => {
   } finally {
     chmodSync(closed, 0o755);
   }
+});
+
+test("real git: Forget drops git's record of a worktree whose folder is gone, and its merged branch", async (t) => {
+  const { w, path } = realTree(t);
+  rmSync(path, { recursive: true, force: true });
+  assert.equal(await forgetWorktree(w), null);
+  assert.doesNotMatch(execFileSync("git", ["worktree", "list"], { cwd: w.main, encoding: "utf8" }), /wt/);
+  assert.equal(spawnSync("git", ["rev-parse", "-q", "--verify", "refs/heads/feat"], { cwd: w.main }).status, 1);
+});
+
+test("real git: Forget never touches files, and names a worktree git has no record of", async (t) => {
+  const { w, path } = realTree(t);
+  assert.equal(await forgetWorktree({ ...w, path: `${path}-other` }), "git has no record of it");
+  assert.equal(await forgetWorktree(w), null);
+  assert.ok(existsSync(join(path, "a.txt")), "the folder stays; only git's record goes");
+});
+
+test("a worktree in the Trash or with its folder gone is listed to forget, and never read", async () => {
+  const main = "/home/test/work/app";
+  fake.exec = (cmd, args) => {
+    if (cmd === "sh" && args[1].includes("worktree list")) {
+      return { stdout: [`worktree ${main}`, "", "worktree /home/test/.Trash/x", "branch refs/heads/x", "", "worktree /tmp/y", "branch refs/heads/y", "prunable gitdir file points to non-existent location", ""].map((l) => `${main}\t${l}`).join("\n") };
+    }
+    return null;
+  };
+  const list = await scanWorktrees(true), now = Date.now() / 1000;
+  assert.deepEqual(list.map((w) => [w.path, w.gone, laneOf(w, now), reasonOf(w, now)]), [
+    ["/home/test/.Trash/x", "in the Trash", "safe", "in the Trash"],
+    ["/tmp/y", "folder is gone", "safe", "folder is gone"],
+  ]);
+  assert.equal(calls(/status|ls-files/).length, 0);
+  const v = view(), cx = fakeCx(), w = { ...list[0], repo: "app" };
+  v.worktrees = [w];
+  assert.match(text(v.treeRow({}, w)), /in the Trash Forget$/);
+  fake.exec = (cmd, args) => (args.includes("--git-common-dir") ? { stdout: `${main}/.git\n` } : null);
+  v.removeTree(w, cx);
+  for (let i = 0; i < 12; i++) await flush();
+  assert.equal(calls(REMOVE).length, 0);
+  assert.equal(calls(/exec rm -rf/).length, 1);
+  assert.deepEqual(v.worktrees, []);
 });

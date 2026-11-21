@@ -398,18 +398,20 @@ test("staleBranches: past 30 days, never the default branch or one checked out, 
   assert.deepEqual(staleBranches("\n  \nbroken\n", { now: NOW }), []);
 });
 
-test("a branch delete is -d unless its caller asks to force, and the stale branches never ask", async () => {
+test("a branch delete is -d unless its caller asks to force, and stale branches force only after a Confirm", async () => {
   await deleteLocalBranch("/r/app", "old/gone");
   await deleteLocalBranch("/r/app", "feat", true);
   assert.deepEqual(calls(/ branch /), ["git -C /r/app branch -d old/gone", "git -C /r/app branch -D feat"]);
-  for (const file of ["../branches.js", "../inbox-branches.js", "../lib/branches.js"]) {
+  for (const file of ["../inbox-branches.js", "../lib/branches.js"]) {
     const source = readFileSync(new URL(file, import.meta.url), "utf8");
     assert.doesNotMatch(source, /"-D"|--force|deleteLocalBranch\([^)]*,[^)]*,/, file);
   }
+  const forced = readFileSync(new URL("../branches.js", import.meta.url), "utf8").match(/deleteLocalBranch\([^)]*,[^)]*,[^)]*\)/g);
+  assert.deepEqual(forced, ["deleteLocalBranch(b.main, b.name, true)"], "one forced delete, behind `sure`");
 });
 
 // One clone under ROOT whose refs are REFS, with old/open checked out in a worktree.
-function repo(name, { refuse = null } = {}) {
+function repo(name, { refuse = null, cherry = "" } = {}) {
   const main = `/home/test/work/${name}`;
   fake.exec = (cmd, args) => {
     if (cmd === "gh") return { stdout: JSON.stringify({ data: { viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [] } }, search: { nodes: [] } } }) };
@@ -418,6 +420,9 @@ function repo(name, { refuse = null } = {}) {
     if (args.includes("worktree") && args.includes("list")) return { stdout: `worktree ${main}\nbranch refs/heads/main\n\nworktree /wt/x\nbranch refs/heads/old/open\n` };
     if (args.includes("symbolic-ref")) return { stdout: "origin/main\n" };
     if (args.includes("branch") && args.includes("-d")) return refuse ? { code: 1, stderr: refuse } : { stdout: `Deleted branch ${args.at(-1)} (was abc1234).\n` };
+    if (args.includes("branch") && args.includes("-D")) return { stdout: `Deleted branch ${args.at(-1)} (was abc1234).\n` };
+    if (args.includes("rev-parse") && args.includes("--verify")) return { stdout: "abc1234full\n" };
+    if (args.includes("cherry")) return { stdout: cherry };
     return null;
   };
   return main;
@@ -500,12 +505,23 @@ test("Show and the fold row are one switch: either opens it and reads, either sh
   assert.equal(fake.stored["relevo.inbox.folds"].stale, undefined);
 });
 
-test("git's refusal comes back as git said it, and nothing is forced", async () => {
-  const refusal = "error: the branch 'old/kept' is not fully merged";
-  const main = repo("refused", { refuse: `${refusal}\n` });
-  assert.deepEqual(await deleteBranch({ main, name: "old/kept" }), { error: refusal });
-  assert.deepEqual(calls(/ branch /), [`git -C ${main} branch -d old/kept`]);
+test("a refusal other than unmerged comes back as git's first line, and nothing is forced", async () => {
+  const main = repo("refused", { refuse: "error: cannot lock ref 'refs/heads/old/kept'\nhint: something\n" });
+  assert.deepEqual(await deleteBranch({ main, name: "old/kept" }), { error: "error: cannot lock ref 'refs/heads/old/kept'" });
   assert.equal(fake.execs.some((l) => /\s-D(\s|$)|--force/.test(l)), false);
+});
+
+test("an unmerged branch says what -D would lose, and is forced only after Confirm on the same tip", async () => {
+  const unmerged = "error: the branch 'old/kept' is not fully merged\nhint: If you are sure you want to delete it, run 'git branch -D old/kept'\n";
+  const main = repo("asked", { refuse: unmerged, cherry: "- a\n- b\n" });
+  assert.deepEqual(await deleteBranch({ main, name: "old/kept" }), { tip: "abc1234full", ask: "its commits are already in main" });
+  repo("asked", { refuse: unmerged, cherry: "- a\n+ b\n+ c\n" });
+  const r = await deleteBranch({ main, name: "old/kept" });
+  assert.equal(r.ask, "2 commits only on this branch");
+  assert.deepEqual(await deleteBranch({ main, name: "old/kept" }, "other"), { error: "changed, look again" });
+  assert.equal(calls(/ branch -D /).length, 0);
+  assert.equal((await deleteBranch({ main, name: "old/kept", repo: "asked" }, r.tip)).said, "Deleted branch old/kept (was abc1234).");
+  assert.match(fake.execs.find((l) => l.includes("deletions.log")), /abc1234full/);
 });
 
 test("the fold reads the branches when it opens; Delete branch runs git branch -d and says what git said", async () => {
@@ -538,14 +554,18 @@ test("the fold reads the branches when it opens; Delete branch runs git branch -
   assert.equal(calls(/ branch /).length, 1);
 });
 
-test("a refused delete shows git's words on the row and keeps the branch listed", async () => {
-  const main = repo("kept", { refuse: "error: the branch 'old/kept' is not fully merged\nhint: If you are sure you want to delete it, run 'git branch -D old/kept'\n" });
+test("an unmerged branch turns its Delete branch into Confirm in place, with what it would lose", async () => {
+  const main = repo("kept", { refuse: "error: the branch 'old/kept' is not fully merged\nhint: If you are sure you want to delete it, run 'git branch -D old/kept'\n", cherry: "+ a\n" });
   const { cx, ui } = await open();
   click(find(ui(), "stale-branches"), cx);
   await settled();
   click(find(ui(), `br-del-${main}:old/kept`), cx);
   await settled();
-  const row = find(ui(), `br-${main}:old/kept`);
-  assert.match(text(row), /error: the branch 'old\/kept' is not fully merged/);
-  assert.equal(calls(/ branch /).every((l) => l.includes(" branch -d ")), true);
+  assert.equal(text(find(ui(), `br-note-${main}:old/kept`)), "1 commit only on this branch");
+  assert.equal(text(find(ui(), `br-del-${main}:old/kept`)), "Confirm");
+  assert.equal(calls(/ branch -D /).length, 0);
+  click(find(ui(), `br-del-${main}:old/kept`), cx);
+  await settled();
+  assert.equal(calls(/ branch -D old\/kept/).length, 1);
+  assert.equal(find(ui(), `br-${main}:old/kept`), null);
 });

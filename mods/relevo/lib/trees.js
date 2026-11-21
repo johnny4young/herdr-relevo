@@ -58,6 +58,7 @@ function workOf(w) {
 
 // Where a worktree reads in Maintenance. "safe" is merged and Remove loses nothing; in use or not read yet is "quiet".
 export function laneOf(w, now) {
+  if (w.gone) return "safe";
   if (w.merged) {
     if (w.dirty || w.locked || w.unreadable || w.ignored?.length || w.group === "work") return "look";
     return !w.landed && justUsed(w.at, now) ? "quiet" : "safe";
@@ -68,6 +69,7 @@ export function laneOf(w, now) {
 // The one reason a worktree is in its group, in plain words.
 export function reasonOf(w, now) {
   const work = workOf(w), ignored = w.ignored?.length > 0;
+  if (w.gone) return w.gone;
   if (w.merged) {
     if (work) return `${mergedAs(w)}, but ${work}`;
     if (ignored) return `${mergedAs(w)}, but has files git ignores`;

@@ -258,6 +258,20 @@ test("real git: pushed commits need GitHub to still have them", async (t) => {
   assert.equal((await removalCheck({ ...w, group: "pushed" })).error, "not on GitHub anymore");
 });
 
+test("real git: a commit under a newer GitHub tip still counts as pushed, while that tip is GitHub's", async (t) => {
+  const { w, commit, git, originGit } = realTree(t), tree = { ...w, branch: null };
+  commit("b.txt");
+  git("checkout", "-q", "--detach");
+  git("checkout", "-q", "-b", "later");
+  commit("c.txt");
+  git("push", "-q", "origin", "later");
+  git("checkout", "-q", "--detach", "HEAD~1");
+  later();
+  assert.equal((await removalCheck({ ...tree, group: "pushed" })).error, undefined);
+  originGit("update-ref", "refs/heads/later", git("rev-parse", "HEAD~1").trim());
+  assert.equal((await removalCheck({ ...tree, group: "pushed" })).error, "not on GitHub anymore");
+});
+
 test("actionsOf: only what applies, and Delete only once idle", () => {
   const dirty = { ...clean, files: 2 }, ahead = { ...clean, unpushed: 3 };
   assert.deepEqual(actionsOf(dirty, OLD, NOW), ["patch", "delete"]);
