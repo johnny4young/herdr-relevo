@@ -104,7 +104,7 @@ export class TreeViews {
 
   openTree(w) {
     if (w.space) run("space.select", { id: w.space });
-    else run("space.new", { folder: w.path });
+    else run("space.new", { folder: w.path, machine: "" });
   }
 
   // The look-again before any removal. `same` holds only when the space and the ignored files the question

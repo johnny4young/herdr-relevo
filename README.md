@@ -91,7 +91,9 @@ To inspect your actual saved workspace/tab metadata without connecting the previ
 Spaces groups your spaces by folder (one per account context, plus any you add with the folder button) and gives each
 repo one row: its branch when it is not main, how far it is ahead or behind, how many files changed and whether an
 agent there needs you. A worktree sits under its checkout. Drag a space onto a folder to keep it there. The list
-order is the spaces' order, so Herdr's `⌃1`…`⌃9` go to the row you see.
+order is the spaces' order, so Herdr's `⌃1`…`⌃9` go to the row you see. Spaces on another machine group under it,
+with a server icon and a dot on each avatar in that machine's color; a machine Herdr can't reach says **offline** and
+its rows dim. A folder's `+` always opens on this computer.
 
 Every space shows what runs in that repo: each command that runs, listens on a port or failed (Restart, Stop
 and Close on hover; a resting shell stays out), and servers started in other apps ("vite in Ghostty :5173"). Agents and Claude sessions are listed in

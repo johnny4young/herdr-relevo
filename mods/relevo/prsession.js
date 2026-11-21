@@ -39,6 +39,6 @@ export async function openPrSession(pr, clone, account, { prompt = null, tab: na
   // Unnamed, like the worktree mod's spaces, so it follows the folder and nests under the repo.
   const space = spaces().find((s) => !s.machine && s.folder === path);
   if (space) run("tab.new", { space: space.id, name: tab, folder: path, argv });
-  else run("space.new", { name: sessionSpaceName(pr, purpose), folder: path, tab, argv });
+  else run("space.new", { name: sessionSpaceName(pr, purpose), folder: path, tab, argv, machine: "" });
   return null;
 }

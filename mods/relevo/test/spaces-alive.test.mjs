@@ -145,7 +145,7 @@ test("a repo with a server but no space shows as a row with no space, in the fol
   assert.equal(find(ui(), "sv-ghost-billing-520"), null);
   find(ui(), "ghost-billing-new").handlers.on_click({ }, cx);
   await flush();
-  assert.deepEqual(fake.runs.at(-1), ["space.new", { folder: "/home/test/code/billing" }]);
+  assert.deepEqual(fake.runs.at(-1), ["space.new", { folder: "/home/test/code/billing", machine: "" }]);
 });
 
 test("Claude Desktop sessions stay in Agents: none under a space, and none makes a row with no space", async () => {

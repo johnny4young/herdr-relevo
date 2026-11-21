@@ -179,14 +179,14 @@ test("a new space in a folder starts in its path with ~ expanded", async () => {
   const { cx, ui } = await open([space("a", "blog", "/home/test/code/blog")]);
   find(ui(), "folder-new-personal").handlers.on_click({}, cx);
   await flush();
-  assert.deepEqual(fake.runs.at(-1), ["space.new", { folder: "/home/test/code" }]);
+  assert.deepEqual(fake.runs.at(-1), ["space.new", { folder: "/home/test/code", machine: "" }]);
   fake.props = { folderMenu: "personal" };
   const menu = new Spaces();
   menu.init({}, cx);
   fake.runs.length = 0;
   find(menu.render(cx), "folder-space").handlers.on_click({}, cx);
   await flush();
-  assert.deepEqual(fake.runs.at(-1), ["space.new", { folder: "/home/test/code" }]);
+  assert.deepEqual(fake.runs.at(-1), ["space.new", { folder: "/home/test/code", machine: "" }]);
 });
 
 test("a folder whose path was moved or deleted says so instead of opening a space", async () => {
@@ -219,4 +219,48 @@ test("a drag let go outside the list ends when the pointer leaves it", async () 
   mod.pressed = null;
   find(ui(), "spaces-list").handlers.on_hover(false, cx);
   assert.equal(mod.pressed, null, "leaving without a drag changes nothing");
+});
+
+test("a folder's new space opens on this computer even when a remote space is focused", async () => {
+  const { cx, ui } = await open([space("a", "blog", "/home/test/code/blog"), space("box/b", "api", "/srv/api", { machine: "box" })]);
+  fake.focused = { space: "box/b" };
+  find(ui(), "folder-new-personal").handlers.on_click({}, cx);
+  await flush();
+  assert.deepEqual(fake.runs.at(-1), ["space.new", { folder: "/home/test/code", machine: "" }]);
+});
+
+test("New space follows the focused space's machine, and opens here when that machine can't be reached", async () => {
+  const { cx, ui } = await open([space("a", "blog", "/home/test/code/blog"), space("box/b", "api", "/srv/api", { machine: "box" })]);
+  fake.focused = { space: "box/b" };
+  fake.machines = [{ name: null, layout: "ready" }, { name: "box", layout: "ready" }];
+  find(ui(), "space-new").handlers.on_click({}, cx);
+  assert.deepEqual(fake.runs.at(-1), ["space.new", {}]);
+  fake.machines[1].layout = "unavailable";
+  find(ui(), "space-new").handlers.on_click({}, cx);
+  assert.deepEqual(fake.runs.at(-1), ["space.new", { machine: "" }]);
+});
+
+test("another machine's group folds and opens again from its header", async () => {
+  const { cx, ui } = await open([space("a", "blog", "/home/test/code/blog"), space("box/b", "api", "/srv/api", { machine: "box" })]);
+  assert.ok(find(ui(), "space-box/b"));
+  find(ui(), "folder-machine:box").handlers.on_click({}, cx);
+  assert.equal(find(ui(), "space-box/b"), null);
+  assert.ok(find(ui(), "folder-machine:box"));
+  find(ui(), "folder-machine:box").handlers.on_click({}, cx);
+  assert.ok(find(ui(), "space-box/b"));
+});
+
+test("each other machine gets its own color on its group and its spaces, and says when it's offline", async () => {
+  fake.machines = [{ name: null, layout: "ready" }, { name: "box", layout: "ready" }, { name: "lab", layout: "unavailable" }];
+  const { ui } = await open([
+    space("a", "blog", "/home/test/code/blog"),
+    space("box/b", "api", "/srv/api", { machine: "box" }),
+    space("lab/c", "web", "/srv/web", { machine: "lab" }),
+  ]);
+  const dot = (id) => find(ui(), `avatar-${id}`).items.find((c) => typeof c === "object")?.fill;
+  assert.equal(dot("a"), undefined, "a local space has no machine mark");
+  assert.ok(dot("box/b") && dot("lab/c") && dot("box/b") !== dot("lab/c"));
+  assert.equal(find(ui(), "folder-machine:box").items[1].ink, dot("box/b"), "the group's icon wears the machine's color");
+  assert.doesNotMatch(text(find(ui(), "folder-machine:box")), /offline/);
+  assert.match(text(find(ui(), "folder-machine:lab")), /offline/);
 });

@@ -3,8 +3,8 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, exec, terminals, panes, focused, home, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
-import { folderColor } from "./folder-colors.js";
+import { agents, exec, terminals, panes, focused, home, machines, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
+import { folderColor, machineLook } from "./folder-colors.js";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -560,7 +560,7 @@ export default class Agents extends View {
     const labels = new Map(all.map((k) => [k.address, k.labels ?? {}]));
     // What every row reads from the Relevo mod, once per render.
     const reasons = shared("relevo.reasons") ?? {}, folders = shared("space-folders"), agentPRs = shared("relevo.agentPRs") ?? {};
-    const contexts = shared("relevo.agentContext") ?? {};
+    const contexts = shared("relevo.agentContext") ?? {}, machineList = machines();
     const row = (a, i, subs = []) => {
       // A settled result has been dealt with, so it no longer waits on me.
       const turn = isSettled(a) ? plainTurn(a.status) : this.turnOf(a), me = turn === "me";
@@ -570,6 +570,9 @@ export default class Agents extends View {
       const more = detail.get(a.address);
       // An agent on another machine (`vps/t7`) says which.
       const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
+      const look = machine ? machineLook(machine, machineList) : null, away = Boolean(look?.away);
+      const machineTip = machine && `${machine}${away ? " (offline)" : ""}`;
+      const dot = (size) => div().id(`machine-${a.address}`).size(size).flex_none().rounded_full().bg(look.color).tooltip(machineTip);
       if (collapsed) {
         return h_flex()
           .id(`ag-${a.address}`)
@@ -580,6 +583,8 @@ export default class Agents extends View {
           .gap(4)
           .hover((s) => s.bg(t.hover))
           .on_click(() => run("pane.focus", { pane: a.pane }))
+          .when(away, (el) => el.opacity(0.5))
+          .when(Boolean(look), (el) => el.child(dot(6)))
           .child(div().flex_1().min_w(0).whitespace_nowrap().text_right().text_color(t.muted).child(String(i + 1)))
           .child(h_flex().w(14).flex_none().items_center().justify_center().child(laneGlyph(t, turn)));
       }
@@ -648,16 +653,18 @@ export default class Agents extends View {
             cx.notify();
           })).child(laneGlyph(t, turn)))
         .child(h_flex().flex_1().min_w(0).gap(7).items_center()
+          .when(Boolean(look), (el) => el.child(dot(7)))
           .child(div().flex_none().max_w(what ? 130 : 220).truncate().when(a.status === "done", (n) => n.font_semibold()).when(a.status !== "done", (n) => n.font_medium())
             .text_color(idle ? t.muted : t.foreground).child(name))
           .when(Boolean(what), el => el.child(div().id(`what-${a.address}`).flex_1().min_w(0).truncate()
             .text_color(me ? t.blocked : t.muted).child(what))))
         .when(Boolean(bg), el => el.child(bg))
         .when(subs.length > 0, el => el.child(fold(a, subs)))
-        .when(this.hovered === a.address, el => el.child(reply)
+        .when(away, el => el.child(div().id(`offline-${a.address}`).flex_none().text_size(11).text_color(t.blocked).child("offline")))
+        .when(this.hovered === a.address && !away, el => el.child(reply)
           .when(rested, (el) => el.child(this.settleButton(t, a, all, isSettled(a))))
           .child(pin))
-        .when(this.hovered !== a.address && a.status !== "working" && Boolean(when) && !tight, el => el.child(div().id(`age-${a.address}`).flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
+        .when(this.hovered !== a.address && !away && a.status !== "working" && Boolean(when) && !tight, el => el.child(div().id(`age-${a.address}`).flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
         .when(Boolean(tag), el => el.child(tag));
       // The second line, built for the selected agent only: what every row used to carry.
       const below = () => {
@@ -672,7 +679,7 @@ export default class Agents extends View {
             .child(svg("mods/workspace-chrome/folder.svg").size(12).text_color(folderColor(place.color, t.dim)))))
           .when(Boolean(pr), (el) => el.child(prTag(t, a, pr)))
           .when(Boolean(ctx), (el) => el.child(contextTag(t, a, ctx, now)))
-          .when(Boolean(machine), (el) => el.child(div().flex_none().child(machine)))
+          .when(Boolean(machine), (el) => el.child(div().flex_none().text_color(look.color).child(machineTip)))
           .when(Boolean(folder), (el) => el.child(div().id(`folder-${a.address}`).flex_none().max_w(110).truncate().child(folder)))
           .when(Boolean(extra), (el) => el.child(div().id(`detail-${a.address}`).flex_1().min_w(0).truncate().child(extra)));
       };
@@ -710,7 +717,8 @@ export default class Agents extends View {
           cx.timer.after(HOVER_SETTLE_MS, (cx) => { if (seq === this.hoverSeq) cx.notify(); });
         })
         .on_click(() => run("pane.focus", { pane: a.pane }))
-        .when(Boolean(cwd), (el) => el.tooltip(cwd))
+        .when(away, (el) => el.opacity(0.5))
+        .when(Boolean(cwd || machine), (el) => el.tooltip([machineTip, cwd].filter(Boolean).join(" · ")))
         .child(line)
         .when(Boolean(second), (el) => el.child(second));
     };
