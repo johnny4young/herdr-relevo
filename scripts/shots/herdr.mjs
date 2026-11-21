@@ -66,6 +66,7 @@ export const keys = () => ({});
 export const commands = () => [];
 export const home = () => "/home/demo";
 export const appHome = () => "/home/demo/.config/herdr-app";
+export const checking = () => false;
 export const shared = (key) => fake.stored[key];
 export const setShared = (key, value) => { fake.stored[key] = value; return null; };
 export const run = (name, args) => { fake.runs.push([name, args]); };
