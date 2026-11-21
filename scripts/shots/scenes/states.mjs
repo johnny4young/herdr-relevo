@@ -20,7 +20,8 @@ export default async function scene(ctx) {
   if (state === "error") Object.assign(inbox, { error: "PRs: gh: HTTP 502 Bad Gateway", prsAt: now - 12 * 60000, snap: null });
   if (state === "away") {
     inbox.digest = { since: now - 95 * 60000, now, finished: ["t2"], waiting: ["t1"], said: { t2: "Rounding per line item; totals test passes" }, seconds: 2700,
-      prs: [{ title: "CI failed · web #318", url: "https://github.com/acme/web/pull/318" }], quota: [{ key: "p", label: "Personal", h5: 12, d7: 3 }] };
+      prs: [{ title: "CI failed · web #318", url: "https://github.com/acme/web/pull/318", at: now / 1000 - 25 * 60 },
+        { title: "Merged · api #142", url: "https://github.com/acme/api/pull/142", at: now / 1000 - 80 * 60 }], quota: [{ key: "p", label: "Personal", h5: 12, d7: 3 }] };
   }
   if (state === "narrow") Object.assign(inbox, { narrowInbox: true, tightInbox: true });
   inbox.h.is_focused = () => true;

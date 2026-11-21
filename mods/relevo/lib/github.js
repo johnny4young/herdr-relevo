@@ -27,7 +27,7 @@ export const OWNER = /^(@me|[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))$/;
 // Contributors to the owners' repos rarely ask for a review; bots crowd that search, so it reads more than it keeps.
 export const othersQuery = (owners = ["@me"]) => `query {
   viewer { login merged: pullRequests(states: MERGED, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
-    url number headRefName isCrossRepository repository { nameWithOwner } } } }
+    url number headRefName isCrossRepository mergedAt repository { nameWithOwner } } } }
   search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 20) { nodes {
     ... on PullRequest { ${OTHER_FIELDS} } } }${owners.length ? `
   contributed: search(query: "is:open is:pr ${owners.map((o) => `user:${o}`).join(" ")} -author:@me archived:false sort:updated-desc", type: ISSUE, first: 50) { nodes {
@@ -211,14 +211,14 @@ const nameOf = (p) => `${p.repository.nameWithOwner.split("/")[1]} #${p.number}`
 
 // What changed on your open PRs since the last look; the first look sets the baseline and says nothing.
 // Drafts only count for merges: one that left the open list and shows among the merged ones.
-export function prChanges(before, data) {
+export function prChanges(before, data, at = Date.now() / 1000) {
   const now = new Map(), events = [];
   for (const p of data.viewer.pullRequests.nodes) {
     const state = { ci: ciOf(p), threads: unresolved(p), decision: p.reviewDecision ?? null, draft: Boolean(p.isDraft) };
     now.set(p.url, state);
     const was = before?.get(p.url);
     if (!was || state.draft || was.draft) continue;
-    const name = nameOf(p), base = { url: p.url, repo: p.repository.nameWithOwner };
+    const name = nameOf(p), base = { url: p.url, repo: p.repository.nameWithOwner, at };
     if (RED.has(state.ci) && !RED.has(was.ci)) events.push({ ...base, kind: "ci-failed", title: `CI failed · ${name}` });
     if (state.ci === "SUCCESS" && was.ci !== "SUCCESS") events.push({ ...base, kind: "ci-passed", title: `CI passed · ${name}` });
     if (state.threads > was.threads) {
@@ -233,7 +233,7 @@ export function prChanges(before, data) {
   for (const p of data.viewer.merged?.nodes ?? []) {
     if (!before?.has(p.url) || now.has(p.url)) continue;
     events.push({
-      url: p.url, repo: p.repository.nameWithOwner, kind: "merged", title: `Merged · ${nameOf(p)}`,
+      url: p.url, repo: p.repository.nameWithOwner, kind: "merged", title: `Merged · ${nameOf(p)}`, at: p.mergedAt ? seconds(p.mergedAt) : at,
       head: p.isCrossRepository ? null : p.headRefName,
     });
   }

@@ -5,7 +5,7 @@ import { agents, panes, exec, run, window } from "herdr";
 import { ACCOUNTS } from "./accounts.js";
 import { agentTimeBetween } from "./ledger.js";
 import { button, joined, LANE, legHeader } from "./ui.js";
-import { duration } from "./lib/time.js";
+import { ago, duration } from "./lib/time.js";
 import { lastMessage } from "./lib/prompt.js";
 import { AWAY_AFTER, leftAt, awaySummary } from "./lib/away.js";
 
@@ -75,7 +75,7 @@ export class AwayViews {
         id: `away-wait-${x}`, kind: "blocked", label: name(live.get(x)), note: why[x] ?? "waiting for you", go: focus(live.get(x)),
       })),
       ...d.prs.map((p, i) => ({
-        id: `away-pr-${i}`, kind: "pr", label: p.title, go: () => /^https:\/\//.test(p.url) && exec("open", [p.url]),
+        id: `away-pr-${i}`, kind: "pr", label: p.title, at: p.at, go: () => /^https:\/\//.test(p.url) && exec("open", [p.url]),
       })),
     ];
   }
@@ -100,7 +100,7 @@ export class AwayViews {
       }),
       facts ? div().id("away-facts").pl(LANE).pr(8).pb(2).text_size(11).text_color(t.muted).child(facts) : null,
       ...joined(t, this.awayItems().map((r) => this.item(t, r.id, {
-        turn: turn[r.kind], kind: r.kind === "pr" ? "pr" : "agent", title: r.label, reason: r.note ?? null, tip: r.note ?? null, main: this.awayAction(r),
+        turn: turn[r.kind], kind: r.kind === "pr" ? "pr" : "agent", title: r.label, reason: r.note ?? null, age: r.at ? ago(r.at, true) : null, tip: r.note ?? null, main: this.awayAction(r),
       }))),
     ].filter(Boolean);
   }

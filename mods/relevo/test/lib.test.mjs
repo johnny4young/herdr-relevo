@@ -359,7 +359,8 @@ test("prChanges: silent on the first look, then CI, threads and review decisions
   })] } } });
   const first = prChanges(null, look("PENDING", 0, null));
   assert.deepEqual(first.events, []);
-  const red = prChanges(first.state, look("FAILURE", 2, "CHANGES_REQUESTED"));
+  const red = prChanges(first.state, look("FAILURE", 2, "CHANGES_REQUESTED"), 500);
+  assert.ok(red.events.every((e) => e.at === 500));
   assert.deepEqual(red.events.map((e) => e.kind), ["ci-failed", "threads", "changes"]);
   assert.equal(red.events[1].title, "2 new review threads · api #7");
   const green = prChanges(red.state, look("SUCCESS", 1, "APPROVED"));
@@ -376,12 +377,16 @@ test("prChanges: a PR that leaves the open list says Merged only when GitHub lis
   const first = prChanges(null, look(["a", "b", "c", "d"], [["old", "x"]]));
   assert.deepEqual(first.events, []);
   // b closed without merging; old merged before the first look; d was a draft.
-  const next = prChanges(first.state, look(["a"], [["c", "feat/c"], ["d", "feat/d"], ["old", "x"]]));
+  const next = prChanges(first.state, look(["a"], [["c", "feat/c"], ["d", "feat/d"], ["old", "x"]]), 900);
   assert.deepEqual(next.events.map((e) => [e.kind, e.url, e.head, e.title]),
     [["merged", "c", "feat/c", "Merged · api #9"], ["merged", "d", "feat/d", "Merged · api #9"]]);
+  // No mergedAt in the fake: the look's own time stands in.
+  assert.equal(next.events[0].at, 900);
   // A fork's branch name says nothing about a local worktree.
   const fork = prChanges(prChanges(null, look(["f"])).state, look([], [["f", "main", true]]));
   assert.equal(fork.events[0].head, null);
+  const dated = prChanges(prChanges(null, look(["m"])).state, { viewer: { pullRequests: { nodes: [] }, merged: { nodes: [{ ...merged(["m", "feat/m"])[0], mergedAt: "2026-11-21T10:00:00Z" }] } } });
+  assert.equal(dated.events[0].at, Date.parse("2026-11-21T10:00:00Z") / 1000);
   // The old query had no merged list.
   assert.deepEqual(prChanges(first.state, { viewer: { pullRequests: { nodes: [] } } }).events, []);
 });
