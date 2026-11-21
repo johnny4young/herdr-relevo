@@ -43,7 +43,7 @@ export const openOverlay = (overlay) => { fake.overlays.push(overlay); };
 export const closeOverlay = (id) => { fake.closedOverlays.push(id); };
 export const playSound = () => {};
 export const pickFolder = async () => fake.picked ?? null;
-export const machines = () => [];
+export const machines = () => fake.machines ?? [];
 export const hc = async () => ({ code: 0, stdout: "", stderr: "" });
 export const setAgentOrder = (order) => { fake.orders.push(order); return null; };
 export const nextCommand = () => never;

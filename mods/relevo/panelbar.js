@@ -220,7 +220,7 @@ export class FileFinder {
 const goTo = (path) => {
   const s = spaces().find((x) => !x.machine && x.folder === path);
   if (s) run("space.select", { id: s.id });
-  else run("space.new", { folder: path });
+  else run("space.new", { folder: path, machine: "" });
 };
 
 // The selector for the focused folder, for a key or herdr-app do.

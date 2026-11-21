@@ -1,6 +1,6 @@
 // The sidebar's folders: { list: [{ id, name, color, path, match, folded }], of: { spaceId: folderId }, at }.
 // Kept in the same file and shared key the space-folders mod used, so existing folders carry over.
-import { exec, home, notify, run, shared, setShared } from "herdr";
+import { exec, focused, home, machines, notify, run, shared, setShared, spaces } from "herdr";
 
 export const FILE = "~/.config/herdr-space-folders.json";
 export const KEY = "space-folders";
@@ -61,8 +61,15 @@ export async function openSpaceIn(path, args = {}) {
     notify({ title: "Folder not found", body: `${folder} was moved, deleted or can't be opened.`, level: "warning" });
     return false;
   }
-  run("space.new", { ...args, folder });
+  run("space.new", { ...args, folder, machine: "" });
   return true;
+}
+
+// Herdr opens a new space on the focused space's machine; one it can't reach opens it here instead.
+export function newSpace() {
+  const machine = spaces().find((s) => s.id === focused()?.space)?.machine;
+  const away = machine && machines().find((m) => m.name === machine)?.layout === "unavailable";
+  run("space.new", away ? { machine: "" } : {});
 }
 
 // A rule is a path (`~/code/*`) or a bare folder name that can appear anywhere in the path.

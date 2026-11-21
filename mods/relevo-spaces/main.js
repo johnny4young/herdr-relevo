@@ -5,7 +5,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { agents, exec, home, spaces, terminals, panes, run, openOverlay, closeOverlay, props, theme, shared, setShared, watchFolder, window, layout, pickFolder } from "herdr";
-import { COLORS, folderData, folderFor, loadFolders, openSpaceIn, paint, updateFolders } from "./folders.js";
+import { COLORS, folderData, folderFor, loadFolders, newSpace, openSpaceIn, paint, updateFolders } from "./folders.js";
 import { readGit } from "./git.js";
 import { aliveBySpace, branchNote, buildModel, movesTo, mostUrgent, portsIn, quietSpaces, spaceTurn, where } from "./model.js";
 
@@ -258,14 +258,20 @@ export default class Spaces extends View {
   }
 
   folderHeader(t, g, m, ghosts = 0) {
-    const f = g.folder, open = !f?.folded;
+    const f = g.folder, open = this.groupOpen(g);
     const top = mostUrgent(g.rows.map((r) => r.w.status));
     const target = { folder: g.id };
     const hot = this.pressed !== null && this.over === JSON.stringify(target);
     return this.dragHandlers(h_flex().id(`folder-${g.id}`).h(26).mt(6).px(8).gap(7).flex_none().items_center().rounded(6)
       .when(hot, (el) => el.bg(t.hover))
       .cursor_pointer().hover((s) => s.bg(t.hover))
-      .on_click((_e, cx) => { if (f && this.pressed === null) { this.toggleFolder(f.id); cx.notify(); } })
+      .on_click((_e, cx) => {
+        if (this.pressed !== null) return;
+        if (f) this.toggleFolder(f.id);
+        else if (g.id.startsWith("machine:")) this.toggle(g.id);
+        else return;
+        cx.notify();
+      })
       .when(Boolean(f), (el) => el.on_mouse_down("right", () => openOverlay({ mod: "relevo-spaces", kind: "popup", width: 200, height: 160, props: { folderMenu: f.id } })))
       .child(svg(ICON(`chevron-${open ? "down" : "right"}`)).size(10).flex_none().text_color(t.dim))
       .child(svg(ICON("folder")).size(12).flex_none().text_color(paint(f?.color, t.dim)))
@@ -277,6 +283,11 @@ export default class Spaces extends View {
         .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(`New space in ${f.path}`)
         .on_click((_e, cx) => { cx.stop_propagation(); openSpaceIn(f.path); })
         .child("+"))), target, m);
+  }
+
+  // A machine's group has no folder to keep it folded, so it folds like a space's row.
+  groupOpen(g) {
+    return g.folder ? !g.folder.folded : !g.id.startsWith("machine:") || this.isOpen(g.id);
   }
 
   // Everything starts open; what you close stays closed.
@@ -453,7 +464,7 @@ export default class Spaces extends View {
             .child(svg(CHROME("folder-plus")).size(14))))
         .child(div().id("space-new").size(24).flex_none().flex().items_center().justify_center().rounded(6)
           .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("New space")
-          .on_click(() => run("space.new")).child(svg(CHROME("plus")).size(14))))
+          .on_click(() => newSpace()).child(svg(CHROME("plus")).size(14))))
       .child(v_flex().id("spaces-list").flex_1().min_h(0).px(collapsed ? 0 : 8).pb(14).overflow_y_scrollbar().mode("always")
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; this.over = null; cx.notify(); })
         // A button let go outside the list never reaches it: leaving the list ends the drag.
@@ -513,7 +524,7 @@ export default class Spaces extends View {
       return [this.row(t, r, m, life), ...(shown ? this.lifeRows(t, r.w.id, life, Boolean(r.tree)) : [])];
     };
     return groups.flatMap((g) => {
-      const open = !g.folder?.folded, mine = ghosts.get(g.id) ?? [];
+      const open = this.groupOpen(g), mine = ghosts.get(g.id) ?? [];
       const head = g.folder || groups.length > 1 ? [this.folderHeader(t, g, m, mine.length)] : [];
       if (!open) return head;
       return [

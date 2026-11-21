@@ -98,7 +98,7 @@ export function openInFolder({ name, folder, tab, argv }) {
   const space = spaces().find((s) => !s.machine && s.folder === folder)
     ?? spaces().find((s) => !s.machine && s.name === name);
   if (space) run("tab.new", { space: space.id, name: tab, folder, argv });
-  else run("space.new", { name, folder, tab, argv });
+  else run("space.new", { name, folder, tab, argv, machine: "" });
 }
 
 // Runs in the repo's own space (or a new one), not in whichever space is shown.
