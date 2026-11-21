@@ -22,18 +22,17 @@ const OTHER_FIELDS = `number title url isDraft createdAt updatedAt headRefName b
       commits(last: 1) { nodes { commit { committedDate ${ROLLUP} } } }
       reviewThreads(first: 50) { nodes { isResolved } }`;
 
-export const ORGS_QUERY = "query { viewer { organizations(first: 50) { nodes { login viewerCanAdminister } } } }";
-export const adminOrgs = (data) => (data?.viewer?.organizations?.nodes ?? []).filter((o) => o.viewerCanAdminister).map((o) => o.login);
+export const OWNER = /^(@me|[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))$/;
 
-// Contributors to your repos and the orgs you administer rarely ask for a review; bots crowd that search, so it reads more than it keeps.
-export const othersQuery = (orgs = []) => `query {
+// Contributors to the owners' repos rarely ask for a review; bots crowd that search, so it reads more than it keeps.
+export const othersQuery = (owners = ["@me"]) => `query {
   viewer { login merged: pullRequests(states: MERGED, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
     url number headRefName isCrossRepository repository { nameWithOwner } } } }
   search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 20) { nodes {
-    ... on PullRequest { ${OTHER_FIELDS} } } }
-  contributed: search(query: "is:open is:pr user:@me${orgs.map((o) => ` org:${o}`).join("")} -author:@me archived:false sort:updated-desc", type: ISSUE, first: 50) { nodes {
+    ... on PullRequest { ${OTHER_FIELDS} } } }${owners.length ? `
+  contributed: search(query: "is:open is:pr ${owners.map((o) => `user:${o}`).join(" ")} -author:@me archived:false sort:updated-desc", type: ISSUE, first: 50) { nodes {
     ... on PullRequest { ${OTHER_FIELDS}
-      reviews(last: 10) { nodes { author { login } state submittedAt } } } } }
+      reviews(last: 10) { nodes { author { login } state submittedAt } } } } }` : ""}
 }`;
 
 // The pages and the rest, in the one shape the mappers read.

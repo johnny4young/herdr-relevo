@@ -65,8 +65,8 @@ task to another account.
     **✓** (addressed). Addressed ones fold under "N addressed", each with **Undo**.
   - `YOUR PRS` and `REVIEW REQUESTS`: a row per PR, `repo #n`, why it is here ("CI failing", "changes requested",
     "<author> asks for your review", "<author> opened a PR", "2 comments"), its age and its first action. Review requests
-    also list a person's open PR on your repos or an org you administer, nobody asked, until you review its last push;
-    bots stay out. A PR waiting on you is a needs-me
+    also list a person's open PR on the repos of the owners in `REVIEW_OWNERS` (`["@me"]`: yours), nobody asked, until
+    you review its last push; bots stay out. A PR waiting on you is a needs-me
     row; one whose CI runs or whose agent works is in flight; one with only the merge left is ready. Selected, it
     shows its title, which checks failed, are running or were cancelled by name, which passed (with one box per
     check), how many files and lines changed, unresolved threads, whether anyone reviewed it yet and when it was
@@ -159,7 +159,7 @@ task to another account.
   what it asks, or its last words, from the end of its local transcript. A click opens its last message in place, with
   **Open in Claude Desktop** or **Show <app>**.
 - **Settings dialog** (800×700, the gear beside ACCOUNTS): accounts (chip preview, label, letter, launcher, Claude
-  dir, colors), Codex's launcher, contexts (label, account, orgs), fallback order, repos root and skills; Save.
+  dir, colors), Codex's launcher, contexts (label, account, orgs), fallback order, repos root, skills and the review owners; Save.
 - **Week dialog** (720×460): `Agent time · week of <date>` with ‹ › and **Copy**, a table of tickets × Mon–Sun
   plus total, today's column in the accent color.
 - **Handoff popup** (340px): "Continue <tab> with…", then one 46px row per account, Codex included: a number

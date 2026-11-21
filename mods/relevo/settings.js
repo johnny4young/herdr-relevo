@@ -33,6 +33,7 @@ export class Settings {
     this.backupsRoot = this.input(config.BACKUPS_ROOT ?? "relevo-backups", "relevo-backups");
     this.skills = Object.fromEntries(["review", "fix", "comments", "conflicts"].map((k) => [k, this.input(SKILLS[k] ?? "", k === "conflicts" ? "built-in prompt" : k)]));
     this.replies = replies().map((r) => this.replyRow(r));
+    this.reviewOwners = this.input((config.REVIEW_OWNERS ?? ["@me"]).join(", "), "@me, your-org");
     this.deep = (config.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW).map((r) => this.deepRow(r));
   }
 
@@ -168,6 +169,7 @@ export class Settings {
       BACKUPS_ROOT: text(this.backupsRoot),
       SKILLS: Object.fromEntries(Object.entries(this.skills).map(([k, s]) => [k, text(s)]).filter(([k, v]) => k !== "conflicts" || v)),
       REPLIES: this.replies.map((r) => text(r.inputs.text)).filter(Boolean),
+      REVIEW_OWNERS: parseList(this.reviewOwners.value()),
       DEEP_REVIEW: this.deep.map((r) => ({ account: r.account, model: text(r.inputs.model), effort: r.effort })),
     };
   }
@@ -331,6 +333,9 @@ export class Settings {
       .child(this.section(t, "settings-skills", "SKILLS", ["skills"], [
         h_flex().gap(12).children([["review", "Review"], ["fix", "CI fix"], ["comments", "Review comments"], ["conflicts", "Merge conflicts"]].map(([k, label]) =>
           this.labeled(t, label, this.field(t, `settings-skill-${k}`, this.skills[k], `skills.${k}`)))),
+      ]))
+      .child(this.section(t, "settings-reviews", "REVIEWS", ["reviewOwners"], [
+        this.labeled(t, "Others' PRs on these owners' repos · @me is you", this.field(t, "settings-review-owners", this.reviewOwners, "reviewOwners")),
       ]))
       .child(this.section(t, "settings-deep", "DEEP REVIEW", ["deepReview"], [
         ...this.deep.map((r, i) => this.deepRowView(t, r, i)),
