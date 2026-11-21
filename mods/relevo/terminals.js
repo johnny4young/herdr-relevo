@@ -33,10 +33,17 @@ export async function restartTerminal(r) {
   run("terminal.open", { argv: r.argv, folder: r.cwd ?? undefined, place: "tab", ...(r.name ? { name: r.name } : {}) });
 }
 
-// A live terminal ends with whatever runs in it; a finished one is removed.
-export function endTerminal(r) {
+// A live terminal ends with whatever runs in it; a finished one is removed. Says so when it is still there.
+export async function endTerminal(r, tries = 15) {
   if (r.live) run("terminal.kill", { terminal: r.address });
-  else exec("hc", ["rm", r.address]);
+  else await exec("hc", ["rm", r.address]).catch(() => null);
+  for (let i = 0; i < tries; i++) {
+    const k = terminals().find((x) => x.address === r.address);
+    if (!k || (r.live && k.state !== "live")) return true;
+    await exec("sleep", ["0.2"]);
+  }
+  notify({ title: `${r.title} did not close`, body: r.machine ? `Herdr could not reach ${r.machine}.` : "Herdr did not end it.", level: "warning" });
+  return false;
 }
 
 export function openTerminal(r) {

@@ -1,6 +1,8 @@
 // Every terminal that is not an agent, as rows: what runs in it, where it lives and what can be done with it.
 // Pure, so tests feed it records shaped like terminals() and panes().
 
+import { machineOf } from "./machines.js";
+
 const SHELLS = new Set(["zsh", "bash", "fish", "sh", "dash", "nu", "login", "tcsh", "ksh"]);
 const DAY_MS = 24 * 3600e3;
 export const base = (p) => String(p ?? "").split("/").pop().replace(/^-/, "");
@@ -32,7 +34,7 @@ export function terminalRow(k, { agents = new Set(), panes = [], now = Date.now(
   const title = k.name && !/^relevo-[0-9a-f]+$/.test(k.name) ? k.name : busy ? command(fg.argv) || base(fg.name)
     : wrapped?.length ? command(wrapped) : shell ? base(k.argv[0]) : command(k.argv) || "terminal";
   return {
-    id: `term-${k.address}`, address: k.address, title, state, live, shell, background: live && !pane,
+    id: `term-${k.address}`, address: k.address, machine: machineOf(k.address), title, state, live, shell, background: live && !pane,
     pane: pane?.pane ?? null, branch: pane?.branch ?? null, cwd: fg?.cwd ?? k.cwd ?? null, space: space || base(k.cwd) || "Elsewhere", tab: tab ?? null,
     spaceId: k.labels?.["herdr.space"] ?? null, argv: k.argv ?? [], name: k.name ?? null, exit: k.exit_code ?? null,
     pids: [k.pid, fg?.pid].filter(Boolean), at: (live ? k.created_ms : k.finished_ms ?? k.created_ms) ?? now,
@@ -73,7 +75,9 @@ export function portsOf(rows, listening, parents) {
 
 const HOUR_MS = 3600e3;
 // What Maintenance offers to tidy: what failed, what finished, what runs with no pane for over an hour, shells idle over a day.
-export function tidyRows(rows, now = Date.now()) {
+// A machine Herdr can't reach can't close anything, so its terminals wait until it is back.
+export function tidyRows(all, now = Date.now(), away = new Set()) {
+  const rows = all.filter((r) => !away.has(r.machine));
   const failed = rows.filter((r) => r.state === "failed"), done = rows.filter((r) => r.state === "done");
   const background = rows.filter((r) => r.background && r.state === "running" && now - r.at > HOUR_MS), old = rows.filter((r) => r.state === "old");
   return { failed, done, background, old, count: failed.length + done.length + background.length + old.length };

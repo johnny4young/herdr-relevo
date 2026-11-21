@@ -121,17 +121,20 @@ export const meTint = (t) => `${t.blocked}12`;
 // lane · body (kind, what, why) · edge (age, the one action). `lines` always show under the title;
 // `below` holds the selected row's extra lines. Narrow, the title gives way before the reason.
 export function row(t, id, { turn = "open", kind = null, title, reason = null, sub = null, lines = null, age = null, action = null,
-  selected = false, onSelect = null, below = null, tip = null, narrow = false } = {}) {
+  selected = false, onSelect = null, below = null, tip = null, narrow = false, machine = null } = {}) {
   const hot = turn === "me" || turn === "stuck";
+  // Another machine's row wears that machine's Spaces color as a dot before its title.
+  const where = machine ? `${machine.name}${machine.away ? " (offline)" : ""}` : null;
   return v_flex().id(id).flex_none().rounded(6).border_1().border_color(selected ? t.accent : `${t.accent}00`)
     .when(selected, (el) => el.bg(t.selected))
     .when(Boolean(onSelect), (el) => el.cursor_pointer().on_click((_e, cx) => onSelect(cx)))
-    .when(Boolean(tip), (el) => el.tooltip(tip))
+    .when(Boolean(tip || where), (el) => el.tooltip([where, tip].filter(Boolean).join(" · ")))
     .child(h_flex().min_h(38).py(4).pr(8).gap(8).items_center()
       .child(lane(t, turn))
       .child(v_flex().flex_1().min_w(0).gap(2)
         .child(h_flex().gap(7).items_center().min_w(0)
           .when(Boolean(kind), (el) => el.child(icon(kind, hot ? t.blocked : t.muted)))
+          .when(Boolean(machine), (el) => el.child(div().id(`${id}-machine`).size(7).flex_none().rounded_full().bg(machine.color).accessibility_label(where)))
           .child(div().min_w(narrow ? 48 : 0).truncate().font_semibold().text_size(13).child(title))
           .when(Boolean(reason), (el) => el.child(div().min_w(0).truncate().text_size(13)
             .when(narrow, (r) => r.max_w(100)).when(!narrow, (r) => r.flex_1())
