@@ -10,6 +10,7 @@ import * as config from "./config.js";
 import { DEFAULT_DEEP_REVIEW, modelArgs, reviewerLabel } from "./lib/deep-setup.js";
 import { RUN_LAUNCH, openAgent, repoChecks } from "./run-launch.js";
 import { runAgentArgs } from "./workflow-runs.js";
+import { REMOVE_TIMEOUT } from "./worktrees.js";
 import { runtimeCommand } from "./runtime-cli.js";
 import { newGoal } from "./lib/goals.js";
 import { readGoals, writeGoal } from "./goals-store.js";
@@ -112,7 +113,7 @@ export async function fixFindings(tasks, { adjust = false } = {}) {
 
 // A closed review's worktrees hold nothing of anyone's: each goes, unless git finds a change in it.
 export async function dropReviewTrees(reviews) {
-  for (const r of reviews) if (r.pr?.clone && r.root) await exec("git", ["-C", r.pr.clone, "worktree", "remove", r.root]).catch(() => null);
+  for (const r of reviews) if (r.pr?.clone && r.root) await exec("git", ["-C", r.pr.clone, "worktree", "remove", r.root], { timeout: REMOVE_TIMEOUT }).catch(() => null);
 }
 
 export function deepReviewNotice(title, error) {

@@ -60,12 +60,14 @@ async function mergedBranches(main, force) {
 }
 
 export async function scanWorktrees(force = false) {
-  const list = parse((await exec("sh", ["-c", LIST, "sh", `${home()}/${ROOT}`])).stdout).filter((w) => !w.missing);
+  const list = parse((await exec("sh", ["-c", LIST, "sh", `${home()}/${ROOT}`])).stdout);
+  // macOS keeps the Trash unreadable, so a worktree there can only be forgotten, like one whose folder is gone.
+  for (const w of list) w.gone = w.missing ? "folder is gone" : w.path.startsWith(`${home()}/.Trash/`) ? "in the Trash" : null;
   const spaceList = spaces();
   const open = new Set([...spaceList.map((s) => s.folder), ...panes().map((p) => p.cwd)].filter(Boolean));
   const merged = {};
   for (const main of new Set(list.map((w) => w.main))) merged[main] = await mergedBranches(main, force);
-  const touched = new Map((await exec("sh", ["-c", TOUCHED, "sh", ...list.map((w) => w.path)])).stdout
+  const touched = new Map((await exec("sh", ["-c", TOUCHED, "sh", ...list.filter((w) => !w.gone).map((w) => w.path)])).stdout
     .split("\n").filter(Boolean).map((l) => l.split("\t")));
   for (const w of list) {
     w.at = Number(touched.get(w.path)) || 0;
@@ -74,8 +76,8 @@ export async function scanWorktrees(force = false) {
     w.space = spaceList.find((s) => !s.machine && s.folder === w.path)?.id ?? null;
     w.open = [...open].some((p) => p === w.path || p.startsWith(`${w.path}/`));
     w.merged = Boolean(w.branch && merged[w.main].has(w.branch));
-    if (w.merged) {
-      w.pr = merged[w.main].get(w.branch);
+    if (w.merged) w.pr = merged[w.main].get(w.branch);
+    if (w.merged && !w.gone) {
       w.dirty = (await statusOf(w)).stdout.trim() !== "";
       w.ignored = worthKeeping((await ignoredFiles(w)).paths);
     }
@@ -84,7 +86,7 @@ export async function scanWorktrees(force = false) {
 }
 
 // Only what an install or a tool always brings back. "build" or "out" can hold someone's work, so those get named.
-const REBUILT = new Set(["node_modules", ".build", "__pycache__", ".pytest_cache", ".next", ".nuxt", ".turbo", ".gradle", ".venv", "DerivedData", ".DS_Store"]);
+const REBUILT = new Set(["node_modules", ".build", "SourcePackages", "__pycache__", ".pytest_cache", ".next", ".nuxt", ".turbo", ".gradle", ".venv", "DerivedData", ".DS_Store"]);
 const ignoredFiles = async (w) => {
   const r = await exec("git", [...GIT_READ, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], { cwd: w.path });
   return { ...r, paths: r.stdout.split("\0").filter(Boolean).map((l) => l.replace(/\/$/, "")) };
@@ -132,12 +134,17 @@ export async function treeSize(w) {
   return r.code === 0 ? Number(r.stdout.split(/\s/)[0]) || 0 : 0;
 }
 
-// Local refs can be stale, so it counts as pushed only if a branch on GitHub sits on this very commit.
+// Local refs can be stale, so it counts as pushed only if a branch on GitHub sits on this commit, or on a
+// local tip that holds it and that GitHub still has.
 async function onGitHub(w) {
-  const head = await exec("git", [...GIT_READ, "rev-parse", "HEAD"], { cwd: w.path });
-  const remote = await exec("git", [...GIT_READ, "ls-remote", "--heads", "origin"], { cwd: w.path });
-  return head.code === 0 && remote.code === 0
-    && remote.stdout.split("\n").some((l) => l.split(/\s/)[0] === head.stdout.trim());
+  const [head, holding, remote] = await Promise.all([
+    exec("git", [...GIT_READ, "rev-parse", "HEAD"], { cwd: w.path }),
+    exec("git", [...GIT_READ, "branch", "-r", "--contains", "HEAD", "--format=%(objectname)"], { cwd: w.path }),
+    exec("git", [...GIT_READ, "ls-remote", "--heads", "origin"], { cwd: w.path }),
+  ]);
+  if (head.code !== 0 || remote.code !== 0) return false;
+  const tips = new Set([head.stdout.trim(), ...(holding.code === 0 ? holding.stdout.split("\n").filter(Boolean) : [])]);
+  return remote.stdout.split("\n").some((l) => tips.has(l.split(/\s/)[0]));
 }
 
 export async function ignoredPaths(w) {
@@ -206,13 +213,31 @@ export async function removalCheck(w) {
   }
 }
 
+// git's record of a worktree that is gone or in the Trash, removed the way `git worktree prune` would; its files
+// stay where they are. Its branch goes only with -d.
+const FORGET = 'for a in "$1"/*/; do [ "$(cat "$a/gitdir" 2>/dev/null)" = "$2" ] && exec rm -rf "${a%/}"; done; echo "git has no record of it" >&2; exit 1';
+export async function forgetWorktree(w) {
+  const common = await exec("git", ["-C", w.main, "rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  if (common.code !== 0) return "could not read the repo";
+  const r = await exec("sh", ["-c", FORGET, "sh", `${common.stdout.trim()}/worktrees`, `${w.path}/.git`]);
+  if (r.code !== 0) return r.stderr.trim().split("\n")[0] || "could not forget it";
+  if (w.branch) {
+    const b = await deleteLocalBranch(w.main, w.branch);
+    if (b.code !== 0) notify({ title: `Kept branch ${w.branch}`, body: b.stderr.trim().split("\n")[0], level: "warning" });
+  }
+  return null;
+}
+
 // Every local branch delete goes through here. -d unless the caller proved the branch can't hold work git still needs.
 export const deleteLocalBranch = (main, name, force = false) => exec("git", ["-C", main, "branch", force ? "-D" : "-d", name]);
+
+// A build folder of many GB takes git longer than exec's 30 s default to delete.
+export const REMOVE_TIMEOUT = 600_000;
 
 // Never forced: git keeps a worktree with changes, and -d keeps a branch with unmerged commits. A branch whose
 // tip is the PR head that merged goes with -D, since a squash or rebase merge leaves it looking unmerged.
 export async function removeWorktree(w, merged = null) {
-  const r = await exec("git", ["-C", w.main, "worktree", "remove", w.path]);
+  const r = await exec("git", ["-C", w.main, "worktree", "remove", w.path], { timeout: REMOVE_TIMEOUT });
   if (r.code !== 0) return r.stderr.trim().split("\n")[0] || "git worktree remove failed";
   if (w.branch) {
     const tip = merged ? (await exec("git", ["-C", w.main, "rev-parse", `refs/heads/${w.branch}`])).stdout.trim() : "";

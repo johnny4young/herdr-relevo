@@ -3,7 +3,7 @@ import { exec, home, panes, readTextFile, spaces } from "herdr";
 import * as config from "./config.js";
 import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
 import { RECENT_AFTER, plural, sizeOf } from "./lib/trees.js";
-import { baseBranch, deleteLocalBranch, ignoredPaths, isLocked, nestedRepo, touchedAt, treeSize, treeState } from "./worktrees.js";
+import { REMOVE_TIMEOUT, baseBranch, deleteLocalBranch, ignoredPaths, isLocked, nestedRepo, touchedAt, treeSize, treeState } from "./worktrees.js";
 
 export const backupsRoot = () => `${home()}/${config.BACKUPS_ROOT ?? "relevo-backups"}`;
 
@@ -207,7 +207,7 @@ export async function deleteCheck(w, root = backupsRoot()) {
 
 // The one forced removal, and only after deleteCheck. GitHub, the main checkout and backups stay.
 export async function deleteWorktree(w) {
-  const removed = await exec("git", ["-C", w.main, "worktree", "remove", "--force", w.path]);
+  const removed = await exec("git", ["-C", w.main, "worktree", "remove", "--force", w.path], { timeout: REMOVE_TIMEOUT });
   if (removed.code !== 0) return failure(removed, "git worktree remove failed");
   if (w.path.includes("/.codex/worktrees/")) await exec("rmdir", [w.path.split("/").slice(0, -1).join("/")]);
   const base = (await baseBranch(w.main)).replace(/^origin\//, "");
@@ -215,7 +215,9 @@ export async function deleteWorktree(w) {
   return null;
 }
 
-export const headOf = async (w) => line(await git(w, ["rev-parse", "HEAD"]));
+export const headOf = async (w) => line(await (w.gone
+  ? exec("git", [...GIT_READ, "-C", w.main, "rev-parse", "-q", "--verify", `refs/heads/${w.branch}`])
+  : git(w, ["rev-parse", "HEAD"])));
 
 // One JSON line per worktree Relevo removes: git keeps no record, and the commit can still restore its branch.
 export async function logRemoval(w, head, said, root = backupsRoot()) {

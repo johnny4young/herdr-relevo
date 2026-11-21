@@ -75,13 +75,17 @@ export class BranchViews {
     this.staleBusy ??= new Set();
     this.staleError ??= {};
     if (this.staleBusy.has(idOf(b))) return;
+    this.staleAsk ??= {};
+    const asked = this.staleAsk[idOf(b)];
     this.staleBusy.add(idOf(b));
     delete this.staleError[idOf(b)];
+    delete this.staleAsk[idOf(b)];
     cx.notify();
     cx.spawn(async (cx) => {
       try {
-        const r = await deleteBranch(b);
+        const r = await deleteBranch(asked ? { ...b, ask: asked.ask } : b, asked?.tip ?? null);
         if (r.error) this.staleError[idOf(b)] = r.error;
+        else if (r.ask) this.staleAsk[idOf(b)] = r;
         else {
           this.stale = (this.stale ?? []).filter((x) => idOf(x) !== idOf(b));
           notify({ title: `Deleted branch ${b.name}`, body: r.said || b.repo, level: "success" });
@@ -96,15 +100,17 @@ export class BranchViews {
   }
 
   staleRow(t, b, now) {
-    const id = idOf(b), err = this.staleError?.[id];
+    const id = idOf(b), err = this.staleError?.[id], ask = this.staleAsk?.[id]?.ask;
     if (this.hiddenIds?.has(id)) return null;
+    const note = err ?? ask ?? null;
     return row(t, id, {
       turn: "old", kind: "tree", title: b.repo, reason: `${b.name} · ${staleReason(b, now)}`, tip: b.main, selected: this.selected(id),
       onSelect: this.pick ? (cx) => this.pick(id, cx) : null,
-      action: button(t, `br-del-${b.main}:${b.name}`, "Delete branch", (cx) => this.deleteStale(b, cx), {
-        size: "sm", disabled: this.staleBusy?.has(id), tip: "Runs git branch -d, which keeps a branch whose commits are not merged",
+      action: button(t, `br-del-${b.main}:${b.name}`, ask ? "Confirm" : "Delete branch", (cx) => this.deleteStale(b, cx), {
+        size: "sm", disabled: this.staleBusy?.has(id), kind: ask ? "danger" : "outline",
+        tip: ask ? "Runs git branch -D; its commit goes to deletions.log" : "Runs git branch -d, which keeps a branch whose commits are not merged",
       }),
-      below: err ? err.split("\n").map((l) => div().min_w(0).text_size(11).text_color(t.blocked).child(l)) : null,
+      below: note ? [div().id(`br-note-${b.main}:${b.name}`).min_w(0).text_size(11).text_color(t.blocked).child(note)] : null,
     });
   }
 

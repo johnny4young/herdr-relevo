@@ -1,7 +1,7 @@
 // A new agent on a PR in its own worktree, and the skill usage the PR menu ranks by.
 import { exec, home, run, spaces, notify } from "herdr";
 import { ACCOUNTS, accountOf, launchArgv } from "./accounts.js";
-import { checkoutOf } from "./worktrees.js";
+import { REMOVE_TIMEOUT, checkoutOf } from "./worktrees.js";
 import { parseUses, worktreePath, localBranch, checkoutArgs, sessionPrompt, sessionSpaceName } from "./lib/prmenu.js";
 
 const HOUR = 3600 * 1000;
@@ -31,7 +31,7 @@ export async function openPrSession(pr, clone, account, { prompt = null, tab: na
     if (add.code !== 0) return add.stderr.trim().split("\n").pop() || "git worktree add failed";
     const co = await exec("gh", checkoutArgs(pr), { cwd: path });
     if (co.code !== 0) {
-      await exec("git", ["-C", clone, "worktree", "remove", "--force", path]);
+      await exec("git", ["-C", clone, "worktree", "remove", "--force", path], { timeout: REMOVE_TIMEOUT });
       return co.stderr.trim().split("\n").pop() || "gh pr checkout failed";
     }
   } else notify({ title: `${branch} is already checked out`, body: path, level: "info", timeout: 3000 });
