@@ -34,6 +34,7 @@ export const theme = () => palette;
 export const settings = () => ({ zoom: 1 });
 export const home = () => "/home/test";
 export const appHome = () => "/home/test/.config/herdr-app";
+export const checking = () => fake.checking === true;
 export const shared = (key) => { fake.sharedReads[key] = (fake.sharedReads[key] ?? 0) + 1; return fake.stored[key]; };
 export const setShared = (key, value) => { fake.stored[key] = value; fake.sharedWrites.push(key); return null; };
 export const run = (name, args) => { fake.runs.push([name, args]); };
