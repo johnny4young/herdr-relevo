@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0 · 2026-11-21
+
+- **Local and remote at a glance.** Each other machine gets its own color: its group in Spaces has a server icon in it, and its spaces and agents a dot, in the narrow rail too. Local spaces and agents look as before. A machine Herdr can't reach says **offline**, its rows dim, and its agents offer no quick reply.
+- **Local folders open here.** A folder's `+`, a "no space" row's `+` and the spaces Relevo opens for a local repo start on this computer, even with a remote space focused; they used to fail with "cannot reach". **New space** opens here when the focused space's machine can't be reached.
+- **A machine's group folds.** Its header folds it like a folder, and it stays folded.
+
 ## 0.13.0 · 2026-11-21
 
 - **Review opens a PR on its description.** A PR review lists **Description** above the files and starts there, with the PR's title and body as markdown, so the reason comes before the diff. `]` goes to the files and `[` on the first file comes back. Others' PRs show without HTML or images, and their links are plain text.
