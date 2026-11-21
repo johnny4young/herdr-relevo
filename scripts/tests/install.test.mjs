@@ -210,6 +210,22 @@ test("smoke records what it found, fails with nothing installed, and doctor asks
   assert.ok(lines.includes("warn  herdr-app 0.1.16 / hc 0.1.22 not smoke-tested yet: run smoke"));
 });
 
+test("--only hides the other panels in the installed layout, and later installs keep the choice", () => {
+  const shipped = `${JSON.stringify({ id: "root", children: [{ id: "spaces" }, { id: "agents" }, { id: "tabs" }, { id: "files" }, { id: "inbox-button" }, { id: "inbox" }] }, null, 2)}\n`;
+  put(source, "layouts/relevo.json", shipped);
+  const hidden = () => JSON.parse(get("layouts/relevo.json")).children.filter((n) => n.hidden).map((n) => n.id);
+  assert.equal(main(["install", "--only", "spaces,nope", "--source", source, "--root", root], { log }), 2);
+  assert.ok(lines.at(-1).includes("unknown panel nope"));
+  assert.equal(main(["install", "--only", "spaces,agents", "--source", source, "--root", root], { log }), 0);
+  assert.deepEqual(hidden(), ["tabs", "files", "inbox-button", "inbox"]);
+  assert.deepEqual(JSON.parse(get("relevo-install/panels.json")).on, ["spaces", "agents"]);
+  assert.equal(install({ source, root }).count.update ?? 0, 0, "an update keeps the choice instead of showing everything");
+  assert.deepEqual(hidden(), ["tabs", "files", "inbox-button", "inbox"]);
+  assert.equal(doctor({ source, root, filesOnly: true, log }).failed, 0);
+  install({ source, root, panels: ["spaces", "agents", "tabs", "files", "reviews"] });
+  assert.equal(get("layouts/relevo.json"), shipped, "every panel on is the shipped file again");
+});
+
 test("uninstall removes what it installed, keeps what the person changed and their config.js", () => {
   install({ source, root });
   put(root, "mods/relevo/main.js", "// mine\n");

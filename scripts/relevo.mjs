@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { needsEngine } from '../mods/relevo/lib/engine.js';
 import { RELEVO_MODS, SMOKE_FILE, smoke, smokeDue, smokeRecord } from '../mods/relevo/lib/smoke.js';
+import { PANELS_FILE, PANEL_KEYS, applyPanels, panelsText, parsePanels, readPanels } from '../mods/relevo/lib/panels.js';
 
 const MODS = RELEVO_MODS;
 const LAYOUTS = ['layouts/relevo.json', 'layouts/relevo.svg'];
@@ -27,6 +28,7 @@ const HELP = `Usage: relevo.mjs <install|doctor|smoke|uninstall> [options]
   --root <dir>     The Herdr app folder (default: $HERDR_APP_HOME, else ~/.config/herdr-app)
   --source <dir>   A Relevo checkout (default: the one this script is in)
   --files-only     doctor: only the installed files, not the programs or the keys
+  --only <panels>  install: the panels to show, of spaces, agents, tabs, files, reviews (or all). Settings changes it later
 `;
 
 const sha = (data) => createHash('sha256').update(data).digest('hex');
@@ -40,8 +42,12 @@ function walk(dir, base = dir) {
   });
 }
 
+// Every panel on keeps the shipped bytes; otherwise the installed layout hides the blocks of the ones turned off.
+const withPanels = (data, on) => on.length === PANEL_KEYS.length ? data : Buffer.from(`${JSON.stringify(applyPanels(JSON.parse(data.toString()), on), null, 2)}\n`);
+export const storedPanels = (root) => readPanels(read(path.join(root, PANELS_FILE))?.toString());
+
 // Every file Relevo ships, by its path under the app folder. A checkout with nothing to install is an error.
-export function sourceFiles(source) {
+export function sourceFiles(source, on = PANEL_KEYS) {
   const files = new Map();
   for (const mod of MODS) {
     const dir = path.join(source, 'mods', mod);
@@ -51,7 +57,7 @@ export function sourceFiles(source) {
   for (const rel of LAYOUTS) {
     const data = read(path.join(source, rel));
     if (!data) throw Error(`${source} is not a Relevo checkout: ${rel} is missing`);
-    files.set(rel, data);
+    files.set(rel, rel === 'layouts/relevo.json' ? withPanels(data, on) : data);
   }
   return files;
 }
@@ -68,8 +74,8 @@ export function readManifest(root) {
 // What an install would do to each file: new, same, update, adopt (there before any record, replaced with a
 // backup), keep (the person's; the new one goes beside it as .new), remove (no longer shipped) or stay.
 // A kept file records the version offered, so the same .new is not written again once the person dealt with it.
-export function plan(source, root) {
-  const files = sourceFiles(source), recorded = readManifest(root)?.files ?? {}, steps = [];
+export function plan(source, root, on = storedPanels(root)) {
+  const files = sourceFiles(source, on), recorded = readManifest(root)?.files ?? {}, steps = [];
   for (const [rel, data] of files) {
     if (rel === CONFIG) { if (!fs.existsSync(path.join(root, rel))) steps.push({ rel, how: 'new', data, unrecorded: true }); continue; }
     const now = read(path.join(root, rel)), want = sha(data), was = recorded[rel];
@@ -146,9 +152,12 @@ export function stopIdleCoordinator(root, { log = () => {}, kill = process.kill,
   return 'stopped';
 }
 
-export function install({ source, root, dry = false, log = () => {}, coordinator = {} }) {
+export function install({ source, root, dry = false, log = () => {}, coordinator = {}, panels }) {
   if (!fs.existsSync(root)) throw Error(`${root} does not exist. Open the Herdr app once, or pass --root.`);
-  const steps = plan(source, root), stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const on = panels ?? storedPanels(root);
+  if (panels) log(`panels ${PANEL_KEYS.map((k) => `${k} ${on.includes(k) ? 'on' : 'off'}`).join(', ')}`);
+  if (panels && !dry) writeAtomic(path.join(root, PANELS_FILE), panelsText(on));
+  const steps = plan(source, root, on), stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const backup = path.join(root, STATE, 'backups', stamp), files = {};
   const count = {};
   for (const step of steps) {
@@ -297,6 +306,7 @@ export function main(argv, { log = console.log, env = process.env } = {}) {
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === '--dry-run') options.dry = true;
     else if (rest[i] === '--files-only') options.filesOnly = true;
+    else if (rest[i] === '--only' && rest[i + 1]) { try { options.panels = parsePanels(rest[++i]); } catch (error) { log(`relevo: ${error.message}`); return 2; } }
     else if ((rest[i] === '--root' || rest[i] === '--source') && rest[i + 1]) options[rest[i].slice(2)] = path.resolve(rest[++i]);
     else { log(`Unknown option: ${rest[i]}\n\n${HELP}`); return 2; }
   }
