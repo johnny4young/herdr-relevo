@@ -1,6 +1,6 @@
 // The Inbox's GitHub query and what it makes of the answer; pure, so the tests can feed it fixtures.
 
-const ROLLUP = "statusCheckRollup { state contexts(first: 50) { pageInfo { hasNextPage } nodes { ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } }";
+const ROLLUP = "statusCheckRollup { state contexts(first: 50) { pageInfo { hasNextPage } nodes { ... on CheckRun { name status conclusion startedAt } ... on StatusContext { context state } } } }";
 
 const MINE_FIELDS = `number title url isDraft createdAt updatedAt reviewDecision headRefName baseRefName isCrossRepository headRefOid additions deletions changedFiles mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
@@ -61,10 +61,18 @@ const newest = (x, y) => seconds(y.updatedAt) - seconds(x.updatedAt);
 
 const NOT_RED = new Set(["SUCCESS", "NEUTRAL", "SKIPPED", "CANCELLED", "PENDING", "EXPECTED"]);
 
+// A rerun leaves the runs it replaced in the rollup; like GitHub's page, keep only the newest run of each name.
+// A run not started yet is the newest.
+function latestRuns(nodes) {
+  const at = (n) => (n.startedAt ? Date.parse(n.startedAt) : Infinity), newestOf = new Map();
+  for (const n of nodes) if (n.name) newestOf.set(n.name, Math.max(newestOf.get(n.name) ?? -Infinity, at(n)));
+  return nodes.filter((n) => !n.name || at(n) === newestOf.get(n.name));
+}
+
 // Each check of the last commit, in GitHub's order: { name, state: ok | bad | run | cancel }.
 const CHECK_OK = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]), CHECK_BAD = new Set(["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"]);
 export function checksOf(p) {
-  const nodes = p.commits?.nodes[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [];
+  const nodes = latestRuns(p.commits?.nodes[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? []);
   return nodes.map((n) => {
     const name = n.name ?? n.context ?? "check", end = n.conclusion ?? (n.status && n.status !== "COMPLETED" ? null : n.state);
     const state = CHECK_OK.has(end) ? "ok" : CHECK_BAD.has(end) ? "bad" : end === "CANCELLED" ? "cancel" : "run";
@@ -74,12 +82,13 @@ export function checksOf(p) {
 
 export const checksCut = (p) => Boolean(p.commits?.nodes[0]?.commit?.statusCheckRollup?.contexts?.pageInfo?.hasNextPage);
 
-// GitHub rolls a cancelled check up as FAILURE, but nothing failed. Anything else, or a list cut short, stays red.
+// GitHub rolls a cancelled check up as FAILURE, and counts the runs a rerun replaced. Anything else, or a list cut short, stays red.
 export function ciOf(p) {
   const rollup = p.commits?.nodes[0]?.commit?.statusCheckRollup, state = rollup?.state ?? null;
   const nodes = rollup?.contexts?.nodes;
   if (state !== "FAILURE" || !nodes || rollup.contexts.pageInfo?.hasNextPage) return state;
-  const ends = nodes.map((n) => n.conclusion ?? n.state).filter(Boolean);
+  const latest = latestRuns(nodes), ends = latest.map((n) => n.conclusion ?? n.state).filter(Boolean);
+  if (latest.length < nodes.length && ends.length && ends.every((s) => CHECK_OK.has(s))) return "SUCCESS";
   return ends.includes("CANCELLED") && ends.every((s) => NOT_RED.has(s)) ? "CANCELLED" : state;
 }
 

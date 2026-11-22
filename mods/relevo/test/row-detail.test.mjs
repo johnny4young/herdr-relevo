@@ -12,7 +12,7 @@ const run = (name, status, conclusion = null) => ({ name, status, conclusion });
 const rollup = (nodes, state = "FAILURE") => ({ commits: { nodes: [{ commit: { statusCheckRollup: { state, contexts: { pageInfo: { hasNextPage: false }, nodes } } } }] } });
 
 test("the query asks each check's name and state, and how many files changed", () => {
-  assert.match(mineQuery(), /CheckRun \{ name status conclusion \}/);
+  assert.match(mineQuery(), /CheckRun \{ name status conclusion startedAt \}/);
   assert.match(mineQuery(), /StatusContext \{ context state \}/);
   assert.match(mineQuery(), /changedFiles/);
   assert.match(othersQuery(), /changedFiles/);
@@ -26,6 +26,13 @@ test("each check reads as passed, failed, running or cancelled, in GitHub's orde
     { name: "deploy", state: "cancel" }, { name: "ci/legacy", state: "run" }, { name: "docs", state: "ok" },
   ]);
   assert.deepEqual(checksOf({}), []);
+});
+
+test("checksOf keeps only the newest run of each check; one not started yet is the newest", () => {
+  const at = (name, conclusion, startedAt) => ({ name, status: conclusion ? "COMPLETED" : "QUEUED", conclusion, startedAt });
+  assert.deepEqual(checksOf(rollup([at("lint", "CANCELLED", "2026-11-22T05:10:00Z"), at("docs", "SKIPPED", "2026-11-22T05:10:01Z"), at("lint", "SUCCESS", "2026-11-22T05:10:06Z")])),
+    [{ name: "docs", state: "ok" }, { name: "lint", state: "ok" }]);
+  assert.deepEqual(checksOf(rollup([at("lint", "CANCELLED", "2026-11-22T05:10:00Z"), at("lint", null, null)])), [{ name: "lint", state: "run" }]);
 });
 
 test("a selected PR names what failed and what passed, with its size and whether anyone reviewed it", async () => {
