@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.2 · 2026-11-22
+
+- **A rerun doesn't read as cancelled CI.** GitHub keeps every run of a check on the commit, so the runs a newer one cancelled (a title edit re-triggering a workflow, for example) made a green PR say **CI cancelled** in Now. Relevo now keeps only the newest run of each check, as GitHub's PR page does.
+
 ## 0.15.1 · 2026-11-21
 
 - **A machine that drops doesn't fail the smoke test.** An error from another machine Herdr can't reach ("layout <machine>: cannot reach") now warns in `doctor`, `smoke` and the check after a Herdr update, instead of failing Relevo for a network drop. The window's other errors still fail.
