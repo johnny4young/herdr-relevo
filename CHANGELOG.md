@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.1 · 2026-11-21
+
+- **A machine that drops doesn't fail the smoke test.** An error from another machine Herdr can't reach ("layout <machine>: cannot reach") now warns in `doctor`, `smoke` and the check after a Herdr update, instead of failing Relevo for a network drop. The window's other errors still fail.
+
 ## 0.15.0 · 2026-11-21
 
 - **A machine back online logs in again.** Herdr waits at "needs login" after a machine drops. Once its SSH key works, Relevo logs it in again by itself when it is back. Without a key, Spaces and Agents say **needs login** instead of offline, and **Log in** opens a space on this computer to type the password. Why a machine can't be reached shows in its group's tooltip.
