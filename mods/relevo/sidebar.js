@@ -23,6 +23,7 @@ import { UsageScanner, ContextWatch } from "./usage-scan.js";
 import { DesktopWatch } from "./desktop.js";
 import { ElsewhereWatch } from "./elsewhere.js";
 import { AliveWatch } from "./alive.js";
+import { MachineWatch } from "./machine-watch.js";
 import { TurnWatch } from "./turns.js";
 import { smokeAfterUpdate } from "./smoke-watch.js";
 
@@ -73,6 +74,9 @@ export class Sidebar {
     });
     readDesktop(cx);
     cx.timer.every(30000, readDesktop);
+    // A machine back on the network is logged in again as soon as its key allows, window in front or not.
+    this.machineWatch = new MachineWatch();
+    cx.timer.every(20000, (cx) => cx.spawn(async () => { await this.machineWatch.tick(); }));
     this.alive = new AliveWatch();
     const readAlive = (cx) => cx.spawn(async () => { await this.alive.tick(); });
     readAlive(cx);

@@ -264,3 +264,15 @@ test("each other machine gets its own color on its group and its spaces, and say
   assert.doesNotMatch(text(find(ui(), "folder-machine:box")), /offline/);
   assert.match(text(find(ui(), "folder-machine:lab")), /offline/);
 });
+
+test("a machine that waits for a login says so, with why in its tooltip and Log in opening a space here to type it", async () => {
+  fake.machines = [{ name: null, layout: "ready" }, { name: "lab", layout: "unavailable" }, { name: "box", layout: "unavailable" }];
+  fake.stored["relevo.machines"] = { lab: { state: "needs_login", why: null }, box: { state: "unreachable", why: "No route to host" } };
+  const { ui } = await open([space("lab/c", "web", "/srv/web", { machine: "lab" }), space("box/b", "api", "/srv/api", { machine: "box" })]);
+  assert.match(text(find(ui(), "folder-machine:lab")), /needs login.*Log in/);
+  assert.match(text(find(ui(), "folder-machine:box")), /offline/);
+  assert.equal(find(ui(), "login-machine:box"), null, "nothing to type for a machine that can't be reached");
+  assert.equal(find(ui(), "away-machine:box").tip, "No route to host");
+  find(ui(), "login-machine:lab").handlers.on_click({}, { stop_propagation() {} });
+  assert.deepEqual(fake.runs.at(-1), ["space.new", { name: "Log in to lab", argv: ["hc", "machine", "login", "lab"], machine: "" }]);
+});

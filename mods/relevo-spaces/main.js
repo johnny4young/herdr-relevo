@@ -5,7 +5,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { agents, exec, home, machines, spaces, terminals, panes, run, openOverlay, closeOverlay, props, theme, shared, setShared, watchFolder, window, layout, pickFolder } from "herdr";
-import { COLORS, folderData, folderFor, loadFolders, machineLook, newSpace, openSpaceIn, paint, updateFolders } from "./folders.js";
+import { COLORS, folderData, folderFor, loadFolders, logIn, machineLook, newSpace, openSpaceIn, paint, updateFolders } from "./folders.js";
 import { readGit } from "./git.js";
 import { aliveBySpace, branchNote, buildModel, movesTo, mostUrgent, portsIn, quietSpaces, spaceTurn, where } from "./model.js";
 
@@ -278,8 +278,13 @@ export default class Spaces extends View {
       .child(svg(ICON(look ? "server" : "folder")).size(12).flex_none().text_color(look?.color ?? paint(f?.color, t.dim)))
       .child(div().min_w(0).truncate().text_size(11).font_medium().text_color(t.muted).child((g.label ?? "No folder").toUpperCase()))
       .child(div().flex_none().text_size(11).text_color(t.dim).child(String(g.rows.filter((r) => !r.tree).length + ghosts)))
-      .when(Boolean(look?.away), (el) => el.child(div().flex_none().text_size(11).text_color(t.blocked).child("offline")))
+      .when(Boolean(look?.away), (el) => el.child(div().id(`away-${g.id}`).flex_none().text_size(11).text_color(t.blocked)
+        .when(Boolean(look.why), (w) => w.tooltip(look.why)).child(look.word)))
       .child(div().flex_1())
+      .when(look?.word === "needs login", (el) => el.child(div().id(`login-${g.id}`).flex_none().px(6).rounded(4).text_size(11).text_color(t.accent)
+        .hover((s) => s.bg(t.hover)).tooltip(`Type its password in a new space here: hc machine login ${look.name}`)
+        .on_click((_e, cx) => { cx.stop_propagation(); logIn(look.name); })
+        .child("Log in")))
       .when(!open && Boolean(spaceTurn(top)), (el) => el.child(laneGlyph(t, spaceTurn(top))))
       .when(Boolean(f?.path), (el) => el.child(div().id(`folder-new-${g.id}`).flex_none().px(4).rounded(4).text_size(13).text_color(t.dim)
         .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(`New space in ${f.path}`)
@@ -288,7 +293,9 @@ export default class Spaces extends View {
   }
 
   look(machine) {
-    return machine ? machineLook(machine, this.frame?.machines) : null;
+    if (!machine) return null;
+    const look = machineLook(machine, this.frame?.machines), why = this.frame?.away?.[machine];
+    return { ...look, name: machine, word: why?.state === "needs_login" ? "needs login" : "offline", why: why?.why ?? null };
   }
 
   // A remote space's avatar carries its machine's color.
@@ -417,7 +424,7 @@ export default class Spaces extends View {
     const target = { space: w.id };
     const hot = this.pressed !== null && this.pressed !== w.id && this.over === JSON.stringify(target);
     const gone = this.gone.has(JSON.stringify([w.machine ?? null, r.path])), look = this.look(w.machine);
-    const tip = [w.machine && `${w.machine}${look.away ? " (offline)" : ""}`, r.path, gone ? "folder moved or deleted" : g?.branch && `on ${g.branch}`].filter(Boolean).join(" · ");
+    const tip = [w.machine && `${w.machine}${look.away ? ` (${look.word})` : ""}`, r.path, gone ? "folder moved or deleted" : g?.branch && `on ${g.branch}`].filter(Boolean).join(" · ");
     return this.dragHandlers(h_flex().id(`space-${w.id}`).relative().h(tree ? 26 : 30).px(6).gap(8).flex_none().items_center().rounded(6)
       .when(w.active, (el) => el.bg(t.selected))
       .when(!w.active, (el) => el.hover((s) => s.bg(t.hover)))
@@ -446,7 +453,7 @@ export default class Spaces extends View {
   compact(t, r, i) {
     const { w } = r, turn = spaceTurn(w.status), look = this.look(w.machine);
     return h_flex().flex_none().justify_center().child(h_flex().id(`space-${w.id}`).relative().w(RAIL_CELL).h(26).rounded(6).justify_center().items_center()
-      .when(Boolean(look), (el) => el.tooltip(`${w.name} · ${w.machine}${look.away ? " (offline)" : ""}`).opacity(look.away ? 0.5 : 1)
+      .when(Boolean(look), (el) => el.tooltip(`${w.name} · ${w.machine}${look.away ? ` (${look.word})` : ""}`).opacity(look.away ? 0.5 : 1)
         .child(div().absolute().left(4).bottom(4).size(6).rounded_full().bg(look.color)))
       .when(w.active, (el) => el.bg(t.selected))
       .when(!w.active, (el) => el.hover((s) => s.bg(t.hover)))
@@ -461,7 +468,7 @@ export default class Spaces extends View {
     if (p.editFolder !== undefined) return this.editor(t, cx);
     this.keepColors();
     // Every row reads these; once per draw is enough.
-    this.frame = { colors: shared("space.colors") ?? {}, prs: shared(REPO_PRS) ?? {}, machines: machines() };
+    this.frame = { colors: shared("space.colors") ?? {}, prs: shared(REPO_PRS) ?? {}, machines: machines(), away: shared("relevo.machines") ?? {} };
     const collapsed = narrow(), m = this.model();
     const count = m.groups.reduce((n, g) => n + g.rows.filter((r) => !r.tree).length, 0);
     let i = 0;

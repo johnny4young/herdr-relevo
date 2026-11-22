@@ -103,6 +103,11 @@ const MACHINE_COLORS = ["ansi5", "ansi6", "ansi3", "ansi2", "ansi4"];
 export const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b7cf6", ansi2: "#3fae6a", ansi1: "#d9649a" };
 export const paint = (color, fallback) => (color ? MARK[color] ?? color : fallback);
 
+// Herdr's login asks for a password or code, so it runs where a person can type it: a new space on this computer.
+export function logIn(name) {
+  run("space.new", { name: `Log in to ${name}`, argv: ["hc", "machine", "login", name], machine: "" });
+}
+
 // Each other machine keeps one color, by its place in Herdr's machine list; away: its layout can't be reached.
 export function machineLook(name, list = machines()) {
   const others = list.filter((m) => m.name), at = others.findIndex((m) => m.name === name);

@@ -93,7 +93,8 @@ repo one row: its branch when it is not main, how far it is ahead or behind, how
 agent there needs you. A worktree sits under its checkout. Drag a space onto a folder to keep it there. The list
 order is the spaces' order, so Herdr's `⌃1`…`⌃9` go to the row you see. Spaces on another machine group under it,
 with a server icon and a dot on each avatar in that machine's color; a machine Herdr can't reach says **offline** and
-its rows dim. A folder's `+` always opens on this computer. Now lists another machine's agent when it asks
+its rows dim. One waiting for a password says **needs login**, with **Log in** to type it in a new space here; once
+its SSH key works, Relevo logs it in again by itself when it is back. A folder's `+` always opens on this computer. Now lists another machine's agent when it asks
 you something, and Maintenance its terminals to tidy, each with that machine's dot.
 
 Every space shows what runs in that repo: each command that runs, listens on a port or failed (Restart, Stop

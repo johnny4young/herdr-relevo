@@ -560,7 +560,7 @@ export default class Agents extends View {
     const labels = new Map(all.map((k) => [k.address, k.labels ?? {}]));
     // What every row reads from the Relevo mod, once per render.
     const reasons = shared("relevo.reasons") ?? {}, folders = shared("space-folders"), agentPRs = shared("relevo.agentPRs") ?? {};
-    const contexts = shared("relevo.agentContext") ?? {}, machineList = machines();
+    const contexts = shared("relevo.agentContext") ?? {}, machineList = machines(), awayWhy = shared("relevo.machines") ?? {};
     const row = (a, i, subs = []) => {
       // A settled result has been dealt with, so it no longer waits on me.
       const turn = isSettled(a) ? plainTurn(a.status) : this.turnOf(a), me = turn === "me";
@@ -571,7 +571,8 @@ export default class Agents extends View {
       // An agent on another machine (`vps/t7`) says which.
       const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
       const look = machine ? machineLook(machine, machineList) : null, away = Boolean(look?.away);
-      const machineTip = machine && `${machine}${away ? " (offline)" : ""}`;
+      const awayWord = awayWhy[machine]?.state === "needs_login" ? "needs login" : "offline";
+      const machineTip = machine && `${machine}${away ? ` (${awayWord})` : ""}`;
       const dot = (size) => div().id(`machine-${a.address}`).size(size).flex_none().rounded_full().bg(look.color).tooltip(machineTip);
       if (collapsed) {
         return h_flex()
@@ -660,7 +661,7 @@ export default class Agents extends View {
             .text_color(me ? t.blocked : t.muted).child(what))))
         .when(Boolean(bg), el => el.child(bg))
         .when(subs.length > 0, el => el.child(fold(a, subs)))
-        .when(away, el => el.child(div().id(`offline-${a.address}`).flex_none().text_size(11).text_color(t.blocked).child("offline")))
+        .when(away, el => el.child(div().id(`offline-${a.address}`).flex_none().text_size(11).text_color(t.blocked).child(awayWord)))
         .when(this.hovered === a.address && !away, el => el.child(reply)
           .when(rested, (el) => el.child(this.settleButton(t, a, all, isSettled(a))))
           .child(pin))
