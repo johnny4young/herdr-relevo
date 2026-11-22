@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0 · 2026-11-21
+
+- **A machine back online logs in again.** Herdr waits at "needs login" after a machine drops. Once its SSH key works, Relevo logs it in again by itself when it is back. Without a key, Spaces and Agents say **needs login** instead of offline, and **Log in** opens a space on this computer to type the password. Why a machine can't be reached shows in its group's tooltip.
+- **Maintenance and Now tell machines apart.** Terminals to tidy and Needs me give another machine's rows its dot. A remote agent that asks you something now reaches Needs me. A machine Herdr can't reach keeps its terminals out of Maintenance, since Close can't reach them, and a close that leaves a terminal running says so.
+- **Runs stays on this computer.** A run's new agent is never taken for another machine's tab with the same name.
+
 ## 0.14.0 · 2026-11-21
 
 - **Local and remote at a glance.** Each other machine gets its own color: its group in Spaces has a server icon in it, and its spaces and agents a dot, in the narrow rail too. Local spaces and agents look as before. A machine Herdr can't reach says **offline**, its rows dim, and its agents offer no quick reply.
