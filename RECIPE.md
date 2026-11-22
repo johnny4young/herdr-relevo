@@ -91,6 +91,8 @@ task to another account.
   - **Maintenance** also lists TERMINALS TO TIDY, from the same terminal records as Spaces: a command that failed
     ("exited 1", **Restart** when the terminal runs its own command), one row for the finished ones (**Close N**), what
     runs with no pane for over an hour (**Show**) and shells idle over a day (**Close**). `d` closes one, pressed twice.
+    Another machine's terminal wears that machine's dot; one on a machine Herdr can't reach waits until it is back, and a
+    close that leaves a terminal running says so.
   - **Maintenance** opens with its own legend, `✓ Safe to remove n · ○ Needs a look n · • Old n`, and lists every
     merged worktree and every worktree without a space as a row: repo, branch and the one reason, its size (`du -sk`)
     and one action. SAFE TO REMOVE holds merged worktrees that are clean, unlocked, unused for a day and have no

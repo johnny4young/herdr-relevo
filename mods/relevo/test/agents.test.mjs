@@ -469,6 +469,8 @@ test("a remote agent wears its machine's color, as in Spaces, and an offline one
   assert.notEqual(find(ui(), "machine-box/t2").fill, find(ui(), "machine-lab/t3").fill);
   assert.equal(find(ui(), "offline-box/t2"), null);
   assert.ok(find(ui(), "offline-lab/t3"));
+  fake.stored["relevo.machines"] = { lab: { state: "needs_login" } };
+  assert.equal(text(find(ui(), "offline-lab/t3")), "needs login");
   find(ui(), "ag-lab/t3").handlers.on_hover(true, cx);
   assert.equal(find(ui(), "reply-lab/t3"), null);
   find(ui(), "ag-box/t2").handlers.on_hover(true, cx);

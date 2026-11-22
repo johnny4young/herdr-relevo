@@ -3,7 +3,7 @@ import { div } from "gpui-kit";
 import { PreviewInbox } from "./decision-preview.js";
 import { SnapshotInbox } from "./snapshot-preview.js";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { theme, exec, run, notify, settings, agents, panes, terminals, shared, setShared, home } from "herdr";
+import { theme, exec, run, notify, settings, agents, panes, terminals, shared, setShared, home, machines } from "herdr";
 import { CODEX_FOUND, loadClaudeQuotas } from "./accounts.js";
 import { accountFor, contextOfPath, inFocus } from "./context.js";
 import { ago, nextSince } from "./lib/time.js";
@@ -37,6 +37,7 @@ import { NowViews, NOW_SECTIONS, MAINTENANCE_SECTIONS } from "./inbox-now.js";
 import { RunViews } from "./inbox-runs.js";
 import { RunCompareViews } from "./inbox-run-compare.js";
 import { isSettled } from "./lib/desktop.js";
+import { machineLook, machineOf } from "./lib/machines.js";
 
 // How long a send waits for its dialog to go, in 250 ms reads.
 const SETTLE_TRIES = 8;
@@ -259,25 +260,31 @@ export class Inbox {
           places.push({ address: a.address, repo: this.origins.get(top), branch: pane.branch, head });
         }
         this.places = places;
+        // Another machine's agent can still ask: its question is read over Herdr; its diff would need that machine's git.
+        const known = machines();
         for (const a of [...all].sort((x, y) => marked(x) - marked(y))) {
           const url = byTab.get(a.tab_name);
           if (url) {
             prAgents[url] = a;
             if (a.status !== "blocked") continue;
           }
-          if (a.address.includes("/") || a.status === "working") continue;
+          const machine = machineOf(a.address), look = machine ? machineLook(machine, known) : null;
+          if (a.status === "working" || (machine && (a.status !== "blocked" || look.away))) continue;
           const pane = byPane.get(a.pane);
-          if (!pane?.cwd) continue;
-          const top = this.tops.get(pane.cwd) ?? "";
+          if (!pane?.cwd && !machine) continue;
+          const top = machine ? "" : this.tops.get(pane.cwd) ?? "";
           const repo = top.split("/").pop() || a.space_name;
           if (a.status === "blocked") {
             const at = since[`${a.address}:blocked`];
             if (this.prompts.get(a.address)?.since !== at) {
-              const screen = (await hc(["read", a.address, "--lines", "0"])).stdout;
+              // A machine that drops mid-scan costs its card, not the whole scan.
+              const read = await hc(["read", a.address, "--lines", "0"]).catch((e) => { if (machine) return null; throw e; });
+              if (!read) continue;
+              const screen = read.stdout;
               const prompt = await this.promptOf(a.address, screen);
               this.prompts.set(a.address, { since: at, prompt, free: freeOption(prompt) });
             }
-            items.push({ kind: "blocked", agent: a, top, repo, branch: pane.branch, prompt: this.prompts.get(a.address).prompt });
+            items.push({ kind: "blocked", agent: a, top, repo, branch: pane?.branch, machine: look, prompt: this.prompts.get(a.address).prompt });
             continue;
           }
           if (!top || seen.has(top)) continue;
@@ -312,7 +319,7 @@ export class Inbox {
         const local = items.sort((x, y) => (x.kind === "blocked" ? 0 : 1) - (y.kind === "blocked" ? 0 : 1) || y.at - x.at);
         // Redraw only when a card or today's time changed, not on every scan.
         const sign = JSON.stringify([
-          local.map((i) => [i.agent.address, i.kind, i.files, i.add, i.del, i.said, Math.floor(i.at / 60), this.addressedLabel(i.agent.address)]),
+          local.map((i) => [i.agent.address, i.kind, i.machine?.color, i.files, i.add, i.del, i.said, Math.floor(i.at / 60), this.addressedLabel(i.agent.address)]),
           this.today,
         ]);
         this.local = local;
@@ -359,7 +366,7 @@ export class Inbox {
   // `done` (marked addressed) waits on nobody, whatever its turn would be.
   // `main`, `actions` and `mark` are the row's action table (see actionButton); selected, keyed ones show their key.
   // `status` takes the age's place and stays at any width. At the narrowest, a me row's action is a chevron.
-  item(t, id, { turn, kind, title, reason = null, age = null, status = null, tip = null, lines = [], main = null, actions = [], mark = null, open = false, done = false }) {
+  item(t, id, { turn, kind, title, reason = null, age = null, status = null, tip = null, lines = [], main = null, actions = [], mark = null, open = false, done = false, machine = null }) {
     if (this.hiddenIds?.has(id)) return null;
     const sel = this.selected(id), tight = Boolean(this.tightInbox), words = typeof main?.label === "string" ? main.label : null;
     const edge = tight && !done && turn === "me" && main && !main.el
@@ -373,7 +380,7 @@ export class Inbox {
     return row(t, id, {
       turn: done ? "open" : turn, kind, title, reason, age: status ?? (tight ? null : age), tip, selected: sel, narrow: tight,
       action: (turn === "flight" && !sel) || !main ? null : draw(edge),
-      onSelect: (cx) => this.pick(id, cx),
+      onSelect: (cx) => this.pick(id, cx), machine,
       below: below.length ? below : null,
     });
   }
@@ -441,7 +448,7 @@ export class Inbox {
     const short = shared(REASONS)?.[a.address] ?? reasonOf(p, terminals().find((k) => k.address === a.address)?.report);
     const kindOfAsk = p.question && short && p.question.startsWith(short.replace(/…$/, "")) ? (p.options.length ? "asks you to choose" : "waits for your reply") : short;
     return this.item(t, `in-${a.address}`, {
-      turn: "me", kind: "agent", title: item.repo, reason: kindOfAsk, tip: a.tab_name || item.branch || null, open: true,
+      turn: "me", kind: "agent", title: item.repo, reason: kindOfAsk, tip: a.tab_name || item.branch || null, open: true, machine: item.machine,
       age: ago(item.at, true), status: this.sending(a.address) ? "Answering…" : Date.now() - (this.nextAt.get(a.address) ?? 0) < NEXT_FOR ? "Next question" : null,
       ...this.localActions(item),
       lines: [

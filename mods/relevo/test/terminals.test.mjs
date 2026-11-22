@@ -123,3 +123,31 @@ test("a tab's command runs in a shell that stays: it reads as that command, ende
   const odd = terminalRow(term("w3", { argv: [...wrap.slice(0, 4), "echo", "a\u001b[201~b"] }), { now: NOW });
   assert.deepEqual([odd.rerun, odd.canRestart], [null, false], "a control character is never typed back");
 });
+
+test("Maintenance marks another machine's terminals and leaves out those of a machine Herdr can't reach", async () => {
+  const { Inbox } = await import("../inbox.js");
+  const now = Date.now();
+  fake.machines = [{ name: null, layout: "ready" }, { name: "box", layout: "ready" }, { name: "lab", layout: "unavailable" }];
+  fake.terminals = [term("box/t1", { created_ms: now - 3 * DAY, labels: { where: "api / 1" } }), term("lab/t2", { created_ms: now - 3 * DAY, labels: { where: "web / 1" } })];
+  fake.exec = (cmd) => (cmd === "gh" ? { stdout: JSON.stringify({ data: { viewer: { login: "me", merged: { nodes: [] }, pullRequests: { nodes: [] } }, search: { nodes: [] } } }) } : null);
+  const inbox = new Inbox(), cx = fakeCx();
+  inbox.init({}, cx);
+  await flush();
+  fake.stored["relevo.inbox.view"] = "maintenance";
+  const tree = inbox.render(cx);
+  assert.equal(text(find(tree, "leg-terms")), "TERMINALS TO TIDY 1");
+  assert.ok(find(find(tree, "term-box/t1"), "term-box/t1-machine"));
+  assert.equal(find(tree, "term-lab/t2"), null, "nothing there can be closed until lab is back");
+});
+
+test("a close that leaves the terminal running says so", async () => {
+  const { endTerminal } = await import("../terminals.js");
+  fake.terminals = [term("box/t1")];
+  const row = terminalRow(fake.terminals[0], { now: NOW });
+  assert.equal(await endTerminal(row, 2), false);
+  assert.deepEqual(fake.runs.at(-1), ["terminal.kill", { terminal: "box/t1" }]);
+  assert.match(fake.notices.at(-1).title, /did not close/);
+  assert.match(fake.notices.at(-1).body, /could not reach box/);
+  fake.terminals = [];
+  assert.equal(await endTerminal(row, 2), true);
+});

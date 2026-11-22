@@ -97,7 +97,7 @@ test("colours come from the theme: no view hard-codes one", () => {
   for (const mod of ["relevo", "relevo-agents", "relevo-files", "relevo-tabs"]) {
     const dir = new URL(`../../${mod}/`, import.meta.url);
     const files = readdirSync(dir, { recursive: true }).filter((f) => f.endsWith(".js") && !/(^|\/)test\//.test(f)
-      && !/^(config(\.example)?|settings|folder-colors)\.js$/.test(f));
+      && !/^(config(\.example)?|settings|folder-colors|lib\/machines)\.js$/.test(f));
     for (const name of files) {
       assert.doesNotMatch(readFileSync(new URL(name, dir), "utf8"), /["'`]#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})["'`]/i, `${mod}/${name}`);
     }

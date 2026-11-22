@@ -1,11 +1,12 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { agents, exec, panes, run, shared, setShared, terminals, theme } from "herdr";
+import { agents, exec, machines, panes, run, shared, setShared, terminals, theme } from "herdr";
 import { openReview } from "./review.js";
 import { REVIEW_VIEW } from "./toolbar.js";
 import { openDesktop } from "./desktop.js";
 import { endTerminal, openTerminal, restartTerminal } from "./terminals.js";
 import { terminalRow, tidyRows } from "./lib/terminals.js";
+import { machineLook } from "./lib/machines.js";
 import { ago } from "./lib/time.js";
 import { openGoal } from "./goals-editor.js";
 import { recent } from "./lib/github.js";
@@ -236,7 +237,10 @@ export class NowViews {
 
   tidyTerminals() {
     const mine = new Set(agents().map((a) => a.address)), list = panes(), now = Date.now();
-    return tidyRows(terminals().map((k) => terminalRow(k, { agents: mine, panes: list, now })).filter(Boolean), now);
+    const known = machines(), away = new Set(known.filter((m) => m.layout === "unavailable").map((m) => m.name));
+    const rows = terminals().map((k) => terminalRow(k, { agents: mine, panes: list, now })).filter(Boolean)
+      .map((r) => (r.machine ? { ...r, look: machineLook(r.machine, known) } : r));
+    return tidyRows(rows, now, away);
   }
 
   // A terminal to tidy: its one action, and d twice to close it, as d removes a worktree here.
@@ -260,13 +264,13 @@ export class NowViews {
   }
 
   closeFinishedTerminals(rows) {
-    for (const r of rows) exec("hc", ["rm", r.address]);
+    for (const r of rows) endTerminal(r);
   }
 
   tidyGroup(t, tidy) {
     if (!tidy.count) return [];
     const where = (r) => (r.space && r.space !== r.title ? `${r.title} · ${r.space}` : r.title);
-    const one = (r, turn, reason) => this.item(t, `term-${r.address}`, { turn, title: where(r), reason, age: ago(r.at / 1000, true), tip: r.cwd, ...this.tidyActions(r) });
+    const one = (r, turn, reason) => this.item(t, `term-${r.address}`, { turn, title: where(r), reason, age: ago(r.at / 1000, true), tip: r.cwd, machine: r.look, ...this.tidyActions(r) });
     const doneAll = { id: "term-close-finished", key: "d", label: `Close ${tidy.done.length}`, run: () => this.closeFinishedTerminals(tidy.done), tip: "Remove every finished terminal" };
     return [legHeader(t, "leg-terms", "Terminals to tidy", tidy.count), ...joined(t, [
       ...tidy.failed.map((r) => one(r, "stuck", `exited ${r.exit}`)),

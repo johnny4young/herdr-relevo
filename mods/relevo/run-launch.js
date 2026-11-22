@@ -2,6 +2,7 @@
 import { agents, appHome, exec, panes, readTextFile, spaces, terminals } from "herdr";
 import { openInFolder } from "./accounts.js";
 import { CHECK_FILES, detectChecks } from "./lib/run-checks.js";
+import { machineOf } from "./lib/machines.js";
 
 export const RUN_LAUNCH = "relevo.runs.launch";
 
@@ -49,12 +50,12 @@ export async function openAgent({ name, folder, tab, argv, label, ask, cx, waitM
   for (;;) {
     if (Date.now() - at > waitMs) throw Error(`${label} did not start in ${tab}`);
     await cx.sleep(1500);
-    // Two runs can share a tab name: the one in this folder wins.
-    const named = agents().filter((a) => a.tab_name === tab && READY.includes(a.status));
+    // Two runs can share a tab name: the one in this folder wins. A run opens here, so another machine's tab is never it.
+    const named = agents().filter((a) => !machineOf(a.address) && a.tab_name === tab && READY.includes(a.status));
     const found = named.find((a) => terminals().find((k) => k.address === a.address)?.cwd === folder) ?? named[0];
     if (found) return found;
     if (Date.now() - at < 8000) continue;
-    const waiting = terminals().find((k) => k.cwd === folder && tabOf(k.address) === tab);
+    const waiting = terminals().find((k) => !machineOf(k.address) && k.cwd === folder && tabOf(k.address) === tab);
     const screen = waiting ? (await exec("hc", ["read", waiting.address, "--lines", "30"]).catch(() => null))?.stdout ?? "" : "";
     const own = waiting && ownFolderKeys(screen, reportsFolder());
     if (own) { await exec("hc", ["keys", waiting.address, ...own]).catch(() => null); continue; }

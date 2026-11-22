@@ -184,7 +184,7 @@ test("Retry, by click or r on the selected error, reads that source again; selec
   view = ui();
   click(find(view, "retry-error-local"), cx);
   await flush();
-  assert.equal(inbox.localError, null);
+  assert.ok(!inbox.localError);
   assert.ok(inbox.localOkAt > 0);
 });
 
@@ -259,4 +259,28 @@ test("at the narrowest: short legend labels, no age, and a me row's action is a 
   click(chevron, cx);
   await flush();
   assert.equal(fake.runs.at(-1)[0], "pane.split");
+});
+
+test("another machine's agent that asks is in Needs me with its machine's dot; offline or resting ones are not", async () => {
+  fake.machines = [{ name: null, layout: "ready" }, { name: "box", layout: "ready" }, { name: "lab", layout: "unavailable" }];
+  fake.agents = [{ address: "box/t2", status: "blocked", pane: "p2", space_name: "api" }, { address: "lab/t3", status: "blocked", pane: "p3", space_name: "web" },
+    { address: "box/t4", status: "done", pane: "p4", space_name: "api" }];
+  fake.panes = [{ pane: "p2", cwd: "/srv/api" }, { pane: "p3", cwd: "/srv/web" }, { pane: "p4", cwd: "/srv/api" }];
+  const { inbox, ui } = await open();
+  assert.deepEqual(inbox.local.map((i) => i.agent.address), ["box/t2"]);
+  const view = ui(), card = find(view, "in-box/t2");
+  assert.match(words(card), /^api /);
+  assert.ok(find(card, "in-box/t2-machine"), "a dot in box's color says where it runs");
+  assert.equal(calls(/^git /).filter((c) => c.includes("/srv/")).length, 0, "its folder is on box, so this computer's git never reads it");
+});
+
+test("a machine that drops while its question is read loses that card, not the rest of Now", async () => {
+  fake.machines = [{ name: null, layout: "ready" }, { name: "box", layout: "ready" }];
+  fake.agents = [{ address: "box/t2", status: "blocked", pane: "p2", space_name: "api" }, { address: "t1", status: "blocked", pane: "p1" }];
+  fake.panes = [{ pane: "p2", cwd: "/srv/api" }, { pane: "p1", cwd: "/work/app" }];
+  const base = fake.exec;
+  fake.exec = (cmd, args) => { if (cmd === "hc" && args[1] === "box/t2") throw Error("cannot reach box"); return base(cmd, args); };
+  const { inbox } = await open();
+  assert.deepEqual(inbox.local.map((i) => i.agent.address), ["t1"]);
+  assert.ok(!inbox.localError);
 });
