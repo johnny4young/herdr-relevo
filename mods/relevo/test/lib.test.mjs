@@ -227,6 +227,18 @@ test("ciOf: anything else that went wrong stays red", () => {
   assert.equal(ciOf({}), null);
 });
 
+const runs = (state, list) => ({ commits: { nodes: [{ commit: { statusCheckRollup: {
+  state, contexts: { pageInfo: { hasNextPage: false }, nodes: list.map(([name, conclusion, startedAt]) => ({ name, status: conclusion ? "COMPLETED" : "QUEUED", conclusion, startedAt })) },
+} } }] } });
+
+test("ciOf: runs a rerun replaced don't count", () => {
+  const replaced = [["lint", "CANCELLED", "2026-11-22T05:10:00Z"], ["lint", "CANCELLED", "2026-11-22T05:10:02Z"], ["lint", "SUCCESS", "2026-11-22T05:10:06Z"], ["unit", "SKIPPED", "2026-11-22T05:10:10Z"]];
+  assert.equal(ciOf(runs("FAILURE", replaced)), "SUCCESS");
+  assert.equal(ciOf(runs("FAILURE", [["lint", "SUCCESS", "2026-11-22T05:10:00Z"], ["lint", "CANCELLED", "2026-11-22T05:10:06Z"]])), "CANCELLED");
+  assert.equal(ciOf(runs("FAILURE", [["lint", "SUCCESS", "2026-11-22T05:10:00Z"], ["lint", "FAILURE", "2026-11-22T05:10:06Z"]])), "FAILURE");
+  assert.equal(ciOf(runs("FAILURE", [["lint", "CANCELLED", "2026-11-22T05:10:00Z"], ["unit", "FAILURE", "2026-11-22T05:10:06Z"], ["unit", "SUCCESS", "2026-11-22T05:10:01Z"]])), "FAILURE");
+});
+
 test("mapMine: cancelled CI says so, without red or a fix button", () => {
   const data = { viewer: { login: "me", pullRequests: { nodes: [pr({ url: "c", ...rolled("FAILURE", ["SUCCESS", "CANCELLED"]) })] } } };
   const [card] = mapMine(data);
