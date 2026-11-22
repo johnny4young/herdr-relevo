@@ -95,3 +95,15 @@ test("never while herdr-app check loads the mod", async () => {
   assert.equal(await smokeAfterUpdate(), null);
   assert.equal(fake.execs.length, 0);
 });
+
+test("another machine Herdr can't reach warns and never fails; the window's own errors still fail", async () => {
+  const away = { message: "layout box: cannot reach me@box: ssh: connect to host box port 22: Operation timed out" };
+  const machines = { "hc machine": { code: 0, stdout: JSON.stringify({ machines: [{ name: "box" }] }) } };
+  const r = await smoke({ run: herdr({ ...machines, "herdr-app status": { code: 0, stdout: JSON.stringify({ errors: [away] }) } }), modsDir: "/m", installed: ["relevo"] });
+  assert.equal(r.failed, 0);
+  assert.ok(levels(r).includes("ok the window reports no errors of its own"));
+  assert.ok(levels(r).some((l) => l.startsWith("warn another machine can't be reached, 1 error: layout box:")));
+  const own = await smoke({ run: herdr({ ...machines, "herdr-app status": { code: 0, stdout: JSON.stringify({ errors: [away, { message: "mod relevo: boom" }] }) } }), modsDir: "/m", installed: ["relevo"] });
+  assert.equal(own.failed, 1);
+  assert.ok(levels(own).includes("fail the window reports 1 error: mod relevo: boom"));
+});

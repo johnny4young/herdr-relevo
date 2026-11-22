@@ -32,10 +32,19 @@ export async function smoke({ run, modsDir, installed }) {
 
   const status = await call("herdr-app", ["status"]);
   const errors = status.code === 0 ? parse(status.stdout)?.errors : null;
+  const said = (e) => String(e?.message ?? JSON.stringify(e));
+  // Another machine Herdr can't reach is the network, not Relevo: it warns and never fails.
+  const names = Array.isArray(errors) && errors.length ? (parse((await call("hc", ["machine", "ls", "--json"])).stdout)?.machines ?? []).map((m) => m.name) : [];
+  const remote = (e) => names.some((n) => said(e).startsWith(`layout ${n}:`));
+  const own = Array.isArray(errors) ? errors.filter((e) => !remote(e)) : [], away = Array.isArray(errors) ? errors.filter(remote) : [];
+  const counted = (list) => `${list.length} ${list.length === 1 ? "error" : "errors"}: ${said(list[0]).slice(0, 160)}`;
   if (status.code !== 0) warn("the window is not open: its errors were not read");
   else if (!Array.isArray(errors)) fail("herdr-app status no longer lists errors");
-  else if (errors.length) fail(`the window reports ${errors.length} ${errors.length === 1 ? "error" : "errors"}: ${String(errors[0]?.message ?? JSON.stringify(errors[0])).slice(0, 160)}`);
-  else ok("the window reports no errors");
+  else {
+    if (own.length) fail(`the window reports ${counted(own)}`);
+    else ok("the window reports no errors of its own");
+    if (away.length) warn(`another machine can't be reached, ${counted(away)}`);
+  }
 
   const ls = await call("hc", ["ls", "--json"]);
   const list = ls.code === 0 ? parse(ls.stdout)?.terminals : null;
