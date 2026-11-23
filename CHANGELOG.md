@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.0 · 2026-11-22
+
+- **Settings › About shows the version.** The Relevo and Herdr versions installed, and the newer release when GitHub has one, with how to update.
+- **PRs sent from a fork leave Maintenance once merged.** In a clone of your fork, Relevo also asks the `upstream` remote for merged PRs, so a worktree whose PR merged in the original repo reads as merged. A worktree whose folder is gone no longer shows the in-flight spinner: it shows its group's glyph and offers Forget.
+
 ## 0.15.2 · 2026-11-22
 
 - **A rerun doesn't read as cancelled CI.** GitHub keeps every run of a check on the commit, so the runs a newer one cancelled (a title edit re-triggering a workflow, for example) made a green PR say **CI cancelled** in Now. Relevo now keeps only the newest run of each check, as GitHub's PR page does.
