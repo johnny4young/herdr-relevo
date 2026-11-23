@@ -3,7 +3,7 @@ import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { theme, exec, appHome, props, openOverlay, closeOverlay, layout, run, readTextFile, writeTextFile } from "herdr";
 import { ACCOUNTS, CODEX, CONTEXTS, FALLBACK, REPOS_ROOT, SKILLS } from "./config.js";
 import * as config from "./config.js";
-import { WRITE_SCRIPT, renderConfig, validate, slug, parseList, isHex } from "./lib/settings.js";
+import { WRITE_SCRIPT, aboutLine, renderConfig, validate, slug, parseList, isHex } from "./lib/settings.js";
 import { chip } from "./accounts.js";
 import { DEFAULT_DEEP_REVIEW, MAX_REVIEWERS, effortsFor } from "./lib/deep-setup.js";
 import { replies } from "./replies.js";
@@ -13,6 +13,19 @@ import { PANELS, PANELS_FILE, findNode, panelCommands, panelShown, panelsText } 
 const COLORS = ["ansi2", "ansi4", "ansi5", "ansi6", "ansi3", "ansi1"];
 const COLS = { label: 104, letter: 40, dir: 116, color: 76, ctxLabel: 140, model: 150 };
 
+const RELEASES = "johnny4young/herdr-relevo";
+
+// Each read is best effort: a missing manifest, Herdr or network only leaves its part out.
+async function installedVersions() {
+  const version = (out) => /\d+\.\d+\.\d+\S*/.exec(out ?? "")?.[0] ?? null;
+  const [manifest, herdr, latest] = await Promise.all([
+    readTextFile(`${appHome()}/relevo-install/installed.json`).then((raw) => JSON.parse(raw ?? "null")?.version ?? null).catch(() => null),
+    exec("herdr-app", ["--version"]).then((r) => version(r.stdout)).catch(() => null),
+    exec("gh", ["release", "view", "-R", RELEASES, "--json", "tagName", "-q", ".tagName"]).then((r) => r.code === 0 ? version(r.stdout) : null).catch(() => null),
+  ]);
+  return { relevo: manifest, herdr, latest };
+}
+
 export function openSettings() {
   openOverlay({ mod: "relevo", kind: "dialog", width: 800, height: 700, props: { role: "settings" } });
 }
@@ -21,7 +34,7 @@ const text = (state) => state.value().trim();
 
 // Writes config.js: its values are read at import time, and saving any file reloads the mod.
 export class Settings {
-  init(_props, _cx) {
+  init(_props, cx) {
     this.seq = 0;
     this.states = new Set();
     this.errors = [];
@@ -40,6 +53,11 @@ export class Settings {
     const tree = layout();
     this.panels = PANELS.every((p) => p.nodes.every((id) => findNode(tree, id)))
       ? Object.fromEntries(PANELS.map((p) => [p.key, panelShown(tree, p)])) : null;
+    this.about = null;
+    cx.spawn(async (cx) => {
+      this.about = aboutLine(await installedVersions());
+      cx.notify();
+    });
   }
 
   deepRow(r = { account: "repo", model: "", effort: "high" }) {
@@ -365,7 +383,11 @@ export class Settings {
           .child(this.field(t, `sr-text-${r.id}`, r.inputs.text, "replies"))
           .child(button(t, `sr-remove-${r.id}`, "×", (cx) => this.removeReply(r, cx), { size: "sm", tip: "Remove reply" }))),
         h_flex().child(button(t, "settings-add-reply", "+ Reply", (cx) => this.addReply(cx), { size: "sm" })),
-      ]));
+      ]))
+      .child(this.section(t, "settings-about", "ABOUT", [], [
+        div().id("settings-about-line").text_size(13).text_color(this.about ? t.foreground : t.dim).child(this.about?.text ?? "Reading versions…"),
+        this.about?.update ? div().id("settings-about-update").text_size(11).text_color(t.dim).child(this.about.update) : null,
+      ].filter(Boolean)));
     const failed = this.errors.find((e) => e.at === "write");
     const footer = h_flex().h(48).flex_none().px(16).gap(8).items_center().border_t(1).border_color(t.border)
       .child(div().flex_1().min_w(0).truncate().text_size(11)

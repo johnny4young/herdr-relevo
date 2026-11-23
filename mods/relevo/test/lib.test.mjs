@@ -659,6 +659,16 @@ test("mergedByHead ignores a fork's branch, even one named like yours, and keeps
   assert.deepEqual(merged.get("feat/b"), { number: null, mergedAt: null });
 });
 
+test("mergedByHead from a fork: only PRs sent from that owner's fork count upstream", () => {
+  const merged = mergedByHead([
+    { headRefName: "fix/a", isCrossRepository: true, headRepositoryOwner: { login: "me" }, number: 12, mergedAt: "2026-11-22T19:26:30Z" },
+    { headRefName: "fix/b", isCrossRepository: true, headRepositoryOwner: { login: "someone" }, number: 13 },
+    { headRefName: "fix/c", isCrossRepository: false, headRepositoryOwner: { login: "org" }, number: 14 },
+  ], "me");
+  assert.deepEqual([...merged.keys()], ["fix/a"]);
+  assert.equal(merged.get("fix/a").number, 12);
+});
+
 test("addressedValue: when and which turn, a missing turn counts as zero", () => {
   assert.equal(addressedValue(7, 100), "100:7");
   assert.equal(addressedValue(undefined, 100), "100:0");

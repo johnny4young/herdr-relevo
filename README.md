@@ -232,6 +232,8 @@ git pull --ff-only
 node scripts/relevo.mjs doctor
 ```
 
+Settings › About shows the Relevo and Herdr versions installed, and says when a newer release is out.
+
 Mods reload by themselves. An update replaces only the files it installed and you left alone. A file you changed stays,
 with the new one beside it as `<file>.new`; your `config.js` and your own icons are never touched. Whatever it replaces
 goes to `~/.config/herdr-app/relevo-install/backups/`, which keeps the ten newest installs. The first run over files

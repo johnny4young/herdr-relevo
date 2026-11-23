@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { URL } from "node:url";
 import { fake, resetFake } from "./fake/herdr.mjs";
+import { fakeCx, find, flush, text } from "./fake/ui.mjs";
 import { PANELS, PANELS_FILE, PANEL_KEYS, applyPanels, findNode, panelCommands, panelShown, panelsText, parsePanels, readPanels } from "../lib/panels.js";
 
 const { Settings } = await import("../settings.js");
@@ -56,7 +57,7 @@ test("Settings shows each panel as the window has it and applies the choice on s
   fake.layout = clone(LAYOUT);
   findNode(fake.layout, "agents").hidden = true;
   const s = new Settings();
-  s.init({}, null);
+  s.init({}, fakeCx());
   assert.deepEqual(s.panels, { spaces: true, agents: false, tabs: true, files: true, reviews: true });
   s.panels.agents = true;
   s.panels.tabs = false;
@@ -68,6 +69,30 @@ test("Settings shows each panel as the window has it and applies the choice on s
 test("Settings leaves panels alone in a layout without Relevo's blocks", () => {
   fake.layout = { id: "root", children: [{ id: "tabs" }] };
   const s = new Settings();
-  s.init({}, null);
+  s.init({}, fakeCx());
   assert.equal(s.panels, null);
+});
+
+test("Settings ABOUT shows the installed Relevo and Herdr, and a newer release", async () => {
+  fake.layout = { id: "root", children: [] };
+  fake.files[`${HOME}/relevo-install/installed.json`] = JSON.stringify({ version: "0.15.2" });
+  fake.exec = (cmd) => cmd === "herdr-app" ? { stdout: "herdr-app 0.1.16\n" } : cmd === "gh" ? { stdout: "v0.16.0\n" } : null;
+  const s = new Settings(), cx = fakeCx();
+  s.init({}, cx);
+  await flush();
+  const shown = s.render();
+  assert.equal(text(find(shown, "settings-about-line")), "Relevo 0.15.2 · Herdr 0.1.16");
+  assert.equal(text(find(shown, "settings-about-update")), "0.16.0 available: git pull --ff-only, then ./install.sh");
+});
+
+test("Settings ABOUT says nothing about updates when GitHub can't be asked", async () => {
+  fake.layout = { id: "root", children: [] };
+  fake.files[`${HOME}/relevo-install/installed.json`] = JSON.stringify({ version: "0.15.2" });
+  fake.exec = (cmd) => cmd === "gh" ? { code: 1, stdout: "" } : null;
+  const s = new Settings();
+  s.init({}, fakeCx());
+  await flush();
+  const shown = s.render();
+  assert.equal(text(find(shown, "settings-about-line")), "Relevo 0.15.2");
+  assert.equal(find(shown, "settings-about-update"), null);
 });

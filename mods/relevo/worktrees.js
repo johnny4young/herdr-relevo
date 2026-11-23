@@ -40,11 +40,20 @@ async function githubMerged(main, force) {
   const hit = mergedOnGitHub.get(main);
   if (hit && !force && Date.now() - hit.at < MERGED_TTL) return hit.branches;
   let branches = new Map();
-  const repo = githubRepo(withoutLogin((await exec("git", ["-C", main, "remote", "get-url", "origin"])).stdout));
+  const remote = async (name) => githubRepo(withoutLogin((await exec("git", ["-C", main, "remote", "get-url", name])).stdout));
+  const merged = (repo, more = []) => exec("gh", ["pr", "list", "-R", repo, "--state", "merged", "--limit", "100", ...more,
+    "--json", "headRefName,isCrossRepository,headRepositoryOwner,number,mergedAt"]);
+  const repo = await remote("origin");
   if (repo) {
-    const r = await exec("gh", ["pr", "list", "-R", repo, "--state", "merged", "--limit", "100", "--json", "headRefName,isCrossRepository,number,mergedAt"]);
+    const r = await merged(repo);
     if (r.code !== 0) return hit?.branches ?? branches;
     branches = mergedByHead(JSON.parse(r.stdout));
+    // A fork's PRs merge in the repo it came from.
+    const upstream = await remote("upstream"), owner = repo.split("/")[0];
+    if (upstream && upstream !== repo) {
+      const u = await merged(upstream, ["--author", owner]);
+      if (u.code === 0) for (const [b, pr] of mergedByHead(JSON.parse(u.stdout), owner)) if (!branches.has(b)) branches.set(b, pr);
+    }
   }
   mergedOnGitHub.set(main, { at: Date.now(), branches });
   return branches;
