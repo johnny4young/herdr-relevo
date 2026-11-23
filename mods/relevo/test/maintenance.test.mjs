@@ -4,7 +4,7 @@ import "./fake/register.mjs";
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { fake, resetFake, calls } from "./fake/herdr.mjs";
-import { fakeCx, find, text, click, flush } from "./fake/ui.mjs";
+import { fakeCx, find, text, click, flush, spinners } from "./fake/ui.mjs";
 import { bulkPlan, laneOf, loseOf, reasonOf, totalKb } from "../lib/trees.js";
 import { readFileSync } from "node:fs";
 import { URL } from "node:url";
@@ -568,4 +568,12 @@ test("an unmerged branch turns its Delete branch into Confirm in place, with wha
   await settled();
   assert.equal(calls(/ branch -D old\/kept/).length, 1);
   assert.equal(find(ui(), `br-${main}:old/kept`), null);
+});
+
+test("a worktree whose folder is gone shows no spinner: nothing is left to check, only Forget", async () => {
+  const { ui } = await open([tree("gone", { gone: "folder is gone" })]);
+  const row = find(ui(), "wt-/w/gone");
+  assert.ok(row);
+  assert.equal(spinners(row), 0);
+  assert.match(text(row), /folder is gone · gone/);
 });

@@ -16,6 +16,22 @@ export const slug =(label) => (label ?? "").toLowerCase().normalize("NFKD").repl
 
 export const parseList = (text) => (text ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
+// The ABOUT line: what is installed, and a newer release when GitHub has one.
+export function aboutLine({ relevo, herdr, latest }) {
+  const parts = [`Relevo ${relevo ?? "not installed by install.sh"}`, herdr && `Herdr ${herdr}`].filter(Boolean);
+  const update = relevo && newer(latest, relevo) ? `${latest} available: git pull --ff-only, then ./install.sh` : null;
+  return { text: parts.join(" · "), update };
+}
+
+const parts = (v) => /^v?(\d+)\.(\d+)\.(\d+)$/.exec(v ?? "")?.slice(1).map(Number) ?? null;
+// Whether `a` is a later x.y.z than `b`; anything else is never newer.
+export function newer(a, b) {
+  const x = parts(a), y = parts(b);
+  if (!x || !y) return false;
+  const i = x.findIndex((n, k) => n !== y[k]);
+  return i >= 0 && x[i] > y[i];
+}
+
 export const isHex = (c) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c ?? "");
 
 const keyText = (k) => (/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k));

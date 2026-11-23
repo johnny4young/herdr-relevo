@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as example from "../config.example.js";
-import { WRITE_SCRIPT, renderConfig, validate, slug, parseList } from "../lib/settings.js";
+import { WRITE_SCRIPT, newer, renderConfig, validate, slug, parseList } from "../lib/settings.js";
 
 const plain = (m) => JSON.parse(JSON.stringify({ ...m }));
 
@@ -103,4 +103,13 @@ test("WRITE_SCRIPT: replaces the file in one rename, text passed as argv", async
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("newer: compares x.y.z numerically, and anything else is never newer", () => {
+  assert.equal(newer("0.15.10", "0.15.9"), true);
+  assert.equal(newer("v1.0.0", "0.99.99"), true);
+  assert.equal(newer("0.15.2", "0.15.2"), false);
+  assert.equal(newer("0.15.1", "0.15.2"), false);
+  assert.equal(newer(null, "0.15.2"), false);
+  assert.equal(newer("0.16.0-rc.1", "0.15.2"), false);
 });
