@@ -1,7 +1,7 @@
 // Everything one setup needs: accounts, contexts, folders and skills. Copy to config.js and edit.
 
 // Each Claude account: `launcher` is the shell command that starts it, `claudeDir` its
-// CLAUDE_CONFIG_DIR under home, `bg`/`fg` its chip colors.
+// CLAUDE_CONFIG_DIR under home, `bg`/`fg` its chip colors, `provider` its CLI (lib/providers.js; "claude" if unset).
 export const ACCOUNTS = [
   { key: "personal", label: "Personal", letter: "P", launcher: "claude", claudeDir: ".claude", bg: "#c3e88d", fg: "#1e2030" },
   {

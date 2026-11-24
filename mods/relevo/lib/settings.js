@@ -1,6 +1,7 @@
 // config.js as data: rendering it back to source and checking a setup before it is written.
 import { DEFAULT_DEEP_REVIEW, checkDeepReview } from "./deep-setup.js";
 import { OWNER } from "./github.js";
+import { PROVIDERS, providerOf } from "./providers.js";
 
 const WIDTH = 130;
 const SKILL_KEYS = ["review", "fix", "comments"];
@@ -90,7 +91,7 @@ export function renderConfig(c) {
     "// Everything personal to one setup: accounts, contexts, folders and skills. Relevo's Settings rewrites this file.",
     "",
     "// Each Claude account: `launcher` is the shell command that starts it, `claudeDir` its",
-    "// CLAUDE_CONFIG_DIR under home, `bg`/`fg` its chip colors.",
+    "// CLAUDE_CONFIG_DIR under home, `bg`/`fg` its chip colors, `provider` its CLI (lib/providers.js; \"claude\" if unset).",
     list("ACCOUNTS", c.ACCOUNTS),
     "",
     block(c.CODEX, 0, "export const CODEX = ", ";"),
@@ -135,9 +136,10 @@ export function validate(c) {
   const seen = new Set();
   accounts.forEach((a, i) => {
     const name = a.label || `Account ${i + 1}`;
-    for (const field of [...ACCOUNT_FIELDS, "claudeDir"]) {
+    for (const field of [...ACCOUNT_FIELDS, ...(providerOf(a).key === "claude" ? ["claudeDir"] : [])]) {
       if (!a[field]?.trim()) fail(`accounts.${i}.${field}`, `${name}: ${field} is required`);
     }
+    if (a.provider && !PROVIDERS[a.provider]) fail(`accounts.${i}.provider`, `${name}: provider is one of ${Object.keys(PROVIDERS).join(", ")}`);
     if (a.key && !/^[A-Za-z0-9_-]+$/.test(a.key)) fail(`accounts.${i}.key`, `${name}: the key takes letters, digits and dashes`);
     else if (a.key && (seen.has(a.key) || a.key === c.CODEX?.key)) fail(`accounts.${i}.key`, `${name}: key "${a.key}" is taken`);
     seen.add(a.key);

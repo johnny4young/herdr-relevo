@@ -1,18 +1,21 @@
 // Pure parts of a handoff: whose an agent is, and how the next one starts.
+import { providerOf, providerOfApp } from "./providers.js";
 
-// The account an agent runs on: the Claude hook's label, or Codex by its app.
+// The account an agent runs on: the Claude hook's label, or a single-account provider by its app.
 export function terminalAccount(terminal) {
-  return terminal?.labels?.["agent.account"] || (terminal?.agent === "codex" ? "codex" : null);
+  const p = providerOfApp(terminal?.agent);
+  return terminal?.labels?.["agent.account"] || (p && !p.caps.accounts ? p.key : null);
 }
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 
-// Between two Claude accounts with a known session file, the next agent resumes the same
+// Between two accounts of a provider that forks, with a known session file, the next agent resumes the same
 // conversation from a copy in its own config dir; anything else starts from a note.
 // The label is only trusted as <home>/<source claudeDir>/projects/<folder>/<uuid>.jsonl.
 export function handoffPlan({ from, to, transcript, accounts, home }) {
   const src = accounts.find((a) => a.key === from), dst = accounts.find((a) => a.key === to);
-  if (!src?.claudeDir || !dst?.claudeDir || from === to) return { mode: "note" };
+  if (!src || !dst || from === to || !providerOf(src).caps.fork || providerOf(dst) !== providerOf(src)) return { mode: "note" };
+  if (!src.claudeDir || !dst.claudeDir) return { mode: "note" };
   const root = `${home}/${src.claudeDir}/projects/`;
   const m = (transcript ?? "").startsWith(root) && new RegExp(`^([\\w-]+)/(${UUID})\\.jsonl$`, "i").exec(transcript.slice(root.length));
   if (!m) return { mode: "note" };

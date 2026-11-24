@@ -56,7 +56,7 @@ export class PreviewInbox {
     const t = theme(), s = get(), list = visibleItems(s.items, s.filter);
     return frame(t, "relevo-inbox").track_focus(this.h)
       .on_mouse_down("left", () => this.h.focus()).on_key_down((e, cx) => this.key(e, cx))
-      .child(heading(t, "Inbox", "PREVIEW · SYNTHETIC DATA"))
+      .child(heading(t, "Reviews", "PREVIEW · SYNTHETIC DATA"))
       .child(v_flex().flex_none().px(10).py(8).gap(6)
         .children([FILTERS.slice(0, 2), FILTERS.slice(2)].map((row) => h_flex().min_w(0).gap(6).children(row.map(([id, label]) =>
           button(t, `preview-filter-${id}`, `${label} ${visibleItems(s.items, id).length}`, () => this.chooseFilter(id),

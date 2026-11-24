@@ -135,20 +135,21 @@ test("a waiting agent's row says why, in its own line and colour; another's old 
   const { ui } = await open([agent("t1", { status: "blocked" }), agent("t2", { status: "working" })]);
   const view = ui(), why = find(view, "what-t1");
   assert.equal(text(why), "Run: rm -rf dist");
-  assert.equal(text(find(view, "ag-t1")), "app Run: rm -rf dist <1m");
+  assert.equal(text(find(view, "line-t1")), "app Run: rm -rf dist");
+  assert.equal(text(find(view, "age-t1")), "<1m");
   assert.equal(text(find(view, "what-t2")), "t2");
   assert.doesNotMatch(text(find(view, "ag-t2")), /stale/);
   assert.doesNotMatch(text(view), /Needs me.*app Run/);
 });
 
-test("a row says its folder only when the space's name doesn't", async () => {
+test("a row says its folder only when the space's name doesn't, selected or not", async () => {
   const list = [agent("t1", { space_name: "gos", cwd: "/home/test/code/repos", focused: true }), agent("t2", { space_name: "app", cwd: "/home/test/code/repos/app" })];
   const { ui } = await open(list);
   let drawn = ui();
   assert.equal(text(find(drawn, "folder-t1")), "code/repos");
   list[0].focused = false;
   list[1].focused = true;
-  assert.equal(find(ui(), "folder-t1"), null);
+  assert.equal(text(find(ui(), "folder-t1")), "code/repos");
   list[0].focused = true;
   drawn = ui();
   assert.equal(text(find(drawn, "folder-t1")), "code/repos");
@@ -277,21 +278,20 @@ const glance = () => {
   return [agent("t1", { status: "blocked" }), agent("t2", { status: "working" }), agent("t3"), agent("t4", { status: "done" })];
 };
 
-test("an agent takes one line until it is selected, and then shows its PR, model and context", async () => {
+test("every agent shows its PR, model and context below its first line, selected or not", async () => {
   const list = glance();
   const { ui } = await open(list);
   let drawn = ui();
-  assert.deepEqual(["t1", "t2", "t3", "t4"].map((id) => text(find(drawn, `ag-${id}`))), ["app Approve the plan <1m", "app writing #43", "app finished #40 <1m", "app t4 <1m"]);
+  assert.deepEqual(["t1", "t2", "t3", "t4"].map((id) => text(find(drawn, `line-${id}`))), ["app Approve the plan", "app writing #43", "app finished #40 <1m", "app t4"]);
   assert.equal(find(drawn, "age-t2"), null);
-  for (const id of ["more-t2", "pr-t2", "ctx-t2", "pr-t3"]) assert.equal(find(drawn, id), null, id);
-  assert.doesNotMatch(text(drawn), /Opus|125k|cache/);
-  assert.equal(find(drawn, "ag-t2").fill, null);
-  list[1].focused = true;
-  drawn = ui();
   // The tab's own words give way to "writing #43" on the first line, so they go below.
   assert.equal(text(find(drawn, "more-t2")), "#43 ◌ +5 −1 Opus 5.5 125k t2");
   assert.equal(text(find(drawn, "detail-t2")), "t2");
-  assert.equal(find(drawn, "pr-t3"), null);
+  assert.equal(text(find(drawn, "more-t3")), "#40 ✓ +9 −2 t3");
+  assert.equal(find(drawn, "ag-t2").fill, null);
+  list[1].focused = true;
+  drawn = ui();
+  assert.equal(text(find(drawn, "more-t2")), "#43 ◌ +5 −1 Opus 5.5 125k t2");
   assert.equal(find(drawn, "ag-t2").fill, "#selected");
   assert.equal(find(drawn, "ag-t2").stroke, "#accent");
   assert.notEqual(find(drawn, "ag-t3").stroke, "#accent");
@@ -351,7 +351,7 @@ test("a result being looked at stays under Done; a settled one goes under Settle
   assert.equal(text(find(drawn, "sec-done")), "DONE 1", "it stays while you look at it");
 });
 
-test("what waits on me carries its branch, its PR and its context once nearly full", async () => {
+test("what waits on me carries its age, branch, PR and model below", async () => {
   const now = Date.now() / 1000;
   const list = [agent("t1", { status: "blocked" }), agent("t2", { status: "done" })];
   const { ui } = await open(list);
@@ -360,9 +360,10 @@ test("what waits on me carries its branch, its PR and its context once nearly fu
   fake.stored["relevo.agentPRs"] = { t2: { number: 81, url: "https://github.com/me/app/pull/81", ci: "SUCCESS", add: 64, del: 9 } };
   fake.stored["relevo.agentContext"] = { t1: { model: "claude-opus-5-5", context: 172000, ttl: 3600, at: now } };
   const drawn = ui();
-  assert.match(text(find(drawn, "meta-t1")), /feat\/limits ctx 86%/);
-  assert.match(text(find(drawn, "meta-t2")), /#81 ✓ \+64 −9/);
-  assert.doesNotMatch(text(find(drawn, "meta-t2")), /main/);
+  assert.equal(text(find(drawn, "more-t1")), "<1m feat/limits Opus 5.5 172k · cache 60m");
+  assert.match(find(drawn, "ctx-t1").tip, /86% of its window/);
+  assert.match(text(find(drawn, "more-t2")), /#81 ✓ \+64 −9/);
+  assert.doesNotMatch(text(find(drawn, "more-t2")), /main/);
 });
 
 test("no row draws a narrow strip on its leading edge, selected or not", async () => {
@@ -436,7 +437,7 @@ test("a waiting agent says how long it has waited; a working one says no age", a
   assert.equal(text(find(drawn, "age-t1")), "5m");
   assert.equal(find(drawn, "age-t2"), null);
   assert.equal(text(find(drawn, "age-t3")), "5m");
-  assert.ok(find(find(drawn, "meta-t1"), "age-t1"), "what waits on me says its age on the line below");
+  assert.ok(find(find(drawn, "more-t1"), "age-t1"), "what waits on me says its age on the line below");
   mod.hovered = "t3";
   assert.equal(find(ui(), "age-t3"), null, "hover actions take the age's place");
 });
@@ -449,12 +450,12 @@ test("a row that waits on me keeps its first line for the reason: ticket and age
   mod.changed.t1.at = Date.now() - 4 * 60000;
   let drawn = ui();
   assert.doesNotMatch(text(find(drawn, "acct-t1") ?? {}), /ABC-142/);
-  assert.match(text(find(drawn, "meta-t1")), /^4m ABC-142$/);
+  assert.match(text(find(drawn, "more-t1")), /^4m ABC-142/);
   assert.match(text(find(drawn, "acct-t2")), /ABC-9/, "an idle row keeps its ticket where it was");
   list[0].focused = true;
   drawn = ui();
   assert.match(text(find(drawn, "acct-t1")), /ABC-142/);
-  assert.equal(find(drawn, "meta-t1"), null);
+  assert.equal(find(drawn, "ticket-t1"), null);
 });
 
 test("a remote agent wears its machine's color, as in Spaces, and an offline one says so and offers no reply", async () => {

@@ -40,7 +40,7 @@ export class SnapshotInbox {
     return frame(t, "snapshot-inbox").track_focus(this.h)
       .on_mouse_down("left", () => this.h.focus()).on_key_down((e, cx) => this.key(e, cx))
       .child(h_flex().h(36).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
-        .child(text("Inbox", 13).font_semibold()).child(div().flex_1()).child(text("REAL SNAPSHOT · READ ONLY", 11, t.ansi3)))
+        .child(text("Reviews", 13).font_semibold()).child(div().flex_1()).child(text("REAL SNAPSHOT · READ ONLY", 11, t.ansi3)))
       .child(v_flex().flex_none().px(10).py(8).gap(6)
         .child(text(`Captured: ${snapshotTime(source?.capturedAt)}`, 11, t.dim))
         .child(text("Saved state; no live updates.", 11, t.muted))
