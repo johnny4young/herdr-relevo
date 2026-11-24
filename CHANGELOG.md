@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.0 · 2026-11-24
+
+- **A contributor's PR you answered waits on its author.** A comment in the PR's conversation after its last push now counts as answering it, as a review does. Answered PRs no longer vanish from Now: they sit under **Waiting on others** as "changes requested · waiting on <author>" (or "approved", "you commented"), and the author's next push brings them back to Needs me.
+- **Every feature asks the account's provider.** Runs, second opinions, Deep review, the account menu, quotas, the token scan and Agents read what each CLI can do from `lib/providers.js` instead of naming Codex. Nothing changes for an existing config; the sidebar now launches Codex with its configured launcher, and Deep review's default Codex model shows its name.
+
 ## 0.17.0 · 2026-11-24
 
 - **Agents shows what every agent runs.** The line with its folder, PR, model, context and cache is on every row, not only the focused one, so you see which project and model each agent is on without moving between them. A row waiting on you keeps its first line for the reason and puts its age, ticket and branch on that line.
