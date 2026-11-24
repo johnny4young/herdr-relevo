@@ -962,7 +962,7 @@ test("each agent's PR is published for the agents list, also from a worktree wit
   const { ui } = await open();
   for (let i = 0; i < 12; i++) await flush();
   ui();
-  assert.deepEqual(fake.stored["relevo.agentPRs"], { t1: { number: 9, url: "https://github.com/me/app/pull/9", ci: "SUCCESS", add: 4, del: 2 } });
+  assert.deepEqual(fake.stored["relevo.agentPRs"], { t1: { number: 9, url: "https://github.com/me/app/pull/9", base: "main", ci: "SUCCESS", add: 4, del: 2 } });
 });
 
 test("a send stuck on an hc call that never answered stops blocking clicks after a while", async () => {

@@ -15,7 +15,7 @@ import { openReplies } from "./replies.js";
 import { button, spinner, withKey, foldRow, FOLDS, shortcutBindings, icon, checkbox, keycap, row, diffRatio, tabButton, keyBar, actionButton } from "./ui.js";
 import { ShortcutHelp } from "./shortcut-help.js";
 import { INBOX_SHORTCUT_ACTIONS, barKeys } from "./lib/shortcut-help.js";
-import { agentPRs, seconds } from "./lib/github.js";
+import { AGENT_PRS, agentPRs, seconds } from "./lib/github.js";
 import { isAddressed } from "./lib/addressed.js";
 import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
 import { STATS_FOR } from "./lib/refresh.js";
@@ -53,7 +53,6 @@ const hc = (args) => exec("hc", args);
 const ASK_LINES = 8;
 // Why each waiting agent waits: address -> a short line, for the agents list.
 const REASONS = "relevo.reasons";
-const AGENT_PRS = "relevo.agentPRs";
 // Open PRs in Now by repo name, and how many need you, for the Spaces list.
 export const REPO_PRS = "relevo.repoPRs";
 // The ? sheet: the Inbox's keys, then the review pane's.

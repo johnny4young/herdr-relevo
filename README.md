@@ -1,6 +1,6 @@
 # Relevo
 
-A Herdr layout for running coding agents across several Claude accounts: quotas per account, an Inbox where
+A Herdr layout for running coding agents across several Claude accounts: quotas per account, a Reviews panel where
 you answer agents waiting on you and triage pull requests, uncommitted work and merged worktrees, Runs that hand a
 task to one agent and its review to another (to fix a pull request, get a second opinion or start from a prompt),
 a review pane for local changes or whole PRs that sends line, range and file comments to the agent, Spaces by
@@ -33,7 +33,7 @@ Spanish for relay: the work passes between you and your agents, and the list alw
 
 ## Runs: hand a task to two agents
 
-The panel has two views. **Reviews** is the Inbox described below. Besides review requests, it lists people's open PRs on your repos, asked or not, until you review their last push; Settings › Reviews adds orgs or other owners (`REVIEW_OWNERS`), and bots stay out. **Runs** is for work you hand off: one agent writes it, your tests run, a second agent reviews it, and the result waits for your decision.
+The panel has two views. **Reviews** is described below. Besides review requests, it lists people's open PRs on your repos, asked or not, until you review their last push; Settings › Reviews adds orgs or other owners (`REVIEW_OWNERS`), and bots stay out. **Runs** is for work you hand off: one agent writes it, your tests run, a second agent reviews it, and the result waits for your decision.
 
 1. **New run** (`n`) takes a prompt. Its first line names the run.
 2. Check the repository, the tests, who writes it and who reviews it; they come filled in. The repository is the one you are in (a run's worktree gives the repository it came from), the tests are what it declares (the `test` script of `package.json` with npm, pnpm, yarn or bun, `go test ./...`, `cargo test`, `pytest` or `make test`), and the agents are the ones you used last unless one is out of quota. The line above the setup reads it all, for example "app · own worktree · Team → Codex · npm test".
@@ -114,15 +114,15 @@ them on a click and offers **close 3** (it asks once more). Nothing closes on it
 
 ### Answer agents without leaving your work
 
-A waiting agent's question shows in the Inbox with its choices, its preview and a note field. Click a choice and
+A waiting agent's question shows in Reviews with its choices, its preview and a note field. Click a choice and
 the agent continues; multiple choice gets a Submit. Any other time, `⌥⌘S` sends a message or one of your saved
 replies, like "commit and push". `⌥⌘E` finds a past session of this repo and resumes it with its account.
 
-![An agent's question answered from the Inbox](screenshots/answer.png)
+![An agent's question answered from Reviews](screenshots/answer.png)
 
 ### See what happened while you were away
 
-Back after ten minutes or more, a card at the top of the Inbox lists which agents finished and what they said last,
+Back after ten minutes or more, a card at the top of Reviews lists which agents finished and what they said last,
 which ones wait for you, what changed on your PRs and how much quota and agent time went. Click a row to go there.
 
 ![While you were away: a finished and a waiting agent, a PR and quota spent](screenshots/away.png)
@@ -219,7 +219,7 @@ makes the same choice at install; later installs keep it, and `--only all` bring
 It needs `git` and the GitHub CLI (`gh auth login`) on your PATH, and `claude` and optionally `codex`.
 `node scripts/relevo.mjs doctor` checks the installed files, the keys and those programs, and says what is missing.
 
-Waiting agents' questions are answered from the Inbox for Claude Code and Codex. Codex only asks them in Plan mode;
+Waiting agents' questions are answered from Reviews for Claude Code and Codex. Codex only asks them in Plan mode;
 outside it, it decides on its own.
 
 ## Update

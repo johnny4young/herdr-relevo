@@ -1,9 +1,9 @@
 # Relevo
 
 A Herdr window for someone who runs coding agents on several Claude accounts at once. The left sidebar shows
-each account's 5-hour and 7-day quota above the spaces and agents; the tab bar gains an Inbox button with a
-count; a right panel holds the Inbox (agents waiting on you, uncommitted agent work, pull requests that need
-something, merged worktrees, agent time today), the Files and Changes panels and Issues. From the Inbox you open
+each account's 5-hour and 7-day quota above the spaces and agents; the tab bar gains a Reviews / Runs toggle with a
+count; a right panel holds Reviews (agents waiting on you, uncommitted agent work, pull requests that need
+something, merged worktrees, agent time today), the Files and Changes panels and Issues. From Reviews you open
 a review pane that sends line comments to the agent, launch PR skills with the right account, and hand an agent's
 task to another account.
 
@@ -26,14 +26,14 @@ task to another account.
   `±3` files changed, and the lane glyph of its most urgent agent. A worktree's space sits under its checkout (26px,
   tree icon, its branch). Drag a space onto another space to move it, onto a folder to put it there. The spaces' real
   order follows the list, so Herdr's `⌃1`…`⌃9` and `⌃⌘↑`/`⌃⌘↓` go through what is shown.
-- **Tab bar** (42px): relevo-tabs (Herdr's tabs), an **Inbox** button (92px) with a red count badge, the issues button (78px)
+- **Tab bar** (42px): relevo-tabs (Herdr's tabs), a **Reviews / Runs** toggle (92px) with a red count badge, the issues button (78px)
   and a panel toggle (44px, `panel.svg`).
 - **Right panel** (380px): a panel bar (66px) with the branch chips of the focused checkout and an
-  "Open file in …" finder field (`⌘O`), over a stack of Inbox, Files, Changes and Issues.
+  "Open file in …" finder field (`⌘O`), over a stack of Reviews, Files, Changes and Issues.
 - **Files**: Herdr's tree with a right-click menu (New file, New folder, Rename, Move to Trash, Reveal in Finder,
   Copy path, Copy relative path). A preview, and a file opened from the finder, show **Edit**; editing adds a
   7px unsaved dot and **Save** (`⌘S`), and a change on disk shows a bar with **Reload** and **Keep mine**.
-- **Inbox** (Reviews): a rounded (10px) list with two underlined views, **Now** and **Maintenance**, each with its count,
+- **Reviews**: a rounded (10px) list with two underlined views, **Now** and **Maintenance**, each with its count,
   then ?, ↻ and the focus button. Now opens with a legend, `● Needs me n · In flight n · Ready n`, and how long ago PRs
   were read; its rows are grouped by whose turn it is: NEEDS ME (agents that ask, failed landings, run results and
   decisions, review requests, your PRs with failing or cancelled CI, requested changes, threads, a conflict or a
@@ -200,15 +200,15 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   the window resets. Every 30 s it rereads the statusline snapshots; every 5 min it asks the usage endpoints. Each window shows the newest source that still has it. A statusline should write its snapshot only when the values change, so its date means something.
   At 80% and again at 100% a quota plays `sounds/quota.mp3` and posts a toast; at 100% the toast hands off that
   account's focused, waiting or working agent.
-- **Focus picker**: `All`, or one context: the Inbox shows only that context's repos, its space folder unfolds and
+- **Focus picker**: `All`, or one context: Reviews shows only that context's repos, its space folder unfolds and
   the other's folds, and alerts from the other context are muted. `⌥⌘F` cycles it.
-- **Inbox scans**: an in-memory check every 1.5 s of agents, their turns and spaces; a change rescans local work or
+- **Reviews scans**: an in-memory check every 1.5 s of agents, their turns and spaces; a change rescans local work or
   worktrees. So does a shell command ending in a repo, and a change to the git state of a repo with a resting agent
   (`watchFolder` on its git folder, 2 s after the last write; new objects and locks don't count). Reads use
   `--no-optional-locks` with `core.fsmonitor` and `diff.autoRefreshIndex` off, so they can't wake the watch.
   Fallbacks: local work 60 s and worktrees 10 min while the window is active, PRs 3 min. GitHub's merged-PR lists
   are cached 15 min per repo;
-  ↻ skips the cache. The Inbox redraws only when a card changes.
+  ↻ skips the cache. Reviews redraws only when a card changes.
 - **PR skills**: the left part runs the skill (`/review`, `/fix-ci`, `/address-comments` by default) in a new tab
   in the repo's space with the repo's account, or the next account in `FALLBACK` when it is at 100%. The card then
   follows that agent ("reviewing…", **Agent**). ▾ opens a 320px menu: one chip per account (Codex included), the
@@ -224,8 +224,8 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
 - **Addressed**: ✓ stores the moment in `~/.local/state/relevo/addressed.json`; the card stays out of its group and
   the count until the PR's `updatedAt` is later (a comment, review or push). On an uncommitted-work card ✓ sets the
   terminal label `relevo.addressed=<ms>:<turn>` with `hc label`; the card returns when the agent works, waits or
-  starts a later turn. A label takes about 0.65 s to show, so the Inbox keeps the pending value until then.
-- **Answering from the Inbox**: before any key, it reads the screen again and compares the dialog with the card as
+  starts a later turn. A label takes about 0.65 s to show, so Reviews keeps the pending value until then.
+- **Answering from Reviews**: before any key, it reads the screen again and compares the dialog with the card as
   drawn: from the dialog's top edge, a whole solid line at the margin (the whole screen without one; a command's lines
   are indented and `╌` fences a diff), to its last choice, plus each choice's label and whether it has Submit. The
   cursor, boxes and a preview beside the choices don't count. If they differ it sends nothing, toasts "The question
@@ -237,7 +237,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
 - **PR alerts**: every PR scan compares your open PRs with the last one and posts a toast when CI fails or passes,
   new review threads appear, or a PR is approved or gets changes requested (a sound on the bad ones). A PR that
   leaves the open list and shows among your merged ones says **Merged**; when its worktree is still here, the scan
-  marks it at once and the toast's click opens the Inbox with that row selected, so **Remove** is right there.
+  marks it at once and the toast's click opens Reviews with that row selected, so **Remove** is right there.
 - **Runs** (the same panel, `relevo.goals.mode`): a header "Runs · a run is a goal you gave your agents" with **n New run**, ?, ↻ and
   the focus button; the legend `Needs me n · In flight n · Ready n`; run rows under NEEDS ME, IN FLIGHT, READY and NOT STARTED,
   "N older finished runs" folded, a "Saved setups · n" line with **Show** that opens in place (one row per setup: name, repository · writer + reviewer · attempts,
@@ -278,12 +278,12 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   A merged linked PR is remembered in shared `relevo.runs.merged` once the landing list has seen it merge.
 - **Run alerts**: a run result that comes to wait on you posts "Result ready · <task>" with the reviewer's verdict; the click opens Reviews with that result selected, and **Review result** there opens the task in Runs. Each result is announced once per revision and attempt, and the first read after a start only learns what already waits. Accepting several results at once posts "Batch accepted · N results" with their repository; its click opens the run. Results outside the focused context stay quiet.
 - **While you were away**: back after 10 minutes or more behind other apps (or with the Mac asleep), a card tops
-  the Inbox with the agents that finished (and their last line), the ones waiting, what changed on your PRs, the
+  Reviews with the agents that finished (and their last line), the ones waiting, what changed on your PRs, the
   quota each account spent and the agent time. Each row goes to its agent or PR; **✓** dismisses it.
 - **Sessions**: `⌥⌘E` lists past Claude sessions of the focused repo (its worktrees included), newest first, with
   title, folder, branch, PR and account; Tab switches to every repo. Typing filters, Enter resumes the session in its
   folder with its account (`--resume`). Running sessions and ones whose transcript Claude deleted aren't offered.
-- **Quick replies**: `⌥⌘S`, ↩ beside an agent in the list, or **Reply** on an Inbox card opens a field with the
+- **Quick replies**: `⌥⌘S`, ↩ beside an agent in the list, or **Reply** on a Reviews card opens a field with the
   replies from `config.js` (`REPLIES`, editable in Settings). The list has the keyboard: ↑/↓ and Enter, or a
   reply's number, sends it; typing moves to the field, whose Enter sends what you typed. It goes with `hc send`
   without `--force`, so it never answers a question the agent is asking. Saved replies come first, ordered by how
@@ -348,9 +348,9 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
 - **Worktrees**: **Remove** turns into a red **Confirm** ("closes its space" when it has one); confirming closes the
   space, runs `git worktree remove` (never forced) and `git branch -d`, shows a spinning "Removing…" and folds
   the row away. Remove N in Maintenance asks once for the lot and then does this for each row.
-- **Inbox count**: local cards plus fresh, unseen PRs. It pulses while it is higher than when you last opened
-  the Inbox.
-- **Keyboard**: `⌥⌘3` shows the Inbox and gives it the keyboard (accent border); ↑/↓ select cards and rows,
+- **Reviews count**: local cards plus fresh, unseen PRs. It pulses while it is higher than when you last opened
+  Reviews.
+- **Keyboard**: `⌥⌘3` shows Reviews and gives it the keyboard (accent border); ↑/↓ select cards and rows,
   Enter runs the main action (go to the agent, review, run the PR's skill or go to its agent, open the
   worktree), Esc returns to the previous pane. In Maintenance `x`, `X`, `d` and Esc work the selection, and `s`, `o`, `d` the
   selected worktree; `?` lists them. `⌘J` jumps to the next agent waiting on you and says how many are
@@ -390,9 +390,9 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   settings, with a backup; `HOOK.md` is the runbook for an agent.
 - **Why an agent waits**: `reasonOf` gives at most 40 characters from the screen or, when that says nothing, the
   agent's report: `Run: <first line> · +N lines`, `Edit: <file>`, `Fetch: <url>`, `Plan to approve`, its question or
-  last words. The Inbox publishes them in shared `relevo.reasons`. A blocked row in the Agents list gets one as an 11px
+  last words. Reviews publishes them in shared `relevo.reasons`. A blocked row in the Agents list gets one as an 11px
   second line (44px tall) and the away card uses it. It can be cut, so no answer button ever sits beside it.
-- **mods/relevo-agents**: Herdr's agents list with a 12px folder icon in its sidebar folder's color (the Spaces folders' rules, name on hover), a second 11px line with its PR (`#24 ✓ +12 −3`, from the Inbox's shared `relevo.agentPRs`; a click opens it) and a dim path when the folder isn't the space's name, account and ticket chips (from the `agent.account` and
+- **mods/relevo-agents**: Herdr's agents list with a 12px folder icon in its sidebar folder's color (the Spaces folders' rules, name on hover), a second 11px line on every row with its PR (`#24 ✓ +12 −3`, from Reviews' shared `relevo.agentPRs`; a click opens it) and a dim path when the folder isn't the space's name, account and ticket chips (from the `agent.account` and
   `agent.jira` labels and the shared `relevo.setup`) and a background marker from `agent.bg` (`⧗2` in `working`
   color, the full "2 shells" in its tooltip).
 - **mods/relevo-files**: Herdr's files tree with a right-click menu (`role: "menu"`), a name dialog for New file,
@@ -417,7 +417,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   sessions are placed too, but only to keep a space from going quiet, and are drawn in Agents alone. The data comes from shared `relevo.alive`, which the Relevo mod's `AliveWatch` (`alive.js`) writes every 10 s while the
   window is in front (terminal rows with ports, and `outsideServers`: listening processes no Herdr terminal owns, run from
   home, with the `.app` they came from). Terminal actions go back as `relevo.term-<open|peek|restart|stop|close>-<address>`.
-  A row's PR chip reads shared `relevo.repoPRs` (the Inbox's Now PR rows by repo name: open, and how many need me); a
+  A row's PR chip reads shared `relevo.repoPRs` (Reviews' Now PR rows by repo name: open, and how many need me); a
   click sends `relevo.reviews-for-<repo>`, which lands on Now with the filter set to it. `quietSpaces` keeps when each
   space was last busy (active, an agent not idle, changed files, a session, a port, a running terminal or a PR that needs
   me) in localStorage, starting from its newest terminal; past a day it goes under the folder's quiet line, last in the
@@ -442,7 +442,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
 - Quotas need Claude Code's Keychain item per config dir (`Claude Code-credentials-<sha256(dir)[0:8]>`); an
   expired token is skipped, never refreshed.
 - Plain containers can't be scrolled from code and virtual lists forbid handlers in rows, so while the keyboard
-  moves down the Inbox hides what is above the selection (keeping one) and shows "↑ N above · Esc".
+  moves down Reviews hides what is above the selection (keeping one) and shows "↑ N above · Esc".
 - Claude Code's menus differ by variant: a number answers a plain single choice, only moves the cursor in one with
   previews, and only toggles a box in a multiple choice. Arrows and Enter work in every single choice.
 - `hc keys` rejects non-ASCII keys and drops the whole call; send words as a paste (`hc send`), never key by key.

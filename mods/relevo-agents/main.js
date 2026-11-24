@@ -1,4 +1,4 @@
-// Agents in grouped or priority views, one line each; the focused one opens a second line.
+// Agents in grouped or priority views: a line for what each is doing and one for where and on what model.
 // Parents take their most urgent sub-agent's place. A viewed done agent stays in Needs me until left.
 
 import { View, div, image, svg } from "gpui-kit";
@@ -102,10 +102,10 @@ function contextTag(t, a, c, now) {
   // The transcript doesn't say the window: past the standard one it can only be the long one.
   const pct = Math.min(100, (c.context / (c.context > WINDOW ? LONG_WINDOW : WINDOW)) * 100);
   return h_flex().id(`ctx-${a.address}`).flex_none().gap(5).items_center().text_color(left > 0 && left < 600 ? t.ansi3 : t.dim)
-    .tooltip(`${modelName(c.model)} · ${c.context.toLocaleString("en-US")} tokens of context. Its prompt cache lasts ${c.ttl / 60} min after the last message; past that, the next message writes it all again.`)
+    .tooltip(`${modelName(c.model)} · ${c.context.toLocaleString("en-US")} tokens of context (${Math.round(pct)}% of its window). Its prompt cache lasts ${c.ttl / 60} min after the last message; past that, the next message writes it all again.`)
     .child(modelName(c.model))
     .child(div().relative().w(BAND).h(3).flex_none().rounded(2).bg(t.raised)
-      .child(div().absolute().left(0).top(0).h(3).rounded(2).bg(pct >= 80 ? t.ansi3 : t.accent).w(Math.max(3, Math.round((BAND * pct) / 100)))))
+      .child(div().absolute().left(0).top(0).h(3).rounded(2).bg(pct >= CTX_WARN ? t.ansi3 : t.accent).w(Math.max(3, Math.round((BAND * pct) / 100)))))
     .child(kTokens(c.context))
     .when(Boolean(cache), (el) => el.child(cache));
 }
@@ -126,7 +126,7 @@ const SECTION = {
   4: { id: "sec-me", label: "Needs me", status: "blocked" }, 3: { id: "sec-done", label: "Done", status: "done" },
   2: { id: "sec-flight", label: "Working", status: "working" }, 1: { id: "sec-idle", label: "Idle", status: null },
 };
-// Past this share of its window an agent's context shows on its line.
+// Past this share of its window an agent's context band turns yellow.
 const CTX_WARN = 80;
 // Where a row's words start, past its glyph; the row's own padding and outline come before it.
 const GUTTER = 22, ROW_PAD = 7;
@@ -642,7 +642,7 @@ export default class Agents extends View {
         : pr ? `${a.status === "working" ? "writing" : "finished"} #${pr.number}` : told);
       const selected = Boolean(a.focused);
       const rested = a.status === "idle" || a.status === "done";
-      const line = h_flex()
+      const line = h_flex().id(`line-${a.address}`)
         .h(28)
         .flex_none()
         .items_center()
@@ -667,38 +667,30 @@ export default class Agents extends View {
           .child(pin))
         .when(this.hovered !== a.address && !away && a.status !== "working" && Boolean(when) && !tight, el => el.child(div().id(`age-${a.address}`).flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
         .when(Boolean(tag), el => el.child(tag));
-      // The second line, built for the selected agent only: what every row used to carry.
+      // The second line, on every row: where it runs, its PR and model. What waits on me also moves its age,
+      // ticket and branch here, so its first line keeps the reason.
       const below = () => {
         const pic = icon(a.program, 12, t.muted), ctx = contexts[a.address];
         const place = folderOfSpace(spaceList.find((s) => s.id === a.space), folders, ps);
         const folder = folderNote(cwd, a.space_name);
         const extra = told && told !== what ? told : null;
-        if (!(pic || place || pr || ctx || machine || folder || extra)) return null;
+        const raw = tight ? paneOf.get(a.pane)?.branch : null, ticket = tight ? own["agent.jira"] : null;
+        const branch = raw && raw !== "main" && raw !== "master" ? raw : null, age = tight && when ? duration(now - when) : null;
+        if (!(pic || place || pr || ctx || machine || folder || extra || age || ticket || branch)) return null;
         return h_flex().id(`more-${a.address}`).h(16).mb(5).pl(GUTTER).gap(6).items_center().overflow_hidden().text_size(11).text_color(t.dim)
+          .when(Boolean(age), (el) => el.child(div().id(`age-${a.address}`).flex_none().child(age)))
+          .when(Boolean(ticket), (el) => el.child(div().id(`ticket-${a.address}`).flex_none().child(ticket)))
           .when(Boolean(pic), (el) => el.child(pic))
           .when(Boolean(place), (el) => el.child(div().id(`in-folder-${a.address}`).flex_none().tooltip(place.name)
             .child(svg("mods/workspace-chrome/folder.svg").size(12).text_color(folderColor(place.color, t.dim)))))
+          .when(Boolean(branch), (el) => el.child(div().id(`branch-${a.address}`).flex_shrink(1).min_w(0).truncate().child(branch)))
           .when(Boolean(pr), (el) => el.child(prTag(t, a, pr)))
           .when(Boolean(ctx), (el) => el.child(contextTag(t, a, ctx, now)))
           .when(Boolean(machine), (el) => el.child(div().flex_none().text_color(look.color).child(machineTip)))
           .when(Boolean(folder), (el) => el.child(div().id(`folder-${a.address}`).flex_none().max_w(110).truncate().child(folder)))
           .when(Boolean(extra), (el) => el.child(div().id(`detail-${a.address}`).flex_1().min_w(0).truncate().child(extra)));
       };
-      // By state, what waits on me carries one dim line: its age, ticket, branch, PR, and its context once nearly full.
-      const meta = () => {
-        const ctx = contexts[a.address], raw = paneOf.get(a.pane)?.branch, ticket = own["agent.jira"];
-        const branch = raw && raw !== "main" && raw !== "master" ? raw : null;
-        const pct = ctx ? Math.round(Math.min(100, (ctx.context / (ctx.context > WINDOW ? LONG_WINDOW : WINDOW)) * 100)) : 0;
-        if (!(when || ticket || branch || pr || pct >= CTX_WARN)) return null;
-        return h_flex().id(`meta-${a.address}`).h(16).mb(4).pl(GUTTER).gap(8).items_center().overflow_hidden().text_size(11).text_color(t.dim)
-          .when(Boolean(when), (el) => el.child(div().id(`age-${a.address}`).flex_none().child(duration(now - when))))
-          .when(Boolean(ticket), (el) => el.child(div().id(`ticket-${a.address}`).flex_none().child(ticket)))
-          .when(Boolean(branch), (el) => el.child(div().flex_shrink(1).min_w(0).truncate().child(branch)))
-          .when(Boolean(pr), (el) => el.child(prTag(t, a, pr)))
-          .when(pct >= CTX_WARN, (el) => el.child(div().id(`ctx-hot-${a.address}`).flex_none().text_color(t.ansi3)
-            .tooltip(`${pct}% of its context window used`).child(`ctx ${pct}%`)));
-      };
-      const second = selected ? below() : queued ? meta() : null;
+      const second = below();
       return v_flex()
         .id(`ag-${a.address}`)
         .px(ROW_PAD)

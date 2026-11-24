@@ -185,10 +185,13 @@ export function openPRs(data) {
   return [...seen.values()];
 }
 
+// Shared: each agent's PR by terminal address.
+export const AGENT_PRS = "relevo.agentPRs";
+
 // Each agent's PR: the one it was started for, else the one at its commit (a review's branch has its own name),
 // else the one for its branch, in its repo.
 export function agentPRs(places, started, prs) {
-  const row = (p) => ({ number: p.number, url: p.url, ci: p.ci, add: p.additions ?? 0, del: p.deletions ?? 0 });
+  const row = (p) => ({ number: p.number, url: p.url, ...(p.baseRefName ? { base: p.baseRefName } : {}), ci: p.ci, add: p.additions ?? 0, del: p.deletions ?? 0 });
   const byUrl = new Map(prs.map((p) => [p.url, p]));
   const out = {};
   for (const { address, repo, branch, head } of places) {

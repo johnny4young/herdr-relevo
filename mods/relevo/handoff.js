@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, exec, run, home, agents, panes, terminals, notify, props, openOverlay, closeOverlay } from "herdr";
 import { resetClock } from "./lib/time.js";
-import { ACCOUNTS, CODEX, accountOf, agentAccounts, launchArgv, loadClaudeQuotas, chip, full } from "./accounts.js";
+import { ACCOUNTS, accountOf, providerFor, agentAccounts, launchArgv, loadClaudeQuotas, chip, full } from "./accounts.js";
 import { band, digit, grabFocus, held, keycap, spinner } from "./ui.js";
 import { marginOf } from "./lib/margin.js";
 import { tightestWindow } from "./lib/account-status.js";
@@ -148,7 +148,7 @@ export class Handoff {
         } else {
           const path = await writeNote(p, to);
           if (!path) return fail("Could not write the handoff note");
-          argv = launchArgv(to, notePrompt(p.from === CODEX.key ? "Codex" : "Claude Code", path));
+          argv = launchArgv(to, notePrompt(providerFor(p.from).name, path));
         }
         const before = new Set(agents().map((a) => a.address));
         run("tab.new", { space: p.space, folder: p.cwd, name: tab, argv });

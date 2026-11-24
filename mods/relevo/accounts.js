@@ -4,17 +4,19 @@ import * as config from "./config.js";
 import { FIVE_HOURS, WEEK, windowOf, windowLabel } from "./lib/time.js";
 import { accountFor } from "./context.js";
 import { shellArgv } from "./lib/session-env.js";
+import { providerOf } from "./lib/providers.js";
 
 export const API_QUOTAS = "relevo.quota.api";
 
 // `file` is the statusline's quota snapshot for that account.
-const withFile = (a) => ({ ...a, file: `quota-${a.key}.json` });
-export const ACCOUNTS = CONFIGURED.map(withFile);
-export const CODEX = withFile(CODEX_ACCOUNT);
+const withFile = (a, provider) => ({ ...a, provider: a.provider ?? provider, file: `quota-${a.key}.json` });
+export const ACCOUNTS = CONFIGURED.map((a) => withFile(a, "claude"));
+export const CODEX = withFile(CODEX_ACCOUNT, "codex");
 
 export const accountOf = (key) => [...ACCOUNTS, CODEX].find((p) => p.key === key) ?? ACCOUNTS[0];
+export const providerFor = (key) => providerOf(accountOf(key));
 // USE_CODEX = false in config.js keeps Codex out of every list and every default, and so does a machine without the
-// codex command: the Inbox looks for it once (CODEX_FOUND).
+// codex command: Reviews looks for it once (CODEX_FOUND).
 export const CODEX_FOUND = "relevo.codex.found";
 export const codexOn = () => config.USE_CODEX !== false && shared(CODEX_FOUND) !== false;
 export const agentAccounts = () => (codexOn() ? [...ACCOUNTS, CODEX] : ACCOUNTS);
