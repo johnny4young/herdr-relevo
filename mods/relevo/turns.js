@@ -1,7 +1,7 @@
 // A receipt for each agent turn, Herdr's and Claude Desktop's: how much it took, and how much went to subagents.
 // A heavy turn gets an alert; the Tokens dialog lists the day's heaviest.
 import { exec, home, notify, shared, setShared } from "herdr";
-import { ACCOUNTS } from "./accounts.js";
+import { claudeAccounts } from "./accounts.js";
 import { compact } from "./lib/usage.js";
 import { AWK, CLAUDE_SCAN, parseList, parseScan, plan } from "./lib/usage-scan.js";
 import { SIZES, heavy, keepReceipts, receiptOf, turnRanges } from "./lib/turns.js";
@@ -90,7 +90,7 @@ export class TurnWatch {
   async transcriptOf(id) {
     if (!id || !/^[\w-]+$/.test(id)) return null;
     if (!this.paths.has(id)) {
-      const globs = ACCOUNTS.filter((a) => a.claudeDir).map((a) => `${home()}/${a.claudeDir}/projects/*/${id}.jsonl`);
+      const globs = claudeAccounts().map((a) => `${home()}/${a.claudeDir}/projects/*/${id}.jsonl`);
       const r = await exec("sh", ["-c", FIND, "sh", ...globs]).catch(() => null);
       const found = r?.stdout.split("\n").find(Boolean) ?? null;
       if (!found) return null;

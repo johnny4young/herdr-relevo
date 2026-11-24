@@ -64,9 +64,14 @@ export class Settings {
     return { id: ++this.seq, account: r.account, effort: r.effort ?? "", inputs: { model: this.input(r.model ?? "", "default model") } };
   }
 
+  // The accounts as the form has them now, for the provider each deep reviewer runs on.
+  deepAccounts() {
+    return [...this.accounts.map((r) => ({ key: this.keyOf(r), provider: r.orig?.provider })), { key: CODEX.key, provider: "codex" }];
+  }
+
   changeDeep(row, change, cx) {
     Object.assign(row, change);
-    if (!effortsFor(row.account, CODEX.key).includes(row.effort)) row.effort = "high";
+    if (!effortsFor(row.account, this.deepAccounts()).includes(row.effort)) row.effort = "high";
     if (this.tried) this.errors = validate(this.collect());
     cx.notify();
   }
@@ -98,7 +103,7 @@ export class Settings {
     return h_flex().id(`settings-deep-${row.id}`).gap(6).items_center()
       .child(this.choice(t, `sd-account-${row.id}`, accounts, row.account, (account, cx) => this.changeDeep(row, { account }, cx), this.bad(`deepReview.${i}.account`)))
       .child(this.field(t, `sd-model-${row.id}`, row.inputs.model, `deepReview.${i}.model`, COLS.model))
-      .child(this.choice(t, `sd-effort-${row.id}`, effortsFor(row.account, CODEX.key).map((e) => [e, e]), row.effort, (effort, cx) => this.changeDeep(row, { effort }, cx),
+      .child(this.choice(t, `sd-effort-${row.id}`, effortsFor(row.account, this.deepAccounts()).map((e) => [e, e]), row.effort, (effort, cx) => this.changeDeep(row, { effort }, cx),
         this.bad(`deepReview.${i}.effort`)))
       .child(div().flex_1())
       .child(button(t, `sd-remove-${row.id}`, "×", (cx) => this.removeDeep(row, cx), { size: "sm", tip: "Remove reviewer", disabled: this.deep.length < 2 }));

@@ -1,6 +1,6 @@
 // A new agent on a PR in its own worktree, and the skill usage the PR menu ranks by.
 import { exec, home, run, spaces, notify } from "herdr";
-import { ACCOUNTS, accountOf, launchArgv } from "./accounts.js";
+import { accountOf, claudeAccounts, launchArgv } from "./accounts.js";
 import { REMOVE_TIMEOUT, checkoutOf } from "./worktrees.js";
 import { parseUses, worktreePath, localBranch, checkoutArgs, sessionPrompt, sessionSpaceName } from "./lib/prmenu.js";
 
@@ -10,7 +10,7 @@ let uses = null;
 // How often each slash command was typed in any account's Claude history, read at most once an hour.
 export async function skillUses() {
   if (uses && Date.now() - uses.at < HOUR) return uses.counts;
-  const files = [...new Set(ACCOUNTS.filter((a) => a.claudeDir).map((a) => `${home()}/${a.claudeDir}/history.jsonl`))];
+  const files = [...new Set(claudeAccounts().map((a) => `${home()}/${a.claudeDir}/history.jsonl`))];
   const r = await exec("sh", ["-c", 'for f; do [ -f "$f" ] && grep -oE \'"display":"/[A-Za-z0-9:._-]+\' "$f"; done | sort | uniq -c', "sh", ...files]);
   uses = { at: Date.now(), counts: parseUses(r.stdout) };
   return uses.counts;

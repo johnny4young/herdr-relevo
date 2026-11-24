@@ -1,10 +1,9 @@
 // Pure parts of a handoff: whose an agent is, and how the next one starts.
-import { providerOf, providerOfApp } from "./providers.js";
+import { accountOfApp, providerOf } from "./providers.js";
 
 // The account an agent runs on: the Claude hook's label, or a single-account provider by its app.
 export function terminalAccount(terminal) {
-  const p = providerOfApp(terminal?.agent);
-  return terminal?.labels?.["agent.account"] || (p && !p.caps.accounts ? p.key : null);
+  return terminal?.labels?.["agent.account"] || accountOfApp(terminal?.agent);
 }
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";

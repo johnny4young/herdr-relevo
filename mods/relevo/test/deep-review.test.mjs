@@ -119,17 +119,19 @@ test("your PR offers Deep review, with your review skills on its ▾; a PR you w
   assert.equal(fake.overlays.at(-1).props.role, "deep-review", "Deep review opens its dialog first");
 });
 
-const { checkDeepReview, modelArgs, setupLine } = await import("../lib/deep-setup.js");
+const { checkDeepReview, setupLine } = await import("../lib/deep-setup.js");
+const { PROVIDERS } = await import("../lib/providers.js");
 const { deepReviewers } = await import("../deep-review.js");
 const { deepReviewView } = await import("../deep-review-view.js");
 const { verdicts } = await import("../lib/deep-review.js");
 
 test("a deep review setup names accounts, models and efforts each provider takes", () => {
-  assert.deepEqual(checkDeepReview([{ account: "repo", model: "opus", effort: "high" }, { account: "codex", model: "", effort: "xhigh" }], ["personal"], "codex"), []);
-  assert.deepEqual(checkDeepReview([{ account: "codex", effort: "max" }, { account: "ghost" }], ["personal"], "codex").map((e) => e.at), ["deepReview.0.effort", "deepReview.1.account"]);
-  assert.match(checkDeepReview([], [], "codex")[0].message, /at least one reviewer/);
-  assert.deepEqual(modelArgs({ account: "team", model: "sonnet", effort: "medium" }, "codex", ["--x"]), ["--x", "--model", "sonnet", "--effort", "medium"]);
-  assert.deepEqual(modelArgs({ account: "codex", model: "gpt-x", effort: "high" }, "codex", ["-m", "luna", "--sandbox", "workspace-write"]),
+  const accounts = [{ key: "personal" }, { key: "codex", provider: "codex" }];
+  assert.deepEqual(checkDeepReview([{ account: "repo", model: "opus", effort: "high" }, { account: "codex", model: "", effort: "xhigh" }], accounts), []);
+  assert.deepEqual(checkDeepReview([{ account: "codex", effort: "max" }, { account: "ghost" }], accounts).map((e) => e.at), ["deepReview.0.effort", "deepReview.1.account"]);
+  assert.match(checkDeepReview([], [])[0].message, /at least one reviewer/);
+  assert.deepEqual(PROVIDERS.claude.modelArgs({ model: "sonnet", effort: "medium" }, ["--x"]), ["--x", "--model", "sonnet", "--effort", "medium"]);
+  assert.deepEqual(PROVIDERS.codex.modelArgs({ model: "gpt-x", effort: "high" }, ["-m", "luna", "--sandbox", "workspace-write"]),
     ["-m", "gpt-x", "--sandbox", "workspace-write", "-c", 'model_reasoning_effort="high"']);
   assert.equal(setupLine([{ account: "repo", model: "opus", effort: "high" }, { account: "codex", model: "", effort: "high" }], () => "Codex"), "repo · opus high + Codex · high");
 });

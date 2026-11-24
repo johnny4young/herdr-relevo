@@ -87,6 +87,7 @@ export class Inbox {
     this.mine = [];
     this.ready = [];
     this.requested = [];
+    this.answered = [];
     this.prAgents = {};
     this.origins = new Map();
     this.clones = {};
@@ -173,7 +174,7 @@ export class Inbox {
     return {
       desktop: desktop.filter((s) => !isSettled(s, this.addressed)), desktopDone: desktop.filter((s) => isSettled(s, this.addressed)),
       local: local.filter((i) => !off(i)), localDone: local.filter(off),
-      mine: this.mine.filter(open), requested: this.requested.filter(open),
+      mine: this.mine.filter(open), requested: this.requested.filter(open), answered: this.answered.filter(pr),
       ready: this.ready.filter(open),
       mineDone: [...this.mine, ...this.ready].filter(done), requestedDone: this.requested.filter(done),
       worktrees: this.worktrees.filter((w) => inFocus(contextOfPath(w.main))),

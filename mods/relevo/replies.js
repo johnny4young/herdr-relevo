@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { theme, exec, notify, props, agents, panes, home, readTextFile, writeTextFile, openOverlay, closeOverlay } from "herdr";
 import * as config from "./config.js";
-import { ACCOUNTS } from "./accounts.js";
+import { claudeAccounts } from "./accounts.js";
 import { contextOfPath } from "./context.js";
 import { grabFocus } from "./ui.js";
 import { historySuggestions, rankReplies, recordUse, normal } from "./lib/replies.js";
@@ -24,7 +24,7 @@ let openingRequest = 0;
 async function suggestionsFor(cwd) {
   const context = contextOfPath(cwd), hit = suggested.get(context);
   if (hit && Date.now() - hit.at < HOUR) return hit.list;
-  const files = [...new Set(ACCOUNTS.filter((a) => a.claudeDir).map((a) => `${home()}/${a.claudeDir}/history.jsonl`))];
+  const files = [...new Set(claudeAccounts().map((a) => `${home()}/${a.claudeDir}/history.jsonl`))];
   const r = await exec("sh", ["-c", SHORT, "sh", ...files]);
   const list = historySuggestions(r.stdout ?? "", Date.now(), (project) => contextOfPath(project) === context);
   suggested.set(context, { at: Date.now(), list });

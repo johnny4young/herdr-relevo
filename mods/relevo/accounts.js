@@ -4,7 +4,7 @@ import * as config from "./config.js";
 import { FIVE_HOURS, WEEK, windowOf, windowLabel } from "./lib/time.js";
 import { accountFor } from "./context.js";
 import { shellArgv } from "./lib/session-env.js";
-import { providerOf } from "./lib/providers.js";
+import { PROVIDERS, providerOf } from "./lib/providers.js";
 
 export const API_QUOTAS = "relevo.quota.api";
 
@@ -15,6 +15,11 @@ export const CODEX = withFile(CODEX_ACCOUNT, "codex");
 
 export const accountOf = (key) => [...ACCOUNTS, CODEX].find((p) => p.key === key) ?? ACCOUNTS[0];
 export const providerFor = (key) => providerOf(accountOf(key));
+// Every account the config names, on or off.
+export const allAccounts = () => [...ACCOUNTS, CODEX];
+export const knownAccount = (key) => allAccounts().some((a) => a.key === key);
+// The accounts whose own Claude Code files (history, transcripts) Relevo reads.
+export const claudeAccounts = () => ACCOUNTS.filter((a) => providerOf(a) === PROVIDERS.claude && a.claudeDir);
 // USE_CODEX = false in config.js keeps Codex out of every list and every default, and so does a machine without the
 // codex command: Reviews looks for it once (CODEX_FOUND).
 export const CODEX_FOUND = "relevo.codex.found";
@@ -48,7 +53,7 @@ export function currentWindow(sources, name, now) {
 // The usage endpoint (shared state) and the statusline snapshot (file), window by window.
 export async function loadClaudeQuotas() {
   const out = {}, api = shared(API_QUOTAS) ?? {};
-  for (const p of [...ACCOUNTS, CODEX]) {
+  for (const p of allAccounts()) {
     let file = null;
     try {
       file = JSON.parse(await readTextFile(`${home()}/.cache/herdr-relevo/${p.file}`) ?? "null");

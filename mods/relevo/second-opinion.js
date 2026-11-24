@@ -1,7 +1,7 @@
 // A second opinion: another model reviews an open agent's uncommitted work. Relevo opens the reviewer beside it, and
 // the coordinator runs the repository's tests, sends the reviewer the diff and brings its verdict to Runs.
 import { appHome, notify, setShared, terminals } from "herdr";
-import { ACCOUNTS, CODEX, accountOf, codexOn, full, launchArgv, loadClaudeQuotas } from "./accounts.js";
+import { accountOf, agentAccounts, full, launchArgv, loadClaudeQuotas, providerFor } from "./accounts.js";
 import { RUN_LAUNCH, openAgent, repoChecks } from "./run-launch.js";
 import { newGoal } from "./lib/goals.js";
 import { writeGoal } from "./goals-store.js";
@@ -12,8 +12,8 @@ import { noteUse } from "./run-usage.js";
 
 // Who reviews: another provider than the writer's when it has quota, else another account that does.
 export function opinionAccount(writer, quotas) {
-  const claude = ACCOUNTS.map((account) => account.key);
-  const order = writer === CODEX.key || !codexOn() ? claude : [CODEX.key, ...claude];
+  const keys = agentAccounts().map((account) => account.key), mine = providerFor(writer);
+  const order = [...keys.filter((key) => providerFor(key) !== mine), ...keys.filter((key) => providerFor(key) === mine)];
   return order.find((key) => key !== writer && !full(quotas?.[key])) ?? null;
 }
 

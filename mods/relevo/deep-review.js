@@ -4,10 +4,10 @@
 import { appHome, exec, notify, run, setShared } from "herdr";
 import { RUN_START } from "./run-launcher.js";
 import { GOAL_MODE, GOAL_SCOPE } from "./inbox-goals.js";
-import { CODEX, accountOf, codexOn, hasRoom, launchArgv, loadClaudeQuotas, withRoom } from "./accounts.js";
+import { accountOf, agentAccounts, hasRoom, launchArgv, loadClaudeQuotas, providerFor, withRoom } from "./accounts.js";
 import { accountFor } from "./context.js";
 import * as config from "./config.js";
-import { DEFAULT_DEEP_REVIEW, modelArgs, reviewerLabel } from "./lib/deep-setup.js";
+import { DEFAULT_DEEP_REVIEW, reviewerLabel } from "./lib/deep-setup.js";
 import { RUN_LAUNCH, openAgent, repoChecks } from "./run-launch.js";
 import { runAgentArgs } from "./workflow-runs.js";
 import { REMOVE_TIMEOUT } from "./worktrees.js";
@@ -21,10 +21,12 @@ import { draftReview, findingsPrompt, reviewTitle } from "./lib/deep-review.js";
 export const deepSetup = () => config.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW;
 
 // Each reviewer of the setup on an account with room: a Claude account past 90% hands over to the one with the most
-// left, and Codex past it sits out.
+// left, and a provider with a single account sits out.
 export function deepReviewers(repo, quotas, setup = deepSetup()) {
   return setup.flatMap((r) => {
-    if (r.account === CODEX.key) return codexOn() && hasRoom(quotas?.[CODEX.key]) ? [{ ...r, key: CODEX.key, note: null }] : [];
+    if (r.account !== "repo" && !providerFor(r.account).caps.accounts) {
+      return agentAccounts().some((a) => a.key === r.account) && hasRoom(quotas?.[r.account]) ? [{ ...r, key: r.account, note: null }] : [];
+    }
     const pick = withRoom(r.account === "repo" ? accountFor(repo) : r.account, quotas);
     return [{ ...r, key: pick.key, note: pick.note }];
   });
@@ -59,13 +61,13 @@ export async function startDeepReview(pr, clone, cx, setup = deepSetup()) {
     const ci = await ciOf(pr);
     let first = null;
     for (const [i, r] of reviewers.entries()) {
-      const label = reviewerLabel(accountOf(r.key).label, r, r.key === CODEX.key ? config.RUN_CODEX_MODEL ?? "" : "");
+      const provider = providerFor(r.key), label = reviewerLabel(accountOf(r.key).label, r, provider.defaultModel(config));
       say(`Opening ${label} on #${pr.number}…`);
       const tree = await command({ action: "prepare-review", root: clone, who: ["first", "second", "third"][i], pr: { number: pr.number, head: pr.headRefOid, base: pr.baseRefName } });
       // The tests run once, in the first reviewer's worktree; the other reviewer reads their results there.
       const checks = i === 0 ? await repoChecks(tree.path) : [];
       const agent = await openAgent({ name, folder: tree.path, tab: `${name}#${pr.number} · review ${i + 1} ${label}`, label, cx,
-        argv: launchArgv(r.key, null, modelArgs({ ...r, account: r.key }, CODEX.key, runAgentArgs(r.key, "reviewer", appHome()))),
+        argv: launchArgv(r.key, null, provider.modelArgs(r, runAgentArgs(r.key, "reviewer", appHome()))),
         ask: (trust) => say(trust ? `${label} asks whether to trust ${name} before it reviews.` : `Opening ${label} on #${pr.number}…`, trust) });
       const made = await command({ action: "create", start: true, task: { goalId: goal.id, title: `${label} · #${pr.number} ${pr.title}`.slice(0, 240), criteria: goal.criteria,
         root: tree.path, reviewer: { address: agent.address, label }, checks, maxRounds: 1, maxMinutes: 30, reviewOnly: true, reviewBase: tree.base,

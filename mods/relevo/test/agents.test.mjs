@@ -101,7 +101,7 @@ test("a local agent's account chip opens the handoff, without focusing it", asyn
 });
 
 test("Codex shows its chip and ticket, and never as borrowed", async () => {
-  fake.stored["relevo.setup"] = { accounts: { codex: { label: "Codex", letter: "X", bg: "#000", fg: "#fff" } }, contexts: [{ key: "mine", account: "personal" }] };
+  fake.stored["relevo.setup"] = { accounts: { codex: { label: "Codex", letter: "X", bg: "#000", fg: "#fff", single: true } }, contexts: [{ key: "mine", account: "personal" }] };
   const { ui } = await open([agent("t1")], [{ address: "t1", state: "live", labels: { "agent.account": "codex", "agent.jira": "AB-1" } }]);
   const chip = find(ui(), "acct-t1");
   assert.match(text(chip), /AB-1/);

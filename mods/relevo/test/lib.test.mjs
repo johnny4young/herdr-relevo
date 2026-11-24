@@ -296,6 +296,29 @@ test("mapRequested: a person's PR on your repos joins until you review it; bots,
   assert.deepEqual(mapRequested({ ...data, contributed: undefined }).map((p) => p.url), ["asked"]);
 });
 
+test("a person's PR you answered since its last push, by review or comment, waits on its author", async () => {
+  const { answerOf, mapAnswered, othersQuery } = await import("../lib/github.js");
+  const { prReason, prTurn } = await import("../lib/lanes.js");
+  const pr = (url, more = {}) => ({ url, number: 1, updatedAt: "2026-11-24T00:00:00Z", author: { login: "andres", __typename: "User" }, repository: { nameWithOwner: "me/app" },
+    commits: { nodes: [{ commit: { committedDate: "2026-11-21T19:00:00Z" } }] }, ...more });
+  const reviewed = (state, at) => ({ reviews: { nodes: [{ author: { login: "me" }, state, submittedAt: at }] } });
+  const commented = (at, login = "me") => ({ comments: { nodes: [{ author: { login }, createdAt: at }] } });
+  const data = { viewer: { login: "me", pullRequests: { nodes: [] } }, search: { nodes: [] }, contributed: { nodes: [
+    pr("open"), pr("changes", reviewed("CHANGES_REQUESTED", "2026-11-24T19:28:00Z")), pr("talked", commented("2026-11-24T18:44:00Z")),
+    pr("bot-talk", commented("2026-11-24T18:44:00Z", "centinela")), pr("stale", commented("2026-11-20T00:00:00Z")),
+  ] } };
+  assert.deepEqual(mapRequested(data).map((p) => p.url).sort(), ["bot-talk", "open", "stale"]);
+  const answered = mapAnswered(data);
+  assert.deepEqual(answered.map((p) => [p.url, p.answer]).sort(), [["changes", "CHANGES_REQUESTED"], ["talked", "COMMENTED"]]);
+  // The newer answer wins: a comment after a review that asked for changes.
+  assert.equal(answerOf(pr("x", { ...reviewed("CHANGES_REQUESTED", "2026-11-22T00:00:00Z"), ...commented("2026-11-23T00:00:00Z") }), "me"), "COMMENTED");
+  const changes = answered.find((p) => p.url === "changes");
+  assert.equal(prTurn(changes, { requested: true }), "open");
+  assert.equal(prReason(changes, { requested: true }), "changes requested · waiting on andres");
+  assert.equal(prReason(answered.find((p) => p.url === "talked"), { requested: true }), "you commented · waiting on andres");
+  assert.match(othersQuery(), /comments\(last: 20\)/);
+});
+
 const at = (y, m, d, h = 0, min = 0) => new Date(y, m - 1, d, h, min).getTime() / 1000;
 
 test("weekStart: the Monday at midnight, local time", () => {

@@ -12,7 +12,7 @@ const sessions = new URL('../prsession.js', import.meta.url).href;
 registerHooks({ resolve(specifier, context, next) {
   if (context.parentURL?.endsWith('/account-menu.js')) {
     const source = specifier === './accounts.js'
-      ? `export { ACCOUNTS, CODEX, accountOf, agentAccounts, chip } from ${JSON.stringify(accounts)}; export const loadClaudeQuotas = () => globalThis.menuLoaders.quotas();`
+      ? `export { ACCOUNTS, CODEX, accountOf, agentAccounts, chip, providerFor } from ${JSON.stringify(accounts)}; export const loadClaudeQuotas = () => globalThis.menuLoaders.quotas();`
       : specifier === './prsession.js'
         ? `export { openPrSession } from ${JSON.stringify(sessions)}; export const skillUses = () => globalThis.menuLoaders.uses();` : null;
     if (source) return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };

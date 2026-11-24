@@ -1,7 +1,8 @@
 // Reads token usage from Claude's and Codex's transcripts into a saved state, a range of bytes at a time, so
 // the first read of months of files spreads over many short commands and later reads only take what was added.
 import { agents, appHome, exec, home, readTextFile, writeTextFile, setShared, terminals, shared, window } from "herdr";
-import { ACCOUNTS } from "./accounts.js";
+import { allAccounts, providerFor } from "./accounts.js";
+import { PROVIDERS, providerOf } from "./lib/providers.js";
 import {
   AWK, CLAUDE_SCAN, CODEX_SCAN, CONTEXT_SCAN, LIST, addClaude, addCodex, contextOf, cutDay, emptyState, parseList,
   parseScan, plan, projectFromPath, prune, reportOf, runFolders, SeenIds,
@@ -114,8 +115,10 @@ export class UsageScanner {
       if (r?.code !== 0) complete = false;
       for (const [path, size] of parseList(r?.stdout ?? "")) listed.set(path, { size, account });
     };
-    for (const a of ACCOUNTS.filter((x) => x.claudeDir)) await add(a.key, [`${home()}/${a.claudeDir}/projects`]);
-    await add("codex", [`${home()}/.codex/sessions`, `${home()}/.codex/archived_sessions`]);
+    for (const a of allAccounts()) {
+      const dirs = providerOf(a).usageDirs(a, home());
+      if (dirs.length) await add(a.key, dirs);
+    }
     return { listed, complete };
   }
 
@@ -132,7 +135,7 @@ export class UsageScanner {
         // A file that shrank was rewritten: read it again, and the ids keep its messages from counting twice.
         const from = f && f.size < size ? f.size : 0;
         account.set(path, key);
-        changed.push({ path, size, from, prev: from ? f.prev ?? "" : "", codex: key === "codex" });
+        changed.push({ path, size, from, prev: from ? f.prev ?? "" : "", codex: providerFor(key) === PROVIDERS.codex });
       }
       const batches = [...plan(changed.filter((c) => !c.codex)).map((b) => [false, b]), ...plan(changed.filter((c) => c.codex)).map((b) => [true, b])];
       const failed = new Set();

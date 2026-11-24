@@ -32,7 +32,8 @@ export const othersQuery = (owners = ["@me"]) => `query {
     ... on PullRequest { ${OTHER_FIELDS} } } }${owners.length ? `
   contributed: search(query: "is:open is:pr ${owners.map((o) => `user:${o}`).join(" ")} -author:@me archived:false sort:updated-desc", type: ISSUE, first: 50) { nodes {
     ... on PullRequest { ${OTHER_FIELDS}
-      reviews(last: 10) { nodes { author { login } state submittedAt } } } } }` : ""}
+      reviews(last: 10) { nodes { author { login } state submittedAt } }
+      comments(last: 20) { nodes { author { login } createdAt } } } } }` : ""}
 }`;
 
 // The pages and the rest, in the one shape the mappers read.
@@ -157,14 +158,27 @@ export function mapReady(data) {
     .sort(newest);
 }
 
-// A person's PR on a repo of yours, until you review it; a push after your review brings it back.
+// How you last answered a PR since its last push: a review's state, or "COMMENTED" for a comment in its conversation.
+export function answerOf(p, me) {
+  const since = seconds(p.commits?.nodes[0]?.commit?.committedDate ?? 0) || 0;
+  const reviews = (p.reviews?.nodes ?? []).filter((r) => r.author?.login === me && r.state !== "PENDING").map((r) => ({ state: r.state, at: seconds(r.submittedAt) }));
+  const comments = (p.comments?.nodes ?? []).filter((c) => c.author?.login === me).map((c) => ({ state: "COMMENTED", at: seconds(c.createdAt) }));
+  return [...reviews, ...comments].filter((a) => a.at >= since).sort((a, b) => b.at - a.at)[0]?.state ?? null;
+}
+
+const contributed = (data) => (data.contributed?.nodes ?? []).filter((p) => p.url && !p.isDraft && p.author?.__typename !== "Bot");
+
+// A person's PR on a repo of yours, until you answer it; a push after your answer brings it back.
 export function contributedPRs(data) {
+  return contributed(data).filter((p) => !answerOf(p, data.viewer?.login));
+}
+
+// The ones you answered, waiting on their author: they stay in sight under Waiting on others.
+export function mapAnswered(data) {
   const me = data.viewer?.login;
-  return (data.contributed?.nodes ?? []).filter((p) => {
-    if (!p.url || p.isDraft || p.author?.__typename === "Bot") return false;
-    const since = seconds(p.commits?.nodes[0]?.commit?.committedDate ?? 0) || 0;
-    return !(p.reviews?.nodes ?? []).some((r) => r.author?.login === me && r.state !== "PENDING" && seconds(r.submittedAt) >= since);
-  });
+  return contributed(data).map((p) => ({ ...p, answer: answerOf(p, me) })).filter((p) => p.answer)
+    .map((p) => ({ ...p, repo: p.repository.nameWithOwner, skills: ["review"], threads: unresolved(p), untrusted: p.isCrossRepository, unasked: true }))
+    .sort(newest);
 }
 
 export function mapRequested(data) {

@@ -4,7 +4,7 @@ import { agents, terminals, exec, appHome, notify, run, panes, shared, setShared
 import { runtimeCommand } from "./runtime-cli.js";
 import { button } from "./ui.js";
 import * as config from "./config.js";
-import { CODEX, accountOf, agentAccounts, chip, codexOn, launchArgv, openInFolder, loadClaudeQuotas, full } from "./accounts.js";
+import { accountOf, agentAccounts, chip, launchArgv, openInFolder, loadClaudeQuotas, full, providerFor } from "./accounts.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { accountFor } from "./context.js";
 import { RUN_LAUNCH, answerTrust, launchSteps, ownFolderKeys, reportsFolder, repoChecks, runTab, trustKeys } from "./run-launch.js";
@@ -26,13 +26,13 @@ export { trustKeys };
 
 const RUN_ACCOUNTS = "relevo.runs.accounts";
 
-// Who writes and who reviews a new run: the last choice, unless that account is out of quota now; else Codex first
-// when it is on, and a reviewer other than the writer, the repository's own account first.
+// Who writes and who reviews a new run: the last choice, unless that account is out of quota now; else a provider that
+// writes first (Codex, when it is on), and a reviewer other than the writer, the repository's own account first.
 export function runAccountsFor(root, quotas) {
   const saved = shared(RUN_ACCOUNTS) ?? {};
   const all = agentAccounts().map((account) => account.key);
   const open = (key) => all.includes(key) && !full(quotas?.[key]);
-  const executor = open(saved.executor) ? saved.executor : [...(codexOn() ? [CODEX.key] : []), ...all].find(open) ?? all[0];
+  const executor = open(saved.executor) ? saved.executor : [...all.filter((key) => providerFor(key).caps.writer), ...all].find(open) ?? all[0];
   const reviewer = open(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer
     : [accountFor(root), ...all].find((key) => key && key !== executor && open(key)) ?? all.find((key) => key !== executor);
   return { executor, reviewer };
@@ -46,26 +46,10 @@ const LAUNCH_TIMEOUT = 180000;
 // Codex asks to update before it starts; Esc is its own "skip" and changes nothing.
 export const codexUpdatePrompt = (screen) => /Update available · \S+ → \S+/.test(screen) && /esc skip/.test(screen);
 
-// Agents write only their checkout and the reports folder. Codex gets that from workspace-write; Claude runs
-// A run agent's file tools may not edit the app (its state, locks, mods or settings). It works in auto mode in its
-// own worktree; RUN_SANDBOX = true also keeps its Bash in the OS sandbox, where builds that need the network or a
-// cache outside the checkout (SwiftPM, a first npm install) fail.
-export function runAgentArgs(key, role, home) {
-  const reports = `${home}/relevo-workflow/reports`;
-  // A Codex reviewer never asks: what its hooks or global instructions start outside the sandbox fails and it goes on
-  // reviewing. Its hooks can't be turned off here: that would ask to restart Codex's shared server for every session.
-  const sandboxed = config.RUN_SANDBOX === true;
-  if (key === CODEX.key) return ["-m", config.RUN_CODEX_MODEL ?? "gpt-6-luna", "--sandbox", role === "executor" && !sandboxed ? "danger-full-access" : "workspace-write",
-    "--ask-for-approval", role === "reviewer" ? "never" : "on-request", "--add-dir", reports];
-  // A bare "*" would also match the reports folder: app files all carry an extension, folders are listed.
-  const deny = ["*.*", "relevo-workflow/*.*", ...["mods", "data", "layouts", "themes", "icons", "frame", "telemetry", "relevo-workflow/artifacts", "relevo-workflow/archive"].map((dir) => `${dir}/**`)]
-    .map((glob) => `Edit(/${home}/${glob})`);
-  // Its status and report files are written without asking; nothing else is granted.
-  const settings = { ...(sandboxed ? { sandbox: { enabled: true, allowUnsandboxedCommands: false, failIfUnavailable: true, autoAllowBashIfSandboxed: true } } : {}),
-    // A Claude reviewer starts without the person's hooks: one that asks for something else pulls it off the review.
-    permissions: { allow: [`Edit(/${reports}/*.json)`], deny }, ...(role === "reviewer" ? { disableAllHooks: true } : {}) };
-  return ["--add-dir", reports, "--permission-mode", "auto", "--settings", JSON.stringify(settings), ...(role === "reviewer" ? ["--tools", "Read,Write,Grep,Glob"] : [])];
-}
+// Agents write only their checkout and the reports folder, each by its own CLI's flags (lib/providers.js).
+// RUN_SANDBOX = true also keeps Bash in the OS sandbox, where builds that need the network or a cache outside the
+// checkout (SwiftPM, a first npm install) fail.
+export const runAgentArgs = (key, role, home) => providerFor(key).runArgs({ role, home, sandboxed: config.RUN_SANDBOX === true, config });
 
 export class WorkflowRuns extends WorkflowDraftView {
   loadQuotas(cx) {

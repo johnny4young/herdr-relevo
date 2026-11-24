@@ -1,14 +1,16 @@
 import { shared, setShared } from "herdr";
 import { CONTEXTS } from "./config.js";
 import { contextFor } from "./lib/context.js";
+import { providerOf } from "./lib/providers.js";
 
 export { contextFor };
 
-// What the agents sidebar needs to draw account chips, published once per change.
+// What the agents sidebar needs to draw account chips, published once per change. `single`: its provider has one
+// account, which no repository owns, so it is never borrowed.
 export const SHARED_SETUP = "relevo.setup";
 export function publishSetup(accounts) {
   const setup = {
-    accounts: Object.fromEntries(accounts.map((a) => [a.key, { letter: a.letter, bg: a.bg, fg: a.fg, label: a.label }])),
+    accounts: Object.fromEntries(accounts.map((a) => [a.key, { letter: a.letter, bg: a.bg, fg: a.fg, label: a.label, single: !providerOf(a).caps.accounts }])),
     contexts: CONTEXTS.map((c) => ({ key: c.key, account: c.account })),
   };
   if (JSON.stringify(shared(SHARED_SETUP)) !== JSON.stringify(setup)) setShared(SHARED_SETUP, setup);
