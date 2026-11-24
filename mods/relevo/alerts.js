@@ -1,5 +1,5 @@
 import { agents, exec, panes, terminals, playSound, notify as toast, shared, setShared, window } from "herdr";
-import { ACCOUNTS, CODEX, accountOf } from "./accounts.js";
+import { accountOf, knownAccount } from "./accounts.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { CONTEXTS } from "./config.js";
 import { runsOut, clock, FIVE_HOURS, WEEK, windowLabel } from "./lib/time.js";
@@ -114,7 +114,7 @@ export function quotaAlerts(quotas) {
       const context = CONTEXTS.find((c) => c.account === key);
       if (first || (context && !inFocus(context.key))) continue;
       playSound("sounds/quota.mp3");
-      const handoff = full && [...ACCOUNTS, CODEX].some((p) => p.key === key);
+      const handoff = full && knownAccount(key);
       const out = runsOut(w, name === "5h" ? FIVE_HOURS : w.span ?? WEEK);
       const when = w.pct >= 100 ? "" : out ? ` · 100% at ${clock(out)}` : "";
       notify({

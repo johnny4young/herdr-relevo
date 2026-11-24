@@ -2,6 +2,7 @@ import { agents, panes, terminals, exec, home, shared, setShared, readTextFile }
 import { repoOfGitDir, totals, week, weekStart } from "./lib/ledger.js";
 import { timeWithin } from "./lib/away.js";
 import { GIT_READ } from "./lib/git.js";
+import { accountOfApp } from "./lib/providers.js";
 export { duration } from "./lib/time.js";
 
 // One JSON line per stretch an agent worked: {start, end, jira, repo, branch, account}.
@@ -52,7 +53,7 @@ export async function ledgerTick() {
       jira: l["agent.jira"] || JIRA.exec(branch ?? "")?.[1] || null,
       repo: names.get(pane?.cwd) || (pane?.cwd ?? "").split("/").pop() || a.space_name,
       branch,
-      account: l["agent.account"] || (a.app === "codex" ? "codex" : null),
+      account: l["agent.account"] || accountOfApp(a.app),
     };
   }
   if (closed.length || Object.keys(open).length !== Object.keys(shared(OPEN) ?? {}).length) setShared(OPEN, open);

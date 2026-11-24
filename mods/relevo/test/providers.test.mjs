@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as example from "../config.example.js";
-import { PROVIDERS, providerOf, providerOfApp } from "../lib/providers.js";
+import { PROVIDERS, accountOfApp, providerOf, providerOfApp } from "../lib/providers.js";
 import { handoffPlan, terminalAccount } from "../lib/handoff.js";
 import { validate } from "../lib/settings.js";
 
@@ -58,4 +58,32 @@ test("validate: claudeDir is a Claude account's; an unknown provider is caught",
   assert.ok(at((c) => { delete c.ACCOUNTS[0].claudeDir; }).includes("accounts.0.claudeDir"));
   assert.ok(!at((c) => { c.ACCOUNTS[0].provider = "codex"; delete c.ACCOUNTS[0].claudeDir; }).includes("accounts.0.claudeDir"));
   assert.ok(at((c) => { c.ACCOUNTS[0].provider = "gemini"; }).includes("accounts.0.provider"));
+});
+
+test("each provider says how to run, log and label its agents", () => {
+  for (const p of Object.values(PROVIDERS)) {
+    for (const fn of ["modelArgs", "runArgs", "defaultModel", "usageDirs"]) assert.equal(typeof p[fn], "function", `${p.key}.${fn}`);
+    assert.ok(p.short && p.bin, p.key);
+  }
+  assert.deepEqual(PROVIDERS.claude.usageDirs({ claudeDir: ".claude-work" }, "/h"), ["/h/.claude-work/projects"]);
+  assert.deepEqual(PROVIDERS.claude.usageDirs({}, "/h"), []);
+  assert.deepEqual(PROVIDERS.codex.usageDirs({}, "/h"), ["/h/.codex/sessions", "/h/.codex/archived_sessions"]);
+  assert.equal(PROVIDERS.codex.defaultModel({ RUN_CODEX_MODEL: "gpt-x" }), "gpt-x");
+  assert.equal(PROVIDERS.claude.defaultModel({}), "");
+});
+
+test("a run's flags come from its provider", () => {
+  const claude = PROVIDERS.claude.runArgs({ role: "reviewer", home: "/app", sandboxed: false });
+  assert.deepEqual(claude.slice(0, 4), ["--add-dir", "/app/relevo-workflow/reports", "--permission-mode", "auto"]);
+  assert.equal(JSON.parse(claude[5]).disableAllHooks, true);
+  assert.deepEqual(claude.slice(-2), ["--tools", "Read,Write,Grep,Glob"]);
+  assert.deepEqual(PROVIDERS.codex.runArgs({ role: "executor", home: "/app", sandboxed: false, config: { RUN_CODEX_MODEL: "gpt-x" } }),
+    ["-m", "gpt-x", "--sandbox", "danger-full-access", "--ask-for-approval", "on-request", "--add-dir", "/app/relevo-workflow/reports"]);
+  assert.equal(PROVIDERS.codex.runArgs({ role: "reviewer", home: "/app", sandboxed: false, config: {} })[3], "workspace-write");
+});
+
+test("an app alone names the account only for a provider with one", () => {
+  assert.equal(accountOfApp("codex"), "codex");
+  assert.equal(accountOfApp("claude-code"), null);
+  assert.equal(accountOfApp(undefined), null);
 });

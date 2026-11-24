@@ -1,9 +1,9 @@
 import { exec, home, readTextFile } from "herdr";
-import { ACCOUNTS } from "./config.js";
+import { allAccounts } from "./accounts.js";
+import { providerOf } from "./lib/providers.js";
 
 // Asks each provider's usage endpoint with that account's own login. Expired tokens are
 // skipped, never refreshed: refreshing would rotate the login Claude Code or Codex keep.
-const CLAUDE_DIRS = Object.fromEntries(ACCOUNTS.map((a) => [a.key, a.claudeDir]));
 
 const epoch = (v) => (v == null || typeof v === "number" ? v : Date.parse(v) / 1000);
 
@@ -54,12 +54,13 @@ async function codex() {
   return out;
 }
 
+// How each provider asks its usage endpoint.
+const ASK = { claude: (a) => claude(a.claudeDir), codex: () => codex() };
+
 // { account: { updated, rate_limits } | { error } }, one account failing leaves the others.
 export async function collectQuotas() {
-  const jobs = {
-    ...Object.fromEntries(Object.entries(CLAUDE_DIRS).map(([key, dir]) => [key, () => claude(dir)])),
-    codex,
-  };
+  const jobs = Object.fromEntries(allAccounts().filter((a) => ASK[providerOf(a).key])
+    .map((a) => [a.key, () => ASK[providerOf(a).key](a)]));
   const out = {};
   for (const [key, job] of Object.entries(jobs)) {
     try {

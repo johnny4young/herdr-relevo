@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, Button } from "gpui-base";
 import { theme, props, closeOverlay } from "herdr";
 import { windowLabel } from "./lib/time.js";
-import { ACCOUNTS, CODEX, accountOf, agentAccounts, chip, loadClaudeQuotas } from "./accounts.js";
+import { ACCOUNTS, accountOf, agentAccounts, chip, loadClaudeQuotas, providerFor } from "./accounts.js";
 import { accountFor } from "./context.js";
 import { SKILLS, configuredSkill, launchSkill } from "./skills.js";
 import { skillUses, openPrSession } from "./prsession.js";
@@ -46,7 +46,7 @@ export class AccountMenu {
   // Keep failures in the picker. Closing it does not cancel an already
   // requested session, but a late result must not touch the disposed menu.
   runSkill(verb, cx) {
-    if (this.closed || this.opening || this.busy || this.account === CODEX.key || !configuredSkill(verb)) return;
+    if (this.closed || this.opening || this.busy || !providerFor(this.account).caps.skills || !configuredSkill(verb)) return;
     this.opening = verb;
     this.error = null;
     const p = props();
@@ -76,7 +76,7 @@ export class AccountMenu {
 
   // Any review skill from your history, on the PR in a worktree of its branch.
   runCommand(name, cx) {
-    if (this.closed || this.opening || this.busy || this.account === CODEX.key) return;
+    if (this.closed || this.opening || this.busy || !providerFor(this.account).caps.skills) return;
     const p = props();
     this.session(cx, { prompt: `/${name} ${p.pr.url}`, tab: `${p.pr.repo.split("/").pop()}#${p.pr.number} · ${name}`, purpose: name });
   }
@@ -106,7 +106,7 @@ export class AccountMenu {
   render() {
     const t = theme(), p = props();
     if (!p?.pr) return div();
-    const base = accountFor(p.pr.repo), acct = accountOf(this.account), claude = this.account !== CODEX.key;
+    const base = accountFor(p.pr.repo), acct = accountOf(this.account), canSkill = providerFor(this.account).caps.skills;
     const q = this.quotas?.[this.account];
     const usage = [q?.h5 ? `5h ${q.h5.pct}%` : null, q?.d7 ? `${windowLabel(q.d7, "7d")} ${q.d7.pct}%` : null].filter(Boolean).join(" · ");
     const pickChip = (a) => Button.new(`menu-acct-${a.key}`).id(`menu-acct-${a.key}`).tab_index(0)
@@ -146,7 +146,7 @@ export class AccountMenu {
         .child("Skill history unavailable. Showing configured suggestions.")))
       .children(skills.map(({ verb, uses }) => row(`menu-skill-${verb}`, this.opening === verb ? "Opening…" : SKILLS[verb].name,
         verb === p.skill ? "recommended" : uses ? `used ${uses}×` : "",
-        (cx) => this.runSkill(verb, cx), claude && !this.opening && !this.busy)))
+        (cx) => this.runSkill(verb, cx), canSkill && !this.opening && !this.busy)))
       .when(Boolean(p.reviews), (el) => el.child(h_flex().id("menu-deep-setup").px(8).py(4).gap(6).items_center().text_size(11)
         .child(div().id("menu-deep-open").flex_1().min_w(0).truncate().text_color(t.muted).cursor_pointer().hover((st) => st.text_color(t.foreground))
           .tooltip("Choose the reviewers and start").on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(p.overlay); openDeepReview(p.pr, p.folder); })
@@ -154,9 +154,9 @@ export class AccountMenu {
         .child(div().id("menu-deep-settings").flex_none().text_color(t.accent).cursor_pointer()
           .on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(p.overlay); openSettings(); }).child("Settings"))))
       .children(commands.map(({ name, uses }) => row(`menu-command-${name}`, `/${name}`, `used ${uses}×`, (cx) => this.runCommand(name, cx),
-        claude && !this.opening && !this.busy && !p.pr.untrusted)))
+        canSkill && !this.opening && !this.busy && !p.pr.untrusted)))
       .when(Boolean(p.reviews) && this.uses && !commands.length, (el) => el.child(div().px(8).py(4).text_size(11).text_color(t.dim).child("No review skills in your history yet")))
-      .when(!claude, (el) => el.child(div().px(8).pb(2).text_size(11).text_color(t.dim).child("Skills run on Claude accounts")))
+      .when(!canSkill, (el) => el.child(div().px(8).pb(2).text_size(11).text_color(t.dim).child("Skills run on Claude accounts")))
       .child(div().h(1).mx(6).my(2).bg(t.border))
       .child(row("menu-session", this.busy ? "Creating the worktree…" : `New session in a worktree of ${localBranch(p.pr)}`,
         null, (cx) => this.session(cx), !this.busy && !this.opening && !p.pr.untrusted))

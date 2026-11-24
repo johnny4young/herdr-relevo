@@ -195,7 +195,7 @@ function accountTag(t, a, labels, pane, { ticket = true } = {}) {
   const accounts = setup().accounts, acc = accounts[labels["agent.account"]], jira = ticket ? labels["agent.jira"] : null;
   if (!acc && !jira) return null;
   // A repo's account is a Claude one, so Codex can't be borrowing it.
-  const borrowed = acc && labels["agent.account"] !== "codex" && labels["agent.account"] !== repoAccount(pane?.cwd ?? a.cwd);
+  const borrowed = acc && !acc.single && labels["agent.account"] !== repoAccount(pane?.cwd ?? a.cwd);
   const tip = [acc && `${acc.label} account${borrowed ? `, borrowed: this repo uses ${accounts[repoAccount(pane?.cwd ?? a.cwd)]?.label ?? "another"}` : ""}`, jira].filter(Boolean).join(" · ");
   // Local agents only: a handoff reads and starts things on this computer.
   const canMove = Boolean(acc) && !a.address.includes("/");

@@ -3,10 +3,10 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { closeOverlay, openOverlay, props, run, setShared, shared, theme } from "herdr";
-import { CODEX, CODEX_FOUND, accountOf, agentAccounts, chip, codexOn, hasRoom, loadClaudeQuotas } from "./accounts.js";
+import { CODEX, CODEX_FOUND, accountOf, agentAccounts, allAccounts, chip, codexOn, hasRoom, loadClaudeQuotas, providerFor } from "./accounts.js";
 import { accountFor } from "./context.js";
 import * as config from "./config.js";
-import { CLAUDE_EFFORTS, CODEX_EFFORTS, MAX_REVIEWERS, checkDeepReview, recentModels } from "./lib/deep-setup.js";
+import { MAX_REVIEWERS, checkDeepReview, recentModels } from "./lib/deep-setup.js";
 import { readReport } from "./usage-scan.js";
 import { openSettings } from "./settings.js";
 import { ago } from "./lib/time.js";
@@ -16,7 +16,6 @@ import { button, checkbox, digit, grabFocus, held, keycap } from "./ui.js";
 
 export const DEEP_ASK = "relevo.deep.ask";
 export const DEEP_LAST = "relevo.deep.last";
-const CLAUDE_MODELS = ["opus", "sonnet", "haiku"];
 const used = (q) => Math.max(q?.h5?.pct ?? 0, q?.d7?.pct ?? 0);
 
 export function openDeepReview(pr, folder) {
@@ -30,7 +29,7 @@ export class DeepReviewDialog {
     this.pr = p.pr; this.folder = p.folder;
     this.remember = true;
     this.quotas = null;
-    const start = (shared(DEEP_LAST) ?? deepSetup()).filter((r) => r.account !== CODEX.key || codexOn());
+    const start = (shared(DEEP_LAST) ?? deepSetup()).filter((r) => r.account === "repo" || providerFor(r.account).caps.accounts || agentAccounts().some((a) => a.key === r.account));
     this.rows = (start.length ? start : deepSetup()).slice(0, MAX_REVIEWERS).map((r) => this.row(r));
     this.h = cx.focus_handle();
     grabFocus(this.h, cx, () => !this.gone);
@@ -65,14 +64,14 @@ export class DeepReviewDialog {
 
   pick(row, change, cx) {
     Object.assign(row, change);
-    const efforts = row.account === CODEX.key ? CODEX_EFFORTS : CLAUDE_EFFORTS;
+    const { efforts, models } = providerFor(row.account);
     if (!efforts.includes(row.effort)) row.effort = "high";
-    if (change.account) row.model.set_value(row.account === CODEX.key ? "" : CLAUDE_MODELS.includes(row.model.value()) ? row.model.value() : "sonnet");
+    if (change.account) row.model.set_value(!models.length ? "" : models.includes(row.model.value()) ? row.model.value() : "sonnet");
     cx.notify();
   }
 
   errors() {
-    return checkDeepReview(this.setup(), agentAccounts().map((a) => a.key).filter((k) => k !== CODEX.key), CODEX.key);
+    return checkDeepReview(this.setup(), allAccounts());
   }
 
   // The Inbox outlives this dialog: it takes the ask and opens the reviewers.
@@ -119,14 +118,14 @@ export class DeepReviewDialog {
 
   // Models this account used here lately, newest first, then the names its CLI takes for any of them.
   modelOptions(r) {
-    const key = r.account === "repo" ? accountFor(this.pr.repo) : r.account, codex = key === CODEX.key;
+    const key = r.account === "repo" ? accountFor(this.pr.repo) : r.account, { models } = providerFor(key);
     const recent = recentModels(this.report, key).slice(0, 5).map(({ model, day }) => ({ model, note: `used ${ago(Date.parse(day) / 1000)}` }));
-    const names = (codex ? [""] : CLAUDE_MODELS).filter((m) => !recent.some((x) => x.model === m)).map((model) => ({ model, note: model ? "latest" : "" }));
+    const names = (models.length ? models : [""]).filter((m) => !recent.some((x) => x.model === m)).map((model) => ({ model, note: model ? "latest" : "" }));
     return [...recent, ...names];
   }
 
   menuView(t, r, i) {
-    const field = this.menu?.field, codex = r.account === CODEX.key;
+    const field = this.menu?.field, provider = providerFor(r.account), pickable = provider.models.length > 0;
     const option = (id, content, on, pick) => h_flex().id(id).h(28).px(8).gap(6).items_center().rounded(6).cursor_pointer()
       .when(on, (el) => el.bg(t.selected)).hover((st) => st.bg(t.hover)).on_click((_e, cx) => { pick(cx); this.menu = null; cx.notify(); }).children(content);
     // Codex installed but off in Settings shows, dimmed, with the way to turn it on.
@@ -138,12 +137,12 @@ export class DeepReviewDialog {
         .child(div().id(`deep-${i}-codex-on`).text_size(11).text_color(t.accent).cursor_pointer().on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(props().overlay); openSettings(); })
           .child("off in Settings · turn on"))] : [])]
       : field === "model" ? this.modelOptions(r).map(({ model, note }) => option(`deep-${i}-model-${model || "default"}`,
-        [div().text_size(13).child(model || (config.RUN_CODEX_MODEL ? `default · ${config.RUN_CODEX_MODEL}` : "default")),
+        [div().text_size(13).child(model || (provider.defaultModel(config) ? `default · ${provider.defaultModel(config)}` : "default")),
           ...(note ? [div().text_size(11).text_color(t.dim).child(note)] : [])], r.model.value() === model, () => r.model.set_value(model)))
-      : (codex ? CODEX_EFFORTS : CLAUDE_EFFORTS).map((e) => option(`deep-${i}-effort-${e}`, [div().text_size(13).child(e)], r.effort === e, (cx) => this.pick(r, { effort: e }, cx)));
+      : provider.efforts.map((e) => option(`deep-${i}-effort-${e}`, [div().text_size(13).child(e)], r.effort === e, (cx) => this.pick(r, { effort: e }, cx)));
     return v_flex().id(`deep-${i}-menu`).w_full().p(4).gap(1).rounded(8).border_1().border_color(t.border).bg(t.popover ?? t.surface)
       .children(list)
-      .when(field === "model" && !codex, (el) => el.child(h_flex().h(28).px(8).gap(6).items_center()
+      .when(field === "model" && pickable, (el) => el.child(h_flex().h(28).px(8).gap(6).items_center()
         .child(div().text_size(11).text_color(t.dim).child("Other"))
         .child(div().flex_1().h(24).px(6).flex().items_center().rounded(6).border_1().border_color(t.border).bg(t.background).text_size(13).child(Input.new(r.model).w_full()))));
   }

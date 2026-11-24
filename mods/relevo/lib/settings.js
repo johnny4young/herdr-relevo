@@ -176,6 +176,6 @@ export function validate(c) {
   for (const k of SKILL_KEYS) if (k in skills && !skills[k]?.trim()) fail(`skills.${k}`, `Skills: ${k} is required`);
   for (const o of c.REVIEW_OWNERS ?? []) if (!OWNER.test(o)) fail("reviewOwners", `Reviews: "${o}" is not a GitHub user or org`);
   if (new Set(c.REPLIES ?? []).size !== (c.REPLIES ?? []).length) fail("replies", "Replies: each one once");
-  errors.push(...checkDeepReview(c.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW, [...seen], c.CODEX?.key));
+  errors.push(...checkDeepReview(c.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW, [...accounts, ...(c.CODEX?.key ? [{ ...c.CODEX, provider: "codex" }] : [])]));
   return errors;
 }

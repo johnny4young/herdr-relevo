@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, run, openOverlay, shared } from "herdr";
-import { ACCOUNTS, CODEX } from "./accounts.js";
+import { allAccounts } from "./accounts.js";
 import { ago } from "./lib/time.js";
 import { RANGES, compact, summarize } from "./lib/usage.js";
 import { USAGE, readReport } from "./usage-scan.js";
@@ -127,7 +127,7 @@ export class UsageDialog {
     const reading = usage.total && usage.done < usage.total;
     const t = theme(), days = RANGES.find(([key]) => key === this.range)[2];
     const s = this.report ? summarize(this.report, days, this.account) : null;
-    const accounts = [[null, "All"], ...[...ACCOUNTS, CODEX].map((a) => [a.key, a.label])];
+    const accounts = [[null, "All"], ...allAccounts().map((a) => [a.key, a.label])];
     const empty = s && !s.total.output && !s.total.write;
     const header = h_flex().h(44).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().id("usage-title").font_semibold().text_size(13).tooltip(QUOTA_TIP).child("Tokens"))

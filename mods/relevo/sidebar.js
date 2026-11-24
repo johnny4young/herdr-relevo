@@ -2,7 +2,7 @@ import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, run, focused, panes, setShared, notify, agents, terminals, shared } from "herdr";
 import { AgentWatch, BackgroundWatch, quotaAlerts } from "./alerts.js";
-import { ACCOUNTS, CODEX, API_QUOTAS, agentAccounts, launchArgv, chip, loadClaudeQuotas, shellArgv } from "./accounts.js";
+import { ACCOUNTS, API_QUOTAS, agentAccounts, allAccounts, launchArgv, chip, loadClaudeQuotas, providerFor } from "./accounts.js";
 import { FOCUS, focus, publishSetup, contextOfPath } from "./context.js";
 import { ago, resetText, resetClock, runsOut, clock, FIVE_HOURS, WEEK, windowLabel } from "./lib/time.js";
 
@@ -41,7 +41,7 @@ export class Sidebar {
       this.loaded = true;
       return;
     }
-    publishSetup([...ACCOUNTS, CODEX]);
+    publishSetup(allAccounts());
     this.width = 268;
     // The snapshots on disk answer at once; the usage endpoints follow.
     this.load(cx);
@@ -123,7 +123,7 @@ export class Sidebar {
     const f = focused();
     const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
     if (key === "best") key = this.best(pane?.cwd ?? f?.cwd);
-    const argv = key === CODEX.key ? shellArgv("codex") : launchArgv(key);
+    const argv = launchArgv(key);
     run("tab.new", { folder: pane?.cwd ?? f?.cwd ?? undefined, argv });
   }
 
@@ -162,7 +162,7 @@ export class Sidebar {
     const note = !q
       ? "No data yet"
       : stale ? `Last updated ${ago(q.updated)}; the usage endpoint did not answer since` : `Updated ${ago(q.updated)}`;
-    const hovered = this.hovered === p.key, app = p.key === CODEX.key ? "Codex" : "Claude";
+    const hovered = this.hovered === p.key, app = providerFor(p.key).short;
     return h_flex().id(`account-${p.key}`).h(30).px(8).gap(8).items_center().rounded(6)
       .cursor_pointer().hover((s) => s.bg(t.hover))
       .on_click(() => this.launch(p.key))

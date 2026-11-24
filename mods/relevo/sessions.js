@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, exec, home, props, terminals, openOverlay, closeOverlay } from "herdr";
-import { ACCOUNTS, accountOf, chip, openInFolder, resumeArgv } from "./accounts.js";
+import { accountOf, chip, claudeAccounts, openInFolder, resumeArgv } from "./accounts.js";
 import { contextOfPath, inFocus } from "./context.js";
 import { focusedCwd } from "./panelbar.js";
 import { grabFocus, spinner } from "./ui.js";
@@ -46,11 +46,11 @@ export class SessionFinder {
     this.missing = new Set();
     grabFocus(this.h, cx);
     cx.spawn(async (cx) => {
-      const specs = ACCOUNTS.filter((a) => a.claudeDir).map((a) => `${a.key}|${home()}/${a.claudeDir}/history.jsonl`);
+      const specs = claudeAccounts().map((a) => `${a.key}|${home()}/${a.claudeDir}/history.jsonl`);
       const r = await exec("sh", ["-c", INDEX, "sh", ...specs]);
       // Keyed by config dir, so accounts sharing one hide the same copy.
       const rootOf = (a) => `${home()}/${a.claudeDir.replace(/\/+$/, "")}`;
-      const roots = ACCOUNTS.filter((a) => a.claudeDir).map(rootOf);
+      const roots = claudeAccounts().map(rootOf);
       const running = new Set(terminals().map((k) => {
         const transcript = k.labels?.["agent.transcript"] ?? "";
         const id = /([0-9a-f-]{36})\.jsonl$/i.exec(transcript)?.[1];
