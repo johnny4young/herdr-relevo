@@ -60,11 +60,12 @@ test("the comment count is a tag with the comment icon, only on files that have 
   assert.doesNotMatch(text(list), /●/);
 });
 
-test("only a file the diff creates carries the new tag", () => {
+test("only a file the diff creates carries the new tag; one never committed says untracked", () => {
   const { v } = review(), list = v.fileList(t);
   assert.equal(text(find(list, "rv-tag-new-src/limiter/clock.ts")), "new");
   assert.equal(find(list, "rv-tag-new-src/limiter/clock.ts").fill, "#ansi226");
-  assert.equal(text(find(list, "rv-tag-new-notes/draft.txt")), "new");
+  assert.equal(find(list, "rv-tag-new-notes/draft.txt"), null);
+  assert.equal(text(find(list, "rv-tag-untracked-notes/draft.txt")), "untracked");
   assert.equal(find(list, "rv-tag-new-src/limiter/bucket.ts"), null);
   assert.equal(find(list, "rv-tag-new-README.md"), null);
   assert.match(text(find(list, "rv-file-src/limiter/clock.ts")), /new \+31$/);

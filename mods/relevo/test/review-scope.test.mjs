@@ -122,3 +122,31 @@ test("opened with nothing uncommitted, it shows the branch's changes", async () 
   assert.equal(v.scope, "uncommitted");
   assert.equal(v.empty(), "No uncommitted changes");
 });
+
+test("an agent's branch with an open PR starts on that PR: its commits only, untracked files left out", async () => {
+  fake.stored["relevo.agentPRs"] = { t7: { number: 141, url: "https://github.com/me/app/pull/141", base: "main" } };
+  const inner = fake.exec;
+  fake.exec = (cmd, args, o) => (args?.includes("--others") ? { stdout: "notes.md\n" } : inner(cmd, args, o));
+  const { v, cx } = await open({ terminal: "t7" });
+  assert.equal(v.scope, "branch");
+  assert.ok(fake.execs.some((l) => l.includes("merge-base origin/main HEAD")));
+  assert.match(fake.execs.find((l) => l.includes("--numstat")), / diff abc123 HEAD /);
+  assert.deepEqual(v.files.map((f) => f.path), ["committed.txt", "edited.txt"]);
+  assert.match(v.subject(), /^PR #141 \(https:\/\/github\.com\/me\/app\/pull\/141\): the branch's commits against origin\/main$/);
+  assert.equal(text(find(v.header(fake.theme ?? {}), "rv-scope-branch")), "PR #141");
+  v.setScope("uncommitted", cx);
+  await settled();
+  assert.deepEqual(v.files.map((f) => f.path), ["edited.txt", "notes.md"]);
+  const tagged = find(v.render(), "rv-tag-untracked-notes.md");
+  assert.equal(tagged.tip, "Never committed: not in PR #141");
+  assert.equal(find(v.render(), "rv-tag-new-notes.md"), null);
+});
+
+test("an agent without a PR, or a PR's own review, keeps its usual scopes", async () => {
+  const { v } = await open({ terminal: "t8" });
+  assert.equal(v.scope, "uncommitted");
+  assert.equal(find(v.header(fake.theme ?? {}), "rv-scope-branch"), null);
+  fake.stored["relevo.agentPRs"] = { t7: { number: 141, url: "u", base: "main" } };
+  const { v: pr } = await open({ terminal: "t7", pr: { repo: "me/app", number: 3, url: "u", base: "main" } });
+  assert.equal(pr.scope, "pr");
+});

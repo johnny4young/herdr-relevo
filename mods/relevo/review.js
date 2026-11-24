@@ -9,6 +9,7 @@ import { accountFor } from "./context.js";
 import { baseBranch } from "./worktrees.js";
 import { openWorkflow } from "./workflow-window.js";
 import { GIT_READ as READ } from "./lib/git.js";
+import { AGENT_PRS } from "./lib/github.js";
 import { diffRows, lineKey, selectRange, lineComment, fileComment, commentId, commentLabel, rangeRows, reviewMessage } from "./lib/diff.js";
 import { highlightRows, languageFor } from "./lib/highlight.js";
 import { agentMarkdown } from "./lib/agent-markdown.js";
@@ -133,8 +134,10 @@ export class ReviewDiff {
     this.range = p.range ?? null;
     // Open panes and unsent comments are kept per checkout, and per PR or range when reviewing one.
     this.key = reviewKey(this.root, this.pr, this.range);
+    // An agent's checkout whose branch has an open PR: "branch" shows only what the PR carries, its commits.
+    this.branchPR = !this.pr && !this.range && this.terminal ? shared(AGENT_PRS)?.[this.terminal] ?? null : null;
     // Without a PR: "uncommitted", or "all" for the branch's commits too; "pr" with one; "seen" since the mark.
-    this.scope = this.range ? "range" : this.pr ? "pr" : "uncommitted";
+    this.scope = this.range ? "range" : this.pr ? "pr" : this.branchPR ? "branch" : "uncommitted";
     if (this.range?.file) this.open = { path: this.range.file };
     this.hashes = new Map();
     this.files = [];
@@ -189,10 +192,11 @@ export class ReviewDiff {
   async since(git) {
     if (this.scope === "range") return this.range.from;
     if (this.scope === "seen") return this.seenMark()?.tree ?? "HEAD";
-    if (!this.pr && this.scope !== "all") return "HEAD";
+    if (!this.pr && this.scope !== "all" && this.scope !== "branch") return "HEAD";
     if (!this.mergeBase) {
-      const remote = this.pr ? await git(["rev-parse", "--verify", "--quiet", `origin/${this.pr.base}`]) : null;
-      const base = this.pr ? (remote.code === 0 ? `origin/${this.pr.base}` : this.pr.base) : await baseBranch(this.root);
+      const named = this.pr?.base ?? (this.scope === "branch" ? this.branchPR.base : null);
+      const remote = named ? await git(["rev-parse", "--verify", "--quiet", `origin/${named}`]) : null;
+      const base = named ? (remote.code === 0 ? `origin/${named}` : named) : await baseBranch(this.root);
       this.baseName = base;
       this.mergeBase = base ? (await git(["merge-base", base, this.pr?.ref ?? "HEAD"])).stdout.trim() : "";
     }
@@ -212,7 +216,8 @@ export class ReviewDiff {
     if (scope !== this.scope) return;
     this.from = from;
     // Since the mark, both sides are trees: the seen one and the working tree now, untracked files included.
-    this.to = scope === "range" ? this.range.to : scope === "seen" ? await this.snapshot() || null : this.pr?.ref ?? null;
+    this.to = scope === "range" ? this.range.to : scope === "seen" ? await this.snapshot() || null
+      : scope === "branch" ? "HEAD" : this.pr?.ref ?? null;
     const range = this.to ? [this.from, this.to] : [this.from];
     const stat = (await git(["diff", ...range, "--numstat", "--summary", "--no-renames"])).stdout.split("\n").filter(Boolean);
     // --summary names the files the diff creates, after the counts.
@@ -443,6 +448,7 @@ export class ReviewDiff {
 
   subject() {
     if (this.scope === "seen") return `what changed since I last looked${this.pr ? ` at PR #${this.pr.number} (${this.pr.url})` : ""}`;
+    if (this.scope === "branch") return `PR #${this.branchPR.number} (${this.branchPR.url}): the branch's commits against ${this.baseName}`;
     if (!this.pr) return this.scope === "all" && this.mergeBase ? `the branch against ${this.baseName}, committed and uncommitted` : undefined;
     const where = this.pr.ref ? `; it is not checked out here, so work on it in a worktree (gh pr checkout ${this.pr.number})` : "";
     return `PR #${this.pr.number} (${this.pr.url}), the branch against ${this.pr.base}${where}`;
@@ -606,11 +612,12 @@ export class ReviewDiff {
   }
 
   scopePicker(t) {
-    const tips = { pr: "Review the entire PR against its base", uncommitted: "Review working tree changes, including new files",
+    const tips = { pr: "Review the entire PR against its base", branch: "Only what the PR carries: the branch's commits, no uncommitted or untracked files", uncommitted: "Review working tree changes, including new files",
       all: "Review committed and uncommitted changes against the branch base", seen: "Review changes since your last saved checkpoint" };
     const pick = (scope, label) => button(t, `rv-scope-${scope}`, label, (cx) => this.setScope(scope, cx),
       { size: "sm", selected: this.scope === scope, kind: this.scope === scope ? "solid" : "outline", tip: tips[scope] });
-    const options = this.pr ? [["pr", "Whole PR"]] : [["uncommitted", "Uncommitted"], ["all", "All changes"]];
+    const options = this.pr ? [["pr", "Whole PR"]]
+      : [...(this.branchPR ? [["branch", `PR #${this.branchPR.number}`]] : []), ["uncommitted", "Uncommitted"], ["all", "All changes"]];
     if (this.seenMark()) options.push(["seen", "Since I looked"]);
     return h_flex().id("rv-scope").flex_wrap().min_w(0).p(1).gap(3).rounded(5).bg(t.raised)
       .children(options.map(([scope, label]) => pick(scope, label)));
@@ -618,6 +625,7 @@ export class ReviewDiff {
 
   empty() {
     if (this.scope === "seen") return `Nothing changed since you looked, ${ago(this.seenMark()?.at ?? 0)}`;
+    if (this.scope === "branch") return this.mergeBase ? `No commits against ${this.baseName}` : "No base branch to compare with";
     if (this.scope !== "all") return "No uncommitted changes";
     return this.mergeBase ? `No changes against ${this.baseName}` : "No base branch to compare with";
   }
@@ -663,7 +671,9 @@ export class ReviewDiff {
             .when(cut > 0, (el) => el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(f.path.slice(0, cut))))
             .child(div().flex_none().text_size(13).text_color(seen ? t.dim : t.foreground).child(f.path.slice(cut))))
           .when(count > 0, (el) => el.child(tag(t, icon("comment", t.accent, 10)).id(`rv-count-${f.path}`).gap(3).child(String(count))))
-          .when(Boolean(f.added), (el) => el.child(tag(t, "new", t.ansi2).id(`rv-tag-new-${f.path}`)))
+          .when(Boolean(f.added) && !f.untracked, (el) => el.child(tag(t, "new", t.ansi2).id(`rv-tag-new-${f.path}`)))
+          .when(Boolean(f.untracked), (el) => el.child(tag(t, "untracked", t.muted).id(`rv-tag-untracked-${f.path}`)
+            .tooltip(this.branchPR ? `Never committed: not in PR #${this.branchPR.number}` : "Never committed")))
           .when(Boolean(f.binary), (el) => el.child(tag(t, "binary", t.muted).id(`rv-tag-binary-${f.path}`)))
           .when(!f.untracked && !f.binary, (el) => el
             .when(f.add > 0 || !f.del, (n) => n.child(div().text_size(11).text_color(t.ansi2).child(`+${f.add}`)))
