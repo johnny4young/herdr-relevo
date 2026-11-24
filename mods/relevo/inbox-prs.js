@@ -13,7 +13,7 @@ import { CI_WORDS, ciRunning, prName, prReason, prTurn } from "./lib/lanes.js";
 import { openReview } from "./review.js";
 import { checkoutOf, scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
-import { MINE_PAGES, OWNER, othersQuery, joinPRs, mineQuery, cancelledRuns, checksCut, checksOf, ciOf, seconds, mapDrafts, mapMine, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
+import { MINE_PAGES, OWNER, othersQuery, joinPRs, mineQuery, cancelledRuns, checksCut, checksOf, ciOf, seconds, mapDrafts, mapMine, mapAnswered, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
 import { mergeFlag, prMoves } from "./lib/land.js";
 import { keepListed } from "./lib/addressed.js";
 import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
@@ -120,6 +120,7 @@ export class PrViews {
     this.prLogin = data.viewer.login ?? this.prLogin;
     this.mine = mapMine(data);
     this.requested = mapRequested(data);
+    this.answered = mapAnswered(data);
     const listed = new Set(this.mine.map((p) => p.url));
     this.ready = mapReady(data).filter((p) => !listed.has(p.url));
     this.drafts = mapDrafts(data);

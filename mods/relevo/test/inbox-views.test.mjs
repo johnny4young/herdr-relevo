@@ -206,6 +206,20 @@ test("the Now tab keeps its count while Maintenance is open", async () => {
   assert.equal(text(find(ui(), "view-now")), `Now ${ME.length + FLIGHT.length + READY.length}`);
 });
 
+test("a person's PR you answered waits on its author under Waiting on others, out of Needs me", async () => {
+  const { inbox, ui } = await open();
+  inbox.requested = [pr(20, { unasked: true, author: { login: "andres" } })];
+  inbox.answered = [pr(21, { unasked: true, answer: "CHANGES_REQUESTED", author: { login: "andres" } }), pr(22, { unasked: true, answer: "COMMENTED", author: { login: "andres" } })];
+  let view = ui();
+  assert.equal(text(find(view, "leg-me")), "NEEDS ME 1");
+  assert.match(text(find(view, "now-open")), /^2 waiting on others/);
+  assert.equal(find(view, `pr-${url(21)}`), null);
+  inbox.expanded["now-open"] = true;
+  view = ui();
+  assert.match(text(find(view, `pr-${url(21)}`)), /changes requested · waiting on andres/);
+  assert.match(text(find(view, `pr-${url(22)}`)), /you commented · waiting on andres/);
+});
+
 test("a PR ready to merge but past 45 days is under OLD, not waiting on others", async () => {
   const { inbox, ui } = await open();
   inbox.ready = [pr(14, { updatedAt: OLD })];

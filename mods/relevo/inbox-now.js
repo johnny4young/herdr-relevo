@@ -127,6 +127,11 @@ export class NowViews {
         draw: () => (source.draft ? this.draftCard(t, pr) : this.prCard(t, pr, false)),
         go: () => (source.draft ? exec("open", [pr.url]) : this.runPR(pr)) });
     }
+    // A person's PR you answered waits on its author, in sight under Waiting on others.
+    for (const pr of v.answered ?? []) {
+      add({ id: `pr-${pr.url}`, repo: pr.repo, turn: "open", text: `${pr.repo} ${pr.number} ${pr.title} ${pr.author?.login ?? ""}`,
+        draw: () => this.prCard(t, pr, true), go: () => this.runPR(pr), keys: () => keysOf(this.prActions(t, pr, true)) });
+    }
     for (const pr of this.drafts ?? []) add({ id: `pr-${pr.url}`, repo: pr.repo, turn: "open", text: `${pr.repo} ${pr.number} ${pr.title}`, draw: () => this.draftCard(t, pr), go: () => exec("open", [pr.url]),
       keys: () => keysOf(this.draftActions(pr)) });
     const seen = new Set();
