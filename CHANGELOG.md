@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.0 · 2026-11-24
+
+- **Agents shows what every agent runs.** The line with its folder, PR, model, context and cache is on every row, not only the focused one, so you see which project and model each agent is on without moving between them. A row waiting on you keeps its first line for the reason and puts its age, ticket and branch on that line.
+- **Review on an agent's branch starts on its PR.** When the branch has an open PR, Review opens on **PR #N**: the branch's commits against the PR's base, without uncommitted or untracked files. Uncommitted still lists files never committed, tagged **untracked**, with a note that the PR doesn't carry them.
+- **Accounts know their CLI.** An account can name its `provider` (`claude` when unset, `codex`); Deep review, handoffs and Settings ask the provider what it can do. Nothing changes for an existing config. It is the groundwork for more agent CLIs.
+- The docs and the preview panels say **Reviews**, the panel's name, instead of Inbox.
+
 ## 0.16.0 · 2026-11-22
 
 - **Settings › About shows the version.** The Relevo and Herdr versions installed, and the newer release when GitHub has one, with how to update.
