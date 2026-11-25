@@ -1,8 +1,22 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, Button } from "gpui-base";
-import { appHome, readTextFile, settings, shared, setShared } from "herdr";
+import { appHome, readTextFile, settings, shared, setShared, window } from "herdr";
 import { relevoKeys, formatShortcut } from "./lib/keys.js";
 import { QUOTA_WARN } from "./lib/account-status.js";
+
+// The window can't be seen: minimized, on another Space, fully covered or on a sleeping display.
+export const unseen = () => window()?.visible === false;
+
+// A timer's work while the window can't be seen: work that only paints waits (`slower` 0), and work that feeds
+// alerts runs on every `slower`-th tick.
+export function paced(fn, slower = 0) {
+  let skipped = 0;
+  return (cx) => {
+    if (unseen() && (!slower || ++skipped < slower)) return;
+    skipped = 0;
+    fn(cx);
+  };
+}
 
 const SIZES = {
   sm: { h: 24, px: 7, text: 11, radius: 5 },

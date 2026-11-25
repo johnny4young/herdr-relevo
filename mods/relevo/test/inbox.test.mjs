@@ -100,6 +100,8 @@ test("✓ hides the card at once, before the label comes back, and writes it", a
   assert.match(text(find(ui(), "maintenance-done")), /^1 marked addressed or landed/);
   assert.equal(count(), 0);
   assert.equal(calls(/^hc label t1 relevo\.addressed=\d+:7$/).length, 1);
+  // The Dock badge follows Needs me, set once per change.
+  assert.deepEqual(fake.badges, [null, "1", null]);
 });
 
 test("the fold shows the card with Undo, which removes the label", async () => {

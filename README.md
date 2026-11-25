@@ -155,6 +155,14 @@ Claude Desktop sessions that ask you something or wait for a review show in Revi
 and so does Claude Code started in Terminal, iTerm, VS Code or any terminal outside Herdr. Each says what it is
 doing or asks, and a click opens its last message in place, with **Open in Claude Desktop** or **Show <app>**. With Herdr behind another app, alerts reach macOS; with `terminal-notifier`, a click lands on the agent.
 
+### In the Dock and the command palette
+
+The Dock icon shows how many things need you in Reviews, with Herdr in front or not. The command palette (⌘⇧P) lists
+Relevo under its own group: Reviews, Runs, New run, Review changes, Next waiting agent, Handoff, Quick replies, Find a
+session, Open this branch's PR, Checkouts here, Find file, Tokens, Week and Settings. While the window can't be seen
+(minimized, on another Space, covered or on a sleeping display), what only paints waits, and quotas and PRs, which feed
+alerts, are read less often.
+
 ### Other agent CLIs, found for you
 
 Reviews looks for the agent CLIs Relevo knows (Claude Code, Codex, Antigravity CLI) on your login shell's PATH. One it
