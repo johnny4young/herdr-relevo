@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.20.0 · 2026-11-25
+
+- **Antigravity CLI writes and reviews.** Once activated, Runs, Deep review and second opinions offer it. It runs in auto mode, which approves edits and safe commands and asks for the rest, with the run's reports folder added. Deep review lists the main Gemini models and takes their effort, and **Trust and continue** answers its trust question.
+- **Antigravity's quota in the sidebar.** Relevo reads agy's own usage report every five minutes for the model group of the model in its settings (Gemini, or Claude and GPT): a 5-hour and a weekly window, like the other accounts. While one of its agents reports "quota reached", the account counts as full until the reset it names. Second opinions try accounts whose quota is known first.
+
 ## 0.19.0 · 2026-11-24
 
 - **Reviews finds your agent CLIs.** Relevo looks for Claude Code, Codex and Antigravity CLI on your login shell's PATH. One it finds that isn't in `config.js` shows in Now under **AGENT CLIS** with **Activate**, which adds its account, or **Ignore**. A CLI in use whose Herdr hook is outdated or missing offers **Update hook**.
