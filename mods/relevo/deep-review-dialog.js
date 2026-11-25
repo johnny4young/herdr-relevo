@@ -3,7 +3,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { closeOverlay, openOverlay, props, run, setShared, shared, theme } from "herdr";
-import { CODEX, CODEX_FOUND, accountOf, agentAccounts, allAccounts, chip, codexOn, hasRoom, loadClaudeQuotas, providerFor } from "./accounts.js";
+import { CODEX, accountOf, allAccounts, chip, cliFound, codexOn, runnableAccounts, hasRoom, loadClaudeQuotas, providerFor } from "./accounts.js";
 import { accountFor } from "./context.js";
 import * as config from "./config.js";
 import { MAX_REVIEWERS, checkDeepReview, recentModels } from "./lib/deep-setup.js";
@@ -29,7 +29,7 @@ export class DeepReviewDialog {
     this.pr = p.pr; this.folder = p.folder;
     this.remember = true;
     this.quotas = null;
-    const start = (shared(DEEP_LAST) ?? deepSetup()).filter((r) => r.account === "repo" || providerFor(r.account).caps.accounts || agentAccounts().some((a) => a.key === r.account));
+    const start = (shared(DEEP_LAST) ?? deepSetup()).filter((r) => r.account === "repo" || providerFor(r.account).caps.accounts || runnableAccounts().some((a) => a.key === r.account));
     this.rows = (start.length ? start : deepSetup()).slice(0, MAX_REVIEWERS).map((r) => this.row(r));
     this.h = cx.focus_handle();
     grabFocus(this.h, cx, () => !this.gone);
@@ -129,8 +129,8 @@ export class DeepReviewDialog {
     const option = (id, content, on, pick) => h_flex().id(id).h(28).px(8).gap(6).items_center().rounded(6).cursor_pointer()
       .when(on, (el) => el.bg(t.selected)).hover((st) => st.bg(t.hover)).on_click((_e, cx) => { pick(cx); this.menu = null; cx.notify(); }).children(content);
     // Codex installed but off in Settings shows, dimmed, with the way to turn it on.
-    const codexOff = !codexOn() && config.USE_CODEX === false && shared(CODEX_FOUND) !== false;
-    const list = field === "account" ? [...["repo", ...agentAccounts().map((a) => a.key)].map((key) => option(`deep-${i}-account-${key}`, this.accountChoice(t, key), r.account === key,
+    const codexOff = !codexOn() && config.USE_CODEX === false && cliFound("codex");
+    const list = field === "account" ? [...["repo", ...runnableAccounts().map((a) => a.key)].map((key) => option(`deep-${i}-account-${key}`, this.accountChoice(t, key), r.account === key,
         (cx) => this.pick(r, { account: key }, cx))),
       ...(codexOff ? [h_flex().id(`deep-${i}-account-codex-off`).h(28).px(8).gap(6).items_center().opacity(0.5)
         .child(chip(div, CODEX, 16)).child(div().text_size(13).child("Codex"))

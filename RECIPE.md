@@ -165,7 +165,7 @@ task to another account.
   what it asks, or its last words, from the end of its local transcript. A click opens its last message in place, with
   **Open in Claude Desktop** or **Show <app>**.
 - **Settings dialog** (800×700, the gear beside ACCOUNTS): accounts (chip preview, label, letter, launcher, Claude
-  dir, colors), Codex's launcher, contexts (label, account, orgs), fallback order, repos root, skills and the review owners; Save.
+  dir, colors), Codex's launcher, OTHER CLIS (launcher, On/Off, × and **Offer again** for an ignored one), contexts (label, account, orgs), fallback order, repos root, skills and the review owners; Save.
 - **Week dialog** (720×460): `Agent time · week of <date>` with ‹ › and **Copy**, a table of tickets × Mon–Sun
   plus total, today's column in the accent color.
 - **Handoff popup** (340px): "Continue <tab> with…", then one 46px row per account, Codex included: a number

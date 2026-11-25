@@ -34,7 +34,7 @@ test("renderConfig: odd strings survive and long entries wrap under 130 columns"
   assert.deepEqual(await roundTrip(c), c);
   const lines = renderConfig(plain(example)).split("\n");
   assert.ok(lines.every((l) => l.length <= 130));
-  assert.equal(lines.filter((l) => l.startsWith("export const ")).length, 11);
+  assert.equal(lines.filter((l) => l.startsWith("export const ")).length, 13);
 });
 
 test("renderConfig: what Settings doesn't edit is written back, with its note", async () => {

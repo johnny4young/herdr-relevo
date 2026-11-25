@@ -13,11 +13,16 @@ export const PROVIDERS = {
     bin: "claude",
     // What Herdr reports as the terminal's agent or app.
     apps: ["claude", "claude-code"],
+    // Its id in `herdr integration status`: the hook that tells Herdr the agent's state.
+    integration: "claude",
     models: ["opus", "sonnet", "haiku"],
     efforts: ["low", "medium", "high", "xhigh", "max"],
     // accounts: several logins side by side; fork: resume a copy of another account's conversation;
-    // writer: offered first to write a run, so another provider reviews it.
-    caps: { accounts: true, fork: true, quota: true, usage: true, skills: true, writer: false },
+    // writer: offered first to write a run, so another provider reviews it; runs: Relevo knows how to run it unattended
+    // (Runs, Deep review).
+    caps: { accounts: true, fork: true, quota: true, usage: true, skills: true, writer: false, runs: true },
+    // The arguments that start it on a first prompt.
+    promptArgs: (prompt) => [prompt],
     defaultModel: () => "",
     // Where its session logs live, for the token scan.
     usageDirs: (a, home) => (a.claudeDir ? [`${home}/${a.claudeDir}/projects`] : []),
@@ -38,10 +43,13 @@ export const PROVIDERS = {
     short: "Codex",
     bin: "codex",
     apps: ["codex"],
+    integration: "codex",
+    chip: { label: "Codex", letter: "X", bg: "#4fd6be", fg: "#1e2030" },
     // Its model is config's RUN_CODEX_MODEL: no list to pick from.
     models: [],
     efforts: ["minimal", "low", "medium", "high", "xhigh"],
-    caps: { accounts: false, fork: false, quota: true, usage: true, skills: false, writer: true },
+    caps: { accounts: false, fork: false, quota: true, usage: true, skills: false, writer: true, runs: true },
+    promptArgs: (prompt) => [prompt],
     defaultModel: (config) => config?.RUN_CODEX_MODEL ?? "gpt-6-luna",
     usageDirs: (_a, home) => [`${home}/.codex/sessions`, `${home}/.codex/archived_sessions`],
     // Its model goes with -m, already in a run's base flags, and its effort as a config override.
@@ -57,7 +65,30 @@ export const PROVIDERS = {
         "--ask-for-approval", role === "reviewer" ? "never" : "on-request", "--add-dir", `${home}/relevo-workflow/reports`];
     },
   },
+  // Antigravity CLI: one login per macOS user (its Keychain item), so one account.
+  agy: {
+    key: "agy",
+    name: "Antigravity CLI",
+    short: "Antigravity",
+    bin: "agy",
+    apps: ["antigravity", "agy"],
+    integration: "antigravity-cli",
+    chip: { label: "Antigravity", letter: "A", bg: "#8aadf4", fg: "#1e2030" },
+    models: [],
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    caps: { accounts: false, fork: false, quota: false, usage: false, skills: false, writer: false, runs: false },
+    promptArgs: (prompt) => ["-i", prompt],
+    defaultModel: () => "",
+    usageDirs: () => [],
+    modelArgs: (r, base) => [...base, ...(r.model ? ["--model", r.model] : []), ...(r.effort ? ["--effort", r.effort] : [])],
+    runArgs() {
+      throw new Error("Antigravity CLI does not run unattended yet");
+    },
+  },
 };
+
+// The CLIs with one login each, whose account Relevo adds from what it finds on the machine.
+export const singleProviders = () => Object.values(PROVIDERS).filter((p) => !p.caps.accounts);
 
 // An account without a provider is a Claude account, as every config before providers wrote them.
 export const providerOf = (account) => PROVIDERS[account?.provider] ?? PROVIDERS.claude;

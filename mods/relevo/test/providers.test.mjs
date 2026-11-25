@@ -19,7 +19,8 @@ test("Herdr's app names map to their provider", () => {
   assert.equal(providerOfApp("claude-code"), PROVIDERS.claude);
   assert.equal(providerOfApp("claude"), PROVIDERS.claude);
   assert.equal(providerOfApp("codex"), PROVIDERS.codex);
-  assert.equal(providerOfApp("antigravity"), null);
+  assert.equal(providerOfApp("antigravity"), PROVIDERS.agy);
+  assert.equal(providerOfApp("pi"), null);
   assert.equal(providerOfApp(null), null);
 });
 

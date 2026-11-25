@@ -4,7 +4,7 @@ import { PreviewInbox } from "./decision-preview.js";
 import { SnapshotInbox } from "./snapshot-preview.js";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { theme, exec, run, notify, settings, agents, panes, terminals, shared, setShared, home, machines } from "herdr";
-import { CODEX_FOUND, loadClaudeQuotas } from "./accounts.js";
+import { loadClaudeQuotas } from "./accounts.js";
 import { accountFor, contextOfPath, inFocus } from "./context.js";
 import { ago, nextSince } from "./lib/time.js";
 import { today, duration } from "./ledger.js";
@@ -36,6 +36,7 @@ import { LandViews, LANDING } from "./inbox-land.js";
 import { NowViews, NOW_SECTIONS, MAINTENANCE_SECTIONS } from "./inbox-now.js";
 import { RunViews } from "./inbox-runs.js";
 import { RunCompareViews } from "./inbox-run-compare.js";
+import { CliViews } from "./inbox-clis.js";
 import { isSettled } from "./lib/desktop.js";
 import { machineLook, machineOf } from "./lib/machines.js";
 
@@ -130,7 +131,7 @@ export class Inbox {
     this.scanTrees(cx);
     this.startLand(cx);
     // These feed alerts, so they keep running behind other apps.
-    cx.spawn(async () => { const r = await exec("sh", ["-c", "command -v codex"]).catch(() => null); setShared(CODEX_FOUND, r?.code === 0); });
+    this.scanClis(cx);
     cx.timer.every(180000, (cx) => this.scanPRs(cx));
     cx.timer.every(60000, (cx) => this.loadQuotas(cx));
   }
@@ -791,7 +792,7 @@ export class Inbox {
           cx.notify();
         }, { size: "sm", tip: "Search keyboard shortcuts", accessibleLabel: "Keyboard help" }))
         .when(!runOpen, (el) => el.child(button(t, "inbox-refresh", goalMode && !this.prsAt && this.scanningPRs ? [spinner(t.dim, 10)] : [icon("refresh")], (cx) => {
-          this.scanLocal(cx); this.scanPRs(cx); this.scanTrees(cx, true); this.loadGoals(cx);
+          this.scanLocal(cx); this.scanPRs(cx); this.scanTrees(cx, true); this.loadGoals(cx); this.scanClis(cx);
         }, { size: "sm", accessibleLabel: "Refresh work", tip: `Refresh · ${this.prsAt ? `PRs ${ago(this.prsAt)}` : this.scanningPRs ? "PRs loading" : "PRs unavailable"}${this.error ? ` · ${this.error}` : ""}` }))))
       .when(firstRead, (el) => el.child(this.firstReadLine(t)))
       .when(reviewView === "now" && (this.filtering || Boolean(this.filterField.value())), (el) => el.child(h_flex().id("inbox-filter").h(30).flex_none().mx(8).mt(4).px(8).gap(6)
@@ -812,7 +813,7 @@ export class Inbox {
         .when(reviewView === "maintenance" && Boolean(this.workflowError), (el) => el.child(div().id("workflow-error").p(8).text_size(11).text_color(t.blocked).child(this.workflowError)))
         .when(view.above > 0, (el) => el.child(div().px(4).text_size(11).text_color(t.dim).child(`↑ ${view.above} above · Esc`)))
         .children(goalMode ? this.runsBody(t, runs) : [])
-        .children(reviewView === "now" ? [...part("errors", this.errorGroup(t, errors)), ...part("away", this.awayGroup(t)), ...this.nowGroups(t, shownNow, part),
+        .children(reviewView === "now" ? [...part("errors", this.errorGroup(t, errors)), ...part("clis", this.cliGroup(t)), ...part("away", this.awayGroup(t)), ...this.nowGroups(t, shownNow, part),
           ...(firstRead ? this.prSkeleton(t) : [])] : [])
         .children(reviewView === "maintenance" ? this.maintenanceGroups(t, v, part, upkeep) : []))
       .when(Boolean(bulk), (el) => el.child(bulk))
@@ -840,7 +841,7 @@ export class Inbox {
 }
 
 
-for (const views of [PrViews, TreeViews, BranchViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews, GoalViews, NowViews, RunViews, RunCompareViews]) {
+for (const views of [PrViews, TreeViews, BranchViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews, GoalViews, NowViews, RunViews, RunCompareViews, CliViews]) {
   for (const name of Object.getOwnPropertyNames(views.prototype)) {
     if (name !== "constructor") Inbox.prototype[name] = views.prototype[name];
   }
