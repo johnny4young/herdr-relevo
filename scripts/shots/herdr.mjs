@@ -74,6 +74,7 @@ export const notify = (notice) => { fake.notices.push(notice); };
 export const openOverlay = (overlay) => { fake.overlays.push(overlay); };
 export const closeOverlay = (id) => { fake.closedOverlays.push(id); };
 export const playSound = () => {};
+export const setBadge = () => null;
 export const setAgentOrder = (order) => { fake.orders.push(order); return null; };
 export const nextCommand = () => never;
 export const readTextFile = async (path) => (fake.read ? fake.read(path) : fake.files[path] ?? null);
