@@ -66,7 +66,7 @@ The separate run window is for planning (prompt, repository, agents, plan) and f
 
 **What a run agent can touch.** Its worktree and its own report, nothing else. Codex runs with `workspace-write`; set `RUN_CODEX_MODEL` in `config.js` to choose its model. Claude runs Bash in the system sandbox, which it can't leave, so its commands there run without asking; its file tools cannot edit Relevo's state, mods or settings, and writing its progress and report never asks. A Claude reviewer has no shell at all and starts without your hooks; a Codex reviewer never stops to ask, so what your hooks or instructions start outside its sandbox just fails.
 
-**Starting a run.** A new worktree makes Claude and Codex ask whether to trust it. Runs shows that under Needs me with **Trust and continue**, which answers yes in the agent's tab; nothing is trusted without that click.
+**Starting a run.** A new worktree makes Claude, Codex and Antigravity ask whether to trust it. Runs shows that under Needs me with **Trust and continue**, which answers yes in the agent's tab; nothing is trusted without that click.
 
 **While it works and when it reports.** The writer says what it is doing, how far along it is and how long it thinks is left; the run shows that line. The reviewer lists its findings by level: blocker, major or minor. Only a finding at major or above sends the work back for another attempt; lower ones reach you as notes beside the result, with what the reviewer could not run or prove. Set `RUN_MUST_FIX` in `config.js` to `"blocker"` or `"minor"` to move that bar. What each agent is told lives in `mods/relevo/runtime/roles/executor.md` and `reviewer.md`.
 
@@ -160,8 +160,11 @@ doing or asks, and a click opens its last message in place, with **Open in Claud
 Reviews looks for the agent CLIs Relevo knows (Claude Code, Codex, Antigravity CLI) on your login shell's PATH. One it
 finds that is not in `config.js` shows in Now under **AGENT CLIS** with **Activate**, which adds its account, or **Ignore**.
 One in use whose Herdr hook is outdated or missing offers **Update hook** (`herdr integration install`). An activated
-CLI gets a chip, a tab from the accounts list and handoffs; Runs, Deep review and second opinions use only the CLIs
-Relevo can run unattended. Settings turns each one on or off.
+CLI gets a chip, a tab from the accounts list and handoffs, and writes or reviews in Runs, Deep review and second
+opinions. Antigravity runs in auto mode, which approves edits and safe commands and asks for the rest. Its quota is agy's
+own usage report, every five minutes, for the model group of the model in its settings (Gemini, or Claude and GPT); while
+one of its agents reports "quota reached", the account counts as full until the reset time it gives. Settings turns each
+one on or off.
 
 ### Land a PR, and review only what changed
 
@@ -273,7 +276,9 @@ shows.
   login shell; **Update hook** runs `herdr integration install <cli>`.
 - Runs `git`, `gh`, `hc`, `cat` (the hook's notes of a permission the screen cuts), `find` (to look for repos in a worktree's ignored folders) and the launchers in `config.js`; Files runs `/usr/bin/trash`, `open -R`, `mv -n` and `mkdir`.
 - Reaches the network for quotas: each Claude account's login from the macOS Keychain goes to Anthropic's usage
-  endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token.
+  endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token. For Antigravity it runs
+  `agy -p /usage --output-format json` in a temp folder every five minutes, without updates or a browser sign-in, and reads
+  `~/.gemini/antigravity-cli/settings.json` for its model.
 - Reads each Claude account's `history.jsonl` to rank the skills a PR's menu offers (counts only), its short
   one-line prompts to suggest quick replies you keep typing, and its sessions for `⌥⌘E`, with the title, branch and
   PR from the end of each session file (in memory, never written anywhere).

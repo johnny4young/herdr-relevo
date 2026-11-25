@@ -843,6 +843,9 @@ test('a run agent asking to trust its worktree is named in the run window, and o
   const codex = 'Trust this folder? Codex can read, edit, and run files here.\n› 1. Trust and continue\n  2. Back to Agent Command Center';
   assert.deepEqual([trustKeys(claude), trustKeys(claude.replace('❯ No', '  No').replace('   Yes', ' ❯ Yes')), trustKeys(codex), trustKeys('Update available · 1 → 2\n esc skip')],
     [['down', 'enter'], ['enter'], ['enter'], null]);
+  const agy = 'Do you trust the contents of this project?\n\n> Yes, I trust this folder\n  No, exit\n\n  ↑/↓ Navigate · enter Confirm';
+  assert.deepEqual([trustKeys(agy), trustKeys(agy.replace('> Yes', '  Yes').replace('  No', '> No')), trustKeys('> run the tests\nYes, I trust this folder?')],
+    [['enter'], ['up', 'enter'], null]);
   v.launch = { stage: 'waiting', fields: { goalId: 'g', title: 'T', root: '/work/app' }, accounts: { executor: 'personal', reviewer: 'codex' }, at: Date.now(), openedAt: 0,
     worktree: { path: '/wt', branch: 'run/t-1', base: '/work/app' }, tabs: { executor: 't-1 · build', reviewer: 't-1 · review' } };
   fake.agents = [{ address: 't2', tab_name: 't-1 · review', status: 'idle' }];

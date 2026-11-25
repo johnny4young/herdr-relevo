@@ -109,3 +109,12 @@ test("Now lists a CLI found on the machine, and Activate writes it into config.j
   assert.equal(writes.length, 1);
   assert.match(writes[0], /export const OTHER_CLIS = \[\n {2}\{ key: "agy", provider: "agy",/);
 });
+
+test("Antigravity is full while one of its agents reports its quota reached, and unknown otherwise", async () => {
+  const { reportedQuota, full } = await import("../accounts.js");
+  const msg = "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h0m0s.";
+  const q = reportedQuota(PROVIDERS.agy, [{ agent: "claude", report: { msg } }, { agent: "antigravity", report: { kind: "error", msg } }]);
+  assert.equal(q.h5.pct, 100);
+  assert.equal(full(q), "5h");
+  assert.equal(reportedQuota(PROVIDERS.agy, [{ agent: "agy", report: { msg: "Approve Bash: rm a.txt" } }, { agent: "claude", report: { msg } }]), null);
+});

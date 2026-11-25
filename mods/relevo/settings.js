@@ -69,7 +69,8 @@ export class Settings {
 
   // The accounts as the form has them now, for the provider each deep reviewer runs on.
   deepAccounts() {
-    return [...this.accounts.map((r) => ({ key: this.keyOf(r), provider: r.orig?.provider })), { key: CODEX.key, provider: "codex" }];
+    return [...this.accounts.map((r) => ({ key: this.keyOf(r), provider: r.orig?.provider })), { key: CODEX.key, provider: "codex" },
+      ...this.clis.map((r) => ({ key: r.orig.key, provider: r.orig.provider }))];
   }
 
   changeDeep(row, change, cx) {
@@ -102,7 +103,8 @@ export class Settings {
   }
 
   deepRowView(t, row, i) {
-    const accounts = [["repo", "Repo's"], ...this.accounts.map((a) => [this.keyOf(a), text(a.inputs.label) || "?"]), ...(this.useCodex || row.account === CODEX.key ? [[CODEX.key, "Codex"]] : [])];
+    const accounts = [["repo", "Repo's"], ...this.accounts.map((a) => [this.keyOf(a), text(a.inputs.label) || "?"]), ...(this.useCodex || row.account === CODEX.key ? [[CODEX.key, "Codex"]] : []),
+      ...this.clis.filter((r) => PROVIDERS[r.orig.provider]?.caps.runs && (r.on || row.account === r.orig.key)).map((r) => [r.orig.key, PROVIDERS[r.orig.provider].short])];
     return h_flex().id(`settings-deep-${row.id}`).gap(6).items_center()
       .child(this.choice(t, `sd-account-${row.id}`, accounts, row.account, (account, cx) => this.changeDeep(row, { account }, cx), this.bad(`deepReview.${i}.account`)))
       .child(this.field(t, `sd-model-${row.id}`, row.inputs.model, `deepReview.${i}.model`, COLS.model))

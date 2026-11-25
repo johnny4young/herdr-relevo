@@ -13,7 +13,9 @@ import { noteUse } from "./run-usage.js";
 // Who reviews: another provider than the writer's when it has quota, else another account that does.
 export function opinionAccount(writer, quotas) {
   const keys = runnableAccounts().map((account) => account.key), mine = providerFor(writer);
-  const order = [...keys.filter((key) => providerFor(key) !== mine), ...keys.filter((key) => providerFor(key) === mine)];
+  // A provider whose quota Relevo reads goes before one it can't, within each group.
+  const known = (list) => [...list.filter((key) => providerFor(key).caps.quota), ...list.filter((key) => !providerFor(key).caps.quota)];
+  const order = [...known(keys.filter((key) => providerFor(key) !== mine)), ...known(keys.filter((key) => providerFor(key) === mine))];
   return order.find((key) => key !== writer && !full(quotas?.[key])) ?? null;
 }
 

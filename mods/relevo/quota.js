@@ -1,6 +1,7 @@
 import { exec, home, readTextFile } from "herdr";
 import { allAccounts } from "./accounts.js";
-import { providerOf } from "./lib/providers.js";
+import { agyUsage, providerOf } from "./lib/providers.js";
+import { shellArgv } from "./lib/session-env.js";
 
 // Asks each provider's usage endpoint with that account's own login. Expired tokens are
 // skipped, never refreshed: refreshing would rotate the login Claude Code or Codex keep.
@@ -54,8 +55,29 @@ async function codex() {
   return out;
 }
 
+// agy's own usage report, in the login shell where it is installed: in a temp folder, without updating itself, and
+// with `open` and BROWSER failing so a lost login never opens Google's sign-in from the background. 90 s at most.
+const AGY_USAGE = 'd=$(mktemp -d) || exit 1; printf "#!/bin/sh\\nexit 1\\n" > "$d/open"; chmod +x "$d/open"; cp "$d/open" "$d/xdg-open"; '
+  + 'cd "$d" && { PATH="$d:$PATH" BROWSER="$d/open" AGY_CLI_DISABLE_AUTO_UPDATE=true agy -p /usage --output-format json & p=$!; '
+  + '(sleep 90; kill $p) >/dev/null 2>&1 & w=$!; wait $p; s=$?; kill $w 2>/dev/null; }; cd /; rm -f "$d/open" "$d/xdg-open"; rmdir "$d"; exit $s';
+// Each report starts an agy process, so one every five minutes is enough.
+const AGY_EVERY = 300;
+let agyLast = null;
+
+async function agy() {
+  const now = Date.now() / 1000;
+  if (agyLast && now - agyLast.at < AGY_EVERY) return agyLast.limits;
+  const settings = JSON.parse(await readTextFile(`${home()}/.gemini/antigravity-cli/settings.json`).catch(() => null) ?? "{}");
+  const [cmd, ...args] = shellArgv(AGY_USAGE);
+  const r = await exec(cmd, args);
+  const limits = r.code === 0 ? agyUsage(r.stdout, settings.model ?? "") : null;
+  if (!limits) throw new Error(r.code === 0 ? "no usage report" : `agy exited ${r.code}`);
+  agyLast = { at: now, limits };
+  return limits;
+}
+
 // How each provider asks its usage endpoint.
-const ASK = { claude: (a) => claude(a.claudeDir), codex: () => codex() };
+const ASK = { claude: (a) => claude(a.claudeDir), codex: () => codex(), agy: () => agy() };
 
 // { account: { updated, rate_limits } | { error } }, one account failing leaves the others.
 export async function collectQuotas() {

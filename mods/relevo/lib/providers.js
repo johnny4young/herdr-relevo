@@ -65,7 +65,8 @@ export const PROVIDERS = {
         "--ask-for-approval", role === "reviewer" ? "never" : "on-request", "--add-dir", `${home}/relevo-workflow/reports`];
     },
   },
-  // Antigravity CLI: one login per macOS user (its Keychain item), so one account.
+  // Antigravity CLI: one login per macOS user (its Keychain item), so one account. Its quota comes from
+  // `agy -p /usage` (agyUsage), and from what Herdr reports when an agent runs out (quotaOf).
   agy: {
     key: "agy",
     name: "Antigravity CLI",
@@ -74,21 +75,50 @@ export const PROVIDERS = {
     apps: ["antigravity", "agy"],
     integration: "antigravity-cli",
     chip: { label: "Antigravity", letter: "A", bg: "#8aadf4", fg: "#1e2030" },
-    models: [],
+    models: ["gemini-4-neon-high", "gemini-4-carbon-high", "gemini-4-argon-high", "gemini-4-hydrogen-high", "gemini-3.8-flash-high"],
     efforts: ["low", "medium", "high", "xhigh", "max"],
-    caps: { accounts: false, fork: false, quota: false, usage: false, skills: false, writer: false, runs: false },
+    caps: { accounts: false, fork: false, quota: true, usage: false, skills: false, writer: false, runs: true },
+    reportsQuota: true,
     promptArgs: (prompt) => ["-i", prompt],
     defaultModel: () => "",
     usageDirs: () => [],
     modelArgs: (r, base) => [...base, ...(r.model ? ["--model", r.model] : []), ...(r.effort ? ["--effort", r.effort] : [])],
-    runArgs() {
-      throw new Error("Antigravity CLI does not run unattended yet");
+    // Auto mode approves edits and safe commands; anything else it asks, and Runs shows the question.
+    runArgs({ home, sandboxed }) {
+      return ["--mode", "auto", "--add-dir", `${home}/relevo-workflow/reports`, ...(sandboxed ? ["--sandbox"] : [])];
     },
   },
 };
 
 // The CLIs with one login each, whose account Relevo adds from what it finds on the machine.
 export const singleProviders = () => Object.values(PROVIDERS).filter((p) => !p.caps.accounts);
+
+// A full quota from what Herdr reports for an agent: "Individual quota reached. … Resets in 1h0m27s."
+// Returns { resets } in epoch seconds, or null.
+export function quotaOf(msg, now = Date.now() / 1000) {
+  if (!/quota reached/i.test(msg ?? "")) return null;
+  const m = /Resets in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/.exec(msg);
+  const left = m ? Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0) : 0;
+  return { resets: left ? Math.round(now + left) : null };
+}
+
+// `agy -p /usage --output-format json`: each model group has a 5-hour and a weekly bucket. The group of `model` (agy's
+// settings, "Claude Opus 5.5 (Medium)") counts, else the tightest. Returns rate_limits as Relevo stores them, or null.
+export function agyUsage(text, model = "") {
+  let groups;
+  try { groups = JSON.parse(text)?.command?.data?.groups; } catch { return null; }
+  if (!Array.isArray(groups) || !groups.length) return null;
+  const name = model.replace(/\s*\(.*\)\s*$/, "").trim();
+  const least = (g) => Math.min(...(g.buckets ?? []).map((b) => b.remaining_fraction ?? 1));
+  const group = (name ? groups.find((g) => (g.description ?? "").includes(name)) : null) ?? [...groups].sort((a, b) => least(a) - least(b))[0];
+  const out = {};
+  for (const b of group.buckets ?? []) {
+    const window = { "5h": "five_hour", weekly: "seven_day" }[b.window];
+    if (!window || typeof b.remaining_fraction !== "number") continue;
+    out[window] = { used_percentage: Math.round((1 - b.remaining_fraction) * 1000) / 10, resets_at: b.reset_time ? Date.parse(b.reset_time) / 1000 : null };
+  }
+  return Object.keys(out).length ? { ...out, group: group.name } : null;
+}
 
 // An account without a provider is a Claude account, as every config before providers wrote them.
 export const providerOf = (account) => PROVIDERS[account?.provider] ?? PROVIDERS.claude;
