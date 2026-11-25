@@ -4,7 +4,7 @@ import { theme, exec, run, spaces, panes, focused, props, openOverlay, closeOver
 import { touchedAt } from "./worktrees.js";
 import { ago } from "./lib/time.js";
 import { GIT_READ } from "./lib/git.js";
-import { spinner, withKey, icon, grabFocus } from "./ui.js";
+import { spinner, withKey, icon, grabFocus, paced } from "./ui.js";
 
 const MAX_FILES = 20000, SHOWN = 60;
 
@@ -48,7 +48,7 @@ export class PanelBar {
     this.list = [];
     this.syntheticPreview = _props?.syntheticPreview === true;
     if (this.syntheticPreview) return;
-    cx.timer.every(2000, (cx) => this.refresh(cx));
+    cx.timer.every(2000, paced((cx) => this.refresh(cx)));
     this.refresh(cx);
   }
 

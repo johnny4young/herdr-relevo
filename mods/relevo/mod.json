@@ -1,1 +1,89 @@
-{ "place": "none" }
+{
+  "place": "none",
+  "palette": [
+    {
+      "title": "Reviews",
+      "command": "relevo.panel-reviews",
+      "group": "Relevo",
+      "words": "relevo inbox now maintenance prs"
+    },
+    {
+      "title": "Runs",
+      "command": "relevo.panel-runs",
+      "group": "Relevo",
+      "words": "relevo goals tasks workflow"
+    },
+    {
+      "title": "New run",
+      "command": "relevo.goal-new",
+      "group": "Relevo",
+      "words": "relevo goal task workflow start"
+    },
+    {
+      "title": "Review changes",
+      "command": "relevo.review",
+      "group": "Relevo",
+      "words": "relevo diff files pr"
+    },
+    {
+      "title": "Next waiting agent",
+      "command": "relevo.next-waiting",
+      "group": "Relevo",
+      "words": "relevo blocked agent question"
+    },
+    {
+      "title": "Hand off to another account",
+      "command": "relevo.handoff",
+      "group": "Relevo",
+      "words": "relevo quota account continue"
+    },
+    {
+      "title": "Quick replies",
+      "command": "relevo.quick-reply",
+      "group": "Relevo",
+      "words": "relevo answer agent reply"
+    },
+    {
+      "title": "Find a session",
+      "command": "relevo.sessions",
+      "group": "Relevo",
+      "words": "relevo history resume claude"
+    },
+    {
+      "title": "Open this branch's PR",
+      "command": "relevo.open-pr",
+      "group": "Relevo",
+      "words": "relevo pull request github"
+    },
+    {
+      "title": "Checkouts here",
+      "command": "relevo.checkouts",
+      "group": "Relevo",
+      "words": "relevo worktree branch"
+    },
+    {
+      "title": "Find file",
+      "command": "relevo.find-file",
+      "group": "Relevo",
+      "words": "relevo files open"
+    },
+    {
+      "title": "Tokens",
+      "command": "relevo.usage",
+      "group": "Relevo",
+      "words": "relevo usage cost tokens"
+    },
+    {
+      "title": "Week of agent time",
+      "command": "relevo.ledger-week",
+      "group": "Relevo",
+      "words": "relevo time ledger week"
+    },
+    {
+      "title": "Settings",
+      "command": "relevo.settings",
+      "group": "Relevo",
+      "words": "relevo accounts config"
+    }
+  ]
+}

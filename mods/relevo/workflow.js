@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { agents, panes, props, theme, appHome, readTextFile, run, focused, shared, setShared, closeOverlay } from "herdr";
 import { readRunState, runtimeCommand } from "./runtime-cli.js";
-import { alertLine, button, keycap, onSubmitChord, tabButton, checkbox } from "./ui.js";
+import { alertLine, button, keycap, onSubmitChord, tabButton, checkbox, paced } from "./ui.js";
 import { focusedCwd } from "./panelbar.js";
 import { workflowBucket, workflowItems, queueSummary, armAccept, acceptArmed } from "./lib/workflow-navigation.js";
 import { followUpAvailable, changesPlan } from "./lib/run-panel.js";
@@ -79,7 +79,7 @@ export class Workflow extends WorkflowDetail {
     this.preferenceEditId = null;
     this.initDrafts();
     this.load(cx);
-    cx.timer.every(3000, (cx) => this.load(cx));
+    cx.timer.every(3000, paced((cx) => this.load(cx)));
     this.loadQuotas(cx);
     cx.timer.every(60000, (cx) => this.loadQuotas(cx));
     cx.timer.every(1000, (cx) => { this.launchTick(cx); if (this.draftWaiting) this.persistDraft({ now: true }); });

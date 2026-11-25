@@ -17,7 +17,7 @@ import { syncFolders, foldFor } from "./folders.js";
 import { CONTEXTS, FALLBACK } from "./config.js";
 import { mostMargin } from "./lib/margin.js";
 import { ledgerTick } from "./ledger.js";
-import { spinner, withKey, quotaTone } from "./ui.js";
+import { spinner, withKey, quotaTone, paced } from "./ui.js";
 import { openSettings } from "./settings.js";
 import { UsageScanner, ContextWatch } from "./usage-scan.js";
 import { DesktopWatch } from "./desktop.js";
@@ -47,7 +47,8 @@ export class Sidebar {
     this.load(cx);
     this.collect(cx);
     cx.timer.every(30000, (cx) => this.load(cx));
-    cx.timer.every(300000, (cx) => this.collect(cx));
+    // Quotas feed alerts, so they still come every 15 minutes while the window can't be seen.
+    cx.timer.every(300000, paced((cx) => this.collect(cx), 3));
     cx.spawn(async () => {
       await syncFolders();
     });
@@ -63,9 +64,9 @@ export class Sidebar {
         await ledgerTick();
       });
     });
-    cx.timer.every(600000, (cx) => cx.spawn(async () => {
+    cx.timer.every(600000, paced((cx) => cx.spawn(async () => {
       await syncFolders();
-    }));
+    })));
     this.desktop = new DesktopWatch(this.turns);
     this.elsewhere = new ElsewhereWatch();
     const readDesktop = (cx) => cx.spawn(async () => {
@@ -82,7 +83,7 @@ export class Sidebar {
     readAlive(cx);
     cx.timer.every(10000, readAlive);
     this.readTokens(cx);
-    cx.timer.every(300000, (cx) => this.readTokens(cx));
+    cx.timer.every(300000, paced((cx) => this.readTokens(cx)));
     // After the window settles, so mods still loading don't count as errors.
     cx.timer.after(60000, (cx) => cx.spawn(async () => { await smokeAfterUpdate(); }));
     cx.timer.every(20000, (cx) => cx.spawn(async () => {

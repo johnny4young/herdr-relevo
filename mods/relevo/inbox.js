@@ -3,7 +3,7 @@ import { div } from "gpui-kit";
 import { PreviewInbox } from "./decision-preview.js";
 import { SnapshotInbox } from "./snapshot-preview.js";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { theme, exec, run, notify, settings, agents, panes, terminals, shared, setShared, home, machines } from "herdr";
+import { theme, exec, run, notify, settings, agents, panes, terminals, shared, setShared, home, machines, setBadge } from "herdr";
 import { loadClaudeQuotas } from "./accounts.js";
 import { accountFor, contextOfPath, inFocus } from "./context.js";
 import { ago, nextSince } from "./lib/time.js";
@@ -12,7 +12,7 @@ import { openReview, REVIEW_SHORTCUT_ACTIONS } from "./review.js";
 import { askSecondOpinion, secondOpinionNotice } from "./second-opinion.js";
 import { openHandoff } from "./handoff.js";
 import { openReplies } from "./replies.js";
-import { button, spinner, withKey, foldRow, FOLDS, shortcutBindings, icon, checkbox, keycap, row, diffRatio, tabButton, keyBar, actionButton } from "./ui.js";
+import { button, spinner, withKey, foldRow, FOLDS, shortcutBindings, icon, checkbox, keycap, row, diffRatio, tabButton, keyBar, actionButton, paced } from "./ui.js";
 import { ShortcutHelp } from "./shortcut-help.js";
 import { INBOX_SHORTCUT_ACTIONS, barKeys } from "./lib/shortcut-help.js";
 import { AGENT_PRS, agentPRs, seconds } from "./lib/github.js";
@@ -132,7 +132,7 @@ export class Inbox {
     this.startLand(cx);
     // These feed alerts, so they keep running behind other apps.
     this.scanClis(cx);
-    cx.timer.every(180000, (cx) => this.scanPRs(cx));
+    cx.timer.every(180000, paced((cx) => this.scanPRs(cx), 2));
     cx.timer.every(60000, (cx) => this.loadQuotas(cx));
   }
 
@@ -187,6 +187,11 @@ export class Inbox {
     // The badge is the Needs me count, so it always matches the legend.
     const n = entries.filter((e) => e.turn === "me").length;
     if (shared(COUNT) !== n) setShared(COUNT, n);
+    // The Dock icon says it too, Herdr in front or not; set only when it changes.
+    if (this.badge !== n) {
+      this.badge = n;
+      setBadge(n ? String(n) : null);
+    }
     this.publishReasons();
     this.publishAgentPRs();
     this.publishRepoPRs(entries);
