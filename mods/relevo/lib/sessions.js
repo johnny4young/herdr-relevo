@@ -1,11 +1,13 @@
 // Past Claude sessions to resume: what the history and session files say, pure for the tests.
 
+const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
 // "account\tms\tproject\tid" lines, newest first, one per account and session.
 export function parseIndex(text) {
   const by = new Map();
   for (const line of text.split("\n")) {
     const [account, ms, project, id] = line.split("\t");
-    if (!id || !project || !Number(ms)) continue;
+    if (!id || !SESSION_ID.test(id) || !project || !Number(ms)) continue;
     const key = `${account}/${id}`, at = Number(ms);
     if ((by.get(key)?.at ?? 0) < at) by.set(key, { account, at, project, id });
   }

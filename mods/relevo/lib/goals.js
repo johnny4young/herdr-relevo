@@ -1,3 +1,5 @@
+import { TEXT_MAX } from "./run-report.js";
+
 // Goal records describe human intent. Terminal state never grants review or approval.
 export const emptyGoals = () => ({ version: 1, revision: 0, goals: [], history: [] });
 const bounded = (s, max = 2000) => typeof s === "string" && s.length <= max && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(s);
@@ -17,7 +19,7 @@ export function validateGoals(doc) {
   for (const g of doc.goals) {
     if (!bounded(g.id, 100) || !g.id || ids.has(g.id) || !bounded(g.title, 240) || !g.title.trim() ||
         ![0, 1, 2, 3].includes(g.priority) || !Number.isSafeInteger(g.version) || g.version < 1 ||
-        !["owner", "lead", "decision", "recommendation", "criteria"].every((k) => bounded(g[k])) ||
+        !["owner", "lead", "decision", "recommendation"].every((k) => bounded(g[k])) || !bounded(g.criteria, TEXT_MAX) ||
         !Array.isArray(g.sources) || g.sources.length > 100 || !Array.isArray(g.evidence) || g.evidence.length > 20 ||
         !Array.isArray(g.decisions) || g.decisions.length > 100) throw Error("Invalid goal");
     if (!Object.entries(GOAL_CAPS).every(([key, max]) => cap(g[key], max))) throw Error("Invalid goal limit: use a whole number of minutes or tokens, or none");

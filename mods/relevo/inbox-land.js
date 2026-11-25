@@ -7,7 +7,7 @@ import { localBranch } from "./lib/prmenu.js";
 import { ago } from "./lib/time.js";
 import { scanWorktrees, removalCheck, removeWorktree } from "./worktrees.js";
 import { headOf, logRemoval } from "./worktree-actions.js";
-import { icon } from "./ui.js";
+import { icon, openUrl } from "./ui.js";
 
 export const LANDING = "relevo.landing";
 const TICK_MS = 20000;
@@ -55,6 +55,7 @@ export class LandViews {
   }
 
   land(pr, auto, cx) {
+    if (this.landing()[pr.url]) return;
     // The card turns into a landing at once; the checks and the merge take a few seconds.
     this.setLanding(pr.url, {
       repo: pr.repo, number: pr.number, title: pr.title, branch: localBranch(pr), oid: pr.headRefOid,
@@ -124,9 +125,18 @@ export class LandViews {
   async checkMerge(url, e, cx) {
     const r = await exec("gh", ["pr", "view", String(e.number), "--repo", e.repo, "--json", "state,mergeCommit,mergedAt"]);
     if (r.code !== 0) return;
-    const pr = JSON.parse(r.stdout);
+    let pr;
+    try { pr = JSON.parse(r.stdout); } catch { return; }
     if (pr.state === "MERGED") {
-      this.setLanding(url, { phase: "ci", sha: pr.mergeCommit?.oid, mergedAt: Math.round(Date.parse(pr.mergedAt) / 1000) });
+      const sha = pr.mergeCommit?.oid ?? null;
+      const mergedAt = Math.round((Date.parse(pr.mergedAt) || Date.now()) / 1000);
+      if (!sha) {
+        const note = await this.cleanUp(e, cx);
+        this.setLanding(url, { phase: "landed", mergedAt, note, done: Math.round(Date.now() / 1000) });
+        notify({ title: `Landed · ${e.repo.split("/")[1]} #${e.number}`, body: note ?? undefined, level: "success" });
+        return this.scanPRs(cx);
+      }
+      this.setLanding(url, { phase: "ci", sha, mergedAt });
       notify({ title: `Merged · ${e.repo.split("/")[1]} #${e.number}`, body: "Following the workflows it starts", level: "success" });
       this.scanPRs(cx);
     } else if (pr.state === "CLOSED") {
@@ -135,9 +145,16 @@ export class LandViews {
   }
 
   async checkRuns(url, e, now, cx) {
+    if (!e.sha) {
+      const note = await this.cleanUp(e, cx);
+      this.setLanding(url, { phase: "landed", note, done: Math.round(now) });
+      return notify({ title: `Landed · ${e.repo.split("/")[1]} #${e.number}`, body: note ?? undefined, level: "success" });
+    }
     const r = await exec("gh", ["run", "list", "--repo", e.repo, "--commit", e.sha, "--json", "name,status,conclusion,url", "--limit", "30"]);
     if (r.code !== 0) return;
-    const at = runsPhase(JSON.parse(r.stdout), e.mergedAt, now);
+    let runs;
+    try { runs = JSON.parse(r.stdout); } catch { return; }
+    const at = runsPhase(runs, e.mergedAt, now);
     const name = `${e.repo.split("/")[1]} #${e.number}`;
     if (at.phase === "failed") {
       notify({ title: `${at.failed.name} failed · ${name}`, body: "After the merge", level: "warning", action: { name: "relevo.panel-reviews" } });
@@ -157,10 +174,12 @@ export class LandViews {
     if (await headOf(w) !== e.oid) return "kept its worktree: it has commits the PR doesn't";
     const inside = (p) => p.cwd === w.path || p.cwd?.startsWith(`${w.path}/`);
     if (panes().some((p) => inside(p) && p.status === "working")) return "kept its worktree: an agent is working there";
-    // The worktree's own space closes with it; a resting agent's pane there from another space closes first.
-    // Any other terminal there is someone's, and removalCheck keeps the worktree for it.
+    // Only close resting agent panes from other spaces when no non-agent terminal would block removal anyway.
     const space = spaces().find((s) => !s.machine && s.folder === w.path), own = new Set((space?.tabs ?? []).map((x) => x.id));
-    for (const p of panes().filter((x) => inside(x) && x.program?.agent && !own.has(x.tab))) run("pane.close", { pane: p.pane });
+    const foreign = panes().filter((x) => inside(x) && !own.has(x.tab));
+    if (foreign.every((x) => x.program?.agent)) {
+      for (const p of foreign) run("pane.close", { pane: p.pane });
+    }
     const check = await removalCheck({ ...w, landed: true });
     if (check.error) return `kept its worktree: ${check.error}`;
     if (check.space) run("space.close", { id: check.space, confirmed: true });
@@ -176,11 +195,11 @@ export class LandViews {
   // What a landing row can do, for its buttons, its keys and its keycaps alike. ✓ only clears the row, so it has no key.
   landActions(url, e) {
     const failed = e.phase === "failed", landed = e.phase === "landed";
-    const run = failed && /^https:\/\//.test(e.failed?.url ?? "") ? { id: `land-run-${url}`, label: "Open run", run: () => exec("open", [e.failed.url]), kind: "go" } : null;
-    const pr = { id: `land-pr-${url}`, key: "o", label: "Open PR", run: () => exec("open", [url]) };
+    const run = failed && /^https:\/\//.test(e.failed?.url ?? "") ? { id: `land-run-${url}`, label: "Open run", run: () => openUrl(e.failed.url), kind: "go" } : null;
+    const pr = { id: `land-pr-${url}`, key: "o", label: "Open PR", run: () => openUrl(url) };
     return {
       main: run ?? pr,
-      actions: [pr, e.phase === "queued" ? { id: `land-cancel-${url}`, label: "Cancel", run: (cx) => this.cancelAuto(url, e, cx), tip: "Turns auto-merge off" } : null],
+      actions: [pr, e.phase === "queued" ? { id: `land-cancel-${url}`, label: "Cancel", run: (cx) => this.cancelAuto(url, e, cx), disabled: this.cancellingAuto?.has(url), tip: "Turns auto-merge off" } : null],
       mark: failed || landed ? { id: `land-done-${url}`, label: [icon("check")], run: () => this.setLanding(url, null), tip: "Remove from the list" } : null,
     };
   }
@@ -196,10 +215,19 @@ export class LandViews {
   }
 
   cancelAuto(url, e, cx) {
-    cx.spawn(async () => {
-      const r = await exec("gh", ["pr", "merge", String(e.number), "--repo", e.repo, "--disable-auto"]);
-      if (r.code !== 0) return notify({ title: "Could not turn auto-merge off", body: first(r), level: "warning" });
-      this.setLanding(url, null);
+    this.cancellingAuto ??= new Set();
+    if (this.cancellingAuto.has(url)) return;
+    this.cancellingAuto.add(url);
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const r = await exec("gh", ["pr", "merge", String(e.number), "--repo", e.repo, "--disable-auto"]);
+        if (r.code !== 0) return notify({ title: "Could not turn auto-merge off", body: first(r), level: "warning" });
+        this.setLanding(url, null);
+      } finally {
+        this.cancellingAuto.delete(url);
+        cx.notify();
+      }
     });
   }
 }

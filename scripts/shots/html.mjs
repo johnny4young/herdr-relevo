@@ -18,7 +18,9 @@ const warned = new Set();
 function asset(path) {
   for (const root of ROOTS) {
     const file = join(root, path);
-    if (existsSync(file)) return readFileSync(file);
+    try {
+      if (existsSync(file)) return readFileSync(file);
+    } catch { /* ignore unreadable host config roots */ }
   }
   if (!warned.has(path)) {
     warned.add(path);

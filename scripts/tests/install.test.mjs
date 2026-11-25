@@ -293,7 +293,9 @@ test("an install keeps the ten newest backups and leaves other folders there alo
 
 // A stand-in coordinator: a process whose command line reads like the installed one serving this folder.
 function coordinator(tasks) {
-  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", path.join(root, "mods/relevo/runtime/cli.mjs"), "--home", root, "serve"], { stdio: "ignore" });
+  const args = ["-e", "setInterval(() => {}, 1000)", path.join(root, "mods/relevo/runtime/cli.mjs"), "--home", root, "serve"];
+  const child = spawn(process.execPath, args, { stdio: "ignore" });
+  child.commandLine = [process.execPath, ...args].join(" ");
   standIns.push(child);
   put(root, "relevo-workflow/engine.lock/owner.json", JSON.stringify({ pid: child.pid, token: "t" }));
   put(root, "relevo-workflow/state.json", JSON.stringify({ tasks }));
@@ -301,24 +303,36 @@ function coordinator(tasks) {
 }
 
 test("an update of the runs code stops an idle coordinator and leaves a busy one to finish", { timeout: 10000 }, async () => {
-  install({ source, root, log });
+  const ps = (pid) => standIns.find((c) => c.pid === pid && c.exitCode === null && c.signalCode === null)?.commandLine ?? "";
+  install({ source, root, log, coordinator: { ps } });
   const idle = coordinator([{ state: "accepted", attempts: [{ state: "done" }] }]);
   await wait(200);
   put(source, "mods/relevo/lib/a.js", "a2\n");
-  install({ source, root, log });
+  install({ source, root, log, coordinator: { ps } });
   assert.equal(await idle.gone, "SIGTERM");
   assert.ok(lines.some((l) => /stopped the idle Runs coordinator/.test(l)));
   const busy = coordinator([{ state: "running", attempts: [{ state: "running" }] }]);
   await wait(200);
   put(source, "mods/relevo/lib/a.js", "a3\n");
-  install({ source, root, log });
+  install({ source, root, log, coordinator: { ps } });
   await wait(200);
   assert.equal(busy.child.exitCode, null, "a coordinator with a run open keeps running");
   assert.ok(lines.some((l) => /keeps the previous version/.test(l)));
   const other = coordinator([]);
   await wait(200);
   put(source, "mods/relevo/main.js", "// relevo v2\n");
-  install({ source, root, log });
+  install({ source, root, log, coordinator: { ps } });
   await wait(200);
   assert.equal(other.child.exitCode, null, "an update outside the runs code leaves it alone");
+});
+
+test("uninstall rejects manifest paths escaping the app root", () => {
+  const outside = path.join(path.dirname(root), `outside-${process.pid}.txt`);
+  fs.writeFileSync(outside, "keep");
+  put(root, "relevo-install/installed.json", JSON.stringify({
+    version: "0.1.0", files: { [`../${path.basename(outside)}`]: "deadbeef" },
+  }));
+  assert.throws(() => uninstall({ root }), /Unsafe path/);
+  assert.equal(fs.existsSync(outside), true);
+  fs.rmSync(outside, { force: true });
 });

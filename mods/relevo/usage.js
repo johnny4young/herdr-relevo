@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, run, openOverlay, shared } from "herdr";
-import { allAccounts } from "./accounts.js";
+import { agentAccounts } from "./accounts.js";
 import { ago } from "./lib/time.js";
 import { RANGES, compact, summarize } from "./lib/usage.js";
 import { USAGE, readReport } from "./usage-scan.js";
@@ -37,6 +37,7 @@ export class UsageDialog {
     this.loadedAt = shared(USAGE)?.updated ?? null;
     cx.spawn(async (cx) => {
       this.report = await readReport();
+      this.loaded = true;
       cx.notify();
     });
   }
@@ -52,6 +53,7 @@ export class UsageDialog {
 
   // One hue for one measure; each bar says its day and numbers on hover.
   chart(t, days) {
+    if (!days?.length) return null;
     const top = Math.max(1, ...days.map((d) => d.write));
     return v_flex().flex_none()
       .child(h_flex().justify_between().child(title(t, "NEW CONTEXT PER DAY", NEW_TIP))
@@ -127,7 +129,7 @@ export class UsageDialog {
     const reading = usage.total && usage.done < usage.total;
     const t = theme(), days = RANGES.find(([key]) => key === this.range)[2];
     const s = this.report ? summarize(this.report, days, this.account) : null;
-    const accounts = [[null, "All"], ...allAccounts().map((a) => [a.key, a.label])];
+    const accounts = [[null, "All"], ...agentAccounts().map((a) => [a.key, a.label])];
     const empty = s && !s.total.output && !s.total.write;
     const header = h_flex().h(44).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().id("usage-title").font_semibold().text_size(13).tooltip(QUOTA_TIP).child("Tokens"))
@@ -147,7 +149,7 @@ export class UsageDialog {
       .child(button(t, "usage-refresh", [icon("refresh")], () => run("relevo.usage-scan"), { tip: withKey("Read again", "relevo.usage"), disabled: Boolean(reading) }));
     const center = (el) => h_flex().flex_1().justify_center().items_center().text_size(13).text_color(t.dim).child(el);
     const body = !s
-      ? center("Reading transcripts…")
+      ? center(reading || !this.loaded ? "Reading transcripts…" : "No tokens yet")
       : empty
         ? center(reading ? "Reading transcripts…" : "No tokens in this range")
         : v_flex().id("usage-body").flex_1().min_h(0).overflow_y_scrollbar().p(12).gap(14)

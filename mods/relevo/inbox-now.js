@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { agents, exec, machines, panes, run, shared, setShared, terminals, theme } from "herdr";
+import { agents, machines, panes, run, shared, setShared, terminals, theme } from "herdr";
 import { openReview } from "./review.js";
 import { REVIEW_VIEW } from "./toolbar.js";
 import { openDesktop } from "./desktop.js";
@@ -11,7 +11,7 @@ import { ago } from "./lib/time.js";
 import { openGoal } from "./goals-editor.js";
 import { recent } from "./lib/github.js";
 import { prTurn } from "./lib/lanes.js";
-import { button, foldRow, icon, joined, keycap, keysOf, LANE, laneGlyph, legend, legHeader, saveFolds, TURN_LABEL } from "./ui.js";
+import { button, foldRow, icon, joined, keycap, keysOf, LANE, laneGlyph, legend, legHeader, openUrl, saveFolds, TURN_LABEL } from "./ui.js";
 
 // Reviews has two views: Now, by whose turn it is, and Maintenance, for what can wait.
 export { REVIEW_VIEW };
@@ -105,7 +105,7 @@ export class NowViews {
     const fresh = (e) => e.phase !== "landed" || Date.now() / 1000 - (e.done ?? 0) < LANDED_SHOWN;
     for (const [url, e] of Object.entries(this.landing()).filter(([, e]) => fresh(e))) {
       add({ id: `land-${url}`, turn: e.phase === "failed" ? "me" : "flight", text: `${e.repo} ${e.number} ${e.title}`,
-        draw: () => this.landCard(t, url, e), go: () => exec("open", [e.failed?.url ?? url]), keys: () => keysOf(this.landActions(url, e)) });
+        draw: () => this.landCard(t, url, e), go: () => openUrl(e.failed?.url ?? url), keys: () => keysOf(this.landActions(url, e)) });
     }
     for (const entry of this.openReviews()) add({ id: entry.id, turn: "me", text: `${entry.title} ${entry.detail ?? ""}`, draw: () => this.reviewRow(t, entry), go: entry.go,
       keys: () => keysOf(this.reviewActions(entry)) });
@@ -125,14 +125,14 @@ export class NowViews {
       add({ id: `pr-${pr.url}`, repo: pr.repo, turn: source.draft ? "open" : prTurnOf(pr, false), text: `${pr.repo} ${pr.number} ${pr.title}`,
         keys: () => keysOf(source.draft ? this.draftActions(pr) : this.prActions(t, pr, false)),
         draw: () => (source.draft ? this.draftCard(t, pr) : this.prCard(t, pr, false)),
-        go: () => (source.draft ? exec("open", [pr.url]) : this.runPR(pr)) });
+        go: () => (source.draft ? openUrl(pr.url) : this.runPR(pr)) });
     }
     // A person's PR you answered waits on its author, in sight under Waiting on others.
     for (const pr of v.answered ?? []) {
       add({ id: `pr-${pr.url}`, repo: pr.repo, turn: "open", text: `${pr.repo} ${pr.number} ${pr.title} ${pr.author?.login ?? ""}`,
         draw: () => this.prCard(t, pr, true), go: () => this.runPR(pr), keys: () => keysOf(this.prActions(t, pr, true)) });
     }
-    for (const pr of this.drafts ?? []) add({ id: `pr-${pr.url}`, repo: pr.repo, turn: "open", text: `${pr.repo} ${pr.number} ${pr.title}`, draw: () => this.draftCard(t, pr), go: () => exec("open", [pr.url]),
+    for (const pr of this.drafts ?? []) add({ id: `pr-${pr.url}`, repo: pr.repo, turn: "open", text: `${pr.repo} ${pr.number} ${pr.title}`, draw: () => this.draftCard(t, pr), go: () => openUrl(pr.url),
       keys: () => keysOf(this.draftActions(pr)) });
     const seen = new Set();
     return out.filter((e) => !seen.has(e.id) && seen.add(e.id))
@@ -331,7 +331,7 @@ export class NowViews {
     const t = theme(), prKeys = (pr, requested, done = false) => () => keysOf(this.prActions(t, pr, requested, done));
     const old = m.old.map(([pr, requested]) => ({ id: `pr-${pr.url}`, section: "old", go: () => this.runPR(pr), keys: prKeys(pr, requested) })), lanes = m.lanes;
     const trees = (key) => (key === "quiet" && !this.expanded["loose-recent"] ? [] : lanes[key])
-      .map((w) => ({ id: `wt-${w.path}`, section: key, go: () => this.openTree(w) }));
+      .map((w) => ({ id: `wt-${w.path}`, section: key, go: (cx) => (w.gone ? this.removeTree(w, cx) : this.openTree(w)) }));
     // Unfolded, what you marked addressed is selectable too, so its Undo can be reached.
     const done = !this.expanded["maintenance-done"] ? [] : [
       ...v.localDone.map((i) => ({ id: `in-${i.agent.address}`, go: () => openReview(i.top, i.agent.address), keys: () => keysOf(this.localActions(i, true)) })),
@@ -339,7 +339,7 @@ export class NowViews {
       ...v.mineDone.map((pr) => ({ id: `pr-${pr.url}`, go: () => this.runPR(pr), keys: prKeys(pr, false, true) })),
       ...v.desktopDone.map((d) => ({ id: `dk-${d.id}`, go: () => openDesktop(d.id), keys: () => keysOf(this.desktopActions(d, true)) })),
       ...this.doneReviews().map((entry) => ({ id: entry.id, go: entry.go, keys: () => keysOf(this.reviewActions(entry, true)) })),
-      ...Object.entries(this.landing()).filter(([, e]) => e.phase === "landed").map(([url, e]) => ({ id: `land-${url}`, go: () => exec("open", [url]), keys: () => keysOf(this.landActions(url, e)) })),
+      ...Object.entries(this.landing()).filter(([, e]) => e.phase === "landed").map(([url, e]) => ({ id: `land-${url}`, go: () => openUrl(url), keys: () => keysOf(this.landActions(url, e)) })),
     ].map((item) => ({ ...item, section: "done" }));
     return [...trees("safe"), ...trees("look"), ...old, ...this.staleNav(), ...this.tidyNav(m.tidy), ...trees("quiet"), ...done];
   }

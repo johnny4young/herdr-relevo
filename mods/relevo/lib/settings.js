@@ -9,8 +9,8 @@ const ACCOUNT_FIELDS = ["key", "label", "letter", "launcher", "bg", "fg"];
 
 // sh -c WRITE_SCRIPT sh <path> <text>: a hidden temp file in the same folder, then one rename,
 // so the mod never reloads a half-written config.
-export const WRITE_SCRIPT = 'tmp=$(mktemp "$(dirname "$1")/.config.XXXXXX") || exit 1; '
-  + 'printf "%s" "$2" > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$1" || { rm -f "$tmp"; exit 1; }';
+export const WRITE_SCRIPT = 'umask 077; tmp=$(mktemp "$(dirname "$1")/.config.XXXXXX") || exit 1; '
+  + 'printf "%s" "$2" > "$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$1" || { rm -f "$tmp"; exit 1; }';
 
 export const slug =(label) => (label ?? "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "")
   .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");

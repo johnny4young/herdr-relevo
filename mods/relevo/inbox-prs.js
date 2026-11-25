@@ -8,7 +8,7 @@ import { reviewAlerts, prAlerts, mergedAlert } from "./alerts.js";
 import { REPOS_ROOT } from "./config.js";
 import * as config from "./config.js";
 import { LAUNCHED, SKILLS, configuredSkill, launched, launchSkill } from "./skills.js";
-import { spinner, withKey, icon, seg, diffRatio } from "./ui.js";
+import { spinner, withKey, icon, seg, diffRatio, openUrl } from "./ui.js";
 import { CI_WORDS, ciRunning, prName, prReason, prTurn } from "./lib/lanes.js";
 import { reviewPR } from "./review.js";
 import { scanWorktrees } from "./worktrees.js";
@@ -62,7 +62,11 @@ export class PrViews {
 
   saveAddressed(marks) {
     this.addressed = marks;
-    exec("sh", ["-c", 'mkdir -p "$(dirname "$1")" && printf "%s" "$2" > "$1"', "sh", `${home()}/${ADDRESSED}`, JSON.stringify(marks)]);
+    const body = JSON.stringify(marks);
+    const script = 'umask 077; d=$(dirname "$1"); mkdir -p "$d" && tmp=$(mktemp "$d/.addressed.XXXXXX") || exit 1; printf "%s" "$2" > "$tmp" && mv -f "$tmp" "$1" || { rm -f "$tmp"; exit 1; }';
+    this.addressedSave = (this.addressedSave ?? Promise.resolve())
+      .then(() => exec("sh", ["-c", script, "sh", `${home()}/${ADDRESSED}`, body]))
+      .catch(() => null);
   }
 
   // A scan stuck past STUCK_MS (an exec that never answered) no longer blocks the next one.
@@ -124,6 +128,7 @@ export class PrViews {
     this.ready = mapReady(data).filter((p) => !listed.has(p.url));
     this.drafts = mapDrafts(data);
     this.openPRs = openPRs(data);
+    this.prsTruncated = Boolean(data.truncated);
     this.prsAt = Date.now() / 1000;
     const changes = prChanges(this.prState, data);
     this.prState = changes.state;
@@ -139,7 +144,8 @@ export class PrViews {
         .endsWith(`github.com${origin.stdout.includes("@github.com:") ? ":" : "/"}${p.repo.toLowerCase()}`);
       this.clones[p.repo] = same ? path : null;
     }
-    const live = new Set([...this.mine, ...this.ready, ...this.requested].map((p) => p.url));
+    // Keep marks for every still-open PR (including quiet, draft, and answered ones) so they survive across scans.
+    const live = new Set([...this.openPRs, ...this.answered, ...this.drafts, ...this.mine, ...this.ready, ...this.requested].map((p) => p.url));
     for (const s of shared(DESKTOP) ?? []) live.add(desktopKey(s));
     for (const key of Object.keys(this.addressed)) if (key.startsWith("review:")) live.add(key);
     const marks = keepListed(this.addressed, live);
@@ -244,11 +250,17 @@ export class PrViews {
     const ask = shared(DEEP_ASK);
     if (!ask || Date.now() - ask.at > 60000) return;
     setShared(DEEP_ASK, null);
+    if (ask.pr?.untrusted || ask.pr?.isCrossRepository) {
+      return deepReviewNotice("Deep review not started", "Deep review is disabled on fork pull requests");
+    }
     this.deepReview(ask.pr, cx, ask.setup);
   }
 
   deepReview(pr, cx, setup = undefined) {
     if (this.deepFor) return;
+    if (pr?.untrusted || pr?.isCrossRepository) {
+      return deepReviewNotice("Deep review not started", "Deep review is disabled on fork pull requests");
+    }
     this.deepFor = pr.url; cx.notify();
     cx.spawn(async (cx) => {
       try { await startDeepReview(pr, this.clones[pr.repo], cx, setup); }
@@ -301,7 +313,7 @@ export class PrViews {
 
   // What a draft row can do, for its buttons, its keys and its keycaps alike.
   draftActions(pr) {
-    const open = { id: `open-${pr.url}`, key: "o", label: "Open PR", run: () => exec("open", [pr.url]) };
+    const open = { id: `open-${pr.url}`, key: "o", label: "Open PR", run: () => openUrl(pr.url) };
     return {
       main: { id: `ready-${pr.url}`, label: "Ready for review", run: (cx) => this.prCommand(pr, ["ready"], "Ready for review", cx) },
       actions: [
@@ -385,7 +397,10 @@ export class PrViews {
       try {
         const [owner, name] = pr.repo.split("/"), source = `pr:${pr.url}`;
         const r = await exec("gh", ["api", "graphql", "-f", `query=${THREADS_QUERY}`, "-F", `owner=${owner}`, "-F", `name=${name}`, "-F", `number=${pr.number}`]).catch(() => null);
-        const threads = r?.code === 0 ? unresolvedThreads(JSON.parse(r.stdout)) : [];
+        let threads = [];
+        if (r?.code === 0) {
+          try { threads = unresolvedThreads(JSON.parse(r.stdout)); } catch { threads = []; }
+        }
         const { doc } = await readGoals();
         let goal = doc.goals.find((g) => g.state !== "completed" && g.sources.includes(source));
         if (!goal) {
@@ -405,7 +420,7 @@ export class PrViews {
   prActions(t, pr, requested, addressed = false) {
     const l = this.launchedMap()[pr.url], agent = this.prAgents[pr.url], seen = this.seen(pr), busy = Boolean(l) && this.prBusy(pr);
     const reviewed = Boolean(l && seen) && (!agent || agent.status === "idle" || agent.status === "done") && l.skill === "review";
-    const openPR = { id: `open-${pr.url}`, key: "o", label: "Open PR", run: () => exec("open", [pr.url]), kind: reviewed ? "solid" : "outline" };
+    const openPR = { id: `open-${pr.url}`, key: "o", label: "Open PR", run: () => openUrl(pr.url), kind: reviewed ? "solid" : "outline" };
     const actions = reviewed ? [openPR] : [];
     if (agent) actions.push({ id: `agent-${pr.url}`, label: "Agent", run: () => run("agent.focus", { terminal: agent.address }) });
     if (this.clones[pr.repo] && !(seen && agent) && !busy) {

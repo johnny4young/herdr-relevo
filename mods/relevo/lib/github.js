@@ -28,9 +28,9 @@ export const OWNER = /^(@me|[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))$/;
 export const othersQuery = (owners = ["@me"]) => `query {
   viewer { login merged: pullRequests(states: MERGED, first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes {
     url number headRefName isCrossRepository mergedAt repository { nameWithOwner } } } }
-  search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 20) { nodes {
+  search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 20) { pageInfo { hasNextPage } nodes {
     ... on PullRequest { ${OTHER_FIELDS} } } }${owners.length ? `
-  contributed: search(query: "is:open is:pr ${owners.map((o) => `user:${o}`).join(" ")} -author:@me archived:false sort:updated-desc", type: ISSUE, first: 50) { nodes {
+  contributed: search(query: "is:open is:pr ${owners.map((o) => `user:${o}`).join(" ")} -author:@me archived:false sort:updated-desc", type: ISSUE, first: 50) { pageInfo { hasNextPage } nodes {
     ... on PullRequest { ${OTHER_FIELDS}
       reviews(last: 10) { nodes { author { login } state submittedAt } }
       comments(last: 20) { nodes { author { login } createdAt } } } } }` : ""}
@@ -46,10 +46,13 @@ export function joinPRs(pages, others) {
       nodes.push(p);
     }
   }
+  const truncated = Boolean(pages.at(-1)?.viewer?.pullRequests?.pageInfo?.hasNextPage
+    || others?.search?.pageInfo?.hasNextPage || others?.contributed?.pageInfo?.hasNextPage);
   return {
     viewer: { login: others?.viewer?.login, merged: others?.viewer?.merged ?? { nodes: [] }, pullRequests: { nodes } },
     search: others?.search ?? { nodes: [] },
     contributed: others?.contributed ?? { nodes: [] },
+    truncated,
   };
 }
 
@@ -88,8 +91,10 @@ export function ciOf(p) {
   const rollup = p.commits?.nodes[0]?.commit?.statusCheckRollup, state = rollup?.state ?? null;
   const nodes = rollup?.contexts?.nodes;
   if (state !== "FAILURE" || !nodes || rollup.contexts.pageInfo?.hasNextPage) return state;
-  const latest = latestRuns(nodes), ends = latest.map((n) => n.conclusion ?? n.state).filter(Boolean);
+  const latest = latestRuns(nodes);
+  const ends = latest.map((n) => (n.status && n.status !== "COMPLETED" ? "PENDING" : n.conclusion ?? n.state)).filter(Boolean);
   if (latest.length < nodes.length && ends.length && ends.every((s) => CHECK_OK.has(s))) return "SUCCESS";
+  if (ends.includes("PENDING") && ends.every((s) => NOT_RED.has(s))) return "PENDING";
   return ends.includes("CANCELLED") && ends.every((s) => NOT_RED.has(s)) ? "CANCELLED" : state;
 }
 
@@ -147,10 +152,11 @@ export function mapDrafts(data) {
     .sort(newest);
 }
 
-// Your open PRs with nothing left but the merge: CI green, no changes asked, no open threads.
+// Your open PRs with nothing left but the merge: CI green, no changes asked, no open threads, no conflicts.
 export function mapReady(data) {
   return data.viewer.pullRequests.nodes.filter((p) => !p.isDraft && ciOf(p) === "SUCCESS"
-    && p.reviewDecision !== "CHANGES_REQUESTED" && !unresolved(p))
+    && p.reviewDecision !== "CHANGES_REQUESTED" && !unresolved(p)
+    && p.mergeable !== "CONFLICTING" && p.mergeStateStatus !== "DIRTY" && p.mergeStateStatus !== "BEHIND")
     .map((p) => ({
       ...p, repo: p.repository.nameWithOwner, skills: [], threads: 0, hot: false,
       reasons: [p.reviewDecision === "APPROVED" ? "approved, CI passed" : "CI passed"],
@@ -242,12 +248,13 @@ const nameOf = (p) => `${p.repository.nameWithOwner.split("/")[1]} #${p.number}`
 export function prChanges(before, data, at = Date.now() / 1000) {
   const now = new Map(), events = [];
   for (const p of data.viewer.pullRequests.nodes) {
-    const state = { ci: ciOf(p), threads: unresolved(p), decision: p.reviewDecision ?? null, draft: Boolean(p.isDraft) };
+    const state = { ci: ciOf(p), threads: unresolved(p), decision: p.reviewDecision ?? null, draft: Boolean(p.isDraft), head: p.headRefOid ?? null };
     now.set(p.url, state);
     const was = before?.get(p.url);
     if (!was || state.draft || was.draft) continue;
     const name = nameOf(p), base = { url: p.url, repo: p.repository.nameWithOwner, at };
-    if (RED.has(state.ci) && !RED.has(was.ci)) events.push({ ...base, kind: "ci-failed", title: `CI failed · ${name}` });
+    const newCommitFailed = Boolean(state.head && was.head && state.head !== was.head);
+    if (RED.has(state.ci) && (!RED.has(was.ci) || newCommitFailed)) events.push({ ...base, kind: "ci-failed", title: `CI failed · ${name}` });
     if (state.ci === "SUCCESS" && was.ci !== "SUCCESS") events.push({ ...base, kind: "ci-passed", title: `CI passed · ${name}` });
     if (state.threads > was.threads) {
       const n = state.threads - was.threads;

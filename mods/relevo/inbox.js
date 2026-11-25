@@ -260,7 +260,9 @@ export class Inbox {
           const top = this.tops.get(pane.cwd) ?? "";
           // A worktree's folder isn't named after its repo, so origin says which it is.
           if (top && !this.origins.has(top)) {
-            this.origins.set(top, githubRepo(withoutLogin((await exec("git", ["-C", top, "remote", "get-url", "origin"])).stdout)));
+            const origin = await exec("git", ["-C", top, "remote", "get-url", "origin"]).catch(() => null);
+            if (!origin) { this.tops.delete(pane.cwd); continue; }
+            this.origins.set(top, githubRepo(withoutLogin(origin.stdout)));
           }
           const head = top ? await this.headOf(top) : "";
           places.push({ address: a.address, repo: this.origins.get(top), branch: pane.branch, head });
@@ -361,7 +363,12 @@ export class Inbox {
     this.heads ??= new Map();
     const kept = this.heads.get(top);
     if (kept && Date.now() - kept.at < HEAD_FOR && !this.dirty.has(top)) return kept.head;
-    const head = (await exec("git", [...GIT_READ, "-C", top, "rev-parse", "HEAD"])).stdout.trim();
+    const r = await exec("git", [...GIT_READ, "-C", top, "rev-parse", "HEAD"]).catch(() => null);
+    if (!r || r.code !== 0) {
+      this.heads.delete(top);
+      return "";
+    }
+    const head = r.stdout.trim();
     this.heads.set(top, { head, at: Date.now() });
     return head;
   }
@@ -404,7 +411,9 @@ export class Inbox {
 
   close() {
     if (this.preview) return this.preview.close();
+    this.h?.release();
     this.reply.release();
+    this.filterField?.release();
     this.runChange?.release();
     this.fixNote?.release();
     this.shortcutHelp?.close();

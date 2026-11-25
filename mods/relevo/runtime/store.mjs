@@ -61,8 +61,8 @@ export function alive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 const BUSY = 'Workflow is busy; retry shortly';
-// A crash can leave a guard or an ownerless lock behind; both normally live for microseconds.
-const ABANDONED_MS = 5000;
+// A crash can leave a guard or an ownerless lock behind; stays comfortably above `ps` liveness timeouts.
+const ABANDONED_MS = 15000;
 const abandoned = (dir) => { try { return Date.now() - fs.lstatSync(dir).mtimeMs > ABANDONED_MS; } catch { return false; } };
 const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 let holding = false;
@@ -78,12 +78,18 @@ export function acquireOwned(dir, name, { pid = process.pid, reclaimAbandoned = 
     if (reclaimAbandoned && abandoned(guard)) try { fs.rmdirSync(guard); } catch { /* another process reclaimed it */ }
     throw Error(errors.guard);
   }
+  const guardIno = fs.lstatSync(guard).ino;
   const token = uid();
   try {
     try { fs.mkdirSync(lock, { mode: 0o700 }); }
     catch (e) {
       if (e.code !== 'EEXIST') throw e;
-      const stat = fs.lstatSync(lock);
+      let stat;
+      try { stat = fs.lstatSync(lock); }
+      catch (statErr) {
+        if (statErr.code === 'ENOENT') throw Error(errors.guard);
+        throw statErr;
+      }
       if (stat.isSymbolicLink() || !stat.isDirectory()) throw Error(errors.unsafe);
       const ownerFile = path.join(lock, 'owner.json');
       let owner = null;
@@ -94,7 +100,10 @@ export function acquireOwned(dir, name, { pid = process.pid, reclaimAbandoned = 
       fs.rmdirSync(lock); fs.mkdirSync(lock, { mode: 0o700 });
     }
     fs.writeFileSync(path.join(lock, 'owner.json'), JSON.stringify({ pid, token }), { flag: 'wx', mode: 0o600 });
-  } finally { fs.rmdirSync(guard); }
+  } finally {
+    // Only remove our own guard directory so a slow holder never deletes a successor's reclaimed guard.
+    try { if (fs.lstatSync(guard).ino === guardIno) fs.rmdirSync(guard); } catch { /* already reclaimed */ }
+  }
   return { lock, token };
 }
 

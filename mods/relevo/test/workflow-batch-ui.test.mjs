@@ -106,6 +106,8 @@ test('a cancelled run offers to discard its worktree and nothing to propose', as
   const tree = view.render();
   assert.equal(find(tree, 'workflow-worktree-pr'), null); assert.equal(find(tree, 'workflow-worktree-remove'), null);
   click(find(tree, 'workflow-worktree-discard'), cx); await flush();
+  assert.notEqual(payloads.at(-1)?.action, 'worktree-remove', 'dirty discard asks for confirmation first');
+  click(find(view.render(), 'workflow-worktree-discard'), cx); await flush();
   assert.deepEqual(payloads.at(-1), { action: 'worktree-remove', taskId: 'gone' });
   view.close();
 });

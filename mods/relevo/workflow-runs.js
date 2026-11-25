@@ -2,7 +2,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { agents, terminals, exec, appHome, notify, run, panes, shared, setShared, spaces } from "herdr";
 import { runtimeCommand } from "./runtime-cli.js";
-import { button } from "./ui.js";
+import { button, openUrl } from "./ui.js";
 import * as config from "./config.js";
 import { accountOf, runnableAccounts, chip, launchArgv, openInFolder, loadClaudeQuotas, full, providerFor } from "./accounts.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
@@ -189,6 +189,8 @@ export class WorkflowRuns extends WorkflowDraftView {
   }
 
   worktreeAction(task, action, cx) {
+    if (this.busy) return;
+    this.confirmDiscard = null;
     if (action === "worktree-remove") {
       const slug = task.worktree.branch.replace(/^run\//, "");
       for (const tab of spaces().flatMap((space) => space.tabs ?? []).filter((tab) => tab.name.startsWith(`${slug} · `))) run("tab.close", { id: tab.id, confirmed: true });
@@ -203,18 +205,21 @@ export class WorkflowRuns extends WorkflowDraftView {
     const canCommit = !cancelled && !gone && Boolean(info?.dirty) && !wt.commit;
     const canPropose = !cancelled && !gone && info && !info.dirty && info.ahead !== 0 && info.origin !== false && !wt.pr && !wt.prHead;
     const canPush = !cancelled && !gone && info && !info.dirty && info.ahead !== 0 && Boolean(wt.prHead) && !wt.pushed;
+    const discarding = this.confirmDiscard === task.id;
     return v_flex().id("workflow-worktree").w_full().min_w(0).gap(6).p(10).rounded(8).bg(t.raised)
       .child(div().text_size(11).text_color(t.muted).truncate().child(`${wt.branch} · ${state}`))
       .child(h_flex().gap(6).flex_wrap()
         .when(Boolean(read?.failed), (el) => el.child(button(t, "workflow-worktree-reread", "Read again", (cx) => { delete this.worktreeInfo[task.id]; cx.notify(); })))
-        .when(Boolean(wt.pr), (el) => el.child(button(t, "workflow-worktree-open-pr", "Open PR", () => exec("open", [wt.pr]), { kind: "solid", tip: wt.pr })))
+        .when(Boolean(wt.pr), (el) => el.child(button(t, "workflow-worktree-open-pr", "Open PR", () => openUrl(wt.pr), { kind: "solid", tip: wt.pr })))
         .when(canPush, (el) => el.child(button(t, "workflow-worktree-push", `Push to ${wt.prHead}`, (cx) => this.worktreeAction(task, "worktree-push", cx),
           { kind: "solid", disabled: this.busy, tip: `Adds the accepted commit to the pull request's branch on GitHub; never forced, so a branch that moved refuses it` })))
         .when(canPropose, (el) => el.child(button(t, "workflow-worktree-pr", "Open draft PR", (cx) => this.worktreeAction(task, "worktree-pr", cx), { kind: "solid", disabled: this.busy, tip: "Pushes the run branch and opens a draft PR" })))
         .when(canCommit, (el) => el.child(button(t, "workflow-worktree-commit", "Commit accepted changes", (cx) => this.worktreeAction(task, "worktree-commit", cx),
           { kind: "solid", disabled: this.busy, tip: "The acceptance was saved but its commit did not land; this commits the accepted revision" })))
-        .when(cancelled && !gone && Boolean(info), (el) => el.child(button(t, "workflow-worktree-discard", "Discard worktree", (cx) => this.worktreeAction(task, "worktree-remove", cx),
-          { kind: "ghost", disabled: this.busy, tip: info?.dirty ? "Closes its tabs and deletes the worktree with its uncommitted changes" : "Closes its tabs and removes the worktree" })))
+        .when(cancelled && !gone && Boolean(info), (el) => el.child(button(t, "workflow-worktree-discard", discarding ? "Confirm discard" : "Discard worktree", (cx) => {
+          if (info?.dirty && !discarding) { this.confirmDiscard = task.id; cx.notify(); return; }
+          this.worktreeAction(task, "worktree-remove", cx);
+        }, { kind: discarding ? "danger" : "ghost", disabled: this.busy, tip: info?.dirty ? "Closes its tabs and deletes the worktree with its uncommitted changes" : "Closes its tabs and removes the worktree" })))
         .when(!cancelled && !gone && Boolean(info) && !info.dirty, (el) => el.child(button(t, "workflow-worktree-remove", "Remove worktree", (cx) => this.worktreeAction(task, "worktree-remove", cx),
           { kind: "ghost", disabled: this.busy, tip: info?.ahead === 0 ? "Closes its tabs and removes the worktree and its empty branch" : "Closes its tabs and removes the worktree; the branch stays" }))));
   }

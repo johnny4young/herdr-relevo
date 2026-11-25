@@ -30,7 +30,7 @@ export function parseArgs(argv) {
 // A pid is this home's coordinator only while its command line says so: after a crash the number can go to another process.
 export function isEngine(pid, home, { cli = cliPath, spawnImpl = spawnSync } = {}) {
   if (!alive(pid)) return false;
-  const ps = spawnImpl('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 });
+  const ps = spawnImpl('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', timeout: 3000 });
   const command = String(ps.stdout ?? '');
   return command.includes(cli) && command.includes(`--home ${path.resolve(home)} serve`);
 }
@@ -74,7 +74,7 @@ function watchAgents(addresses, onChange, spawnImpl = spawn) {
   let closed = false, broken = false;
   const ended = () => { if (!closed) { broken = true; onChange(); } };
   for (const address of new Set(addresses)) {
-    if (!/^[-a-zA-Z0-9_/]{1,80}$/.test(address)) continue;
+    if (!/^[a-zA-Z0-9][-a-zA-Z0-9_/]{0,79}$/.test(address)) continue;
     const child = spawnImpl('hc', ['events', '--json', '--terminal', address], { stdio: ['ignore', 'pipe', 'ignore'] });
     // Events are wake-ups only. Their payload is discarded and never logged or persisted.
     child.stdout?.on('data', () => onChange());
@@ -126,7 +126,7 @@ const REWATCH_MS = 30000;
 
 export async function serve(home, { runtimeFactory = createRuntime, fsImpl = fs, timers = globalThis, pid = process.pid, processRef = process,
   spawnImpl = spawn, eventWatch = watchAgents, intervalMs = 3000, debounceMs = 150, check = isEngine, idleMs = IDLE_MS, clock = Date.now } = {}) {
-  const lock = acquireOwned(privateDir(stateDir(home)), 'engine', { pid, errors: ENGINE_ERRORS, owns: (owner) => check(owner, home) });
+  const lock = acquireOwned(privateDir(stateDir(home)), 'engine', { pid, reclaimAbandoned: true, errors: ENGINE_ERRORS, owns: (owner) => check(owner, home) });
   let runtime, stopped = false, released = false, running = false, queued = false, timer, debounce, watcher, wakeWatcher, agentWatcher, settle;
   let watchedAddresses = '', watchedAt = 0;
   const reports = path.join(stateDir(home), 'reports');

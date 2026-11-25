@@ -7,6 +7,7 @@ import { shellArgv } from "./lib/session-env.js";
 import { PROVIDERS, providerOf, providerOfApp, quotaOf } from "./lib/providers.js";
 
 export const API_QUOTAS = "relevo.quota.api";
+export const quotaError = (key) => shared(API_QUOTAS)?.[key]?.error ?? null;
 
 // `file` is the statusline's quota snapshot for that account.
 const withFile = (a, provider) => ({ ...a, provider: a.provider ?? provider, file: `quota-${a.key}.json` });
@@ -125,8 +126,12 @@ export function withRoom(key, quotas) {
     : { key, note: null };
 }
 
+const SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // The session id goes as a positional parameter, never into the shell text.
-export const resumeArgv = (key, id) => shellArgv(`${accountOf(key).launcher} --resume "$1"`, id);
+export const resumeArgv = (key, id) => {
+  if (!SESSION_UUID.test(String(id ?? ""))) throw Error("Invalid session id");
+  return shellArgv(`${accountOf(key).launcher} --resume "$1"`, id);
+};
 
 // A tab in the folder's space, else in the repo's, else a new space.
 export function openInFolder({ name, folder, tab, argv }) {

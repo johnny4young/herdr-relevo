@@ -1,4 +1,5 @@
 // GIT_READ against a real repo: the reads the Inbox repeats must not touch what its folder watch looks at.
+import "./fake/git-env.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";

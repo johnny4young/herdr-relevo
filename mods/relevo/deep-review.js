@@ -4,7 +4,7 @@
 import { appHome, exec, notify, run, setShared } from "herdr";
 import { RUN_START } from "./run-launcher.js";
 import { GOAL_MODE, GOAL_SCOPE } from "./inbox-goals.js";
-import { accountOf, runnableAccounts, hasRoom, launchArgv, loadClaudeQuotas, providerFor, withRoom } from "./accounts.js";
+import { accountOf, runnableAccounts, full, hasRoom, launchArgv, loadClaudeQuotas, providerFor, withRoom } from "./accounts.js";
 import { accountFor } from "./context.js";
 import * as config from "./config.js";
 import { DEFAULT_DEEP_REVIEW, reviewerLabel } from "./lib/deep-setup.js";
@@ -28,7 +28,7 @@ export function deepReviewers(repo, quotas, setup = deepSetup()) {
       return runnableAccounts().some((a) => a.key === r.account) && hasRoom(quotas?.[r.account]) ? [{ ...r, key: r.account, note: null }] : [];
     }
     const pick = withRoom(r.account === "repo" ? accountFor(repo) : r.account, quotas);
-    return [{ ...r, key: pick.key, note: pick.note }];
+    return full(quotas?.[pick.key]) ? [] : [{ ...r, key: pick.key, note: pick.note }];
   });
 }
 
@@ -48,7 +48,10 @@ async function command(payload) {
   return out.result;
 }
 
+const SLOTS = ["first", "second", "third", "fourth", "fifth", "sixth"];
+
 export async function startDeepReview(pr, clone, cx, setup = deepSetup()) {
+  if (pr?.untrusted || pr?.isCrossRepository) throw Error("Deep review is disabled on fork pull requests");
   noteUse("deep-review");
   const name = pr.repo.split("/").pop(), at = Date.now();
   const reviewers = deepReviewers(pr.repo, await loadClaudeQuotas().catch(() => ({})), setup);
@@ -63,7 +66,7 @@ export async function startDeepReview(pr, clone, cx, setup = deepSetup()) {
     for (const [i, r] of reviewers.entries()) {
       const provider = providerFor(r.key), label = reviewerLabel(accountOf(r.key).label, r, provider.defaultModel(config));
       say(`Opening ${label} on #${pr.number}…`);
-      const tree = await command({ action: "prepare-review", root: clone, who: ["first", "second", "third"][i], pr: { number: pr.number, head: pr.headRefOid, base: pr.baseRefName } });
+      const tree = await command({ action: "prepare-review", root: clone, who: SLOTS[i] ?? "extra", pr: { number: pr.number, head: pr.headRefOid, base: pr.baseRefName } });
       // The tests run once, in the first reviewer's worktree; the other reviewer reads their results there.
       const checks = i === 0 ? await repoChecks(tree.path) : [];
       const agent = await openAgent({ name, folder: tree.path, tab: `${name}#${pr.number} · review ${i + 1} ${label}`, label, cx,
@@ -84,13 +87,14 @@ export async function startDeepReview(pr, clone, cx, setup = deepSetup()) {
 // A pending review, edited and sent by you on GitHub. Lines outside the diff make GitHub refuse the comments, so it
 // tries again with every finding in the body.
 export async function postDraftReview(tasks) {
-  const pr = tasks[0].pr, [, owner, repo] = /github\.com\/([^/]+)\/([^/]+)\/pull/.exec(pr.url) ?? [];
+  const pr = tasks[0].pr, [, owner, repo] = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\//.exec(pr.url ?? "") ?? [];
+  if (!owner || !repo) throw Error("Not a GitHub pull request URL");
   const post = (review) => exec("sh", ["-c", 'printf "%s" "$1" | gh api -X POST "$2" --input -', "sh", JSON.stringify(review),
     `repos/${owner}/${repo}/pulls/${pr.number}/reviews`]);
   let r = await post(draftReview(tasks, true));
   if (r.code !== 0 && /line|position|diff|422/i.test(r.stderr ?? "")) r = await post(draftReview(tasks, false));
   if (r.code !== 0) throw Error((r.stderr || "gh failed").trim().split("\n")[0]);
-  return JSON.parse(r.stdout || "{}").html_url ?? pr.url;
+  try { return JSON.parse(r.stdout || "{}").html_url ?? pr.url; } catch { return pr.url; }
 }
 
 // A run on a copy of the PR's branch, asked to fix what the reviewers found. It starts at once, from the Inbox, and

@@ -5,7 +5,7 @@ import { desktopActivity, desktopChanges, desktopLink, desktopSession, parseStat
 export const DESKTOP = "relevo.desktop";
 const LIST = 'd="$1/claude-code-sessions"; [ -d "$d" ] && find "$d" -name "local_*.json" -type f -mtime -7 -exec stat -f "%m %N" {} +';
 // Each session's Claude Code transcript, in whichever account folder it lives.
-const TRANSCRIPTS = 'h=$1; shift; for id in "$@"; do for f in "$h"/.claude*/projects/*/"$id".jsonl; do [ -f "$f" ] && stat -f "%m %N" "$f"; done; done';
+const TRANSCRIPTS = 'h=$1; shift; for id in "$@"; do for f in "$h"/.claude*/projects/*/"$id".jsonl; do [ -f "$f" ] && stat -f "%m %N" -- "$f"; done; done';
 const TAIL_BYTES = 131072;
 
 export const openDesktop = (id) => exec("open", [desktopLink(id)]);
@@ -25,7 +25,7 @@ export async function readTails(cache, listed) {
   for (const path of cache.keys()) if (!listed.has(path)) cache.delete(path);
   for (const [path, mtime] of listed) {
     if (cache.get(path)?.mtime === mtime) continue;
-    const tail = await exec("tail", ["-c", String(TAIL_BYTES), path]).catch(() => null);
+    const tail = await exec("tail", ["-c", String(TAIL_BYTES), "--", path]).catch(() => null);
     cache.set(path, { mtime, activity: desktopActivity(tail?.stdout) });
   }
   return cache;

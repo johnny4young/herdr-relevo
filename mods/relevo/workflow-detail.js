@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, Input, TextView } from "gpui-base";
 import { agents, exec, notify, run } from "herdr";
-import { button, pill } from "./ui.js";
+import { button, openUrl, pill } from "./ui.js";
 import { openReview } from "./review.js";
 import * as config from "./config.js";
 import { acceptanceEffect, workflowCheckSummary, decideGuard, decidePayload, acceptArmed, draftOnAccept } from "./lib/workflow-navigation.js";
@@ -267,7 +267,7 @@ export class WorkflowDetail extends WorkflowRuns {
       try {
         const url = await postDraftReview(reviews);
         notify({ title: `Draft review on #${task.pr.number}`, body: "Pending on GitHub until you send it", level: "success" });
-        exec("open", [url]);
+        openUrl(url);
         this.posting = false;
         this.finishReviews(task, cx, "Posted as a draft review.");
       } catch (error) { deepReviewNotice("Draft review not posted", error); }

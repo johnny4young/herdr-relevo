@@ -7,7 +7,7 @@ import { DESKTOP, readTails } from "./desktop.js";
 export const ELSEWHERE = "relevo.elsewhere";
 // Every note, one per line; a note a week old belongs to a session that ended without saying so.
 const NOTES = 'd="$1/.local/state/relevo/elsewhere"; [ -d "$d" ] || exit 0; find "$d" -name "*.json" -mtime +7 -delete; for f in "$d"/*.json; do [ -f "$f" ] && head -c 4096 "$f" && echo; done';
-const STAT = 'for f in "$@"; do [ -f "$f" ] && stat -f "%m %N" "$f"; done';
+const STAT = 'for f in "$@"; do [ -f "$f" ] && stat -f "%m %N" -- "$f"; done';
 
 export class ElsewhereWatch {
   constructor() {

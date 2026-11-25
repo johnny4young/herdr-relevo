@@ -33,20 +33,26 @@ export function clickCommand(app, action) {
   return [quote(app), "do", action.name, ...(action.args ? [quote(JSON.stringify(action.args))] : [])].join(" ");
 }
 
+const safeArg = (s) => {
+  const v = String(s ?? "");
+  return v.startsWith("-") ? ` ${v}` : v;
+};
+const safeGroup = (g) => (typeof g === "string" && /^[A-Za-z0-9_.:/-]+$/.test(g) && !g.startsWith("-") ? g : null);
+
 // Herdr's toast only shows inside its window, so with another app in front the alert also goes to macOS.
 // `group` replaces an earlier banner with the same one, and lets it be taken back.
 async function banner(title, body = "", action = null, group = null) {
   if (window()?.active !== false) return;
   const { notifier, app } = await findTools();
-  if (!notifier) return exec("osascript", ["-e", BANNER, title, body ?? ""]).catch(() => {});
-  const click = clickCommand(app, action);
-  exec(notifier, ["-title", title, "-message", body || " ", "-activate", HERDR_APP,
-    ...(click ? ["-execute", click] : []), ...(group ? ["-group", group] : [])]).catch(() => {});
+  if (!notifier) return exec("osascript", ["-e", BANNER, "--", String(title ?? ""), String(body ?? "")]).catch(() => {});
+  const click = clickCommand(app, action), grp = safeGroup(group);
+  exec(notifier, ["-title", safeArg(title), "-message", safeArg(body || " "), "-activate", HERDR_APP,
+    ...(click ? ["-execute", click] : []), ...(grp ? ["-group", grp] : [])]).catch(() => {});
 }
 
 async function takeBack(group) {
-  const { notifier } = await findTools();
-  if (notifier) exec(notifier, ["-remove", group]).catch(() => {});
+  const { notifier } = await findTools(), grp = safeGroup(group);
+  if (notifier && grp) exec(notifier, ["-remove", grp]).catch(() => {});
 }
 
 function notify(n) {

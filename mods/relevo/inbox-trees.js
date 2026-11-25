@@ -28,6 +28,7 @@ export class TreeViews {
     cx.spawn(async (cx) => {
       try {
         this.worktrees = await scanWorktrees(force);
+        delete this.wtError.scan;
       } catch (e) {
         this.wtError.scan = String(e?.message ?? e);
       } finally {
@@ -103,8 +104,13 @@ export class TreeViews {
   }
 
   openTree(w) {
+    if (w.gone) return;
     if (w.space) run("space.select", { id: w.space });
     else run("space.new", { folder: w.path, machine: "" });
+  }
+
+  pathBusy(path) {
+    return Boolean(this.checking?.has(path) || this.treeBusy?.has(path) || this.removing?.has(path));
   }
 
   // The look-again before any removal. `same` holds only when the space and the ignored files the question
@@ -118,7 +124,7 @@ export class TreeViews {
   // Only clean, unlocked worktrees get here; one with a space closes it first, as Herdr's dialog does.
   removeTree(w, cx) {
     this.checking ??= new Set();
-    if (this.checking.has(w.path)) return;
+    if (this.pathBusy(w.path)) return;
     this.checking.add(w.path);
     const asked = this.confirm === w.path;
     cx.spawn(async (cx) => {
@@ -148,7 +154,7 @@ export class TreeViews {
   // Saves and pushes, one at a time per row; a row's state is read again after.
   treeAction(w, cx, act, done) {
     this.treeBusy ??= new Set();
-    if (this.treeBusy.has(w.path)) return;
+    if (this.pathBusy(w.path)) return;
     this.treeBusy.add(w.path);
     delete this.wtError[w.path];
     cx.notify();
@@ -173,7 +179,7 @@ export class TreeViews {
   // First click says where it goes, since a push can't be taken back; the second goes only if that still holds.
   askPush(w, cx) {
     this.treeBusy ??= new Set();
-    if (this.treeBusy.has(w.path)) return;
+    if (this.pathBusy(w.path)) return;
     this.treeBusy.add(w.path);
     delete this.wtError[w.path];
     const asked = this.pushAsk?.path === w.path ? this.pushAsk.sign : null;
@@ -209,7 +215,7 @@ export class TreeViews {
   // The first click reads what would go and says it; the second goes only if that still holds.
   askDelete(w, cx) {
     this.treeBusy ??= new Set();
-    if (this.treeBusy.has(w.path)) return;
+    if (this.pathBusy(w.path)) return;
     this.treeBusy.add(w.path);
     delete this.wtError[w.path];
     const asked = this.deleteAsk?.path === w.path ? this.deleteAsk.sign : null;
@@ -267,17 +273,24 @@ export class TreeViews {
   // One row of a batch: the same look-again as its own Remove. The question named no ignored files and
   // `space`, so anything else keeps the row, with the reason.
   async removeChecked(w, space, cx) {
-    const check = await this.checkStillMatches(w, space, []);
-    const err = check.error ?? (check.same ? null : check.ignored.length ? deletes(check.ignored) : check.space ? "has a space" : "changed, look again");
-    if (err) {
-      this.wtError[w.path] = err;
-      w.ignored = check.ignored ?? w.ignored;
-      cx.notify();
-      return err;
+    if (this.pathBusy(w.path)) return "already busy";
+    this.checking ??= new Set();
+    this.checking.add(w.path);
+    try {
+      const check = await this.checkStillMatches(w, space, []);
+      const err = check.error ?? (check.same ? null : check.ignored.length ? deletes(check.ignored) : check.space ? "has a space" : "changed, look again");
+      if (err) {
+        this.wtError[w.path] = err;
+        w.ignored = check.ignored ?? w.ignored;
+        cx.notify();
+        return err;
+      }
+      w.space = check.space;
+      await this.removeOne(w, cx);
+      return this.wtError[w.path] ?? null;
+    } finally {
+      this.checking.delete(w.path);
     }
-    w.space = check.space;
-    await this.removeOne(w, cx);
-    return this.wtError[w.path] ?? null;
   }
 
   inView() {
@@ -548,12 +561,15 @@ export class TreeViews {
   treeSections(t, lanes) {
     const rows = (list) => joined(t, list.map((w) => this.treeRow(t, w)));
     const clean = this.removable(lanes.safe), kb = totalKb(lanes.safe);
-    const safe = lanes.safe.length ? [legHeader(t, "leg-safe", "Safe to remove", lanes.safe.length, { after: [
-      kb && !this.tightInbox ? div().id("safe-size").flex_none().text_color(t.muted).child(sizeOf(kb)) : null,
-      clean.length > 1 ? button(t, "wt-rm-all", `Remove ${clean.length}`, (cx) => this.askBulk(cx, clean), {
-        size: "sm", tip: "Selects every one that has no space and asks once",
-      }) : null,
-    ] }), ...rows(lanes.safe)] : [];
+    const safe = [
+      this.wtError?.scan ? div().id("wt-scan-error").px(8).py(4).text_size(11).text_color(t.blocked).child(`Worktrees: ${this.wtError.scan}`) : null,
+      ...(lanes.safe.length ? [legHeader(t, "leg-safe", "Safe to remove", lanes.safe.length, { after: [
+        kb && !this.tightInbox ? div().id("safe-size").flex_none().text_color(t.muted).child(sizeOf(kb)) : null,
+        clean.length > 1 ? button(t, "wt-rm-all", `Remove ${clean.length}`, (cx) => this.askBulk(cx, clean), {
+          size: "sm", tip: "Selects every one that has no space and asks once",
+        }) : null,
+      ] }), ...rows(lanes.safe)] : []),
+    ].filter(Boolean);
     const look = lanes.look.length ? [legHeader(t, "leg-look", "Needs a look", lanes.look.length), ...rows(lanes.look)] : [];
     const checking = lanes.quiet.filter((w) => !w.merged && !w.group).length, recent = lanes.quiet.length - checking;
     const label = [recent ? `${recent} recent` : null, checking ? `${recent ? "checking" : "Checking"} ${checking}` : null].filter(Boolean).join(" · ");

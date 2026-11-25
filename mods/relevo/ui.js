@@ -1,8 +1,13 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, Button } from "gpui-base";
-import { appHome, readTextFile, settings, shared, setShared, window } from "herdr";
+import { appHome, exec, readTextFile, settings, shared, setShared, window } from "herdr";
 import { relevoKeys, formatShortcut } from "./lib/keys.js";
 import { QUOTA_WARN } from "./lib/account-status.js";
+
+// Opens only HTTPS links so untrusted PR/run data cannot invoke local schemes or open(1) flags.
+export function openUrl(url) {
+  if (typeof url === "string" && /^https:\/\/\S+$/i.test(url)) exec("open", [url]);
+}
 
 // The window can't be seen: minimized, on another Space, fully covered or on a sleeping display.
 export const unseen = () => window()?.visible === false;

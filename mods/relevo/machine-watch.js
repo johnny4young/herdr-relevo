@@ -30,6 +30,7 @@ export class MachineWatch {
 
   // Only a key that logs in with no one typing is used; `hc machine login` wants a terminal, so `script` gives it one.
   async login(m) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._@:-]{0,127}$/.test(m.target ?? "") || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(m.name ?? "")) return false;
     const key = await exec("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", m.target, "true"]).catch(() => null);
     if (key?.code !== 0) return false;
     const done = await exec("script", ["-q", "/dev/null", "hc", "machine", "login", m.name]).catch(() => null);
