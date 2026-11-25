@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.19.0 · 2026-11-24
+
+- **Reviews finds your agent CLIs.** Relevo looks for Claude Code, Codex and Antigravity CLI on your login shell's PATH. One it finds that isn't in `config.js` shows in Now under **AGENT CLIS** with **Activate**, which adds its account, or **Ignore**. A CLI in use whose Herdr hook is outdated or missing offers **Update hook**.
+- **Other one-login CLIs in `config.js`.** `OTHER_CLIS` holds them (`on: false` turns one off) and `IGNORED_CLIS` the ones you turned down; Settings has an OTHER CLIS section to edit both. Nothing changes for an existing config.
+- **Antigravity CLI as an account.** Once activated it gets a chip, opens in a tab from the accounts list and takes handoffs. Runs, Deep review and second opinions still offer only Claude and Codex, the CLIs Relevo can run unattended.
+
 ## 0.18.0 · 2026-11-24
 
 - **A contributor's PR you answered waits on its author.** A comment in the PR's conversation after its last push now counts as answering it, as a review does. Answered PRs no longer vanish from Now: they sit under **Waiting on others** as "changes requested · waiting on <author>" (or "approved", "you commented"), and the author's next push brings them back to Needs me.
