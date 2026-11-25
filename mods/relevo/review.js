@@ -6,7 +6,8 @@ import { button, checkbox, icon, tag, diffRatio, keycap } from "./ui.js";
 import { ago } from "./lib/time.js";
 import { launchInRepo } from "./accounts.js";
 import { accountFor } from "./context.js";
-import { baseBranch } from "./worktrees.js";
+import { baseBranch, checkoutOf } from "./worktrees.js";
+import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
 import { openWorkflow } from "./workflow-window.js";
 import { GIT_READ as READ } from "./lib/git.js";
 import { AGENT_PRS } from "./lib/github.js";
@@ -89,6 +90,23 @@ export async function openReview(root = focusedCwd(), terminal = null, pr = null
   const pane = shared(OPEN)?.[reviewKey(top, pr, range)];
   if (pane && panes().some((p) => p.pane === pane)) return run("pane.focus", { pane });
   run("pane.split", { direction: "right", mod: "relevo", props: { role: "review-diff", root: top, terminal, pr, ...(back ? { back } : {}), ...(range ? { range } : {}) } });
+}
+
+// The review pane on the PR's checkout, else on its exact head; comments go to its agent, or a new one when none runs.
+// Returns false when its head couldn't be fetched.
+export async function reviewPR(pr, clone, terminal = null) {
+  const info = { repo: pr.repo, number: pr.number, url: pr.url, base: pr.baseRefName, head: pr.headRefName };
+  const folder = await checkoutOf(clone, localBranch(pr));
+  if (!folder) {
+    const r = await exec("git", ["-C", clone, "fetch", "--quiet", "origin", pullRefspec(pr)]);
+    if (r.code !== 0) {
+      notify({ title: `Could not fetch PR #${pr.number}`, body: r.stderr.trim().split("\n")[0], level: "warning" });
+      return false;
+    }
+    info.ref = pullRef(pr);
+  }
+  await openReview(folder ?? clone, terminal, info);
+  return true;
 }
 
 const reviewKey = (root, pr, range = null) => (range ? `${root}@${range.from}..${range.to}` : pr ? `${root}#${pr.number}` : root);
@@ -759,6 +777,8 @@ export class ReviewDiff {
     return v_flex().id("relevo-review").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .track_focus(this.focus)
       .on_mouse_down("left", () => { if (this.editing === null) this.focus.focus(); })
+      // The mouse's back button returns to the decision this review was opened from.
+      .when(Boolean(this.back), (el) => el.on_mouse_down("back", () => openWorkflow(this.back.goalId, this.back.taskId)))
       .on_key_down((e, cx) => this.handleKey(e, cx))
       .on_key_up((e, cx) => this.escapeKey(e, cx))
       .child(this.header(t))

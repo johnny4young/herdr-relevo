@@ -783,6 +783,7 @@ export class Inbox {
       .track_focus(this.h)
       .tab_index(0).role("group").accessibility_label(`${goalMode ? "Runs" : "Reviews"}. Arrow keys select work; Enter opens its primary action. Tab moves through controls.`)
       .on_key_down((e, cx) => this.navKey(e, cx))
+      .when(goalMode, (el) => el.on_mouse_down("back", (_e, cx) => this.runBack(cx)).on_mouse_down("forward", (_e, cx) => this.runAhead(cx)))
       .child(h_flex().h(38).flex_none().px(8).gap(6).items_center()
         .when(goalMode, (el) => el.children([...runLeft, ...runRight]))
         .when(!goalMode, (el) => el

@@ -200,6 +200,25 @@ export class RunViews {
     this.resetRun();
   }
 
+  // The mouse's back button goes up one level (compare, task, run); forward goes back into the one just left.
+  runBack(cx) {
+    const scope = shared(GOAL_SCOPE), task = this.shownTask();
+    if (this.runCompare) this.leaveCompare();
+    else if (task) { this.runForward = { scope, task: task.id }; this.leaveTask(); }
+    else if (scope) { this.runForward = { scope }; this.leaveRun(); }
+    else return;
+    cx.notify();
+  }
+
+  runAhead(cx) {
+    const to = this.runForward, goal = to && (this.goalDoc?.goals ?? []).find((g) => g.id === to.scope);
+    if (!goal) return;
+    this.runForward = null;
+    if (shared(GOAL_SCOPE) !== goal.id) this.enterRun(goal, to.task);
+    if (to.task) this.resetRun(to.task);
+    cx.notify();
+  }
+
   // A command's answer carries the new state; keep it so the panel doesn't wait for the next read.
   takeDoc(response) {
     if (!Array.isArray(response.doc?.tasks)) return;

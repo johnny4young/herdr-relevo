@@ -10,13 +10,12 @@ import * as config from "./config.js";
 import { LAUNCHED, SKILLS, configuredSkill, launched, launchSkill } from "./skills.js";
 import { spinner, withKey, icon, seg, diffRatio } from "./ui.js";
 import { CI_WORDS, ciRunning, prName, prReason, prTurn } from "./lib/lanes.js";
-import { openReview } from "./review.js";
-import { checkoutOf, scanWorktrees } from "./worktrees.js";
+import { reviewPR } from "./review.js";
+import { scanWorktrees } from "./worktrees.js";
 import { ago } from "./lib/time.js";
 import { MINE_PAGES, OWNER, othersQuery, joinPRs, mineQuery, cancelledRuns, checksCut, checksOf, ciOf, seconds, mapDrafts, mapMine, mapAnswered, mapReady, mapRequested, openPRs, prChanges } from "./lib/github.js";
 import { mergeFlag, prMoves } from "./lib/land.js";
 import { keepListed } from "./lib/addressed.js";
-import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
 import { DESKTOP } from "./desktop.js";
 import { THREADS_QUERY, fixPrompt, fixable, unresolvedThreads } from "./lib/fix-prompt.js";
 import { newGoal } from "./lib/goals.js";
@@ -460,18 +459,7 @@ export class PrViews {
     });
   }
 
-  // The review pane on the PR's checkout, else on its exact head; comments go to its agent, or a new one when none runs.
   async reviewPR(pr) {
-    const clone = this.clones[pr.repo];
-    const info = { repo: pr.repo, number: pr.number, url: pr.url, base: pr.baseRefName, head: pr.headRefName };
-    const folder = await checkoutOf(clone, localBranch(pr));
-    if (!folder) {
-      const r = await exec("git", ["-C", clone, "fetch", "--quiet", "origin", pullRefspec(pr)]);
-      if (r.code !== 0) {
-        return notify({ title: `Could not fetch PR #${pr.number}`, body: r.stderr.trim().split("\n")[0], level: "warning" });
-      }
-      info.ref = pullRef(pr);
-    }
-    openReview(folder ?? clone, this.prAgents[pr.url]?.address ?? null, info);
+    await reviewPR(pr, this.clones[pr.repo], this.prAgents[pr.url]?.address ?? null);
   }
 }

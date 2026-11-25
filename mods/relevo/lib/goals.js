@@ -109,3 +109,12 @@ export function staleClosed(doc, days = 7, now = Date.now()) {
   for (const h of doc.history ?? []) last.set(h.goal, h.at);
   return (doc.goals ?? []).filter((g) => goalState(g) === "completed" && now - Date.parse(last.get(g.id) ?? 0) > days * 86400000).map((g) => g.id);
 }
+
+// A run's prompt with files the person picked, listed once each under "Files:" at its end, for the agents to read.
+export function withFiles(prompt, paths) {
+  const text = (prompt ?? "").trimEnd(), at = text.search(/(^|\n)Files:\n(- .*(\n|$))*$/);
+  const head = at < 0 ? text : text.slice(0, at).trimEnd();
+  const listed = at < 0 ? [] : [...text.slice(at).matchAll(/^- (.+)$/gm)].map((m) => m[1]);
+  const files = [...new Set([...listed, ...paths])];
+  return files.length ? `${head ? `${head}\n\n` : ""}Files:\n${files.map((p) => `- ${p}`).join("\n")}` : head;
+}

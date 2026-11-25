@@ -1,8 +1,8 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
-import { agents, props, theme, openOverlay, closeOverlay, exec, readTextFile, appHome } from "herdr";
+import { agents, props, theme, openOverlay, closeOverlay, exec, readTextFile, appHome, pickFiles } from "herdr";
 import { button, overlayHeight, onSubmitChord } from "./ui.js";
-import { newGoal, webLink, GOAL_STATES, STEP_STATES, goalState } from "./lib/goals.js";
+import { newGoal, webLink, GOAL_STATES, STEP_STATES, goalState, withFiles } from "./lib/goals.js";
 import { readGoals, writeGoal } from "./goals-store.js";
 import { linkedDecision } from "./lib/goal-workflow.js";
 import { projectGoalPlan } from "./lib/goal-plan.js";
@@ -103,6 +103,13 @@ export class GoalEditor {
       if (input && this.steps.some((step) => step.input === input)) input.focus();
       else if (!input && !this.steps.length) { this.panel = "decision"; this.fields.criteria.focus(); cx.notify(); }
     });
+  }
+
+  async attachFiles(cx) {
+    const paths = await pickFiles({ prompt: "Attach", multiple: true }).catch(() => null);
+    if (!paths?.length) return;
+    this.fields.criteria.set_value(withFiles(this.fields.criteria.value(), paths));
+    cx.notify();
   }
 
   addStep(cx) {
@@ -304,9 +311,12 @@ export class GoalEditor {
         .when(this.panel === "decision", (el) => el
           .when(isNewRun, (content) => content
             .child(field("criteria", this.fields.criteria, "Prompt"))
-            .child(button(t, "new-run-title-toggle", this.newRunTitleOpen ? "Hide title" : this.fields.title.value().trim() ? "Edit title" : "Add a title", (cx) => {
-              this.newRunTitleOpen = !this.newRunTitleOpen; cx.notify();
-            }, { size: "sm", tip: "Optional title; by default the first prompt line names this run" }))
+            .child(h_flex().gap(6)
+              .child(button(t, "new-run-title-toggle", this.newRunTitleOpen ? "Hide title" : this.fields.title.value().trim() ? "Edit title" : "Add a title", (cx) => {
+                this.newRunTitleOpen = !this.newRunTitleOpen; cx.notify();
+              }, { size: "sm", tip: "Optional title; by default the first prompt line names this run" }))
+              .child(button(t, "new-run-attach", "Attach files…", (cx) => this.attachFiles(cx),
+                { size: "sm", disabled: this.busy, tip: "Lists the files under Files: in the prompt, for the agents to read" })))
             .when(this.newRunTitleOpen, (content) => content.child(field("title", this.fields.title, "Run title (optional)"))))
           .when(!isNewRun, (content) => content.child(field("title", this.fields.title, labels.title)).child(field("criteria", this.fields.criteria, labels.criteria)))
           .when(!isNewRun, (content) => content.child(choice("goal-review-notes-toggle", this.reviewNotesOpen ? "Hide decision and review notes" : "Optional decision and review notes", this.reviewNotesOpen,

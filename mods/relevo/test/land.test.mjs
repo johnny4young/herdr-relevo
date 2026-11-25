@@ -192,3 +192,32 @@ test("Confirm land turns the card into a landing at once, and the PR's own card 
   await flush();
   assert.ok(fake.notices.some((n) => /^Merged · app #1/.test(n.title)));
 });
+
+test("a landed worktree's space closes and its programs stop before the folder goes", async () => {
+  fake.spaces = [{ id: "sp9", name: "feat", folder: WT, machine: "", tabs: [{ id: "tb9", name: "dev" }] }];
+  fake.panes = [{ pane: "p9", tab: "tb9", terminal: "t9", cwd: WT, status: "idle", program: { agent: false } }];
+  const { box, cx } = await inbox();
+  click(find(box.render(cx), `land-btn-${URL}`), cx);
+  click(find(box.render(cx), `land-btn-${URL}`), cx);
+  await flush();
+  // The dev server is still stopping: nothing is removed.
+  await box.landTick(cx);
+  await flush();
+  assert.equal(fake.runs.filter(([name]) => name === "space.close").length, 1);
+  assert.equal(fake.stored[LANDING][URL].note, "kept its worktree: its programs are still stopping");
+  assert.equal(calls(/worktree remove/).length, 0);
+});
+
+test("once its programs stop, a landed worktree goes", async () => {
+  fake.spaces = [{ id: "sp9", name: "feat", folder: WT, machine: "", tabs: [{ id: "tb9", name: "dev" }] }];
+  fake.panes = [{ pane: "p9", tab: "tb9", terminal: "t9", cwd: WT, status: "idle", program: { agent: false } }];
+  const { box, cx } = await inbox();
+  cx.sleep = async () => { fake.panes = []; };
+  click(find(box.render(cx), `land-btn-${URL}`), cx);
+  click(find(box.render(cx), `land-btn-${URL}`), cx);
+  await flush();
+  await box.landTick(cx);
+  await flush();
+  assert.equal(fake.stored[LANDING][URL].note, "worktree removed");
+  assert.equal(calls(/worktree remove/).length, 1);
+});

@@ -87,6 +87,7 @@ export const exec = async (cmd, args = [], options = {}) => {
   return { code: 0, stdout: "", stderr: "", ...(await fake.exec(cmd, args, options)) };
 };
 export const pickFolder = async () => null;
+export const pickFiles = async () => fake.pickedFiles ?? null;
 export const watchFolder = (path) => {
   const ready = fake.folderChanges.get(path);
   if (ready) {
