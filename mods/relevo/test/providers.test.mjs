@@ -88,3 +88,17 @@ test("an app alone names the account only for a provider with one", () => {
   assert.equal(accountOfApp("claude-code"), null);
   assert.equal(accountOfApp(undefined), null);
 });
+
+test("Antigravity runs unattended in auto mode, its reports folder added", async () => {
+  const { quotaOf } = await import("../lib/providers.js");
+  assert.equal(PROVIDERS.agy.caps.runs, true);
+  assert.deepEqual(PROVIDERS.agy.runArgs({ role: "executor", home: "/app", sandboxed: false }), ["--mode", "auto", "--add-dir", "/app/relevo-workflow/reports"]);
+  assert.deepEqual(PROVIDERS.agy.runArgs({ role: "reviewer", home: "/app", sandboxed: true }).at(-1), "--sandbox");
+  assert.deepEqual(PROVIDERS.agy.modelArgs({ model: "gemini-4-neon-high", effort: "high" }, ["--mode", "auto"]),
+    ["--mode", "auto", "--model", "gemini-4-neon-high", "--effort", "high"]);
+  const msg = "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h0m27s.";
+  assert.deepEqual(quotaOf(msg, 1000), { resets: 1000 + 3627 });
+  assert.deepEqual(quotaOf("Individual quota reached.", 1000), { resets: null });
+  assert.equal(quotaOf("Approve Bash: rm a.txt"), null);
+  assert.equal(quotaOf(undefined), null);
+});

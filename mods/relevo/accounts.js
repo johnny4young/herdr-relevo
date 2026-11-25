@@ -1,10 +1,10 @@
-import { home, readTextFile, run, spaces, shared } from "herdr";
+import { home, readTextFile, run, spaces, shared, terminals } from "herdr";
 import { ACCOUNTS as CONFIGURED, CODEX as CODEX_ACCOUNT, FALLBACK } from "./config.js";
 import * as config from "./config.js";
 import { FIVE_HOURS, WEEK, windowOf, windowLabel } from "./lib/time.js";
 import { accountFor } from "./context.js";
 import { shellArgv } from "./lib/session-env.js";
-import { PROVIDERS, providerOf } from "./lib/providers.js";
+import { PROVIDERS, providerOf, providerOfApp, quotaOf } from "./lib/providers.js";
 
 export const API_QUOTAS = "relevo.quota.api";
 
@@ -66,6 +66,10 @@ export function currentWindow(sources, name, now) {
 export async function loadClaudeQuotas() {
   const out = {}, api = shared(API_QUOTAS) ?? {};
   for (const p of allAccounts()) {
+    if (!providerOf(p).caps.quota) {
+      out[p.key] = reportedQuota(providerOf(p), terminals());
+      continue;
+    }
     let file = null;
     try {
       file = JSON.parse(await readTextFile(`${home()}/.cache/herdr-relevo/${p.file}`) ?? "null");
@@ -85,6 +89,12 @@ export async function loadClaudeQuotas() {
     });
   }
   return out;
+}
+
+// A CLI without a usage endpoint is full while one of its agents reports so; else its quota is unknown.
+export function reportedQuota(provider, list) {
+  const hit = list.map((k) => providerOfApp(k.agent) === provider && quotaOf(k.report?.msg)).find(Boolean);
+  return hit ? { updated: Math.floor(Date.now() / 1000), h5: windowOf(100, hit.resets, FIVE_HOURS), d7: null } : null;
 }
 
 export const full = (q) => (q?.h5?.pct >= 100 ? "5h" : q?.d7?.pct >= 100 ? windowLabel(q.d7, "7d") : null);
