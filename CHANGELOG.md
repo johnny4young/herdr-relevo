@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.1 · 2026-11-25
+
+- **Every account fits the status bar.** With two accounts nearly full and showing their resets, the others were cut off at the edge. The status bar now gives up resets, then numbers, before any account, so every chip and ring stays in sight.
+- **Antigravity's two quotas in the status bar.** It shows a ring for each of its quota groups (Gemini, Claude/GPT), and its popup lists each group's 5-hour and weekly windows, as the sidebar already did.
+
 ## 0.21.0 · 2026-11-25
 
 - **Antigravity's two quotas side by side.** Its Gemini and Claude/GPT models draw on separate quotas, so the sidebar shows a row for each, with its own 5-hour and weekly bars. The group of the model in agy's settings still decides when the account is full.
