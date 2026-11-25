@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.22.0 · 2026-11-25
+
+- **Needs me on the Dock icon.** Herdr's Dock icon shows how many things need you in Reviews, with Herdr in front or not, and clears at zero.
+- **Relevo in the command palette.** ⌘⇧P lists Relevo's commands under their own group: Reviews, Runs, New run, Review changes, Next waiting agent, Handoff, Quick replies, Find a session, Open this branch's PR, Checkouts here, Find file, Tokens, Week and Settings.
+- **Lighter while the window can't be seen.** Minimized, on another Space, covered or on a sleeping display, Relevo stops what only paints (token scan, folder sync, panel bar, Runs window) and reads quotas and PRs, which feed alerts, less often. Needs herdr-app 0.1.18.
+
 ## 0.21.1 · 2026-11-25
 
 - **Every account fits the status bar.** With two accounts nearly full and showing their resets, the others were cut off at the edge. The status bar now gives up resets, then numbers, before any account, so every chip and ring stays in sight.
