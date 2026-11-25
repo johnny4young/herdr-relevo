@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.0 · 2026-11-25
+
+- **Antigravity's two quotas side by side.** Its Gemini and Claude/GPT models draw on separate quotas, so the sidebar shows a row for each, with its own 5-hour and weekly bars. The group of the model in agy's settings still decides when the account is full.
+- **Antigravity's waits read right.** Its trust question reads **Trust this folder?** instead of "Signed out", and only Runs' Trust and continue answers it. Its command requests read as `Run: <command>`.
+
 ## 0.20.0 · 2026-11-25
 
 - **Antigravity CLI writes and reviews.** Once activated, Runs, Deep review and second opinions offer it. It runs in auto mode, which approves edits and safe commands and asks for the rest, with the run's reports folder added. Deep review lists the main Gemini models and takes their effort, and **Trust and continue** answers its trust question.
