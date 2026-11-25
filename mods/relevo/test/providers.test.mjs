@@ -112,11 +112,15 @@ test("agy's usage report: the group of its model, else the tightest, as 5-hour a
     { name: "Claude and GPT models", description: "Models within this group: Claude Opus 5.5, GPT-OSS 120B",
       buckets: [bucket("weekly", 0.8, "2026-12-02T00:43:11Z"), bucket("5h", 0.6, "2026-11-25T05:43:11Z")] },
   ] } } });
-  assert.deepEqual(agyUsage(report, "Claude Opus 5.5 (Medium)"), {
+  const claude = {
     seven_day: { used_percentage: 20, resets_at: Date.parse("2026-12-02T00:43:11Z") / 1000 },
     five_hour: { used_percentage: 40, resets_at: Date.parse("2026-11-25T05:43:11Z") / 1000 },
-    group: "Claude and GPT models",
-  });
+  };
+  const usage = agyUsage(report, "Claude Opus 5.5 (Medium)");
+  assert.deepEqual({ ...usage, groups: undefined }, { ...claude, group: "Claude and GPT models", groups: undefined });
+  // Every group stays, each with its own windows and a short label.
+  assert.deepEqual(usage.groups.map((g) => [g.label, g.five_hour.used_percentage, g.seven_day.used_percentage]), [["Gemini", 30, 90], ["Claude/GPT", 40, 20]]);
+  assert.deepEqual(usage.groups[1], { name: "Claude and GPT models", label: "Claude/GPT", ...claude });
   assert.equal(agyUsage(report, "").group, "Gemini Models");
   assert.equal(agyUsage(report, "Some New Model").group, "Gemini Models");
   assert.equal(agyUsage(report, "Gemini 4 Neon (High)").seven_day.used_percentage, 90);

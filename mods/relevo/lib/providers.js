@@ -103,7 +103,8 @@ export function quotaOf(msg, now = Date.now() / 1000) {
 }
 
 // `agy -p /usage --output-format json`: each model group has a 5-hour and a weekly bucket. The group of `model` (agy's
-// settings, "Claude Opus 5.5 (Medium)") counts, else the tightest. Returns rate_limits as Relevo stores them, or null.
+// settings, "Claude Opus 5.5 (Medium)") is the account's, else the tightest; every group is kept, with a short label, for
+// the sidebar. Returns rate_limits as Relevo stores them, or null.
 export function agyUsage(text, model = "") {
   let groups;
   try { groups = JSON.parse(text)?.command?.data?.groups; } catch { return null; }
@@ -111,13 +112,19 @@ export function agyUsage(text, model = "") {
   const name = model.replace(/\s*\(.*\)\s*$/, "").trim();
   const least = (g) => Math.min(...(g.buckets ?? []).map((b) => b.remaining_fraction ?? 1));
   const group = (name ? groups.find((g) => (g.description ?? "").includes(name)) : null) ?? [...groups].sort((a, b) => least(a) - least(b))[0];
-  const out = {};
-  for (const b of group.buckets ?? []) {
-    const window = { "5h": "five_hour", weekly: "seven_day" }[b.window];
-    if (!window || typeof b.remaining_fraction !== "number") continue;
-    out[window] = { used_percentage: Math.round((1 - b.remaining_fraction) * 1000) / 10, resets_at: b.reset_time ? Date.parse(b.reset_time) / 1000 : null };
-  }
-  return Object.keys(out).length ? { ...out, group: group.name } : null;
+  const windows = (g) => {
+    const out = {};
+    for (const b of g.buckets ?? []) {
+      const window = { "5h": "five_hour", weekly: "seven_day" }[b.window];
+      if (!window || typeof b.remaining_fraction !== "number") continue;
+      out[window] = { used_percentage: Math.round((1 - b.remaining_fraction) * 1000) / 10, resets_at: b.reset_time ? Date.parse(b.reset_time) / 1000 : null };
+    }
+    return out;
+  };
+  const mine = windows(group);
+  if (!Object.keys(mine).length) return null;
+  const label = (name) => (name ?? "").replace(/\s+models$/i, "").replace(/\s+and\s+/i, "/");
+  return { ...mine, group: group.name, groups: groups.map((g) => ({ name: g.name, label: label(g.name), ...windows(g) })) };
 }
 
 // An account without a provider is a Claude account, as every config before providers wrote them.

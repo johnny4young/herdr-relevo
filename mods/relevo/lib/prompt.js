@@ -33,6 +33,10 @@ export const isPlan = (question) => /has written up a plan\b.*would you like to 
 export function readPrompt(screen, notes = null, since = null) {
   const lines = (screen ?? "").split("\n").map((l) => l.replace(FRAME, "")).slice(-60);
   const none = { question: "", options: [], multi: false, submit: null, cursor: null, dialog: "" };
+  // A folder's trust question, unnumbered in Antigravity: answered only from Runs' Trust and continue, never from a card.
+  if (/Do you trust the contents of this project\?/.test(screen ?? "") && /Yes, I trust this folder/.test(screen)) {
+    return { ...none, question: "Trust this folder?", trust: true, unparsed: true };
+  }
   let last = -1;
   for (let i = lines.length - 1; i >= 0 && last < 0; i--) if (OPTION.test(lines[i])) last = i;
   const footerless = () => lastLines(aboveInput(lines), 2);
@@ -230,9 +234,11 @@ function runReason({ body }) {
 // report: the agent's own status report (kind, msg), for what the screen doesn't say.
 export function reasonOf(prompt, report = null) {
   const ask = prompt?.ask, title = ask?.title ?? "", msg = String(report?.msg ?? "");
+  // Herdr reads a trust question as a login one.
+  if (prompt?.trust) return "Trust this folder?";
   if (report?.kind === "auth") return fit(msg) || "Signed out";
   if (isPlan(prompt?.question) || /^approve plan$/i.test(msg)) return "Plan to approve";
-  if (ask?.body.length && (title === "Bash command" || /^Would you like to run/.test(prompt.question))) return runReason(ask);
+  if (ask?.body.length && (title === "Bash command" || /^Would you like to run|^Run this command/.test(prompt.question))) return runReason(ask);
   if (/^(Edit|Create) file$/.test(title) && ask.about) return fit(`${title.split(" ")[0]}: ${ask.about}`);
   if (title === "Fetch") {
     const url = ask.body.find((l) => l.startsWith("url:"))?.slice(4).trim();

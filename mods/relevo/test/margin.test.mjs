@@ -38,3 +38,19 @@ test("the shortcut starts the account with most room in the focused folder, and 
   assert.equal(fake.notices.at(-1).title, `Starting ${second.label}`);
   assert.equal(fake.notices.at(-1).body, "Most room left · 5h 20% · 7d 50%");
 });
+
+test("an account whose models draw on separate quotas shows a row per group, the chip only on the first", async () => {
+  const { find, text } = await import("./fake/ui.mjs");
+  const { theme } = await import("./fake/herdr.mjs");
+  const [first] = ACCOUNTS;
+  const bar = new Sidebar();
+  bar.loaded = true;
+  const updated = Math.floor(Date.now() / 1000), wrap = (rows) => ({ items: rows });
+  const groups = [{ name: "Gemini Models", label: "Gemini", ...q(30, 91) }, { name: "Claude and GPT models", label: "Claude/GPT", ...q(40, 20) }];
+  const split = wrap(bar.rows(theme(), first, { updated, ...q(40, 20), groups }, 80));
+  assert.equal(split.items.length, 2);
+  assert.match(text(find(split, `account-${first.key}-0`)), new RegExp(`^${first.letter} Gemini 5h`));
+  assert.match(text(find(split, `account-${first.key}-1`)), /^Claude\/GPT 5h/);
+  assert.ok(find(split, `meter-7d-${first.key}-0`) && find(split, `meter-7d-${first.key}-1`));
+  assert.equal(wrap(bar.rows(theme(), first, { updated, ...q(10, 10) }, 80)).items.length, 1);
+});

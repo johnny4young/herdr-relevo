@@ -157,28 +157,34 @@ export class Sidebar {
             .left(Math.round(barWidth * w.pace)))));
   }
 
-  row(t, p, q, barWidth) {
+  // One row per account, or per quota group of an account whose models draw on separate quotas; only the first has the chip.
+  rows(t, p, q, barWidth) {
+    if (!(q?.groups?.length > 1)) return [this.row(t, p, q, barWidth)];
+    return q.groups.map((g, i) => this.row(t, p, { ...q, h5: g.h5, d7: g.d7 }, barWidth, { id: `${p.key}-${i}`, label: g.label, group: g.name, first: i === 0 }));
+  }
+
+  row(t, p, q, barWidth, { id = p.key, label = p.label, group = null, first = true } = {}) {
     const age = q ? Date.now() / 1000 - q.updated : Infinity, stale = age > STALE;
     const note = !q
       ? "No data yet"
       : stale ? `Last updated ${ago(q.updated)}; the usage endpoint did not answer since` : `Updated ${ago(q.updated)}`;
-    const hovered = this.hovered === p.key, app = providerFor(p.key).short;
-    return h_flex().id(`account-${p.key}`).h(30).px(8).gap(8).items_center().rounded(6)
+    const hovered = this.hovered === id, app = providerFor(p.key).short;
+    return h_flex().id(`account-${id}`).h(30).px(8).gap(8).items_center().rounded(6)
       .cursor_pointer().hover((s) => s.bg(t.hover))
       .on_click(() => this.launch(p.key))
       .on_hover((on, cx) => {
-        this.hovered = on ? p.key : this.hovered === p.key ? null : this.hovered;
+        this.hovered = on ? id : this.hovered === id ? null : this.hovered;
         cx.notify();
       })
-      .child(div().id(`account-name-${p.key}`).w(NAME_W).flex_none().flex().items_center().gap(8)
-        .tooltip(withKey(this.syntheticPreview ? "Perfil aislado: cuentas y lanzadores desconectados" : `${note}. Click to start ${app} here.`, `relevo.launch-${p.key}`))
-        .child(chip(div, p))
+      .child(div().id(`account-name-${id}`).w(NAME_W).flex_none().flex().items_center().gap(8)
+        .tooltip(withKey(this.syntheticPreview ? "Perfil aislado: cuentas y lanzadores desconectados" : `${group ? `${p.label} · ${group}. ` : ""}${note}. Click to start ${app} here.`, `relevo.launch-${p.key}`))
+        .child(first ? chip(div, p) : div().size(17).flex_none())
         .child(div().flex_1().min_w(0).truncate().text_size(13).font_medium().text_color(stale ? t.muted : t.foreground)
-          .child(p.label)))
+          .child(label)))
       .when(!this.loaded && !q, (el) => el.child(h_flex().flex_1().justify_center().child(spinner(t.dim, 10))))
       .when(this.loaded || Boolean(q), (el) => el
-        .child(this.meter(t, `meter-5h-${p.key}`, "5h", q?.h5, barWidth, stale, hovered))
-        .child(this.meter(t, `meter-7d-${p.key}`, windowLabel(q?.d7, "7d"), q?.d7, barWidth, stale, hovered)));
+        .child(this.meter(t, `meter-5h-${id}`, "5h", q?.h5, barWidth, stale, hovered))
+        .child(this.meter(t, `meter-7d-${id}`, windowLabel(q?.d7, "7d"), q?.d7, barWidth, stale, hovered)));
   }
 
   // Hides the other context in the Inbox, folds its space folder and mutes its alerts.
@@ -206,8 +212,8 @@ export class Sidebar {
       const q = this.quota[p.key], w = [q?.h5, q?.d7].filter(Boolean).sort((a, b) => b.pct - a.pct)[0];
       const stale = !q || Date.now() / 1000 - q.updated > STALE;
       const level = !w || stale ? t.dim : quotaTone(t, w.pct);
-      const usage = [q?.h5 ? `5h ${q.h5.pct}%` : null, q?.d7 ? `${windowLabel(q.d7, "7d")} ${q.d7.pct}%` : null]
-        .filter(Boolean).join(" · ") || "no data";
+      const windows = (w) => [w?.h5 ? `5h ${w.h5.pct}%` : null, w?.d7 ? `${windowLabel(w.d7, "7d")} ${w.d7.pct}%` : null].filter(Boolean).join(" · ");
+      const usage = (q?.groups?.length > 1 ? q.groups.map((g) => `${g.label} ${windows(g)}`).join(" · ") : windows(q)) || "no data";
       return v_flex().id(`account-${p.key}`).w_full().py(3).gap(3).items_center().rounded(6)
         .cursor_pointer().hover((s) => s.bg(t.hover))
         .tooltip(withKey(`${p.label} · ${usage}`, `relevo.launch-${p.key}`))
@@ -257,6 +263,6 @@ export class Sidebar {
             })
             .child(svg("mods/relevo/settings.svg").size(11))))
         .child(this.focusPicker(t)))
-      .children(agentAccounts().map((p) => this.row(t, p, this.quota[p.key], barWidth)));
+      .children(agentAccounts().flatMap((p) => this.rows(t, p, this.quota[p.key], barWidth)));
   }
 }
