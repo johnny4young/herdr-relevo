@@ -161,9 +161,10 @@ Reviews looks for the agent CLIs Relevo knows (Claude Code, Codex, Antigravity C
 finds that is not in `config.js` shows in Now under **AGENT CLIS** with **Activate**, which adds its account, or **Ignore**.
 One in use whose Herdr hook is outdated or missing offers **Update hook** (`herdr integration install`). An activated
 CLI gets a chip, a tab from the accounts list and handoffs, and writes or reviews in Runs, Deep review and second
-opinions. Antigravity runs in auto mode, which approves edits and safe commands and asks for the rest. It has no usage
-endpoint, so its account counts as full while one of its agents reports "quota reached", until the reset time it gives,
-and comes after the accounts whose quota Relevo reads. Settings turns each one on or off.
+opinions. Antigravity runs in auto mode, which approves edits and safe commands and asks for the rest. Its quota is agy's
+own usage report, every five minutes, for the model group of the model in its settings (Gemini, or Claude and GPT); while
+one of its agents reports "quota reached", the account counts as full until the reset time it gives. Settings turns each
+one on or off.
 
 ### Land a PR, and review only what changed
 
@@ -275,7 +276,9 @@ shows.
   login shell; **Update hook** runs `herdr integration install <cli>`.
 - Runs `git`, `gh`, `hc`, `cat` (the hook's notes of a permission the screen cuts), `find` (to look for repos in a worktree's ignored folders) and the launchers in `config.js`; Files runs `/usr/bin/trash`, `open -R`, `mv -n` and `mkdir`.
 - Reaches the network for quotas: each Claude account's login from the macOS Keychain goes to Anthropic's usage
-  endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token.
+  endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token. For Antigravity it runs
+  `agy -p /usage --output-format json` in a temp folder every five minutes, without updates or a browser sign-in, and reads
+  `~/.gemini/antigravity-cli/settings.json` for its model.
 - Reads each Claude account's `history.jsonl` to rank the skills a PR's menu offers (counts only), its short
   one-line prompts to suggest quick replies you keep typing, and its sessions for `⌥⌘E`, with the title, branch and
   PR from the end of each session file (in memory, never written anywhere).

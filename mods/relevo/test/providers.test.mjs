@@ -102,3 +102,24 @@ test("Antigravity runs unattended in auto mode, its reports folder added", async
   assert.equal(quotaOf("Approve Bash: rm a.txt"), null);
   assert.equal(quotaOf(undefined), null);
 });
+
+test("agy's usage report: the group of its model, else the tightest, as 5-hour and weekly windows", async () => {
+  const { agyUsage } = await import("../lib/providers.js");
+  const bucket = (window, remaining, reset) => ({ window, remaining_fraction: remaining, reset_time: reset });
+  const report = JSON.stringify({ status: "SUCCESS", command: { name: "usage", data: { groups: [
+    { name: "Gemini Models", description: "Models within this group: Gemini 4 Neon, Gemini 3.8 Flash",
+      buckets: [bucket("weekly", 0.1, "2026-11-30T20:26:13Z"), bucket("5h", 0.7, "2026-11-25T03:47:56Z")] },
+    { name: "Claude and GPT models", description: "Models within this group: Claude Opus 5.5, GPT-OSS 120B",
+      buckets: [bucket("weekly", 0.8, "2026-12-02T00:43:11Z"), bucket("5h", 0.6, "2026-11-25T05:43:11Z")] },
+  ] } } });
+  assert.deepEqual(agyUsage(report, "Claude Opus 5.5 (Medium)"), {
+    seven_day: { used_percentage: 20, resets_at: Date.parse("2026-12-02T00:43:11Z") / 1000 },
+    five_hour: { used_percentage: 40, resets_at: Date.parse("2026-11-25T05:43:11Z") / 1000 },
+    group: "Claude and GPT models",
+  });
+  assert.equal(agyUsage(report, "").group, "Gemini Models");
+  assert.equal(agyUsage(report, "Some New Model").group, "Gemini Models");
+  assert.equal(agyUsage(report, "Gemini 4 Neon (High)").seven_day.used_percentage, 90);
+  assert.equal(agyUsage("not json"), null);
+  assert.equal(agyUsage(JSON.stringify({ command: { data: { groups: [] } } })), null);
+});

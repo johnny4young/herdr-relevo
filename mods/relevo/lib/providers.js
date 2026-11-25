@@ -65,8 +65,8 @@ export const PROVIDERS = {
         "--ask-for-approval", role === "reviewer" ? "never" : "on-request", "--add-dir", `${home}/relevo-workflow/reports`];
     },
   },
-  // Antigravity CLI: one login per macOS user (its Keychain item), so one account. No usage endpoint: its quota is
-  // what Herdr reports when it runs out (quotaOf).
+  // Antigravity CLI: one login per macOS user (its Keychain item), so one account. Its quota comes from
+  // `agy -p /usage` (agyUsage), and from what Herdr reports when an agent runs out (quotaOf).
   agy: {
     key: "agy",
     name: "Antigravity CLI",
@@ -77,7 +77,8 @@ export const PROVIDERS = {
     chip: { label: "Antigravity", letter: "A", bg: "#8aadf4", fg: "#1e2030" },
     models: ["gemini-4-neon-high", "gemini-4-carbon-high", "gemini-4-argon-high", "gemini-4-hydrogen-high", "gemini-3.8-flash-high"],
     efforts: ["low", "medium", "high", "xhigh", "max"],
-    caps: { accounts: false, fork: false, quota: false, usage: false, skills: false, writer: false, runs: true },
+    caps: { accounts: false, fork: false, quota: true, usage: false, skills: false, writer: false, runs: true },
+    reportsQuota: true,
     promptArgs: (prompt) => ["-i", prompt],
     defaultModel: () => "",
     usageDirs: () => [],
@@ -99,6 +100,24 @@ export function quotaOf(msg, now = Date.now() / 1000) {
   const m = /Resets in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/.exec(msg);
   const left = m ? Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0) : 0;
   return { resets: left ? Math.round(now + left) : null };
+}
+
+// `agy -p /usage --output-format json`: each model group has a 5-hour and a weekly bucket. The group of `model` (agy's
+// settings, "Claude Opus 5.5 (Medium)") counts, else the tightest. Returns rate_limits as Relevo stores them, or null.
+export function agyUsage(text, model = "") {
+  let groups;
+  try { groups = JSON.parse(text)?.command?.data?.groups; } catch { return null; }
+  if (!Array.isArray(groups) || !groups.length) return null;
+  const name = model.replace(/\s*\(.*\)\s*$/, "").trim();
+  const least = (g) => Math.min(...(g.buckets ?? []).map((b) => b.remaining_fraction ?? 1));
+  const group = (name ? groups.find((g) => (g.description ?? "").includes(name)) : null) ?? [...groups].sort((a, b) => least(a) - least(b))[0];
+  const out = {};
+  for (const b of group.buckets ?? []) {
+    const window = { "5h": "five_hour", weekly: "seven_day" }[b.window];
+    if (!window || typeof b.remaining_fraction !== "number") continue;
+    out[window] = { used_percentage: Math.round((1 - b.remaining_fraction) * 1000) / 10, resets_at: b.reset_time ? Date.parse(b.reset_time) / 1000 : null };
+  }
+  return Object.keys(out).length ? { ...out, group: group.name } : null;
 }
 
 // An account without a provider is a Claude account, as every config before providers wrote them.

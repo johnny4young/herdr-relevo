@@ -66,8 +66,10 @@ export function currentWindow(sources, name, now) {
 export async function loadClaudeQuotas() {
   const out = {}, api = shared(API_QUOTAS) ?? {};
   for (const p of allAccounts()) {
-    if (!providerOf(p).caps.quota) {
-      out[p.key] = reportedQuota(providerOf(p), terminals());
+    // What an agent just reported beats a usage report read minutes ago.
+    const reported = providerOf(p).reportsQuota ? reportedQuota(providerOf(p), terminals()) : null;
+    if (reported) {
+      out[p.key] = reported;
       continue;
     }
     let file = null;
@@ -91,7 +93,7 @@ export async function loadClaudeQuotas() {
   return out;
 }
 
-// A CLI without a usage endpoint is full while one of its agents reports so; else its quota is unknown.
+// A CLI is full while one of its agents reports its quota reached.
 export function reportedQuota(provider, list) {
   const hit = list.map((k) => providerOfApp(k.agent) === provider && quotaOf(k.report?.msg)).find(Boolean);
   return hit ? { updated: Math.floor(Date.now() / 1000), h5: windowOf(100, hit.resets, FIVE_HOURS), d7: null } : null;
