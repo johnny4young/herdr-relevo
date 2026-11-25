@@ -1,5 +1,11 @@
 {
   "place": "none",
+  "link_handlers": [
+    {
+      "kind": "url",
+      "pattern": "^https://github\\.com/[\\w.-]+/[\\w.-]+/pull/\\d+"
+    }
+  ],
   "palette": [
     {
       "title": "Reviews",

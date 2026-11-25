@@ -163,6 +163,12 @@ session, Open this branch's PR, Checkouts here, Find file, Tokens, Week and Sett
 (minimized, on another Space, covered or on a sleeping display), what only paints waits, and quotas and PRs, which feed
 alerts, are read less often.
 
+⌘-click on a GitHub pull request link in a terminal opens it in Review when its repository is cloned under your repos
+root (as origin, or upstream in a fork); any other link opens as before. In Runs, the mouse's back button goes up from a
+task to its run and to the list, and forward goes back in; in a Review opened from a decision, back returns to it. A new
+run's **Attach files…** lists the files you pick under `Files:` in its prompt. A landed PR's worktree waits for its
+space's programs to stop before it is removed.
+
 ### Other agent CLIs, found for you
 
 Reviews looks for the agent CLIs Relevo knows (Claude Code, Codex, Antigravity CLI) on your login shell's PATH. One it

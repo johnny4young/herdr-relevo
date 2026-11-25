@@ -44,6 +44,7 @@ export const closeOverlay = (id) => { fake.closedOverlays.push(id); };
 export const playSound = () => {};
 export const setBadge = (text) => { fake.badges.push(text); return null; };
 export const pickFolder = async () => fake.picked ?? null;
+export const pickFiles = async () => fake.pickedFiles ?? null;
 export const machines = () => fake.machines ?? [];
 export const hc = async () => ({ code: 0, stdout: "", stderr: "" });
 export const setAgentOrder = (order) => { fake.orders.push(order); return null; };

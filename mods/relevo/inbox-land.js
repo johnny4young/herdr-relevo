@@ -17,6 +17,8 @@ const QUEUED_FAST = 300, QUEUED_EVERY = 120;
 const CHECKING_FOR = 120;
 // Done or failed cards stay this long, then go.
 const KEPT = 86400;
+// How long a landed worktree waits for its space's programs to stop: STOP_WAITS × STOP_STEP ms.
+const STOP_WAITS = 20, STOP_STEP = 500;
 const first = (r) => (r?.stderr ?? "").trim().split("\n")[0];
 
 export class LandViews {
@@ -110,7 +112,7 @@ export class LandViews {
         if (e.phase === "queued" && now - e.at > QUEUED_FAST && now - (this.landAsked[url] ?? 0) < QUEUED_EVERY) continue;
         this.landAsked[url] = now;
         if (e.phase === "queued" || e.phase === "merging") await this.checkMerge(url, e, cx);
-        else if (e.phase === "ci") await this.checkRuns(url, e, now);
+        else if (e.phase === "ci") await this.checkRuns(url, e, now, cx);
       }
       for (const url of Object.keys(this.landAsked)) if (!this.landing()[url]) delete this.landAsked[url];
     } finally {
@@ -132,7 +134,7 @@ export class LandViews {
     }
   }
 
-  async checkRuns(url, e, now) {
+  async checkRuns(url, e, now, cx) {
     const r = await exec("gh", ["run", "list", "--repo", e.repo, "--commit", e.sha, "--json", "name,status,conclusion,url", "--limit", "30"]);
     if (r.code !== 0) return;
     const at = runsPhase(JSON.parse(r.stdout), e.mergedAt, now);
@@ -142,13 +144,13 @@ export class LandViews {
       return this.setLanding(url, { ...at, done: Math.round(now) });
     }
     if (at.phase === "ci") return this.setLanding(url, at);
-    const note = await this.cleanUp(e);
+    const note = await this.cleanUp(e, cx);
     this.setLanding(url, { ...at, note, done: Math.round(now) });
     notify({ title: `Landed · ${name}`, body: note ?? undefined, level: "success" });
   }
 
   // Only a worktree whose HEAD is the commit that merged, with nothing uncommitted, goes; its idle agents close with it.
-  async cleanUp(e) {
+  async cleanUp(e, cx) {
     if (!e.clone || !e.branch) return null;
     const w = (await scanWorktrees(true).catch(() => [])).find((x) => x.branch === e.branch && x.main === e.clone && x.path !== x.main);
     if (!w) return null;
@@ -162,6 +164,9 @@ export class LandViews {
     const check = await removalCheck({ ...w, landed: true });
     if (check.error) return `kept its worktree: ${check.error}`;
     if (check.space) run("space.close", { id: check.space, confirmed: true });
+    // Its programs stop before the folder goes, so a dev server can't leave a half-deleted checkout behind.
+    for (let i = 0; i < STOP_WAITS && panes().some(inside); i++) await cx.sleep(STOP_STEP);
+    if (panes().some(inside)) return "kept its worktree: its programs are still stopping";
     const err = await removeWorktree(w, e.oid);
     if (err) return `kept its worktree: ${err}`;
     await logRemoval(w, e.oid, "Land");

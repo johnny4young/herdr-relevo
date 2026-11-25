@@ -588,3 +588,20 @@ test('accepting the last open task of a run goes back to the runs, on that run, 
   assert.equal(v.sel, 'goal-g', 'on the run just finished');
   assert.match(text(find(tree, 'run-notice')), /^Pushed to fix\/search/);
 });
+
+test("the mouse's back button goes up from a task to its run and to the runs, and forward goes back in", async () => {
+  const { v, cx } = await runs([ready('a'), ready('b')]);
+  v.navKey({ key: 'j' }, cx); v.navKey({ key: 'enter' }, cx); v.render(cx);
+  v.navKey({ key: 'enter' }, cx);
+  const root = () => find(v.render(cx), 'relevo-inbox');
+  assert.equal(v.runTask, 'a');
+  root().handlers['on_mouse_down:back']({}, cx);
+  assert.deepEqual([v.runTask, fake.stored[GOAL_SCOPE]], [null, 'g']);
+  root().handlers['on_mouse_down:back']({}, cx);
+  assert.deepEqual([v.runTask, fake.stored[GOAL_SCOPE]], [null, null]);
+  root().handlers['on_mouse_down:forward']({}, cx);
+  assert.deepEqual([v.runTask, fake.stored[GOAL_SCOPE]], [null, 'g']);
+  // Forward is one step: the task left before the run is not reopened.
+  root().handlers['on_mouse_down:forward']({}, cx);
+  assert.equal(v.runTask, null);
+});
