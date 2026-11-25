@@ -12,26 +12,38 @@ export const API_QUOTAS = "relevo.quota.api";
 const withFile = (a, provider) => ({ ...a, provider: a.provider ?? provider, file: `quota-${a.key}.json` });
 export const ACCOUNTS = CONFIGURED.map((a) => withFile(a, "claude"));
 export const CODEX = withFile(CODEX_ACCOUNT, "codex");
+// The other CLIs with one login each, added from Reviews when Relevo finds them.
+export const OTHERS = (config.OTHER_CLIS ?? []).map((a) => withFile(a, a.provider));
 
-export const accountOf = (key) => [...ACCOUNTS, CODEX].find((p) => p.key === key) ?? ACCOUNTS[0];
-export const providerFor = (key) => providerOf(accountOf(key));
 // Every account the config names, on or off.
-export const allAccounts = () => [...ACCOUNTS, CODEX];
+export const allAccounts = () => [...ACCOUNTS, CODEX, ...OTHERS];
+export const accountOf = (key) => allAccounts().find((p) => p.key === key) ?? ACCOUNTS[0];
+export const providerFor = (key) => providerOf(accountOf(key));
 export const knownAccount = (key) => allAccounts().some((a) => a.key === key);
 // The accounts whose own Claude Code files (history, transcripts) Relevo reads.
 export const claudeAccounts = () => ACCOUNTS.filter((a) => providerOf(a) === PROVIDERS.claude && a.claudeDir);
-// USE_CODEX = false in config.js keeps Codex out of every list and every default, and so does a machine without the
-// codex command: Reviews looks for it once (CODEX_FOUND).
-export const CODEX_FOUND = "relevo.codex.found";
-export const codexOn = () => config.USE_CODEX !== false && shared(CODEX_FOUND) !== false;
-export const agentAccounts = () => (codexOn() ? [...ACCOUNTS, CODEX] : ACCOUNTS);
+// Which CLIs the machine has, { bin: boolean }: Reviews looks once. One not looked for yet counts as there.
+export const CLI_FOUND = "relevo.cli.found";
+export const cliFound = (bin) => shared(CLI_FOUND)?.[bin] !== false;
+// A one-login CLI is off with USE_CODEX = false (Codex) or `on: false` (the others), and on a machine without it:
+// then it stays out of every list and every default.
+export const isOn = (a) => {
+  const p = providerOf(a);
+  if (p.caps.accounts) return true;
+  return (a.key === CODEX.key ? config.USE_CODEX !== false : a.on !== false) && cliFound(p.bin);
+};
+export const codexOn = () => isOn(CODEX);
+export const agentAccounts = () => allAccounts().filter(isOn);
+// The accounts whose CLI Relevo can run unattended: Runs and Deep review offer only these.
+export const runnableAccounts = () => agentAccounts().filter((a) => providerOf(a).caps.runs);
 
 export { shellArgv } from "./lib/session-env.js";
 
 // `args` go before the prompt as positional parameters, never into the shell text.
 export function launchArgv(key, prompt, args = []) {
-  const p = accountOf(key), first = prompt ? 2 : 1, refs = args.map((_, i) => ` "$${i + first}"`).join("");
-  return shellArgv(`${p.launcher}${refs}${prompt ? ' "$1"' : ""}`, ...(prompt ? [prompt] : []), ...args);
+  const p = accountOf(key), lead = prompt ? providerOf(p).promptArgs(prompt) : [];
+  const ref = (from) => (_, i) => ` "$${i + from}"`;
+  return shellArgv(`${p.launcher}${args.map(ref(lead.length + 1)).join("")}${lead.map(ref(1)).join("")}`, ...lead, ...args);
 }
 
 

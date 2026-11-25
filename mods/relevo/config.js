@@ -14,6 +14,11 @@ export const CODEX = { key: "codex", label: "Codex", letter: "X", launcher: "cod
 // false: Codex stays out of every account list and every default (runs, second opinions, deep reviews, handoffs).
 export const USE_CODEX = true;
 
+// Other CLIs with one login each (`provider` and `key` alike, lib/providers.js), added from Reviews; `on: false` turns one off.
+export const OTHER_CLIS = [];
+// The CLIs Reviews found and you turned down: it doesn't offer them again.
+export const IGNORED_CLIS = [];
+
 // The first context is the default. The others claim the repos whose GitHub owner is in `orgs`,
 // and each gets a space folder with that key.
 export const CONTEXTS = [

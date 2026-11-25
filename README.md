@@ -155,6 +155,14 @@ Claude Desktop sessions that ask you something or wait for a review show in Revi
 and so does Claude Code started in Terminal, iTerm, VS Code or any terminal outside Herdr. Each says what it is
 doing or asks, and a click opens its last message in place, with **Open in Claude Desktop** or **Show <app>**. With Herdr behind another app, alerts reach macOS; with `terminal-notifier`, a click lands on the agent.
 
+### Other agent CLIs, found for you
+
+Reviews looks for the agent CLIs Relevo knows (Claude Code, Codex, Antigravity CLI) on your login shell's PATH. One it
+finds that is not in `config.js` shows in Now under **AGENT CLIS** with **Activate**, which adds its account, or **Ignore**.
+One in use whose Herdr hook is outdated or missing offers **Update hook** (`herdr integration install`). An activated
+CLI gets a chip, a tab from the accounts list and handoffs; Runs, Deep review and second opinions use only the CLIs
+Relevo can run unattended. Settings turns each one on or off.
+
 ### Land a PR, and review only what changed
 
 **Land** merges a ready PR at the commit you saw, follows the workflows the merge starts and removes its worktree
@@ -261,6 +269,8 @@ shows.
 - Every 10 seconds while the window is in front it runs `lsof -iTCP -sTCP:LISTEN`, `ps -ax -o pid,ppid,comm` and
   `lsof -d cwd` for the listening processes, to show each terminal's ports and servers started in other apps under
   your home folder. Nothing is written.
+- Once when Reviews opens, and on its refresh, runs `command -v` for each known agent CLI and `herdr integration status` in your
+  login shell; **Update hook** runs `herdr integration install <cli>`.
 - Runs `git`, `gh`, `hc`, `cat` (the hook's notes of a permission the screen cuts), `find` (to look for repos in a worktree's ignored folders) and the launchers in `config.js`; Files runs `/usr/bin/trash`, `open -R`, `mv -n` and `mkdir`.
 - Reaches the network for quotas: each Claude account's login from the macOS Keychain goes to Anthropic's usage
   endpoint, and Codex's `~/.codex/auth.json` to ChatGPT's. It never refreshes or writes a token.

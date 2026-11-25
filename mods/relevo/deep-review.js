@@ -4,7 +4,7 @@
 import { appHome, exec, notify, run, setShared } from "herdr";
 import { RUN_START } from "./run-launcher.js";
 import { GOAL_MODE, GOAL_SCOPE } from "./inbox-goals.js";
-import { accountOf, agentAccounts, hasRoom, launchArgv, loadClaudeQuotas, providerFor, withRoom } from "./accounts.js";
+import { accountOf, runnableAccounts, hasRoom, launchArgv, loadClaudeQuotas, providerFor, withRoom } from "./accounts.js";
 import { accountFor } from "./context.js";
 import * as config from "./config.js";
 import { DEFAULT_DEEP_REVIEW, reviewerLabel } from "./lib/deep-setup.js";
@@ -25,7 +25,7 @@ export const deepSetup = () => config.DEEP_REVIEW ?? DEFAULT_DEEP_REVIEW;
 export function deepReviewers(repo, quotas, setup = deepSetup()) {
   return setup.flatMap((r) => {
     if (r.account !== "repo" && !providerFor(r.account).caps.accounts) {
-      return agentAccounts().some((a) => a.key === r.account) && hasRoom(quotas?.[r.account]) ? [{ ...r, key: r.account, note: null }] : [];
+      return runnableAccounts().some((a) => a.key === r.account) && hasRoom(quotas?.[r.account]) ? [{ ...r, key: r.account, note: null }] : [];
     }
     const pick = withRoom(r.account === "repo" ? accountFor(repo) : r.account, quotas);
     return [{ ...r, key: pick.key, note: pick.note }];

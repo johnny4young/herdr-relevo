@@ -6,6 +6,7 @@ import * as config from "./config.js";
 import { WRITE_SCRIPT, aboutLine, renderConfig, validate, slug, parseList, isHex } from "./lib/settings.js";
 import { chip } from "./accounts.js";
 import { DEFAULT_DEEP_REVIEW, MAX_REVIEWERS, effortsFor } from "./lib/deep-setup.js";
+import { PROVIDERS } from "./lib/providers.js";
 import { replies } from "./replies.js";
 import { button, spinner } from "./ui.js";
 import { PANELS, PANELS_FILE, findNode, panelCommands, panelShown, panelsText } from "./lib/panels.js";
@@ -41,6 +42,8 @@ export class Settings {
     this.accounts = ACCOUNTS.map((a) => this.accountRow(a));
     this.codex = this.input(CODEX.launcher, "codex");
     this.useCodex = config.USE_CODEX !== false;
+    this.clis = (config.OTHER_CLIS ?? []).map((a) => ({ orig: a, on: a.on !== false, inputs: { launcher: this.input(a.launcher, PROVIDERS[a.provider]?.bin ?? "") } }));
+    this.ignored = [...(config.IGNORED_CLIS ?? [])];
     this.contexts = CONTEXTS.map((c) => this.contextRow(c));
     this.fallback = this.input(FALLBACK.join(", "), "personal, work");
     this.reposRoot = this.input(REPOS_ROOT, "code");
@@ -191,6 +194,11 @@ export class Settings {
       })),
       CODEX: { ...CODEX, launcher: text(this.codex) },
       USE_CODEX: this.useCodex,
+      OTHER_CLIS: this.clis.map((r) => {
+        const { on: _on, ...rest } = r.orig;
+        return { ...rest, launcher: text(r.inputs.launcher), ...(r.on ? {} : { on: false }) };
+      }),
+      IGNORED_CLIS: this.ignored,
       CONTEXTS: contexts,
       FALLBACK: parseList(this.fallback.value()),
       REPOS_ROOT: text(this.reposRoot),
@@ -362,6 +370,17 @@ export class Settings {
           .child(this.choice(t, "settings-use-codex", [["on", "Use Codex"], ["off", "Off"]], this.useCodex ? "on" : "off",
             (v, cx) => { this.useCodex = v === "on"; cx.notify(); })),
       ]))
+      .when(this.clis.length > 0 || this.ignored.length > 0, (el) => el.child(this.section(t, "settings-clis", "OTHER CLIS", ["otherClis"], [
+        ...this.clis.map((r, i) => h_flex().id(`settings-cli-${r.orig.key}`).gap(12).items_end()
+          .child(h_flex().h(26).gap(6).items_center().flex_none().child(chip(div, r.orig, 16)).child(div().text_size(13).child(PROVIDERS[r.orig.provider]?.name ?? r.orig.label)))
+          .child(this.labeled(t, "Launcher", this.field(t, `settings-cli-${r.orig.key}-launcher`, r.inputs.launcher, `otherClis.${i}.launcher`)))
+          .child(this.choice(t, `settings-cli-${r.orig.key}-on`, [["on", "On"], ["off", "Off"]], r.on ? "on" : "off", (v, cx) => { r.on = v === "on"; cx.notify(); }))
+          .child(button(t, `settings-cli-${r.orig.key}-remove`, "×", (cx) => { this.clis = this.clis.filter((x) => x !== r); this.drop(r); cx.notify(); },
+            { size: "sm", tip: "Remove: Reviews offers it again" }))),
+        ...this.ignored.map((key) => h_flex().id(`settings-ignored-${key}`).gap(8).items_center().text_size(13).text_color(t.dim)
+          .child(div().child(`${PROVIDERS[key]?.name ?? key} · ignored`))
+          .child(button(t, `settings-ignored-${key}-again`, "Offer again", (cx) => { this.ignored = this.ignored.filter((k) => k !== key); cx.notify(); }, { size: "sm", kind: "ghost" }))),
+      ])))
       .child(this.section(t, "settings-contexts", "CONTEXTS", ["contexts"], [
         ...this.contexts.map((r, i) => this.contextRowView(t, r, i)),
         h_flex().child(button(t, "settings-add-context", "+ Context", (cx) => this.addContext(cx), { size: "sm" })),

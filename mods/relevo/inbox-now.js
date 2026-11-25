@@ -15,7 +15,7 @@ import { button, foldRow, icon, joined, keycap, keysOf, LANE, laneGlyph, legend,
 
 // Reviews has two views: Now, by whose turn it is, and Maintenance, for what can wait.
 export { REVIEW_VIEW };
-export const NOW_SECTIONS = ["errors", "away", "me", "flight", "ready", "open"];
+export const NOW_SECTIONS = ["errors", "clis", "away", "me", "flight", "ready", "open"];
 export const MAINTENANCE_SECTIONS = ["safe", "look", "old", "terms", "quiet", "done", "today"];
 const GROUPS = ["me", "flight", "ready"];
 const LANDED_SHOWN = 60;
@@ -145,12 +145,12 @@ export class NowViews {
     return query ? entries.filter((e) => (e.text ?? "").toLowerCase().includes(query)) : entries;
   }
 
-  // The selectable rows in screen order: what could not be read, what you were away for, then each group; "open" only once unfolded.
+  // The selectable rows in screen order: what could not be read, agent CLIs to set up, what you were away for, then each group; "open" only once unfolded.
   nowNav(entries) {
     const errors = this.readErrors().map((e) => ({ id: e.id, section: "errors", go: e.retry, keys: () => keysOf({ main: this.retryAction(e) }) }));
     const away = this.awayItems().map((r) => ({ id: r.id, section: "away", go: r.go, keys: () => keysOf({ main: this.awayAction(r) }) }));
     const order = [...GROUPS, ...(this.expanded["now-open"] ? ["open"] : [])];
-    return [...errors, ...away, ...order.flatMap((turn) => entries.filter((e) => e.turn === turn))];
+    return [...errors, ...this.cliNav(), ...away, ...order.flatMap((turn) => entries.filter((e) => e.turn === turn))];
   }
 
   nowCounts(entries) {

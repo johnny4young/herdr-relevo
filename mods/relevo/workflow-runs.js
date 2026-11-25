@@ -4,7 +4,7 @@ import { agents, terminals, exec, appHome, notify, run, panes, shared, setShared
 import { runtimeCommand } from "./runtime-cli.js";
 import { button } from "./ui.js";
 import * as config from "./config.js";
-import { accountOf, agentAccounts, chip, launchArgv, openInFolder, loadClaudeQuotas, full, providerFor } from "./accounts.js";
+import { accountOf, runnableAccounts, chip, launchArgv, openInFolder, loadClaudeQuotas, full, providerFor } from "./accounts.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { accountFor } from "./context.js";
 import { RUN_LAUNCH, answerTrust, launchSteps, ownFolderKeys, reportsFolder, repoChecks, runTab, trustKeys } from "./run-launch.js";
@@ -30,7 +30,7 @@ const RUN_ACCOUNTS = "relevo.runs.accounts";
 // writes first (Codex, when it is on), and a reviewer other than the writer, the repository's own account first.
 export function runAccountsFor(root, quotas) {
   const saved = shared(RUN_ACCOUNTS) ?? {};
-  const all = agentAccounts().map((account) => account.key);
+  const all = runnableAccounts().map((account) => account.key);
   const open = (key) => all.includes(key) && !full(quotas?.[key]);
   const executor = open(saved.executor) ? saved.executor : [...all.filter((key) => providerFor(key).caps.writer), ...all].find(open) ?? all[0];
   const reviewer = open(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer
@@ -68,7 +68,7 @@ export class WorkflowRuns extends WorkflowDraftView {
     const chosen = this.runAccounts(), other = chosen[role === "executor" ? "reviewer" : "executor"];
     return h_flex().w_full().min_w(0).gap(8).items_center()
       .child(div().w(80).flex_none().text_size(11).text_color(t.dim).child(label))
-      .child(h_flex().flex_1().min_w(0).flex_wrap().gap(4).children(agentAccounts().map((account) => {
+      .child(h_flex().flex_1().min_w(0).flex_wrap().gap(4).children(runnableAccounts().map((account) => {
         const q = this.quotas?.[account.key], pct = q ? Math.round(Math.max(q.h5?.pct ?? 0, q.d7?.pct ?? 0)) : null, on = chosen[role] === account.key, taken = other === account.key;
         return h_flex().id(`workflow-${role}-account-${account.key}`).h(28).px(8).gap(6).items_center().rounded(7).border_1()
           .border_color(on ? t.accent : t.border).bg(on ? t.selected : t.background)

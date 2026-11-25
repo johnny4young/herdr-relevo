@@ -72,7 +72,7 @@ const flat = (name, v) => {
 };
 
 // What Settings edits; anything else config.js exports is written back as it was.
-const EDITED = ["ACCOUNTS", "CODEX", "USE_CODEX", "CONTEXTS", "FALLBACK", "REPOS_ROOT", "BACKUPS_ROOT", "SKILLS", "REPLIES", "DEEP_REVIEW", "REVIEW_OWNERS"];
+const EDITED = ["ACCOUNTS", "CODEX", "USE_CODEX", "OTHER_CLIS", "IGNORED_CLIS", "CONTEXTS", "FALLBACK", "REPOS_ROOT", "BACKUPS_ROOT", "SKILLS", "REPLIES", "DEEP_REVIEW", "REVIEW_OWNERS"];
 const NOTES = {
   RUN_CODEX_MODEL: "// The model a run's Codex agent uses.",
   RUN_MUST_FIX: "// A run's reviewer sends the work back only for findings at this level or above: \"blocker\", \"major\" or \"minor\".",
@@ -97,6 +97,11 @@ export function renderConfig(c) {
     block(c.CODEX, 0, "export const CODEX = ", ";"),
     "// false: Codex stays out of every account list and every default (runs, second opinions, deep reviews, handoffs).",
     flat("USE_CODEX", c.USE_CODEX ?? true),
+    "",
+    "// Other CLIs with one login each (`provider` and `key` alike, lib/providers.js), added from Reviews; `on: false` turns one off.",
+    list("OTHER_CLIS", c.OTHER_CLIS ?? []),
+    "// The CLIs Reviews found and you turned down: it doesn't offer them again.",
+    flat("IGNORED_CLIS", c.IGNORED_CLIS ?? []),
     "",
     "// The first context is the default. The others claim the repos whose GitHub owner is in `orgs`,",
     "// and each gets a space folder with that key.",
@@ -149,6 +154,15 @@ export function validate(c) {
     }
   });
   for (const field of ACCOUNT_FIELDS) if (!c.CODEX?.[field]?.trim()) fail(`codex.${field}`, `Codex: ${field} is required`);
+  const clis = new Set();
+  (c.OTHER_CLIS ?? []).forEach((a, i) => {
+    const p = PROVIDERS[a.provider], name = a.label || p?.name || `CLI ${i + 1}`;
+    if (!p || p.caps.accounts || p.key === "codex") fail(`otherClis.${i}.provider`, `${name}: provider is a one-login CLI other than Codex`);
+    else if (a.key !== p.key) fail(`otherClis.${i}.key`, `${name}: its key is "${p.key}", as its provider`);
+    else if (seen.has(a.key) || clis.has(a.key)) fail(`otherClis.${i}.key`, `${name}: key "${a.key}" is taken`);
+    for (const field of ACCOUNT_FIELDS) if (!a[field]?.trim?.()) fail(`otherClis.${i}.${field}`, `${name}: ${field} is required`);
+    clis.add(a.key);
+  });
   if (!contexts.length) fail("contexts", "Add at least one context");
   const contextKeys = new Set();
   contexts.forEach((ctx, i) => {

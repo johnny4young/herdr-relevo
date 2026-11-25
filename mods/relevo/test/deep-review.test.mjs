@@ -430,12 +430,13 @@ test("the deep review dialog: how many reviewers, each one's account, model and 
 });
 
 test("a machine without the codex command never offers Codex", async () => {
-  const { agentAccounts, codexOn, CODEX_FOUND } = await import("../accounts.js");
-  fake.stored[CODEX_FOUND] = false;
+  const { agentAccounts, codexOn, CLI_FOUND } = await import("../accounts.js");
+  fake.stored[CLI_FOUND] = { claude: true, codex: false };
   assert.equal(codexOn(), false);
   assert.equal(agentAccounts().some((a) => a.key === "codex"), false);
-  fake.stored[CODEX_FOUND] = true;
+  fake.stored[CLI_FOUND] = { claude: true, codex: true };
   assert.equal(codexOn(), true);
+  delete fake.stored[CLI_FOUND];
 });
 
 test("a fix run starts from the Inbox with no form: worktree, writer, then the task; its reviewer opens when the review comes", async () => {
