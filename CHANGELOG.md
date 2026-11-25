@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.23.0 · 2026-11-25
+
+- **PR links open in Review.** ⌘-click on a GitHub pull request link in a terminal opens it in Review when its repository is cloned under your repos root (as origin, or upstream in a fork); any other link opens as before.
+- **Mouse back and forward.** In Runs, the mouse's back button goes up from a comparison to its task, its run and the list, and forward goes back in. In a Review opened from a decision, back returns to it.
+- **Attach files to a run.** A new run's **Attach files…** lists the files you pick under `Files:` in its prompt, for the agents to read.
+- **A landed worktree waits for its programs.** After a merge, its space's programs stop before the folder is removed, so a dev server can't leave a half-deleted checkout; if they don't stop, the worktree stays and says why.
+
 ## 0.22.0 · 2026-11-25
 
 - **Needs me on the Dock icon.** Herdr's Dock icon shows how many things need you in Reviews, with Herdr in front or not, and clears at zero.
