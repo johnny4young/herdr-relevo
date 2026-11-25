@@ -214,7 +214,7 @@ test('the status item has six states, each drawn and each said', () => {
 
   // The block reports its own width.
   const cx = fakeCx();
-  find(tree, 'account-status').handlers.on_size_change({ width: 151, height: 28 }, cx);
+  find(tree, 'account-status').handlers.on_size_change({ width: 300, height: 28 }, cx);
   assert.equal(cx.notified, 1);
   assert.equal(text(item(view.render(), mine)), `${mine.letter} ${mine.label} 42m`);
 });
@@ -280,4 +280,40 @@ test('the status item is redrawn while its reading stays the same, so a stale ag
   cx.notified = 0;
   cx.fire(60000);
   assert.equal(cx.notified, 1);
+});
+
+test('every account fits the status block, and one with two quotas shows a ring for each', () => {
+  const now = Date.now() / 1000, [mine, other] = ACCOUNTS;
+  const full = (pct) => ({ updated: now, h5: { pct, resets: now + 3600 }, d7: null });
+  const quota = {
+    [mine.key]: { ...full(93), updated: now - 3 * 3600 }, [other.key]: full(81),
+    [CODEX.key]: { ...full(40), groups: [{ name: 'Gemini Models', label: 'Gemini', ...full(30), d7: { pct: 91, resets: now + 86400 } },
+      { name: 'Claude and GPT models', label: 'Claude/GPT', ...full(40) }] },
+  };
+  const leaf = (width) => {
+    const view = new AccountStatus();
+    view.detail = false;
+    view.width = width;
+    view.quota = quota;
+    return { view, tree: view.render() };
+  };
+  const total = (view, look) => [...ACCOUNTS, CODEX].reduce((sum, a) => sum + view.itemWidth(a, look) + 3, 0);
+  for (const width of [140, 360, 600]) {
+    const { view, tree } = leaf(width), look = view.look(width, view.focusedAccount());
+    assert.ok(look.narrow || total(view, look) <= width, `fits ${width}`);
+    for (const a of [...ACCOUNTS, CODEX]) assert.ok(find(tree, `account-status-${a.key}`), `${a.key} at ${width}`);
+  }
+  // A short block drops the resets and numbers before any account.
+  assert.deepEqual([140, 360, 600].map((w) => { const { view } = leaf(w), l = view.look(w, view.focusedAccount()); return [l.narrow, l.roomy]; }),
+    [[true, false], [false, false], [false, true]]);
+  const { tree } = leaf(600);
+  assert.ok(find(tree, `account-status-ring-${CODEX.key}-0`) && find(tree, `account-status-ring-${CODEX.key}-1`));
+  assert.match(find(tree, `account-status-${CODEX.key}`).accessibleLabel, /Gemini 7d 91% used.*Claude\/GPT 5h 40% used/);
+  // The popup lists each group's windows.
+  const popup = new AccountStatus();
+  popup.detail = true;
+  popup.quota = quota;
+  const detail = popup.render();
+  assert.match(text(find(detail, `account-status-${CODEX.key}-0-d7`)), /Gemini Weekly.*91%/);
+  assert.match(text(find(detail, `account-status-${CODEX.key}-1-h5`)), /Claude\/GPT 5h.*40%/);
 });

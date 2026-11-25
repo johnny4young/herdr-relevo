@@ -11,8 +11,9 @@ import { duration, resetClock, resetText, windowLabel } from './lib/time.js';
 import { HANDOFF_AT, QUOTA_WARN, accountNote, quotaRingDots, quotaStatusText, quotaSummary, readAge } from './lib/account-status.js';
 
 const ACCOUNTS_ALL = agentAccounts();
-// At or under NARROW the status item is chips and rings; a reset time needs RESET_FITS.
-const NARROW = 150, RESET_FITS = 360, BAND = 150;
+const BAND = 150;
+// Rough widths of a status item's parts, to pick the fullest look in which every account fits the block.
+const PART = { pad: 8, gap: 5, chip: 14, ring: 18, pct: 30, reset: 100, age: 36, char: 7, name: 80, between: 3 };
 
 export function openAccountStatus() {
   openOverlay({ mod: 'relevo', kind: 'popup', width: 420, props: { role: 'account-status', detail: true } });
@@ -48,6 +49,29 @@ export class AccountStatus extends Sidebar {
     return quotaSummary(this.quota?.[account.key]);
   }
 
+  // An account whose models draw on separate quotas (Antigravity: Gemini, Claude/GPT) has a reading for each.
+  groups(account) {
+    const quota = this.quota?.[account.key];
+    return quota?.groups?.length > 1 ? quota.groups.map((g) => ({ g, s: quotaSummary({ ...quota, h5: g.h5, d7: g.d7 }) })) : null;
+  }
+
+  // What one item takes in a look: `narrow` is chips and rings, `roomy` adds the reset time.
+  itemWidth(account, { current, narrow, roomy }) {
+    const quota = this.quota?.[account.key], s = this.summary(account), rings = this.groups(account)?.length ?? 1;
+    const parts = [PART.chip, ...Array(rings).fill(PART.ring),
+      !narrow && account.key === current.key ? Math.min(PART.name, account.label.length * PART.char) : 0,
+      !narrow && s.warn ? PART.pct : 0, roomy && s.warn && resetClock(s.window) ? PART.reset : 0,
+      !narrow && s.stale && Number.isFinite(quota?.updated) ? PART.age : 0].filter(Boolean);
+    return PART.pad + parts.reduce((sum, w) => sum + w, 0) + PART.gap * (parts.length - 1);
+  }
+
+  // The fullest look in which every account fits the block's width.
+  look(width, current) {
+    const fits = (look) => ACCOUNTS_ALL.reduce((sum, account) => sum + this.itemWidth(account, look) + PART.between, 0) <= width;
+    return [{ narrow: false, roomy: true }, { narrow: false, roomy: false }].map((look) => ({ current, ...look })).find(fits)
+      ?? { current, narrow: true, roomy: false };
+  }
+
   freshnessText(account, quota, s) {
     if (!s.known) return `${account.label} · usage unavailable`;
     return `${account.label} · ${quotaStatusText(quota, s.freshness)}${s.stale ? ` · ${readAge(quota.updated)}` : ''}`;
@@ -69,10 +93,12 @@ export class AccountStatus extends Sidebar {
 
   // One account in the status bar. Every state it draws is also said in its label.
   statusItem(t, account, { current, narrow, roomy }) {
-    const quota = this.quota?.[account.key], s = this.summary(account), { known, stale, warn, pct } = s;
+    const quota = this.quota?.[account.key], s = this.summary(account), { known, stale, warn, pct } = s, groups = this.groups(account);
     const isFocused = account.key === current.key, reset = resetClock(s.window), color = this.level(t, s);
     // `detail` already carries the reset and the age of the reading, so the states only name themselves.
-    const detail = this.freshnessText(account, quota, s);
+    const detail = groups
+      ? `${account.label} · ${groups.map(({ g, s: gs }) => `${g.label} ${gs.known ? quotaStatusText({ ...quota, h5: g.h5, d7: g.d7 }, gs.freshness) : 'usage unavailable'}`).join(' · ')}`
+      : this.freshnessText(account, quota, s);
     const says = [
       isFocused ? 'Focused repository' : null,
       !known ? 'Usage unknown' : null,
@@ -84,7 +110,7 @@ export class AccountStatus extends Sidebar {
     return button(t, id,
       [chip(div, account, 14),
         isFocused && !narrow ? div().id(`${id}-name`).max_w(80).min_w(0).truncate().text_size(11).text_color(t.foreground).child(account.label) : null,
-        this.ring(t, s, `account-status-ring-${account.key}`),
+        ...(groups ? groups.map(({ s: gs }, i) => this.ring(t, gs, `account-status-ring-${account.key}-${i}`)) : [this.ring(t, s, `account-status-ring-${account.key}`)]),
         warn && !narrow ? div().id(`${id}-pct`).text_size(11).font_semibold().text_color(color).child(`${Math.round(pct)}%`) : null,
         warn && roomy && reset ? div().id(`${id}-reset`).flex_none().text_size(11).text_color(color).child(`resets ${reset}`) : null,
         stale && !narrow && Number.isFinite(quota.updated)
@@ -94,7 +120,7 @@ export class AccountStatus extends Sidebar {
   }
 
   statusLeaf(t) {
-    const width = this.width ?? RESET_FITS, state = { current: this.focusedAccount(), narrow: width <= NARROW, roomy: width >= RESET_FITS };
+    const state = this.look(this.width ?? Infinity, this.focusedAccount());
     // The status row's line runs on under the accounts, as over the workspace status beside them.
     return h_flex().id('account-status').w_full().h_full().px(3).gap(3).items_center().bg(t.chrome).border_t(1).border_color(t.border)
       .on_size_change((size, cx) => {
@@ -131,13 +157,13 @@ export class AccountStatus extends Sidebar {
     cx.stop_propagation();
   }
 
-  usageWindow(t, account, name, w, s) {
-    const label = name === 'h5' ? '5h' : windowLabel(w, 'Weekly'), known = Number.isFinite(w?.pct);
+  usageWindow(t, account, name, w, s, group = null) {
+    const label = `${group ? `${group.label} ` : ''}${name === 'h5' ? '5h' : windowLabel(w, 'Weekly')}`, known = Number.isFinite(w?.pct);
     const hot = known && w.pct >= QUOTA_WARN, reset = resetClock(w), faded = s.stale && !hot;
     const value = known ? `${Math.round(w.pct)}%${reset ? ` · resets ${reset}` : ''}` : 'no data';
-    return h_flex().id(`account-status-${account.key}-${name}`).h(18).gap(8).items_center()
-      .tooltip(known ? `${label} window · ${s.stale ? 'stale reading' : 'current reading'} · ${resetText(w)}` : `${label} window unavailable`)
-      .child(div().w(52).flex_none().text_size(13).text_color(t.muted).child(label))
+    return h_flex().id(`account-status-${account.key}-${group ? `${group.i}-` : ''}${name}`).h(18).gap(8).items_center()
+      .tooltip(known ? `${group ? `${group.name} · ` : ''}${label} window · ${s.stale ? 'stale reading' : 'current reading'} · ${resetText(w)}` : `${label} window unavailable`)
+      .child(div().w(group ? 110 : 52).flex_none().truncate().text_size(13).text_color(t.muted).child(label))
       .when(known, (el) => el.child(band(t, BAND, w.pct, w.pace, { tone: faded ? t.dim : quotaTone(t, w.pct) })))
       .child(div().flex_1().min_w(0).truncate().text_right().text_size(13)
         .text_color(hot ? quotaTone(t, w.pct) : faded || !known ? t.dim : t.muted).when(hot, (el) => el.font_semibold()).child(value));
@@ -156,9 +182,13 @@ export class AccountStatus extends Sidebar {
           (cx) => action.run(cx), { size: 'sm', tip: action.tip })))
       .when(!s.known, (el) => el.child(div().id(`account-status-${account.key}-unknown`).h(18).text_size(13).text_color(t.dim)
         .child('Usage unavailable · no reading yet')))
-      .when(s.known, (el) => el
+      .when(s.known && !this.groups(account), (el) => el
         .child(this.usageWindow(t, account, 'h5', quota?.h5, s))
-        .child(this.usageWindow(t, account, 'd7', quota?.d7, s)));
+        .child(this.usageWindow(t, account, 'd7', quota?.d7, s)))
+      .when(s.known && Boolean(this.groups(account)), (el) => el.children(this.groups(account).flatMap(({ g, s: gs }, i) => [
+        this.usageWindow(t, account, 'h5', g.h5, gs, { ...g, i }),
+        this.usageWindow(t, account, 'd7', g.d7, gs, { ...g, i }),
+      ])));
   }
 
   detailView(t) {
