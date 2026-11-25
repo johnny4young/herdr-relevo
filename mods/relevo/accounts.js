@@ -84,11 +84,15 @@ export async function loadClaudeQuotas() {
       out[p.key] = null;
       continue;
     }
-    const now = Date.now() / 1000;
+    const now = Date.now() / 1000, groups = sources.find((s) => s.rate_limits?.groups)?.rate_limits.groups;
     out[p.key] = fromClaude({
       updated: sources[0].updated,
       rate_limits: { five_hour: currentWindow(sources, "five_hour", now), seven_day: currentWindow(sources, "seven_day", now) },
     });
+    // A CLI whose models draw on separate quotas (Antigravity: Gemini, Claude/GPT) shows each one.
+    if (groups?.length > 1) {
+      out[p.key].groups = groups.map((g) => ({ name: g.name, label: g.label, ...fromClaude({ updated: sources[0].updated, rate_limits: g }) }));
+    }
   }
   return out;
 }

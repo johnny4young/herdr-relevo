@@ -94,3 +94,16 @@ test("a plan cut by the screen shows whole; other tools and other dialogs get no
     assert.equal(noteAsk([{ at: 1000, terminal: "t1", tool, input: { command: WHOLE, file_path: "/a" } }], TAIL, { since: 1000 }), null, tool);
   }
 });
+
+test("Antigravity: its trust question is not a login, and its command request reads as one to run", () => {
+  const trust = "Accessing workspace:\n\n/w/app\n\nDo you trust the contents of this project?\n\n> Yes, I trust this folder\n  No, exit\n\n  ↑/↓ Navigate · enter Confirm";
+  const t = readPrompt(trust);
+  assert.equal(t.trust, true);
+  assert.equal(t.options.length, 0);
+  assert.equal(reasonOf(t, { kind: "auth", msg: "" }), "Trust this folder?");
+  const ask = "Command\n────────\n\nRequesting permission for:\n   rm a.txt\n\nRun this command?\n> 1. Yes, run command\n  2. Yes, and always allow in this conversation for commands that start with 'rm a.txt'\n  3. Yes, and always allow for commands that start with 'rm a.txt' (Persist to settings.json)\n  4. No, cancel\n\n  ↑/↓ Navigate · tab Amend · ctrl+g edit/expand command\nesc to cancel      accept-edits · Gemini 3.8 Flash · medium";
+  const p = readPrompt(ask);
+  assert.equal(p.options.length, 4);
+  assert.equal(p.cursor, 1);
+  assert.equal(reasonOf(p, { kind: "permission", msg: "Approve Bash: rm a.txt" }), "Run: rm a.txt");
+});

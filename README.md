@@ -162,9 +162,9 @@ finds that is not in `config.js` shows in Now under **AGENT CLIS** with **Activa
 One in use whose Herdr hook is outdated or missing offers **Update hook** (`herdr integration install`). An activated
 CLI gets a chip, a tab from the accounts list and handoffs, and writes or reviews in Runs, Deep review and second
 opinions. Antigravity runs in auto mode, which approves edits and safe commands and asks for the rest. Its quota is agy's
-own usage report, every five minutes, for the model group of the model in its settings (Gemini, or Claude and GPT); while
-one of its agents reports "quota reached", the account counts as full until the reset time it gives. Settings turns each
-one on or off.
+own usage report, every five minutes: the sidebar shows a row for each model group (Gemini, Claude/GPT), and the group
+of the model in its settings decides when the account is full. While one of its agents reports "quota reached", the
+account counts as full until the reset time it gives. Settings turns each one on or off.
 
 ### Land a PR, and review only what changed
 
