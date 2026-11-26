@@ -1,6 +1,6 @@
 // Pure parser and search filter for archived Runs tasks stored in relevo-workflow/archive/*.jsonl.
 
-export function parseArchiveLines(raw, limit = 200) {
+export function parseArchiveLines(raw, limit = Infinity) {
   const byId = new Map();
   for (const line of String(raw ?? "").split("\n")) {
     const trimmed = line.trim();

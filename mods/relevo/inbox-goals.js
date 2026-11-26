@@ -302,6 +302,7 @@ export class GoalViews {
       } catch (e) { this.runCloseError = `Could not ${remove ? "delete" : "archive"}: ${e.message ?? e}`; }
       this.archivingRuns = false;
       this.loadGoals(cx);
+      if (this.archivedRuns) this.loadArchive(cx, true);
       cx.notify();
     });
   }

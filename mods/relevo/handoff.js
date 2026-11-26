@@ -5,6 +5,7 @@ import { resetClock } from "./lib/time.js";
 import { ACCOUNTS, accountOf, providerFor, agentAccounts, launchArgv, loadClaudeQuotas, chip, full } from "./accounts.js";
 import { band, digit, grabFocus, held, keycap, spinner } from "./ui.js";
 import { marginOf } from "./lib/margin.js";
+import { bestAlternate } from "./lib/quota-routing.js";
 import { tightestWindow } from "./lib/account-status.js";
 import { GIT_READ } from "./lib/git.js";
 import { terminalAccount, handoffPlan, resumePrompt, notePrompt } from "./lib/handoff.js";
@@ -198,10 +199,11 @@ export class Handoff {
       return;
     }
     if (e.key === "enter" && !held(e)) {
-      const first = this.rows().find((r) => r.n === 1);
-      if (!first) return;
+      const open = this.rows().filter((r) => r.n);
+      const best = bestAlternate(props()?.from, open.map((r) => r.acct.key), this.quotas)?.key ?? open[0]?.acct.key;
+      if (!best) return;
       cx.stop_propagation();
-      this.go(first.acct.key, cx);
+      this.go(best, cx);
       return;
     }
     const n = held(e) ? null : digit(e), row = n && this.rows().find((r) => r.n === n);

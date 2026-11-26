@@ -9,8 +9,11 @@ export function summarizeDiagnostics({ git, ghAuth, hc, hook, state, quotas, acc
     status: git?.code === 0 ? "ok" : "bad",
     detail: git?.code === 0 ? (gitVer ? `git ${gitVer}` : "available") : "git not found on PATH",
   });
-  const ghOk = ghAuth?.code === 0;
-  const ghUser = /Logged in to [^\s]+ account ([^\s(]+)/i.exec(`${ghAuth?.stdout ?? ""}\n${ghAuth?.stderr ?? ""}`)?.[1];
+  // gh exits 1 when any stored account is broken, even if the active one works.
+  const ghText = `${ghAuth?.stdout ?? ""}\n${ghAuth?.stderr ?? ""}`;
+  const ghActive = /Logged in to \S+ account ([^\s(]+)[^\n]*\n\s*- Active account: true/i.exec(ghText)?.[1];
+  const ghOk = ghAuth?.code === 0 || Boolean(ghActive);
+  const ghUser = ghActive ?? /Logged in to \S+ account ([^\s(]+)/i.exec(ghText)?.[1];
   rows.push({
     id: "gh",
     label: "GitHub CLI",

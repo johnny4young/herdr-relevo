@@ -6,6 +6,7 @@ import * as config from "./config.js";
 import { WRITE_SCRIPT, aboutLine, renderConfig, validate, slug, parseList, isHex } from "./lib/settings.js";
 import { agentAccounts, chip, loadClaudeQuotas } from "./accounts.js";
 import { summarizeDiagnostics } from "./lib/diagnostics.js";
+import { readRunState } from "./runtime-cli.js";
 import { DEFAULT_DEEP_REVIEW, MAX_REVIEWERS, effortsFor } from "./lib/deep-setup.js";
 import { PROVIDERS } from "./lib/providers.js";
 import { replies } from "./replies.js";
@@ -80,7 +81,7 @@ export class Settings {
           exec("gh", ["auth", "status"], { timeout: 5000 }).catch(() => ({ code: 1 })),
           exec("hc", ["--version"], { timeout: 4000 }).catch(() => ({ code: 1 })),
           exec("bash", [hookPath, "--check"], { timeout: 5000 }).catch(() => null),
-          readTextFile(`${appHome()}/relevo-workflow/state.json`).catch(() => null),
+          readRunState().catch(() => null),
           loadClaudeQuotas().catch(() => ({})),
         ]);
         if (this.closed) return;

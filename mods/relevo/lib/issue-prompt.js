@@ -15,7 +15,14 @@ export function parseIssueRef(raw) {
   return null;
 }
 
-const safeText = (s) => String(s ?? "").replace(/<\/?untrusted_github_issue>/gi, "");
+const TAG = /<\s*\/?\s*untrusted_github_issue[^>]*>/gi;
+
+// Strip until stable: removing one tag must not splice its neighbours into a new one.
+const safeText = (s) => {
+  let out = String(s ?? ""), prev;
+  do { prev = out; out = out.replace(TAG, ""); } while (out !== prev);
+  return out;
+};
 
 export function issuePrompt(issue, max = TEXT_MAX) {
   const labels = (issue.labels ?? []).map((l) => (typeof l === "string" ? l : l?.name)).filter(Boolean);

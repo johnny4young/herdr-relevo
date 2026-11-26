@@ -518,7 +518,7 @@ export class ReviewDiff {
   }
 
   ready(agent = this.target()) {
-    return Boolean((agent || this.pr) && this.comments.length && this.editing === null && !this.sending);
+    return Boolean((agent || this.pr) && this.comments.length && this.editing === null && !this.sending && !this.posting);
   }
 
   send(cx) {
@@ -567,21 +567,22 @@ export class ReviewDiff {
       return cx.notify();
     }
     this.posting = true;
+    const posted = new Set(this.comments);
     cx.notify();
     cx.spawn(async (cx) => {
       try {
         const post = (review) => exec("sh", ["-c", 'printf "%s" "$1" | gh api -X POST "$2" --input -', "sh",
           JSON.stringify(review), `repos/${owner}/${repo}/pulls/${this.pr.number}/reviews`]);
-        let r = await post(githubDraftReview(this.comments, true));
-        if (r.code !== 0 && /line|position|diff|422/i.test(r.stderr ?? "")) r = await post(githubDraftReview(this.comments, false));
+        let r = await post(githubDraftReview(this.comments, true)), inline = true;
+        if (r.code !== 0 && /line|position|diff|422/i.test(r.stderr ?? "")) { inline = false; r = await post(githubDraftReview(this.comments, false)); }
         if (r.code !== 0) {
           this.note = (r.stderr || "gh failed").trim().split("\n")[0];
         } else {
           let url = this.pr.url;
           try { url = JSON.parse(r.stdout || "{}").html_url ?? url; } catch { /* keep PR url */ }
           await this.markSeen(cx);
-          this.setComments([]);
-          this.note = "Draft review saved on GitHub";
+          this.setComments(this.comments.filter((c) => !posted.has(c)));
+          this.note = inline ? "Draft review saved on GitHub" : "Draft review saved on GitHub · comments are in the review body, not inline";
           openUrl(url);
         }
       } finally {
