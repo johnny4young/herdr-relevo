@@ -79,11 +79,10 @@ export class Workflow extends WorkflowDetail {
     this.preferenceEditId = null;
     this.initDrafts();
     this.load(cx);
-    cx.timer.every(3000, paced((cx) => this.load(cx)));
+    cx.timer.every(3000, paced((cx) => { if (!this.closed) this.load(cx); }));
     this.loadQuotas(cx);
-    cx.timer.every(60000, (cx) => this.loadQuotas(cx));
-    cx.timer.every(1000, (cx) => { this.launchTick(cx); if (this.draftWaiting) this.persistDraft({ now: true }); });
-    cx.timer.every(100, (cx) => { if (!this.focusSoon || this.closed) return; this.focusSoon = false; this.h.focus(); cx.notify(); });
+    cx.timer.every(60000, paced((cx) => { if (!this.closed) this.loadQuotas(cx); }, 2));
+    cx.timer.every(1000, paced((cx) => { if (this.closed) return; this.launchTick(cx); if (this.draftWaiting) this.persistDraft({ now: true }); }));
     cx.timer.after(30, (cx) => {
       if (this.closed) return;
       this.h.focus();
@@ -106,13 +105,17 @@ export class Workflow extends WorkflowDetail {
   }
 
   // Opening a run that already has a pane focuses it and asks it to show one task.
-  takeRequest() {
+  takeRequest(cx) {
     const request = shared(RUN_REQUEST);
     if (request?.goalId !== this.goalId || !(request.at > this.lastRequest)) return;
     this.lastRequest = request.at;
     this.applyRequest(request);
-    // Called from render, where focus can't move: the next tick focuses.
-    this.focusSoon = true;
+    // Called from render, where focus can't move: schedule a single one-shot tick instead of a 10 Hz timer.
+    cx?.timer?.after(30, (c) => {
+      if (this.closed) return;
+      this.h.focus();
+      c.notify();
+    });
   }
 
   // What the panel asked for: a task on one of its tabs, a follow-up form, the saved setups, or a new task from one.
@@ -590,9 +593,9 @@ export class Workflow extends WorkflowDetail {
       .child(row(t, "Goal criteria and GitHub reviews remain available in Inbox."));
   }
 
-  render() {
+  render(cx) {
     this.persistDraft();
-    this.takeRequest();
+    this.takeRequest(cx);
     const t = theme();
     const task = this.tasks?.find((item) => item.id === this.selected);
     const panel = this.tab === "Tools" ? this.toolsPanel(t, task) : this.tab === "Plan" ? this.planPanel(t) : this.tab === "Preferences" ? this.preferences(t)

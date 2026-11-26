@@ -77,19 +77,27 @@ export class DesktopWatch {
   }
 
   async tick() {
-    const now = await this.sessions();
-    if (!now) return;
-    for (const s of desktopChanges(this.before, now)) {
-      if (!inFocus(contextOfPath(s.cwd))) continue;
-      notify({
-        title: s.state === "blocked" ? `${s.project} needs you in Claude Desktop` : `${s.project} finished in Claude Desktop`,
-        body: s.needs || s.title,
-        level: s.state === "blocked" ? "warning" : "success",
-        action: { name: "relevo.panel-reviews" },
-      });
+    if (this.busy && Date.now() - this.busySince < 60000) return;
+    const gen = this.tickGen = (this.tickGen ?? 0) + 1;
+    this.busy = true;
+    this.busySince = Date.now();
+    try {
+      const now = await this.sessions();
+      if (gen !== this.tickGen || !now) return;
+      for (const s of desktopChanges(this.before, now)) {
+        if (!inFocus(contextOfPath(s.cwd))) continue;
+        notify({
+          title: s.state === "blocked" ? `${s.project} needs you in Claude Desktop` : `${s.project} finished in Claude Desktop`,
+          body: s.needs || s.title,
+          level: s.state === "blocked" ? "warning" : "success",
+          action: { name: "relevo.panel-reviews" },
+        });
+      }
+      this.before = now;
+      this.turns?.desktop(now);
+      if (JSON.stringify(shared(DESKTOP) ?? []) !== JSON.stringify(now)) setShared(DESKTOP, now);
+    } finally {
+      if (gen === this.tickGen) this.busy = false;
     }
-    this.before = now;
-    this.turns?.desktop(now);
-    if (JSON.stringify(shared(DESKTOP) ?? []) !== JSON.stringify(now)) setShared(DESKTOP, now);
   }
 }

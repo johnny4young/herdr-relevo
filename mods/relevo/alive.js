@@ -4,6 +4,7 @@ import { DYNAMIC_PORT, outsideServers, parseCwds, parseListening, parseProcs, po
 
 export const ALIVE = "relevo.alive";
 const KEEP = ["address", "title", "state", "live", "background", "pane", "branch", "cwd", "spaceId", "canRestart", "canStop", "ended", "at"];
+const STUCK_MS = 60000;
 
 export class AliveWatch {
   async read() {
@@ -29,8 +30,15 @@ export class AliveWatch {
 
   // While the window is in front; a background window keeps what it showed.
   async tick() {
-    if (!window().active) return;
-    const now = await this.read();
-    if (now && JSON.stringify(shared(ALIVE) ?? null) !== JSON.stringify(now)) setShared(ALIVE, now);
+    if (!window().active || (this.busy && Date.now() - this.busySince < STUCK_MS)) return;
+    const gen = this.tickGen = (this.tickGen ?? 0) + 1;
+    this.busy = true;
+    this.busySince = Date.now();
+    try {
+      const now = await this.read();
+      if (gen === this.tickGen && now && JSON.stringify(shared(ALIVE) ?? null) !== JSON.stringify(now)) setShared(ALIVE, now);
+    } finally {
+      if (gen === this.tickGen) this.busy = false;
+    }
   }
 }

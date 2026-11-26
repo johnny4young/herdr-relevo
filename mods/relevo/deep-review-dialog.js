@@ -37,7 +37,7 @@ export class DeepReviewDialog {
     cx.spawn(async (cx) => { this.report = await readReport().catch(() => null); cx.notify(); });
   }
 
-  close() { this.gone = true; for (const r of this.rows) r.model.release(); }
+  close() { this.gone = true; this.h?.release(); for (const r of this.rows) r.model.release(); }
 
   row(r = { account: "repo", model: "sonnet", effort: "high" }) {
     return { account: r.account, effort: r.effort ?? "high", model: InputState.new({ value: r.model ?? "", placeholder: "default" }) };

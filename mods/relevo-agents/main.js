@@ -229,16 +229,20 @@ function prTag(t, a, pr) {
     .child(div().text_color(t.ansi1).child(`−${pr.del}`));
 }
 
+function storedJson(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key) ?? "null") ?? fallback; } catch { return fallback; }
+}
+
 export default class Agents extends View {
   init(_props, cx) {
     if (props()?.sortMenu) return;
     this.folded = new Set();
     // Each agent's last state and when it changed (ms), kept across restarts.
-    this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}");
-    this.pendingPins = JSON.parse(localStorage.getItem("pins") ?? "[]");
+    this.changed = storedJson("changed", {});
+    this.pendingPins = storedJson("pins", []);
     if (!this.pendingPins.length) localStorage.removeItem("pins");
     this.migratingPins = new Set();
-    cx.timer.every(30000, (cx) => cx.notify());
+    cx.timer.every(30000, (cx) => { if (window?.()?.visible !== false) cx.notify(); });
   }
 
   // Stamps agents whose state changed. Done and idle count as one: looking at a
@@ -428,14 +432,16 @@ export default class Agents extends View {
     run("terminal.peek", { terminal: addr });
   }
 
-  // Live sub-agents of `addr`, depth first, each with the tree lines in front of it.
-  tree(all, addr, lead = []) {
-    const kids = this.kids?.get(addr) ?? all.filter((k) => k.parent === addr && k.state === "live");
+  // Live sub-agents of `addr`, depth first, each with the tree lines in front of it; `seen` guards cycles.
+  tree(all, addr, lead = [], seen = new Set([addr])) {
+    const kids = (this.kids?.get(addr) ?? all.filter((k) => k.parent === addr && k.state === "live")).filter((k) => !seen.has(k.address));
     return kids.flatMap((k, i) => {
       const last = i === kids.length - 1;
+      const next = new Set(seen);
+      next.add(k.address);
       return [
         { t: k, lines: [...lead, last ? "└" : "├"] },
-        ...this.tree(all, k.address, [...lead, last ? "" : "│"]),
+        ...this.tree(all, k.address, [...lead, last ? "" : "│"], next),
       ];
     });
   }

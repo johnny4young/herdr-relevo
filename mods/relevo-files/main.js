@@ -2,11 +2,30 @@
 // Derived from the `files` mod that ships with Herdr (Apache-2.0).
 import { View, div, svg, uniform_list } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, props, shared, window } from "herdr";
+import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, props, shared, window, layout } from "herdr";
 import { FileEditor } from "./editor.js";
 import { FileMenu, NameDialog, openMenu } from "./actions.js";
 import { FileView } from "./view.js";
 import { moved, isUnder, parentOf } from "./lib/paths.js";
+
+function findNode(node, id) {
+  if (!node || typeof node !== "object") return null;
+  if (node.id === id) return node;
+  for (const child of node.children ?? []) {
+    const hit = findNode(child, id);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// When the layout names the right panel, watch the repo only while Files is actually open.
+function filesVisible() {
+  const tree = layout?.();
+  if (!tree) return true;
+  const panel = findNode(tree, "panel"), body = findNode(tree, "panel-body");
+  if (!panel || !body) return true;
+  return !panel.hidden && body.active === "files";
+}
 
 function location() {
   const space = spaces().find(s => s.active), f = focused();
@@ -37,18 +56,42 @@ export class Files {
   // A new folder in focus is read at once. A local one that's watched is read again when the watch says it
   // changed; a remote one, or one the watch couldn't take, every 10 s while the window is in front.
   tick(cx) {
+    if (!filesVisible()) {
+      this.stopWatch();
+      return;
+    }
     if (key() !== this.context?.key) return this.refresh(cx);
+    if (!this.on && this.root && !this.watched) this.watch(this.root, cx);
     if ((this.on || !this.watched) && window()?.active !== false && Date.now() - (this.readAt ?? 0) >= 10000) this.refresh(cx);
   }
 
+  stopWatch() {
+    this.watchHandle?.cancel?.();
+    this.watchHandle = null;
+    this.watched = null;
+  }
+
   watch(root, cx) {
-    if (this.on || this.watched === root) return;
+    if (this.on || this.watched === root || !filesVisible()) return;
+    this.stopWatch();
     this.watched = root;
     const context = this.context;
     cx.spawn(async cx => {
       // A write is many events; reading after the burst saves a git status per event.
-      try { while (this.context === context) { await watchFolder(root); await cx.sleep(1500); if (this.current(context)) this.refresh(cx); } }
-      catch { if (this.context === context) this.watched = null; }
+      try {
+        while (this.context === context && this.watched === root && filesVisible()) {
+          const pending = this.watchHandle = watchFolder(root);
+          await pending;
+          if (this.watchHandle === pending) this.watchHandle = null;
+          if (this.context !== context || this.watched !== root || !filesVisible()) break;
+          await cx.sleep(1500);
+          if (this.current(context) && filesVisible()) this.refresh(cx);
+        }
+      } catch {
+        if (this.context === context && this.watched === root) this.watched = null;
+      } finally {
+        if (this.watched === root) this.watched = null;
+      }
     });
   }
 
@@ -69,10 +112,14 @@ export class Files {
     const { cwd, on } = location(), next = key();
     if (next !== this.context?.key && this.editor?.dirty) return;
     if (next !== this.context?.key) {
-      if (this.context) this.saved.set(this.context.key, { folders: this.folders, file: this.file });
+      this.stopWatch();
+      if (this.context) {
+        this.saved.set(this.context.key, { folders: this.folders, file: this.file });
+        if (this.saved.size > 100) this.saved.delete(this.saved.keys().next().value);
+      }
       const saved = this.saved.get(next);
       this.context = { key: next, cwd, on }; this.root = cwd; this.on = on; this.entries = new Map(); this.folders = new Set(saved?.folders);
-      this.pending = new Set(); this.marks = {}; this.show(null); this.watched = null; this.error = null; this.limited = false;
+      this.pending = new Set(); this.marks = {}; this.show(null); this.error = null; this.limited = false;
       this.loading = false;
       if (saved?.file) this.show(saved.file, cx);
     }
@@ -209,6 +256,7 @@ export class Files {
   }
 
   close() {
+    this.stopWatch();
     this.editor?.close();
   }
 

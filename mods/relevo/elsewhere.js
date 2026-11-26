@@ -30,7 +30,15 @@ export class ElsewhereWatch {
   }
 
   async tick() {
-    const now = await this.sessions();
-    if (now && JSON.stringify(shared(ELSEWHERE) ?? []) !== JSON.stringify(now)) setShared(ELSEWHERE, now);
+    if (this.busy && Date.now() - this.busySince < 60000) return;
+    const gen = this.tickGen = (this.tickGen ?? 0) + 1;
+    this.busy = true;
+    this.busySince = Date.now();
+    try {
+      const now = await this.sessions();
+      if (gen === this.tickGen && now && JSON.stringify(shared(ELSEWHERE) ?? []) !== JSON.stringify(now)) setShared(ELSEWHERE, now);
+    } finally {
+      if (gen === this.tickGen) this.busy = false;
+    }
   }
 }
