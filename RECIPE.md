@@ -13,12 +13,8 @@ task to another account.
 
 ## What you see
 
-- **Sidebar** (`chrome`, 268px, collapses to a 44px rail): the Herdr brand row (46px); **Accounts** (158px): a
-  header `ACCOUNTS` with an `All | Personal | Work` focus picker, then one 30px row per account and Codex: a
-  17px rounded chip in the account's colors with its letter, the label (92px with its chip), and two meters (5h, 7d) with the
-  percentage, a 4px bar (accent under 50%, `ansi3` from 50%, `blocked` from 80%) and a pace tick where the
-  window's time is. Below 160px wide it becomes a rail of chips, each with one 3px bar for the fuller window.
-  Then the spaces and the agents list (equal weight), and Herdr's footer (69px).
+- **Sidebar** (`chrome`, 268px, collapses to a 44px rail): the Herdr brand row (46px), Spaces and Agents (equal weight), and Herdr's footer.
+- **Status bar** (`account-status`, bottom right): compact account chips and quota rings for each active account (Claude, Codex, Antigravity), plus quick icon buttons for **Tokens & Usage** (`⌥⌘U`) and **Settings**. Clicking any account opens the **Account usage** popup with full 5h/weekly bands, focus context picker, **Usage**, **Time**, **Settings** and **Refresh**.
 - **Spaces** (relevo-spaces): a header `Spaces` with the count, New folder and New space; then one 26px folder header per
   folder (chevron, folder icon in its color, its name in capitals, how many spaces, `+` for a space in its folder; a click
   folds it, a right-click offers New space here, Edit folder… and Delete folder) over one 30px row per space: an 18px
@@ -34,17 +30,14 @@ task to another account.
   Copy path, Copy relative path). A preview, and a file opened from the finder, show **Edit**; editing adds a
   7px unsaved dot and **Save** (`⌘S`), and a change on disk shows a bar with **Reload** and **Keep mine**.
 - **Reviews**: a rounded (10px) list with two underlined views, **Now** and **Maintenance**, each with its count,
-  then ?, ↻ and the focus button. Now opens with a legend, `● Needs me n · In flight n · Ready n`, and how long ago PRs
-  were read; its rows are grouped by whose turn it is: NEEDS ME (agents that ask, failed landings, run results and
-  decisions, review requests, your PRs with failing or cancelled CI, requested changes, threads, a conflict or a
-  base to catch up with, uncommitted agent work), IN
+  then `?` and `↻`. Now opens with a legend, `● Needs me n · In flight n · Ready n`, and how long ago PRs
+  were read; its rows are grouped by whose turn it is: NEEDS ME (two-line rows so reasons never clip in 380 px), IN
   FLIGHT (CI running, an agent on the PR, a landing in progress) and READY (only the merge left, Desktop sessions
-  ready for review), then "N waiting on others" folded (PRs you already ran a skill on, drafts). The Reviews badge is
-  the Needs me count. Maintenance holds what can wait: SAFE TO REMOVE and NEEDS A LOOK (worktrees), OLD (PRs past 45 days, stale branches), one fold with
-  everything marked addressed or landed (each with **Undo**) and agent time today. `Tab` switches between them (`m` goes to Maintenance), and Reviews always opens on Now. Keys: `j`/`k` or the arrows move, `g g` goes to the top and `G` to the bottom,
-  Enter runs the row's action, `1`–`9` answer an agent, and on the selected row `r` reviews, `o` opens it (the PR on
-  GitHub, the agent, Desktop), `a` marks it addressed (`u` takes the last one back) and `l` lands a ready PR
-  (twice); the selected row shows each key beside its button. `/` filters Now by the rows' words, Esc clears it.
+  ready for review), then "N waiting on others" folded. The Reviews badge is the Needs me count, and the Runs tab carries its own badge when runs need attention (or a working dot while in flight). Maintenance holds what can wait: SAFE TO REMOVE and NEEDS A LOOK (worktrees), OLD (PRs past 45 days, stale branches), snoozed items (`N snoozed` with **Wake**), one fold with
+  everything marked addressed or landed (each with **Undo**) and agent time today. `Tab` or `m` toggles between Now and Maintenance, `n` opens New run, and Reviews always opens on Now. Keys: `j`/`k` or the arrows move, `g g` goes to the top and `G` to the bottom,
+  Enter runs the row's primary action, `1`–`9` answer an agent, and on the selected row `r` reviews, `o` opens it (the PR on
+  GitHub, the agent, Desktop), `a` marks it addressed, `h` snoozes (`30m`, `2h`, tomorrow, or until CI green), `u` takes the last addressed/snoozed back, `⌘K` (or `⋯`) opens the contextual Action Panel, and `l` lands a ready PR
+  (twice); acting auto-advances selection to the next item. `/` filters Now by the rows' words, Esc clears it.
   Each list ends with a bar of the keys that work there and `? all keys`. In the review pane `c` comments on
   the file, `v` marks it viewed, `[` and `]` move between files, ⌘↵ sends. Each
   open group sits under a caps header with its count and a hairline. Every item is one row: the lane glyph (who
@@ -85,8 +78,6 @@ task to another account.
   - `IN DESKTOP`: a row per Claude Desktop session that asks something; the ones ready for review fold under "▸ N ready for review": `project
     · title`, its question or summary, its last message when selected, **Open in Claude Desktop** and ✓, which folds it under "▸ N addressed" until it does
     something new.
-  - A summary row heads the list: five tiles (need you, reviews and your PRs from the last 45 days, ready, tokens today), the first with a red
-    border while something waits; it runs `⌘J`, ready unfolds the ready PRs, today opens Tokens.
   - "▸ Agent time today · <total>" with **Week** on the line; open, one row per project with today's time, tickets included. The name and the time, nothing else.
   - **Maintenance** also lists TERMINALS TO TIDY, from the same terminal records as Spaces: a command that failed
     ("exited 1", **Restart** when the terminal runs its own command), one row for the finished ones (**Close N**), what
@@ -356,7 +347,7 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
   selected worktree; `?` lists them. `⌘J` jumps to the next agent waiting on you and says how many are
   left. `⌘]`/`⌘[` walk the agents in the Agents list's order. `⌥⌘1–5` show Files, Changes, Reviews, Runs and Issues; `⌥⌘B`
   the panel; `⌥⌘D` review; `⌥⌘A` handoff;
-  `⌥⌘G` the branch's PR; `⌥⌘R` respond to it; `⌥⌘S` quick replies; `⌥⌘E` sessions; `⌥⌘W`/`⌥⇧⌘W` new or open worktree; `⌥⌘P/O/X` start an account; `⌥⌘N` the
+  `⌥⌘G` the branch's PR; `⌥⌘R` respond to it; `⌥⌘S` quick replies; `⌥⌘E` sessions; `⌥⌘U` Tokens & Usage; `⌥⌘W`/`⌥⇧⌘W` new or open worktree; `⌥⌘P`/`⌥⌘X` start Personal Claude or Codex; `⌥⌘N` the
   Claude account with the most room left (100 minus its fuller window; ties go to the folder's account, then
   `FALLBACK`; accounts without quota data last), with a toast naming it.
   Keys live in the `layout:relevo` section of `keys.json`, and tooltips show them from there.

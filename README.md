@@ -64,7 +64,7 @@ The separate run window is for planning (prompt, repository, agents, plan) and f
 
 **Files a worktree needs.** A new worktree has only tracked files. List the ignored files a run needs, such as `.env`, in a `.worktreeinclude` at the repository root, in `.gitignore` syntax; they are copied into each run's worktree.
 
-**What a run agent can touch.** Its worktree and its own report, nothing else. Codex runs with `workspace-write`; set `RUN_CODEX_MODEL` in `config.js` to choose its model. Claude runs Bash in the system sandbox, which it can't leave, so its commands there run without asking; its file tools cannot edit Relevo's state, mods or settings, and writing its progress and report never asks. A Claude reviewer has no shell at all and starts without your hooks; a Codex reviewer never stops to ask, so what your hooks or instructions start outside its sandbox just fails.
+**What a run agent can touch.** Its worktree and its own report, nothing else. Codex runs with `workspace-write`; set `RUN_CODEX_MODEL` in `config.js` to choose its model. Claude runs in auto mode (or in the OS sandbox when `RUN_SANDBOX = true` in `config.js`); its file tools cannot edit Relevo's state, mods or settings, and writing its progress and report never asks. A Claude reviewer has no shell at all and starts without your hooks; a Codex reviewer never stops to ask, so what your hooks or instructions start outside its sandbox just fails.
 
 **Starting a run.** A new worktree makes Claude, Codex and Antigravity ask whether to trust it. Runs shows that under Needs me with **Trust and continue**, which answers yes in the agent's tab; nothing is trusted without that click.
 
@@ -144,8 +144,7 @@ with the last screen and the working tree. The popup shows how much room each ac
 
 ### See where your tokens go
 
-`⌥⌘U` opens **Tokens**: output and new context by surface (Claude Desktop, terminal, automatic sessions, Codex),
-project, subagent type and day. It reads the transcripts on your Mac and sends nothing anywhere.
+`⌥⌘U`, the clock button in the bottom status bar, or **Usage** inside the Account usage popup opens **Tokens & Usage**: output and new context by surface (Claude Desktop, terminal, automatic sessions, Codex, Antigravity), project, subagent type and day. It reads the transcripts on your Mac and sends nothing anywhere.
 
 ![Tokens by surface, project, subagent and day](screenshots/tokens.png)
 
@@ -234,7 +233,7 @@ worktrees that are safe to remove go in one Confirm. When your PR merges, the to
 2. From a clone of this repo, run `./install.sh --dry-run` to see what it would do, then `./install.sh`. It copies the
    five mods and the layout into `~/.config/herdr-app`, creates `mods/relevo/config.js` and adds the keys you don't
    have to `keys.json`; a key you already use stays yours. It needs Node (see `.nvmrc`).
-3. Switch to the layout (`ctrl-shift-l`) and open Settings (the gear beside ACCOUNTS): your accounts, the GitHub
+3. Switch to the layout (`ctrl-shift-l`) and open **Settings** (the gear button in the bottom status bar, or inside the Account usage popup): your accounts, the GitHub
    orgs that use each one, and where your clones live. It writes `mods/relevo/config.js`, which you can also edit.
 
 Only want some of it? Settings → Panels turns Spaces, Agents, Tabs, Files, and Reviews and Runs on or off. A panel

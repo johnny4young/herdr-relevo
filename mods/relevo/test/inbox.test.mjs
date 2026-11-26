@@ -686,6 +686,7 @@ test("Reply on a finished agent's card opens the quick replies for that agent", 
   setAgents(["t1", "done"]);
   const { ui, cx } = await open();
   click(find(ui(), "in-t1"), cx);
+  click(find(ui(), "more-in-t1"), cx);
   click(find(ui(), "reply-t1"), cx);
   await flush();
   assert.equal(fake.overlays.at(-1).props.role, "quick-replies");
@@ -839,16 +840,19 @@ test("back from away, a waiting agent says why", async () => {
   assert.match(text(ui()), /Run: rm -rf dist/);
 });
 
-test("an unselected row shows only its main action; selected, it shows every other action and its mark", async () => {
+test("an unselected row shows only its main action; selected, it keeps direct controls compact and opens overflow in ⋯", async () => {
   setAgents(["t1", "done"]);
   const { ui, cx } = await open();
   assert.ok(find(ui(), "review-t1"));
   for (const id of ["agent-t1", "diff-t1", "files-t1", "reply-t1", "addressed-t1"]) assert.equal(find(ui(), id), null, id);
   click(find(ui(), "in-t1"), cx);
-  for (const id of ["review-t1", "agent-t1", "diff-t1", "files-t1", "reply-t1", "addressed-t1"]) assert.ok(find(ui(), id), id);
-  assert.equal(find(ui(), "more-in-t1"), null, "no ⋯ fold");
+  for (const id of ["review-t1", "agent-t1", "snooze-in-t1", "more-in-t1", "addressed-t1"]) assert.ok(find(ui(), id), id);
+  assert.equal(find(ui(), "diff-t1"), null, "secondary actions live in the ⌘K / ⋯ panel");
+  click(find(ui(), "more-in-t1"), cx);
+  for (const id of ["diff-t1", "files-t1", "reply-t1"]) assert.ok(find(ui(), id), id);
+  click(find(ui(), "action-menu-close"), cx);
   click(find(ui(), "in-t1"), cx);
-  assert.equal(find(ui(), "reply-t1"), null);
+  assert.equal(find(ui(), "more-in-t1"), null);
   assert.ok(find(ui(), "review-t1"));
 });
 
@@ -928,6 +932,7 @@ test("a cancelled CI says so and Retry CI runs only its cancelled jobs, once", a
   await flush();
   assert.deepEqual(runs, [["run", "rerun", "42", "--failed", "--repo", "me/app"]]);
   assert.equal(fake.notices.at(-1).title, "CI restarted · app #1");
+  click(find(inbox.render(cx), `more-pr-${url}`), cx);
   assert.ok(find(inbox.render(cx), `retry-ci-${url}`));
 });
 
@@ -1107,6 +1112,7 @@ test("a second opinion on an agent's work opens a reviewer of another provider b
     return repoOutput(cmd, args);
   };
   fake.agents = [...fake.agents, { ...agent("t9", "idle"), tab_name: "app · second opinion" }];
+  click(find(ui(), "more-in-t1"), cx);
   click(find(ui(), "opinion-t1"), cx);
   for (let i = 0; i < 10; i++) await flush();
   assert.equal(fake.runs.some(([name, args]) => ["tab.new", "space.new"].includes(name) && /codex/.test(JSON.stringify(args.argv))), true, "Codex reviews Claude's work");
@@ -1143,6 +1149,7 @@ test("a PR of yours with failing CI or open comments offers Fix with a run, whic
   const { inbox } = await open();
   inbox.sel = `pr-${url}`;
   const cx = fakeCx();
+  click(find(inbox.render(cx), `more-pr-${url}`), cx);
   click(find(inbox.render(cx), `fix-run-${url}`), cx);
   for (let i = 0; i < 8; i++) await flush();
   const asked = fake.runs.findLast(([name]) => name === "pane.split")?.[1].props;

@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
-import { agents, props, theme, openOverlay, closeOverlay, exec, pickFiles } from "herdr";
+import { agents, props, theme, openOverlay, closeOverlay, exec, pickFiles, run, setShared } from "herdr";
 import { readRunState } from "./runtime-cli.js";
 import { TEXT_MAX } from "./lib/run-report.js";
 import { button, overlayHeight, onSubmitChord } from "./ui.js";
@@ -10,6 +10,12 @@ import { linkedDecision } from "./lib/goal-workflow.js";
 import { projectGoalPlan } from "./lib/goal-plan.js";
 import { openWorkflow } from "./workflow.js";
 import { noteUse } from "./run-usage.js";
+import { focusedCwd } from "./panelbar.js";
+import { accountOf, loadClaudeQuotas } from "./accounts.js";
+import { runAccountsFor } from "./workflow-runs.js";
+import { RUN_START } from "./run-launcher.js";
+import { GOAL_MODE, GOAL_SCOPE } from "./inbox-goals.js";
+import { showPanel } from "./toolbar.js";
 
 async function workflowTasks() {
   const raw = await readRunState();
@@ -73,6 +79,23 @@ export class GoalEditor {
         for (const k of Object.keys(labels)) this.fields[k].set_value(this.goal[k]);
         this.reviewNotesOpen = Boolean(this.goal.decision?.trim() || this.goal.recommendation?.trim());
         this.workflowTasks = await workflowTasks().catch(() => []);
+        if (this.loadContext.mode === "run") {
+          const cwd = focusedCwd();
+          if (cwd) {
+            const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd }).catch(() => null);
+            const root = top?.code === 0 ? top.stdout.trim() : null;
+            if (root) {
+              const quotas = await loadClaudeQuotas().catch(() => ({}));
+              const picked = runAccountsFor(root, quotas);
+              this.runDefaults = {
+                root,
+                repo: root.split("/").pop(),
+                writer: accountOf(picked.executor)?.label ?? picked.executor,
+                reviewer: accountOf(picked.reviewer)?.label ?? picked.reviewer,
+              };
+            }
+          }
+        }
         const linked = linkedDecision(this.goal, this.workflowTasks);
         this.decisionTaskId = this.goal.decisionLink?.question === this.goal.decision.trim() ? this.goal.decisionLink.taskId : null;
         if (linked.state === "resolved") { this.resolvePending = true; this.linkedResolution = this.goal; }
@@ -160,11 +183,12 @@ export class GoalEditor {
         .when(!tasks.length, (content) => content.child(row("No tasks in this run yet. The question stays separate.", t))));
   }
 
-  save(cx) {
+  save(cx, { startNow = false } = {}) {
     if (this.closed || this.busy || !this.goal) return;
     this.planFocusRequest++;
     // Capture exactly what was submitted; callbacks never consume a later edit.
     const isNewRun = this.loadContext.mode === "run";
+    const quickStart = isNewRun && startNow && Boolean(this.runDefaults?.root);
     const prompt = this.fields.criteria.value().trim();
     const submittedTitle = this.fields.title.value().trim();
     const derivedTitle = prompt.split(/\r?\n/).find((line) => line.trim())?.trim().slice(0, 240) ?? "";
@@ -243,7 +267,14 @@ export class GoalEditor {
         await writeGoal(goal, this.version);
         if (!this.closed) {
           closeOverlay(overlay);
-          if (isNewRun) openWorkflow(goal.id);
+          if (quickStart) {
+            setShared(RUN_START, { fields: { goalId: goal.id, title: goal.title, root: this.runDefaults.root, criteria: goal.criteria }, pr: null, at: Date.now() });
+            setShared(GOAL_MODE, true); setShared(GOAL_SCOPE, null);
+            showPanel("inbox");
+            run("relevo.run-start");
+          } else if (isNewRun) {
+            openWorkflow(goal.id);
+          }
         }
       } catch (e) { if (!this.closed) this.error = `Not saved: ${e.message ?? e}`; }
       if (this.closed) return;
@@ -313,6 +344,9 @@ export class GoalEditor {
         .when(this.panel === "decision", (el) => el
           .when(isNewRun, (content) => content
             .child(field("criteria", this.fields.criteria, "Prompt"))
+            .when(Boolean(this.runDefaults), (el) => el.child(h_flex().id("new-run-defaults").px(8).py(5).gap(6).items_center().rounded(6).bg(t.raised)
+              .text_size(11).text_color(t.muted)
+              .child(div().flex_1().min_w(0).truncate().child(`${this.runDefaults.repo} · own worktree · ${this.runDefaults.writer} → ${this.runDefaults.reviewer}`))))
             .child(h_flex().gap(6)
               .child(button(t, "new-run-title-toggle", this.newRunTitleOpen ? "Hide title" : this.fields.title.value().trim() ? "Edit title" : "Add a title", (cx) => {
                 this.newRunTitleOpen = !this.newRunTitleOpen; cx.notify();
@@ -372,8 +406,10 @@ export class GoalEditor {
               if (this.goal) this.goal = { ...this.goal, lead: a.address }; cx.notify();
             }, "Assign this connected agent as the goal's lead"))))))
       .child(h_flex().flex_none().gap(8).flex_wrap()
+        .when(isNewRun && Boolean(this.runDefaults), (el) => el.child(button(t, "goal-start-now", this.busy ? "Starting…" : "Start run", (cx) => this.save(cx, { startNow: true }),
+          { kind: "accent", disabled: this.busy || !goal, tip: `Starts immediately in ${this.runDefaults.repo} with ${this.runDefaults.writer} → ${this.runDefaults.reviewer}` })))
         .child(button(t, "goal-save", this.loading ? "Loading…" : this.busy ? "Saving…" : isNewRun ? "Choose agents →" : "Save", (cx) => this.save(cx),
-          { kind: "solid", disabled: this.busy || !goal, tip: isNewRun ? "⌘Enter saves the prompt and opens agent setup; no work starts until Start." : "⌘Enter or ⌘S saves all sections. Enter alone keeps editing this field." }))
+          { kind: isNewRun && this.runDefaults ? "outline" : "solid", disabled: this.busy || !goal, tip: isNewRun ? "⌘Enter saves the prompt and opens agent setup; no work starts until Start." : "⌘Enter or ⌘S saves all sections. Enter alone keeps editing this field." }))
         .when(this.panel === "plan" && goalState(goal) !== "completed", (el) => el.child(button(t, "goal-finish", "Finish run", (cx) => {
           if (this.closed || this.busy || !this.goal) return;
           this.goal = { ...this.goal, state: "completed" }; this.save(cx);

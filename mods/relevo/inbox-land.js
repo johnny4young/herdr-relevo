@@ -56,6 +56,7 @@ export class LandViews {
 
   land(pr, auto, cx) {
     if (this.landing()[pr.url]) return;
+    this.advanceFrom = this.sel;
     // The card turns into a landing at once; the checks and the merge take a few seconds.
     this.setLanding(pr.url, {
       repo: pr.repo, number: pr.number, title: pr.title, branch: localBranch(pr), oid: pr.headRefOid,

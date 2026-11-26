@@ -5,8 +5,10 @@ import { Sidebar } from './sidebar.js';
 import { ACCOUNTS, CODEX, agentAccounts, chip, quotaError } from './accounts.js';
 import { accountFor } from './context.js';
 import { openSettings } from './settings.js';
+import { openUsage } from './usage.js';
+import { openWeek } from './week.js';
 import { handoffAgent, handoffFrom } from './handoff.js';
-import { band, button, digit, grabFocus, hairline, held, keycap, meTint, overlayHeight, quotaTone } from './ui.js';
+import { band, button, digit, grabFocus, hairline, held, icon, keycap, meTint, overlayHeight, quotaTone, withKey } from './ui.js';
 import { duration, resetClock, resetText, windowLabel } from './lib/time.js';
 import { HANDOFF_AT, QUOTA_WARN, accountNote, quotaRingDots, quotaStatusText, quotaSummary, readAge } from './lib/account-status.js';
 
@@ -23,6 +25,8 @@ export class AccountStatus extends Sidebar {
     this.detail = _props?.detail === true;
     if (!this.detail) {
       super.init(_props, cx);
+      // Status bar width comes from its own on_size_change, not Sidebar's 240px default.
+      this.width = undefined;
       // A stale item shows its reading's age, which keeps changing while the reading doesn't.
       if (!this.syntheticPreview) cx.timer.every(60000, (cx) => cx.notify());
       return;
@@ -130,7 +134,9 @@ export class AccountStatus extends Sidebar {
   }
 
   statusLeaf(t) {
-    const state = this.look(this.width ?? Infinity, this.focusedAccount());
+    // Show compact Usage and Settings buttons in the bar when there is room; tight widths reach them via the popup.
+    const showTools = !Number.isFinite(this.width) || this.width >= 340;
+    const state = this.look(Math.max(0, (this.width ?? Infinity) - (showTools ? 54 : 0)), this.focusedAccount());
     // The status row's line runs on under the accounts, as over the workspace status beside them.
     return h_flex().id('account-status').w_full().h_full().px(3).gap(3).items_center().bg(t.chrome).border_t(1).border_color(t.border)
       .on_size_change((size, cx) => {
@@ -138,7 +144,12 @@ export class AccountStatus extends Sidebar {
         this.width = size.width;
         cx.notify();
       })
-      .children(this.accounts().map((account) => this.statusItem(t, account, state)));
+      .children(this.accounts().map((account) => this.statusItem(t, account, state)))
+      .when(showTools, (el) => el
+        .child(button(t, 'account-status-bar-usage', [icon('clock', t.muted, 12)], () => openUsage(),
+          { kind: 'ghost', size: 'sm', tip: withKey('Tokens & Usage', 'relevo.usage'), accessibleLabel: 'Open Tokens & Usage' }).h(22).px(4))
+        .child(button(t, 'account-status-bar-settings', [icon('gear', t.muted, 12)], () => openSettings(),
+          { kind: 'ghost', size: 'sm', tip: 'Relevo settings', accessibleLabel: 'Open Relevo settings' }).h(22).px(4)));
   }
 
   dismiss() {
@@ -163,6 +174,9 @@ export class AccountStatus extends Sidebar {
     if (e.key === 'escape') { this.dismiss(); cx.stop_propagation(); return; }
     const account = this.accounts()[digit(e) - 1];
     if (e.key === 'r') this.load(cx);
+    else if (e.key === 'u') { this.dismiss(); openUsage(); }
+    else if (e.key === 't') { this.dismiss(); openWeek(); }
+    else if (e.key === 's') { this.dismiss(); openSettings(); }
     else if (account) this.action(account).run(cx);
     else return;
     cx.stop_propagation();
@@ -212,6 +226,8 @@ export class AccountStatus extends Sidebar {
         .child(div().flex_none().font_semibold().text_size(13).child('Account usage'))
         .child(div().id('account-status-read').flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(Number.isFinite(read) ? readAge(read) : ''))
         .child(h_flex().flex_none().gap(4)
+          .child(button(t, 'account-status-usage', 'Usage', () => { this.dismiss(); openUsage(); }, { kind: 'ghost', size: 'sm', tip: withKey('Tokens & Usage', 'relevo.usage') }))
+          .child(button(t, 'account-status-week', 'Time', () => { this.dismiss(); openWeek(); }, { kind: 'ghost', size: 'sm', tip: 'Agent time this week' }))
           .child(button(t, 'account-status-settings', 'Settings', () => { this.dismiss(); openSettings(); }, { kind: 'ghost', size: 'sm', tip: 'Configure accounts and repository contexts' }))
           .child(button(t, 'account-status-refresh', [keycap(t, 'R'), 'Refresh'], (cx) => this.load(cx), { size: 'sm', tip: 'Read the latest available quota snapshot' }))))
       .child(this.focusPicker(t))

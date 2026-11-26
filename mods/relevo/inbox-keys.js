@@ -92,6 +92,10 @@ export class KeyNav {
       if (e.key === "escape") this.shortcutHelp?.key(e, cx);
       return;
     }
+    if (this.actionMenu) {
+      this.actionMenuKey?.(e, cx);
+      return;
+    }
     // While the filter is typed, the field owns the keys; Esc clears and closes it.
     if (this.filtering) {
       if (e.key !== "escape") return;
@@ -117,11 +121,18 @@ export class KeyNav {
     if (!this.h.is_focused()) return;
     const items = this.nav ?? [];
     const at = items.findIndex((i) => i.id === this.sel);
+    const reviews = shared(GOAL_MODE) !== true;
+    const cmdK = e.modifiers?.platform && !e.modifiers?.alt && !e.modifiers?.control && e.key === "k";
+    if (cmdK && reviews && at >= 0 && items[at]?.allActions) {
+      this.openActionMenu?.(items[at], cx);
+      cx.stop_propagation();
+      return;
+    }
     const held = e.modifiers?.platform || e.modifiers?.control || e.modifiers?.alt;
     if (held) return;
     this.clicked = false;
     const shifted = e.key === "g" && e.modifiers?.shift;
-    const reviews = shared(GOAL_MODE) !== true, key = e.key === "j" ? "down" : e.key === "k" ? "up" : shifted ? "G" : e.key;
+    const key = e.key === "j" ? "down" : e.key === "k" ? "up" : shifted ? "G" : e.key;
     // g then g goes to the top, as in vim, and any other key in between starts over; G goes to the bottom.
     const gg = key === "g" && reviews && this.pendingG;
     this.pendingG = key === "g" && reviews && !gg;
@@ -147,15 +158,18 @@ export class KeyNav {
       this.sel = items[key === "home" ? 0 : items.length - 1]?.id ?? null;
     } else if (key === "n" && reviews) {
       openGoal();
+    } else if (key === "h" && reviews && this.reviewView() === "now" && at >= 0 && items[at]?.snooze) {
+      this.openActionMenu?.(items[at], cx, { mode: "snooze" });
     } else if ((key === "tab" || key === "m") && reviews) {
-      this.setReviewView(key === "tab" && this.reviewView() === "maintenance" ? "now" : "maintenance", cx);
+      this.setReviewView(this.reviewView() === "maintenance" ? "now" : "maintenance", cx);
     } else if (/^[1-9]$/.test(key) && items[at]?.choose) {
       items[at].choose(Number(key), cx);
     } else if (key === "down" || key === "up") {
       const next = at < 0 ? 0 : Math.min(items.length - 1, Math.max(0, at + (key === "down" ? 1 : -1)));
       this.sel = items[next]?.id ?? null;
     } else if (key === "enter" && at >= 0) {
-      items[at].go(cx);
+      // Enter may arm a land, so a repeat must not confirm it either.
+      if (!e.is_held) items[at].go(cx);
     } else if (key === "escape") {
       this.sel = null;
       if (this.returnPane) run("pane.focus", { pane: this.returnPane });

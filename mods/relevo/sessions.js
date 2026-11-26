@@ -1,5 +1,5 @@
 import { div } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
+import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { theme, exec, home, props, terminals, openOverlay, closeOverlay } from "herdr";
 import { accountOf, chip, claudeAccounts, openInFolder, resumeArgv } from "./accounts.js";
 import { contextOfPath, inFocus } from "./context.js";
@@ -38,13 +38,18 @@ export async function openSessions() {
 export class SessionFinder {
   init(_props, cx) {
     this.h = cx.focus_handle();
-    this.query = "";
+    this.queryInput = InputState.new({ value: "", placeholder: "Type to filter" });
+    this.queryInput.on("change", (_e, cx) => {
+      this.at = 0;
+      cx.notify();
+    });
+    this.queryInput.on("submit", () => this.open(this.rows()[this.at]));
     this.at = 0;
     this.scope = props()?.top ? "repo" : "all";
     this.all = null;
     this.details = {};
     this.missing = new Set();
-    grabFocus(this.h, cx);
+    grabFocus(this.queryInput, cx, () => !this.gone);
     cx.spawn(async (cx) => {
       const specs = claudeAccounts().map((a) => `${a.key}|${home()}/${a.claudeDir}/history.jsonl`);
       const r = await exec("sh", ["-c", INDEX, "sh", ...specs]);
@@ -61,6 +66,16 @@ export class SessionFinder {
         .filter((s) => !running.has(`${rootOf(accountOf(s.account))}/${s.id}`) && !running.has(`*/${s.id}`));
       await this.loadDetails(cx);
     });
+  }
+
+  close() {
+    this.gone = true;
+    this.h?.release();
+    this.queryInput?.release();
+  }
+
+  queryText() {
+    return this.queryInput ? this.queryInput.value() : (this.query ?? "");
   }
 
   inScope() {
@@ -90,11 +105,13 @@ export class SessionFinder {
     return this.inScope().slice(0, CHECKED).filter((s) => this.details[keyOf(s)]).slice(0, SHOWN).map((s) => {
       const d = this.details[keyOf(s)];
       return { ...s, title: titleOf(d) || s.project.split("/").pop(), branch: d?.gitBranch, pr: d?.prNumber, gone: this.missing.has(s.project) };
-    }).filter((s) => matches(s, this.query));
+    }).filter((s) => matches(s, this.queryText()));
   }
 
   open(row) {
-    if (!row || row.gone) return;
+    // Enter reaches both the field's submit and the finder's key handler: resume once.
+    if (!row || row.gone || this.opened) return;
+    this.opened = true;
     closeOverlay(props().overlay);
     const name = row.project.split("/").pop();
     openInFolder({ name, folder: row.project, tab: `${row.title.slice(0, 24)} · ${accountOf(row.account).letter}`, argv: resumeArgv(row.account, row.id) });
@@ -109,11 +126,11 @@ export class SessionFinder {
       this.scope = this.scope === "repo" ? "all" : "repo";
       this.at = 0;
       cx.spawn(async (cx) => this.loadDetails(cx));
-    } else if (e.key === "backspace") {
-      this.query = this.query.slice(0, -1);
+    } else if (e.key === "backspace" && this.queryInput) {
+      this.queryInput.set_value(this.queryInput.value().slice(0, -1));
       this.at = 0;
-    } else if (e.key_char && !held && e.key_char !== "\t") {
-      this.query += e.key_char;
+    } else if (e.key_char && !held && e.key_char !== "\t" && this.queryInput) {
+      this.queryInput.set_value(this.queryInput.value() + e.key_char);
       this.at = 0;
     } else return;
     cx.stop_propagation();
@@ -127,8 +144,8 @@ export class SessionFinder {
       .text_size(13).track_focus(this.h).on_key_down((e, cx) => this.key(e, cx))
       .child(h_flex().gap(8).items_center()
         .child(div().id("sessions-query").flex_1().h(32).px(10).flex().items_center().rounded(6).border(1)
-          .border_color(t.accent).bg(t.background).text_color(this.query ? t.foreground : t.dim)
-          .child(this.query || "Type to filter"))
+          .border_color(t.accent).bg(t.background)
+          .child(Input.new(this.queryInput).id("sessions-query-input").accessibility_label("Filter sessions").h_full()))
         .when(Boolean(top), (el) => el.child(h_flex().id("sessions-scope").h(26).p(2).gap(2).rounded(6).bg(t.raised)
           .text_size(11).tooltip("Tab switches")
           .children(tabs.map(([key, label]) => div().id(`scope-${key}`).h_full().px(8).flex().items_center().rounded(4)

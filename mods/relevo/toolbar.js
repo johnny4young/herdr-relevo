@@ -4,6 +4,8 @@ import { theme, run, layout, shared, setShared } from "herdr";
 import { withKey } from "./ui.js";
 
 export const COUNT = "relevo.inbox.count";
+export const RUNS_COUNT = "relevo.runs.count";
+export const RUNS_FLIGHT = "relevo.runs.flight";
 // The count when the Inbox was last open: a higher one pulses the badge.
 const SEEN_COUNT = "relevo.inbox.seen";
 const GOAL_MODE = "relevo.goals.mode";
@@ -48,6 +50,7 @@ export class InboxButton {
     // always-mounted navigation also restores them after another panel opens.
     if (bar && Boolean(bar.hidden) !== hideBar) run(hideBar ? "layout.hide" : "layout.show", { id: "panel-bar" });
     const n = shared(COUNT) ?? 0, stored = shared(SEEN_COUNT), seen = stored ?? n;
+    const runsNeed = shared(RUNS_COUNT) ?? 0, runsFlight = shared(RUNS_FLIGHT) ?? 0;
     if (stored == null || (reviewsOn ? seen !== n : n < seen)) setShared(SEEN_COUNT, n);
     const fresh = !reviewsOn && n > seen;
     const tab = (id, label, isRuns) => {
@@ -63,7 +66,10 @@ export class InboxButton {
         .when(!isRuns && n > 0, (el) => el.child(div().px(5).rounded(8).bg(t.blocked)
           .text_color(t.background).text_size(11).font_semibold()
           .when(fresh, (b) => b.loop("opacity", { from: 0.45, to: 1, period: 1400 }))
-          .child(String(n))));
+          .child(String(n))))
+        .when(isRuns && runsNeed > 0, (el) => el.child(div().id("runs-badge").px(5).rounded(8).bg(t.blocked)
+          .text_color(t.background).text_size(11).font_semibold().child(String(runsNeed))))
+        .when(isRuns && !runsNeed && runsFlight > 0, (el) => el.child(div().id("runs-flight-dot").size(6).rounded_full().bg(t.working)));
     };
     return h_flex().id("inbox-button").size_full().items_center().justify_center()
       .bg(t.chrome).border_b(1).border_color(t.border)

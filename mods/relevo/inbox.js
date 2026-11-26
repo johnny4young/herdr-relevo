@@ -21,9 +21,11 @@ import { GIT_READ, githubRepo, withoutLogin } from "./lib/git.js";
 import { STATS_FOR } from "./lib/refresh.js";
 import { ASKS_DIR, parseNotes } from "./lib/asks.js";
 import { readPrompt, samePrompt, sameChoicesBut, submitKeys, freeOption, moveKeys, lastMessage, reasonOf } from "./lib/prompt.js";
-import { COUNT, showPanel } from "./toolbar.js";
+import { COUNT, RUNS_COUNT, RUNS_FLIGHT, showPanel } from "./toolbar.js";
 import { launched } from "./skills.js";
+import { taskTurn } from "./lib/run-panel.js";
 import { openWeek } from "./week.js";
+import { ActionViews } from "./inbox-actions.js";
 import { PrViews } from "./inbox-prs.js";
 import { TreeViews } from "./inbox-trees.js";
 import { BranchViews } from "./inbox-branches.js";
@@ -115,6 +117,11 @@ export class Inbox {
     this.filterField = InputState.new({ value: "", placeholder: "Filter · Esc clears" });
     this.filterField.on("change", (_e, cx) => cx.notify());
     this.filterField.on("submit", (_e, cx) => this.leaveFilter(cx));
+    this.actionQuery = InputState.new({ value: "", placeholder: "Filter actions…" });
+    this.actionQuery.on("change", (_e, cx) => { this.actionAt = 0; cx.notify(); });
+    this.actionQuery.on("submit", (_e, cx) => this.runActionMenu(cx));
+    this.snoozed = {};
+    this.actionMenu = null;
     this.today = [];
     this.digest = null;
     const panels = (shared("workspace.panels") ?? ["files", "changes"]).filter((p) => p !== "review");
@@ -126,6 +133,7 @@ export class Inbox {
     this.startLive(cx);
     this.scanLocal(cx);
     this.loadAddressed(cx);
+    this.loadSnoozed(cx);
     this.scanPRs(cx);
     this.loadQuotas(cx);
     this.scanTrees(cx);
@@ -196,6 +204,15 @@ export class Inbox {
     this.publishAgentPRs();
     this.publishRepoPRs(entries);
     this.publishSettled();
+    this.publishRunsCount();
+  }
+
+  publishRunsCount() {
+    const tasks = this.workflowTasks ?? [];
+    const need = tasks.filter((x) => !x.pr && ["me", "stuck"].includes(taskTurn(x))).length;
+    const flight = tasks.filter((x) => taskTurn(x) === "flight").length;
+    if ((shared(RUNS_COUNT) ?? 0) !== need) setShared(RUNS_COUNT, need);
+    if ((shared(RUNS_FLIGHT) ?? 0) !== flight) setShared(RUNS_FLIGHT, flight);
   }
 
   publishRepoPRs(entries) {
@@ -414,6 +431,7 @@ export class Inbox {
     this.h?.release();
     this.reply.release();
     this.filterField?.release();
+    this.actionQuery?.release();
     this.runChange?.release();
     this.fixNote?.release();
     this.shortcutHelp?.close();
@@ -693,23 +711,42 @@ export class Inbox {
         ],
       };
     }
+    const main = { id: `review-${a.address}`, key: "r", label: "Review", run: (cx) => this.reviewLocal(item, cx), kind: "go", tip: withKey("Comment on the diff line by line", "relevo.review") };
+    const all = [
+      main,
+      goAgent,
+      this.opinionAction(item),
+      this.sourceContextAction(`local:${item.top || a.address}`),
+      { id: `diff-${a.address}`, label: "View diff", run: () => {
+        run("pane.focus", { pane: a.pane });
+        showPanel("changes");
+      } },
+      { id: `files-${a.address}`, label: "Files", run: () => {
+        run("pane.focus", { pane: a.pane });
+        showPanel("files");
+      } },
+      { id: `reply-${a.address}`, label: "Reply", run: () => openReplies(a.address), tip: withKey("Send it a message or a quick reply", "relevo.quick-reply") },
+    ];
+    const entry = {
+      id: `in-${a.address}`,
+      title: item.repo,
+      snooze: { id: `in-${a.address}`, updatedAt: item.at ?? 0, label: item.repo },
+      allActions: () => [...all, mark].filter(Boolean),
+    };
+    const mark = this.markAction(a.address, addressed, (on, cx) => this.setLocalAddressed(a, on, cx), "Addressed: hide until its agent works again");
+    const snooze = !addressed && this.openActionMenu ? {
+      id: `snooze-in-${a.address}`, key: "h", label: [icon("clock")], tip: "Snooze · h", accessibleLabel: "Snooze local changes",
+      run: (cx) => this.openActionMenu(entry, cx, { mode: "snooze" }),
+    } : null;
+    const more = this.openActionMenu ? {
+      id: `more-in-${a.address}`, label: [icon("more")], tip: "More actions · ⌘K", accessibleLabel: "More actions",
+      run: (cx) => this.openActionMenu(entry, cx),
+    } : null;
     return {
-      main: { id: `review-${a.address}`, key: "r", label: "Review", run: (cx) => this.reviewLocal(item, cx), kind: "go", tip: withKey("Comment on the diff line by line", "relevo.review") },
-      actions: [
-        goAgent,
-        this.opinionAction(item),
-        this.sourceContextAction(`local:${item.top || a.address}`),
-        { id: `diff-${a.address}`, label: "View diff", run: () => {
-          run("pane.focus", { pane: a.pane });
-          showPanel("changes");
-        } },
-        { id: `files-${a.address}`, label: "Files", run: () => {
-          run("pane.focus", { pane: a.pane });
-          showPanel("files");
-        } },
-        { id: `reply-${a.address}`, label: "Reply", run: () => openReplies(a.address), tip: withKey("Send it a message or a quick reply", "relevo.quick-reply") },
-      ],
-      mark: this.markAction(a.address, addressed, (on, cx) => this.setLocalAddressed(a, on, cx), "Addressed: hide until its agent works again"),
+      main,
+      actions: [main, goAgent, snooze, more].filter(Boolean),
+      allActions: all,
+      mark,
     };
   }
 
@@ -772,9 +809,17 @@ export class Inbox {
     const firstRead = !goalMode && !this.prsAt && Boolean(this.scanningPRs);
     // Nothing needs you only once PRs were read and every source answered.
     this.calm = reviewView === "now" && Boolean(this.prsAt) && Boolean(this.localOkAt) && !errors.length && !counts.me && !counts.ready ? { flight: counts.flight, upkeep: upkeep.count } : null;
+    // A row you snoozed, marked or landed hands the selection to its neighbour in the same list; one a refresh
+    // took away clears it, so Enter never acts on a row you did not pick.
+    const prevNav = this.navView === (goalMode ? "runs" : reviewView) ? this.nav ?? [] : [];
+    this.navView = goalMode ? "runs" : reviewView;
     this.nav = goalMode ? this.runNav(runs) : reviewView === "now" ? this.nowNav(shownNow) : this.maintenanceNav(v, upkeep);
     this.keyboard = this.h.is_focused();
-    if (this.sel && !this.nav.some((i) => i.id === this.sel)) this.sel = null;
+    if (this.sel && !this.nav.some((i) => i.id === this.sel)) {
+      const was = this.sel === this.advanceFrom ? prevNav.findIndex((i) => i.id === this.sel) : -1;
+      this.sel = was >= 0 && this.nav.length ? this.nav[Math.min(was, this.nav.length - 1)].id : null;
+    }
+    if (this.advanceFrom !== this.sel) this.advanceFrom = null;
     const view = goalMode ? this.goalViewport() : this.viewport(reviewView === "now" ? NOW_SECTIONS : MAINTENANCE_SECTIONS);
     this.hiddenIds = view.hidden;
     const part = (key, els) => (view.sections.has(key) ? [] : els.filter(Boolean));
@@ -799,7 +844,6 @@ export class Inbox {
           .child(this.viewTab(t, "now", "Now", firstRead ? "…" : counts.me + counts.flight + counts.ready, "What needs you, what is in flight and what is ready"))
           .child(this.viewTab(t, "maintenance", "Maintenance", firstRead ? "…" : upkeep.count, "What can wait: old PRs, worktrees, what you marked addressed"))
           .child(div().flex_1()))
-        .when(!runOpen, (el) => el.child(button(t, "inbox-focus-list", [icon("down")], () => this.h.focus(), { size: "sm", accessibleLabel: "Focus work queue", tip: "Focus the queue: arrow keys select, Enter opens" })))
         .child(button(t, "goal-key-help", "?", (cx) => {
           this.goalHelp = !this.goalHelp;
           if (this.goalHelp) this.shortcutHelp.focus();
@@ -813,6 +857,7 @@ export class Inbox {
       .when(reviewView === "now" && (this.filtering || Boolean(this.filterField.value())), (el) => el.child(h_flex().id("inbox-filter").h(30).flex_none().mx(8).mt(4).px(8).gap(6)
         .items_center().rounded(6).border_1().border_color(this.filtering ? t.accent : t.border).bg(t.background)
         .child(icon("search", t.dim)).child(div().flex_1().min_w(0).child(Input.new(this.filterField).h_full()))))
+      .when(Boolean(this.actionMenu), (el) => el.child(this.renderActionMenu(t)))
       .when(this.goalHelp, (el) => {
         this.shortcutHelp.setData(SHEET, shortcutBindings());
         return el.child(this.shortcutHelp.render(t, cx));
@@ -856,7 +901,7 @@ export class Inbox {
 }
 
 
-for (const views of [PrViews, TreeViews, BranchViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews, GoalViews, NowViews, RunViews, RunCompareViews, CliViews]) {
+for (const views of [ActionViews, PrViews, TreeViews, BranchViews, KeyNav, LiveViews, LocalAddressed, AwayViews, DesktopViews, LandViews, GoalViews, NowViews, RunViews, RunCompareViews, CliViews]) {
   for (const name of Object.getOwnPropertyNames(views.prototype)) {
     if (name !== "constructor") Inbox.prototype[name] = views.prototype[name];
   }

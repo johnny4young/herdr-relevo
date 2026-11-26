@@ -30,10 +30,11 @@ const RAIL_CELL = 32, WATCH_GAP_MS = 1000;
 // How long "close N" waits for its confirming second click.
 const ARM_MS = 4000;
 // The Relevo mod's lane glyphs: a mod can't import from another mod's folder.
+// Spaces uses a subtle ring for waiting so solid red stays unique to Reviews' Needs me queue.
 export function laneGlyph(t, turn) {
   if (turn === "flight") return svg("mods/relevo/spinner.svg").size(12).flex_none().text_color(t.working).spin(900);
   if (turn === "ready") return svg(ICON("check")).size(13).flex_none().text_color(t.done);
-  return div().size(8).flex_none().rounded_full().bg(t.blocked);
+  return div().size(7).flex_none().rounded_full().border_1().border_color(t.blocked).opacity(0.8);
 }
 // Folders the Relevo mod keeps in step with its contexts: their rules are its repo lists.
 const REPO_PRS = "relevo.repoPRs";
@@ -490,6 +491,7 @@ export default class Spaces extends View {
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; this.over = null; cx.notify(); })
         // A button let go outside the list never reaches it: leaving the list ends the drag.
         .on_hover((on, cx) => { if (!on && this.pressed !== null) { this.pressed = null; this.over = null; cx.notify(); } })
+        .when(count === 0 && !collapsed, (el) => el.child(div().id("spaces-empty").px(8).py(6).text_size(11).text_color(t.dim).child("No spaces yet")))
         .children(body));
   }
 

@@ -185,7 +185,7 @@ export class Sidebar {
         cx.notify();
       })
       .child(div().id(`account-name-${id}`).w(NAME_W).flex_none().flex().items_center().gap(8)
-        .tooltip(withKey(this.syntheticPreview ? "Perfil aislado: cuentas y lanzadores desconectados" : `${group ? `${p.label} · ${group}. ` : ""}${note}. Click to start ${app} here.`, `relevo.launch-${p.key}`))
+        .tooltip(withKey(this.syntheticPreview ? "Isolated profile: accounts and launchers disconnected" : `${group ? `${p.label} · ${group}. ` : ""}${note}. Click to start ${app} here.`, `relevo.launch-${p.key}`))
         .child(first ? chip(div, p) : div().size(17).flex_none())
         .child(div().flex_1().min_w(0).truncate().text_size(13).font_medium().text_color(stale ? t.muted : t.foreground)
           .child(label)))

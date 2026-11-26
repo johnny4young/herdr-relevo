@@ -74,10 +74,10 @@
       "words": "relevo files open"
     },
     {
-      "title": "Tokens",
+      "title": "Tokens & Usage",
       "command": "relevo.usage",
       "group": "Relevo",
-      "words": "relevo usage cost tokens"
+      "words": "relevo usage cost tokens antigravity claude codex"
     },
     {
       "title": "Week of agent time",

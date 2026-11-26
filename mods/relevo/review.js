@@ -609,16 +609,14 @@ export class ReviewDiff {
   }
 
   header(t) {
-    return v_flex().flex_none().px(12).py(6).gap(6).border_b(1).border_color(t.border)
-      .child(h_flex().gap(8).items_center()
+    return h_flex().flex_none().flex_wrap().px(12).py(6).gap(8).items_center().border_b(1).border_color(t.border)
       .when(Boolean(this.back), (el) => el.child(button(t, "rv-back-decision", "← Back to decision", () => openWorkflow(this.back.goalId, this.back.taskId), { size: "sm" })))
       .child(div().font_semibold().child("Review"))
-      .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim)
+      .child(div().flex_1().min_w(80).truncate().text_size(11).text_color(t.dim)
         .child(this.range ? this.range.label ?? this.root?.split("/").pop()
           : this.pr
           ? `${this.pr.repo.split("/")[1]} #${this.pr.number} · against ${this.pr.base}`
-          : `${this.root?.split("/").pop() ?? "No folder"}${this.scope === "all" && this.mergeBase ? ` · against ${this.baseName}` : ""}`)))
-      .child(h_flex().flex_wrap().gap(8).items_center()
+          : `${this.root?.split("/").pop() ?? "No folder"}${this.scope === "all" && this.mergeBase ? ` · against ${this.baseName}` : ""}`))
       .when(!this.range && (!this.pr || Boolean(this.seenMark())), (el) => el.child(this.scopePicker(t)))
       .when(this.files.length > 0, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim)
         .child(`${this.files.filter((f) => this.viewed(f.path)).length} of ${this.files.length} viewed`)))
@@ -626,7 +624,7 @@ export class ReviewDiff {
         { size: "sm", disabled: !this.files.some((f) => this.hashes.get(f.path) && !this.viewed(f.path)), tip: "Mark every file in this review as viewed. Changed files become unviewed again." }))
       .when(!this.range, (el) => el.child(button(t, "rv-mark-seen", "Save checkpoint", (cx) => cx.spawn(async (cx) => {
         await this.markSeen(cx);
-      }), { size: "sm", tip: "Set the baseline for Since I looked. This does not mark files viewed. Sending comments saves a checkpoint too." }))));
+      }), { size: "sm", tip: "Set the baseline for Since I looked. This does not mark files viewed. Sending comments saves a checkpoint too." })));
   }
 
   scopePicker(t) {
@@ -746,12 +744,16 @@ export class ReviewDiff {
       .child(TextView.markdown("rv-about-body", this.about.body).selectable(true).on_link_click(() => {}).w_full().text_size(13).text_color(t.foreground));
   }
 
-  footer(t, agent, n, ready) {
+  footer(t, agent, n, ready, mine = []) {
     return h_flex().h(44).flex_none().px(10).gap(8).items_center().border_t(1).border_color(t.border)
       .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted)
         .child(this.note ?? (agent
           ? `${n} ${n === 1 ? "comment" : "comments"} for ${agent.tab_name || agent.address}`
           : this.pr ? "A new agent will take them" : "No agent in this folder")))
+      .when(mine.length > 0, (el) => el.child(button(t, "rv-saved-toggle", `${mine.length} here ${this.savedOpen ? "▴" : "▾"}`, (cx) => {
+        this.savedOpen = !this.savedOpen;
+        cx.notify();
+      }, { kind: "ghost", size: "sm", tip: "Show or hide saved comments in this file" })))
       .when(n > 0, (el) => el.child(button(t, "rv-clear", this.clearing ? "Confirm" : "Clear", (cx) => {
         if (this.clearing) this.setComments([]);
         else this.clearing = true;
@@ -786,9 +788,9 @@ export class ReviewDiff {
       .when(Boolean(this.reading), (el) => el.child(this.description(t)))
       .when(!this.reading && Boolean(this.open), (el) => el.child(this.fileBar(t, font, mine)))
       .when(!this.reading, (el) => el.child(this.diff(t, font)))
-      .when(!this.reading && mine.length > 0, (el) => el.child(this.savedStrip(t, font, mine)))
+      .when(!this.reading && Boolean(this.savedOpen) && mine.length > 0, (el) => el.child(this.savedStrip(t, font, mine)))
       .when(!this.reading && this.editing !== null, (el) => el.child(this.commentEditor(t, font)))
       // A run's change has no agent to send comments to.
-      .when(!this.range, (el) => el.child(this.footer(t, agent, n, ready)));
+      .when(!this.range, (el) => el.child(this.footer(t, agent, n, ready, mine)));
   }
 }

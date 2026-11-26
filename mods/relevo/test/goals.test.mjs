@@ -161,6 +161,7 @@ test('Runs routes original PR review/actions to Reviews', async () => {
   assert.ok(find(tree, `review-pr-${key.slice(3)}`));
   assert.equal(find(tree, `source-link-${key}`), null);
   view.sel = `pr-${key.slice(3)}`;
+  click(find(view.render(cx), `more-pr-${key.slice(3)}`), cx);
   assert.ok(find(view.render(cx), `source-link-${key}`));
 });
 
@@ -202,7 +203,8 @@ test('linked quiet PR stays visible while saved evidence details stay out of its
   const tree = view.render(cx);
   assert.ok(find(tree, `pr-${key.slice(3)}`));
   assert.doesNotMatch(text(tree), /Unverified|Demo|Criteria:/);
-  assert.ok(find(tree, `source-link-${key}`));
+  click(find(tree, `more-pr-${key.slice(3)}`), cx);
+  assert.ok(find(view.render(cx), `source-link-${key}`));
   assert.equal(view.goalProjection.groups[0].items.length, 1);
 });
 

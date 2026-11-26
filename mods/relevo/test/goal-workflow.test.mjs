@@ -197,7 +197,7 @@ test('paused work and pending review have distinct actions; the topbar switches 
   const bar = new InboxButton();
   const tabs = bar.render();
   assert.match(text(find(tabs, 'reviews-toggle')), /^Reviews/);
-  assert.equal(text(find(tabs, 'runs-toggle')), 'Runs');
+  assert.equal(text(find(tabs, 'runs-toggle')), 'Runs 1');
   click(find(tabs, 'reviews-toggle'), cx);
   assert.equal(fake.stored[GOAL_MODE], false);
   assert.equal(JSON.stringify(v.goalDoc), data);
@@ -283,7 +283,9 @@ test('linked PRs outside the ordinary queue remain reachable once in Reviews, in
   fake.stored[GOAL_MODE] = false; v.sel = `pr-${pr.url}`;
   let tree = v.render(cx);
   assert.ok(find(tree, `pr-${pr.url}`));
-  assert.ok(find(tree, `source-link-pr:${pr.url}`));
+  click(find(tree, `more-pr-${pr.url}`), cx);
+  assert.ok(find(v.render(cx), `source-link-pr:${pr.url}`));
+  v.closeActionMenu(cx);
   assert.equal(v.nav.filter((entry) => entry.id === `pr-${pr.url}`).length, 1);
   v.mine = [pr]; v.expanded['now-open'] = true; tree = v.render(cx);
   assert.equal(v.linkedReviews(v.shown()).length, 0, 'ordinary queue entry owns the PR');

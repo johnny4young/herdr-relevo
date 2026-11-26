@@ -635,15 +635,16 @@ export class RunViews {
     return [
       ...(this.confirmClose === goal.id ? [div().px(8).child(this.closeConfirm(t, goal))] : []),
       ...(outside > 0 ? [line(`${outside} need attention elsewhere`, t, true)] : []),
-      tasks.length ? h_flex().id("run-summary").flex_wrap().px(8).pb(4).gap(5).text_size(11).text_color(t.muted)
-        .child(div().child(summary.head))
-        .children(summary.parts.map((part, i) => div().when(part.hot, (el) => el.font_semibold().text_color(t.blocked)).child(i ? `· ${part.text}` : part.text)))
+      tasks.length ? v_flex().id("run-meta-compact").px(8).pb(4).gap(2)
+        .child(h_flex().id("run-summary").flex_wrap().gap(5).text_size(11).text_color(t.muted)
+          .child(div().child(summary.head))
+          .children(summary.parts.map((part, i) => div().when(part.hot, (el) => el.font_semibold().text_color(t.blocked)).child(i ? `· ${part.text}` : part.text))))
+        .child(this.runCost(t, entry))
+        .when(Boolean(progress), (el) => el.child(div().id(`goal-progress-${goal.id}`).text_size(11).text_color(t.dim).truncate().tooltip(progress).child(progress)))
         : h_flex().id("run-summary").px(8).pb(4).gap(8).items_center()
           .child(div().flex_1().min_w(0).text_size(13).text_color(entry.hot ? t.blocked : t.muted).child(entry.now))
           .when(entry.action.kind !== "open", (el) => el.child(this.runAction(t, entry, `run-action-${goal.id}`))),
-      ...(tasks.length ? [this.runCost(t, entry)] : []),
       ...(this.workflowError ? [line(this.workflowError, t, true)] : []),
-      ...(progress && tasks.length ? [line(progress, t).id(`goal-progress-${goal.id}`)] : []),
       ...group("me", "Needs me"), ...group("stuck", "Stuck"), ...group("flight", "In flight"),
       ...(rest.length ? [foldRow(this, t, "run-rest-fold", REST, `${bucket.open.length} not started · ${bucket.done.length} done`, { gap: true })] : []),
       ...(this.expanded[REST] ? rows(rest) : []),
@@ -811,9 +812,13 @@ export class RunViews {
       ...(linked ? [line(`Also resolves: ${caption(goal.decision, 120)}`, t)] : []),
       ...this.taskFiles(t, task),
       v_flex().id("task-how").px(8).pt(10).gap(3)
-        .child(div().text_size(11).font_semibold().text_color(t.muted).child(`How it went${tries > 1 ? ` · ${tries} tries` : ""}`))
+        .child(h_flex().gap(8).items_center()
+          .child(div().flex_1().text_size(11).font_semibold().text_color(t.muted).child(`How it went${tries > 1 ? ` · ${tries} tries` : ""}`))
+          .when(canCompare(task), (el) => el.child(button(t, "task-attempts-toggle", this.attemptsOpen === task.id ? "Hide tries" : `${tries} tries ▾`, (cx) => {
+            this.attemptsOpen = this.attemptsOpen === task.id ? null : task.id; cx.notify();
+          }, { kind: "ghost", size: "sm" }))))
         .children(taskLegs(task).map((leg) => this.legLine(t, leg))),
-      ...(canCompare(task) ? [v_flex().id("task-attempts").px(8).pt(6).gap(2).children(this.attemptLines(t, task))] : []),
+      ...(canCompare(task) && this.attemptsOpen === task.id ? [v_flex().id("task-attempts").px(8).pt(6).gap(2).children(this.attemptLines(t, task))] : []),
       this.taskDecision(t, goal, task, tasks),
     ];
   }
@@ -873,9 +878,9 @@ export class RunViews {
           { kind: "solid", disabled: Boolean(this.runBusy) || !this.runChange.value().trim(), tip: "⌘Enter" }))
         .child(button(t, "task-changes-cancel", "Cancel", (cx) => { this.cancelRunChanges(); cx.notify(); }, { kind: "ghost", disabled: Boolean(this.runBusy) })));
     if (task.pr) return this.prReviewDecision(t, goal, task, tasks, keyed, confirming, diff, more);
-    const effect = `${task.worktree?.prHead ? `Accepting commits to the run branch and pushes it onto ${task.worktree.prHead}, never forced. `
-      : draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Accepting commits to the run branch, pushes it and opens a draft pull request on GitHub. "
-      : task.worktree ? "Accepting keeps the worktree and commits to its run branch. " : ""}${acceptanceEffect(task, tasks, this.workflowEngine)}`;
+    const effect = [task.worktree?.prHead ? `Commits to run branch → pushes to ${task.worktree.prHead}`
+      : draftOnAccept(task, config.RUN_DRAFT_PR !== false) ? "Commits to run branch → opens draft PR"
+      : task.worktree ? "Keeps worktree · commits to run branch" : "", acceptanceEffect(task, tasks, this.workflowEngine)].filter(Boolean).join(" · ");
     const push = task.state === "accepted" && task.worktree?.prHead && !task.worktree.pushed && !task.worktree.removed;
     return v_flex().id("task-decision").px(8).pt(8).gap(6)
       .when(picks.size > 0 || retry, (el) => el.child(this.picksBar(t, task, picks.size, retry ? retryPlan : plan)))
