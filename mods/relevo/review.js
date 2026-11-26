@@ -542,13 +542,14 @@ export class ReviewDiff {
     const message = reviewMessage(this.comments, this.subject());
     // Until hc send answers the comments are still here, so a second press would send them twice.
     this.sending = true;
+    const sent = new Set(this.comments);
     cx.notify();
     cx.spawn(async (cx) => {
       try {
         const r = await exec("hc", ["send", agent.address, message]);
         if (r.code !== 0) this.note = r.stderr.trim().split("\n")[0] || "hc send failed";
         else {
-          this.setComments([]);
+          this.setComments(this.comments.filter((c) => !sent.has(c)));
           this.note = `Sent to ${agent.tab_name || agent.address}`;
           run("agent.focus", { terminal: agent.address });
         }

@@ -22,6 +22,8 @@ import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow,
 import { canCompare, diffFiles, tookWords } from "./lib/run-compare.js";
 import { filterArchive, parseArchiveLines } from "./lib/archive-view.js";
 
+const ARCHIVE_CHUNK = 7 * 1024 * 1024, ARCHIVE_BUDGET = 32 * 1024 * 1024;
+
 // Linked PR URLs known to have merged, kept after the landing list lets them go.
 // A deep review is one row, whatever its reviewers are doing: the reviewer most in need of you stands for it.
 const leads = (tasks, task) => !task.pr || reviewLead(tasks.filter((x) => x.pr?.url === task.pr.url))?.id === task.id;
@@ -598,9 +600,18 @@ export class RunViews {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
+        // exec returns at most 8 MiB: newest months first, each read from its end, where appends land.
         const dir = `${appHome()}/relevo-workflow/archive`;
-        const r = await exec("sh", ["-c", 'cat "$1"/*.jsonl 2>/dev/null || true', "sh", dir]);
-        this.archivedRuns = parseArchiveLines(r.stdout ?? "");
+        const ls = await exec("ls", ["-1", dir]).catch(() => null);
+        const months = String(ls?.stdout ?? "").split("\n").filter((f) => /^\d{4}-\d{2}\.jsonl$/.test(f)).sort().reverse();
+        const chunks = [];
+        for (let i = 0, budget = ARCHIVE_BUDGET; i < months.length && budget > 0; i++) {
+          const r = await exec("tail", ["-c", String(Math.min(ARCHIVE_CHUNK, budget)), `${dir}/${months[i]}`]).catch(() => null);
+          if (r?.code !== 0) continue;
+          chunks.unshift(r.stdout ?? "");
+          budget -= r.stdout?.length ?? 0;
+        }
+        this.archivedRuns = parseArchiveLines(chunks.join("\n"));
       } catch {
         this.archivedRuns = [];
       } finally {

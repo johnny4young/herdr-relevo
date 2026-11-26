@@ -1,5 +1,11 @@
 // Pure health summary for the Settings Diagnostics panel.
 
+// --check prints one line per account; name the first one that is not installed.
+const hookProblem = (hook) => {
+  const lines = `${hook.stdout ?? ""}\n${hook.stderr ?? ""}`.split("\n").map((l) => l.trim()).filter(Boolean);
+  return (lines.find((l) => !/: (installed|no such folder, skipped)$/.test(l)) ?? lines[0] ?? "missing or outdated").slice(0, 80);
+};
+
 export function summarizeDiagnostics({ git, ghAuth, hc, hook, state, quotas, accounts = [] }) {
   const rows = [];
   const gitVer = /\d+\.\d+\.\d+/.exec(git?.stdout ?? "")?.[0];
@@ -33,7 +39,7 @@ export function summarizeDiagnostics({ git, ghAuth, hc, hook, state, quotas, acc
       status: hook.code === 0 ? "ok" : "warn",
       detail: hook.code === 0
         ? "installed"
-        : (hook.stdout || hook.stderr || "missing or outdated").trim().split("\n")[0].slice(0, 80),
+        : hookProblem(hook),
     });
   }
   const tasks = Array.isArray(state?.tasks) ? state.tasks : null;

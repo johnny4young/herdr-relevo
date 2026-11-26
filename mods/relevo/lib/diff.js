@@ -98,19 +98,30 @@ export const reviewMessage = (comments, subject = "the uncommitted changes") =>
   `Review comments on ${subject}. Address each one, then summarize what you changed.\n\n`
   + comments.map((c, i) => formatComment(c, i + 1)).join("\n\n");
 
+// A render asks for these several times; rows arrays are replaced, never edited, so each one is scanned once.
+const hunkCache = new WeakMap(), matchCache = new WeakMap();
+
 export function hunkIndices(rows) {
-  const out = [];
-  for (let i = 0; i < (rows?.length ?? 0); i++) if (rows[i]?.kind === "@") out.push(i);
+  if (!rows) return [];
+  let out = hunkCache.get(rows);
+  if (!out) {
+    out = [];
+    for (let i = 0; i < rows.length; i++) if (rows[i]?.kind === "@") out.push(i);
+    hunkCache.set(rows, out);
+  }
   return out;
 }
 
 export function searchMatches(rows, query) {
   const q = String(query ?? "").trim().toLowerCase();
-  if (!q) return [];
+  if (!q || !rows) return [];
+  const hit = matchCache.get(rows);
+  if (hit?.q === q) return hit.out;
   const out = [];
-  for (let i = 0; i < (rows?.length ?? 0); i++) {
+  for (let i = 0; i < rows.length; i++) {
     if (String(rows[i]?.text ?? "").toLowerCase().includes(q)) out.push(i);
   }
+  matchCache.set(rows, { q, out });
   return out;
 }
 

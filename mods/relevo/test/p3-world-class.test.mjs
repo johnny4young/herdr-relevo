@@ -123,6 +123,10 @@ test("ReviewDiff supports hunk navigation (n/p), diff search (/), and GitHub pen
   ]);
   assert.deepEqual(hunkIndices(sample), [0, 4]);
   assert.deepEqual(searchMatches(sample, "newVal"), [3, 7]);
+  assert.equal(searchMatches(sample, "newVal"), searchMatches(sample, " NEWVAL "), "one scan per rows and query");
+  assert.deepEqual(searchMatches(sample, "oldVal"), [2, 6]);
+  assert.deepEqual(searchMatches(sample.slice(0, 4), "newVal"), [3]);
+  assert.equal(hunkIndices(sample), hunkIndices(sample));
 
   const draft = githubDraftReview([
     { file: "a.js", scope: "file", key: "file", text: "Overall clean" },
@@ -216,6 +220,26 @@ test("Post draft review pins the reviewed commit and refuses uncommitted comment
   v.close();
 });
 
+test("Send to agent keeps a comment saved while hc send was running", async () => {
+  fake.props = { root: "/work/app", terminal: "t1" };
+  fake.agents = [{ address: "t1", tab_name: "app", cwd: "/work/app" }];
+  let release;
+  const held = new Promise((r) => { release = r; });
+  fake.exec = (cmd) => (cmd === "hc" ? held.then(() => ({ code: 0, stdout: "", stderr: "" })) : { code: 0, stdout: "tree123\n" });
+  const v = new ReviewDiff(), cx = fakeCx();
+  v.init({}, cx);
+  const first = { file: "a.js", key: "+3", line: 3, side: "+", code: "x", text: "Sent" };
+  const later = { file: "a.js", key: "+4", line: 4, side: "+", code: "y", text: "Added while sending" };
+  v.setComments([first]);
+  v.send(cx);
+  await flush();
+  v.setComments([...v.comments, later]);
+  release();
+  await flush(); await flush();
+  assert.deepEqual(v.comments, [later]);
+  v.close();
+});
+
 test("Post draft review keeps a comment saved while the post was in flight", async () => {
   fake.props = { root: "/work/app", pr: { repo: "acme/app", number: 12, url: "https://github.com/acme/app/pull/12", base: "main", head: "feat" } };
   let release;
@@ -248,7 +272,15 @@ test("Runs Archive parses, filters, and renders searchable archived tasks on dem
   const many = Array.from({ length: 250 }, (_, i) => JSON.stringify({ archivedAt: new Date(Date.UTC(2026, 0, 1) + i * 60_000).toISOString(), task: { id: `m${i}`, title: i === 0 ? "oldest needle" : `run ${i}` } })).join("\n");
   assert.deepEqual(filterArchive(parseArchiveLines(many), "needle").map((x) => x.id), ["m0"], "search reaches past the newest 200");
 
-  fake.exec = (cmd, args) => (cmd === "sh" && String(args[1]).includes("*.jsonl") ? { code: 0, stdout: lines } : null);
+  const archive = "/home/test/.config/herdr-app/relevo-workflow/archive";
+  const months = { "2026-10.jsonl": JSON.stringify({ archivedAt: "2026-10-01T10:00:00Z", task: { id: "t2", title: "Old copy", state: "accepted" } }), "2026-11.jsonl": lines };
+  const tails = [];
+  const archiveExec = (cmd, args) => {
+    if (cmd === "ls" && args[1] === archive) return { code: 0, stdout: ".pending-x.jsonl\n2026-10.jsonl\n2026-11.jsonl\nnotes.txt\n" };
+    if (cmd === "tail") { tails.push(args[2].split("/").pop()); return { code: 0, stdout: months[args[2].split("/").pop()] }; }
+    return null;
+  };
+  fake.exec = archiveExec;
   const inbox = new Inbox(), cx = fakeCx();
   inbox.init({}, cx); await flush();
   fake.stored[GOAL_MODE] = true;
@@ -257,12 +289,14 @@ test("Runs Archive parses, filters, and renders searchable archived tasks on dem
   const tree = inbox.render(cx);
   assert.ok(find(tree, "archive-row-t2"));
   assert.ok(find(tree, "archive-pr-t1"));
+  assert.deepEqual(tails, ["2026-11.jsonl", "2026-10.jsonl"], "newest month first, pending files skipped");
+  assert.equal(inbox.archivedRuns.find((x) => x.id === "t2").title, "Fix cache race", "the newer record of a run wins");
   inbox.archiveQuery.set_value("cache");
   const filtered = inbox.render(cx);
   assert.ok(find(filtered, "archive-row-t2"));
   assert.equal(find(filtered, "archive-row-t1"), null);
   let reads = 0;
-  fake.exec = (cmd, args) => (cmd === "sh" && String(args[1]).includes("*.jsonl") ? (reads++, { code: 0, stdout: lines }) : null);
+  fake.exec = (cmd, args) => (cmd === "ls" && reads++, archiveExec(cmd, args));
   inbox.workflowTasks = [];
   inbox.archiveRuns([{ id: "g1", title: "Done" }], cx);
   await flush();
@@ -282,6 +316,8 @@ test("Settings renders live Health diagnostics section", async () => {
   });
   assert.equal(summary.find((r) => r.id === "git").status, "ok");
   assert.equal(summary.find((r) => r.id === "gh").detail, "signed in as dev");
+  const hook = summarizeDiagnostics({ hook: { code: 1, stdout: "personal (.claude): installed\nwork (.claude-work): outdated\n" } });
+  assert.equal(hook.find((r) => r.id === "hook").detail, "work (.claude-work): outdated");
   const stale = summarizeDiagnostics({ ghAuth: { code: 1, stdout: "github.com\n  X Failed to log in to github.com account old (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account dev (keyring)\n  - Active account: true\n" } });
   assert.equal(stale.find((r) => r.id === "gh").detail, "signed in as dev", "a broken inactive account does not mark gh signed out");
   assert.equal(summary.find((r) => r.id === "quotas").status, "warn");
