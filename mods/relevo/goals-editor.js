@@ -13,7 +13,8 @@ import { noteUse } from "./run-usage.js";
 import { focusedCwd } from "./panelbar.js";
 import { accountOf, loadClaudeQuotas } from "./accounts.js";
 import { runAccountsFor, runQuotaAdvice } from "./workflow-runs.js";
-import { parseIssueRef, issuePrompt } from "./lib/issue-prompt.js";
+import { parseIssueRef, issuePrompt, issueTitle } from "./lib/issue-prompt.js";
+import { githubRepo, withoutLogin } from "./lib/git.js";
 import { RUN_START } from "./run-launcher.js";
 import { GOAL_MODE, GOAL_SCOPE } from "./inbox-goals.js";
 import { showPanel } from "./toolbar.js";
@@ -146,14 +147,29 @@ export class GoalEditor {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
+        // Another repo's issue text would land in this repo's PR body: the second Load confirms it.
+        const root = this.runDefaults?.root;
+        if (ref.repo && root) {
+          const origin = await exec("git", ["-C", root, "remote", "get-url", "origin"]).catch(() => null);
+          const here = origin?.code === 0 ? githubRepo(withoutLogin(origin.stdout)) : null;
+          const key = `${ref.repo}#${ref.number}`.toLowerCase();
+          if (here && here.toLowerCase() !== ref.repo.toLowerCase() && this.crossRepoOk !== key) {
+            this.crossRepoOk = key;
+            this.error = `${ref.repo} is not this run's repository (${here}): its issue text would go into this repo's PR. Load again to import it anyway.`;
+            return;
+          }
+        }
         const args = ["issue", "view", ref.number, ...(ref.repo ? ["--repo", ref.repo] : []), "--json", "number,title,body,url,labels"];
         const r = await exec("gh", args, this.runDefaults?.root ? { cwd: this.runDefaults.root } : undefined);
         if (this.closed) return;
         if (r.code !== 0) throw Error((r.stderr || "gh issue view failed").trim().split("\n")[0]);
         const issue = JSON.parse(r.stdout || "{}");
         if (!issue?.number) throw Error("Could not read issue details.");
-        if (!this.fields.title.value().trim()) this.fields.title.set_value(`#${issue.number} · ${issue.title ?? ""}`.slice(0, 240));
-        this.fields.criteria.set_value(issuePrompt(issue));
+        const typed = this.fields.criteria.value().trim(), room = TEXT_MAX - (typed ? typed.length + 2 : 0);
+        if (room < 400) throw Error("the prompt is too long to add the issue; shorten it first.");
+        if (!this.fields.title.value().trim()) this.fields.title.set_value(issueTitle(issue));
+        this.fields.criteria.set_value(typed ? `${typed}\n\n${issuePrompt(issue, room)}` : issuePrompt(issue));
+        this.crossRepoOk = null;
         this.issueOpen = false;
         this.issueRef.set_value("");
         this.fields.criteria.focus();

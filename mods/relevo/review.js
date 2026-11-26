@@ -571,9 +571,20 @@ export class ReviewDiff {
     cx.notify();
     cx.spawn(async (cx) => {
       try {
+        // Line numbers come from this checkout: GitHub must anchor them to the same commit, with nothing uncommitted on top.
+        const git = (args) => exec("git", [...READ, ...args], { cwd: this.root });
+        if (!this.pr.ref && (await git(["diff", "--quiet", "HEAD", "--", ...new Set(this.comments.map((c) => c.file))])).code !== 0) {
+          this.note = "Commit and push the commented files first, or send the comments to the agent";
+          return;
+        }
+        const commit = (await git(["rev-parse", "--verify", this.pr.ref ?? "HEAD"])).stdout.trim();
         const post = (review) => exec("sh", ["-c", 'printf "%s" "$1" | gh api -X POST "$2" --input -', "sh",
-          JSON.stringify(review), `repos/${owner}/${repo}/pulls/${this.pr.number}/reviews`]);
+          JSON.stringify({ ...review, ...(commit ? { commit_id: commit } : {}) }), `repos/${owner}/${repo}/pulls/${this.pr.number}/reviews`]);
         let r = await post(githubDraftReview(this.comments, true)), inline = true;
+        if (r.code !== 0 && /commit_id|commit sha|no commit found/i.test(r.stderr ?? "")) {
+          this.note = "This checkout's commit is not on the PR yet: push it before posting";
+          return;
+        }
         if (r.code !== 0 && /line|position|diff|422/i.test(r.stderr ?? "")) { inline = false; r = await post(githubDraftReview(this.comments, false)); }
         if (r.code !== 0) {
           this.note = (r.stderr || "gh failed").trim().split("\n")[0];

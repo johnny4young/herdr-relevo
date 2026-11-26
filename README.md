@@ -35,7 +35,7 @@ Spanish for relay: the work passes between you and your agents, and the list alw
 
 The panel has two views. **Reviews** is described below. Besides review requests, it lists people's open PRs on your repos, asked or not, until you review their last push; Settings › Reviews adds orgs or other owners (`REVIEW_OWNERS`), and bots stay out. **Runs** is for work you hand off: one agent writes it, your tests run, a second agent reviews it, and the result waits for your decision.
 
-1. **New run** (`n`) takes a prompt (or **From issue…** to import a GitHub issue `#123` or URL with safe delimiters). Its first line names the run.
+1. **New run** (`n`) takes a prompt (or **From issue…** to add a GitHub issue `#123` or URL below it, with safe delimiters; an issue from another repository asks first). Its first line names the run.
 2. When a repository is focused, **Start run** launches immediately with prefilled defaults (`repo · own worktree · writer → reviewer`) chosen from accounts with comfortable quota room (automatically avoiding accounts full or filling within 15 minutes); **Choose agents →** opens the full setup window when you want to adjust agents, worktree or tests.
 3. **Start**. By default the run gets its own worktree, `run/<slug>` under `~/.herdr/worktrees/<repo>/`, and its writer opens there in a tab. The reviewer opens in a second tab when the writing is done and its tests have run. If an agent asks whether to trust the new folder, Runs shows it under Needs me with **Trust and continue**. **Existing sessions** uses agents you already have open in the repository instead.
 4. The result appears under **Needs me**, in Reviews with its agents, attempt, tests, verdict and age, and in Runs on its run. Open it to read where it stands in one line, the writer's summary, the files it changed and who did what. **Review** (**D**, or a click on a file) opens the change beside the panel. Then accept (**A**, then Enter: **Accept and open draft PR**) or ask for changes (**R**). **Ask to fix** on a reviewer's finding marks it, and **Send feedback** asks the writer for every marked finding, whole, with your note. Accepting the last open task takes you back to Runs, on that run. A run the agents could not finish shows as **Stuck**; **See why** opens it on the reviewer's finding.
@@ -129,7 +129,7 @@ which ones wait for you, what changed on your PRs and how much quota and agent t
 
 ### Review a whole PR, then hand the comments to its agent
 
-Click a line or shift-click a range, comment, and **Send to agent** (or **Post draft review** to save them as a pending GitHub draft review you can edit and submit). Jump between hunks with `n`/`p`, search the diff with `/`, and switch files with `[`/`]`. Your PR cards open the PR against its base even
+Click a line or shift-click a range, comment, and **Send to agent** (or **Post draft review** to save them as a pending GitHub draft review on the commit you reviewed; commit and push the commented files first). Jump between hunks with `n`/`p`, search the diff with `/`, and switch files with `[`/`]`. Your PR cards open the PR against its base even
 when the branch isn't checked out.
 
 ![The review pane with range and line comments](screenshots/review.png)

@@ -79,13 +79,17 @@ export class DeepReviewDialog {
   quotaAdvice() {
     if (!this.quotas) return [];
     const candidates = runnableAccounts().map((a) => a.key);
-    return this.rows.map((r, i) => {
-      const resolved = r.account === "repo" ? accountFor(this.pr.repo) : r.account;
-      const risk = quotaRisk(this.quotas?.[resolved]);
-      if (!risk) return null;
-      const alt = bestAlternate(resolved, candidates, this.quotas);
-      return { index: i, row: r, account: resolved, risk, alt };
-    }).filter(Boolean);
+    const resolve = (r) => (r.account === "repo" ? accountFor(this.pr.repo) : r.account);
+    // Reviewers stay on different accounts, so no account takes two reviewers' load.
+    const taken = new Set(this.rows.map(resolve)), out = [];
+    this.rows.forEach((r, i) => {
+      const resolved = resolve(r), risk = quotaRisk(this.quotas?.[resolved]);
+      if (!risk) return;
+      const alt = bestAlternate(resolved, candidates.filter((k) => !taken.has(k)), this.quotas);
+      if (alt) taken.add(alt.key);
+      out.push({ index: i, row: r, account: resolved, risk, alt });
+    });
+    return out;
   }
 
   switchTightAccounts(cx) {
@@ -183,7 +187,7 @@ export class DeepReviewDialog {
 
   render() {
     const t = theme(), errors = this.errors(), n = this.rows.length, advice = this.quotaAdvice();
-    const switchTarget = advice.find((a) => a.alt)?.alt ?? null;
+    const targets = advice.filter((a) => a.alt).map((a) => accountOf(a.alt.key).label);
     return v_flex().id("deep-review-dialog").w_full().p(18).gap(14).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
       .track_focus(this.h).on_key_down((e, cx) => this.key(e, cx))
       .child(h_flex().items_center().gap(8)
@@ -195,7 +199,7 @@ export class DeepReviewDialog {
       .when(advice.length > 0, (el) => el.child(h_flex().id("deep-quota-warn").px(10).py(6).gap(8).items_center().rounded(7).bg(t.raised)
         .child(div().flex_1().min_w(0).text_size(11).text_color(t.ansi3)
           .child(advice.map((a) => `${accountOf(a.account).label} ${a.risk.reason}`).join(" · ")))
-        .when(Boolean(switchTarget), (row) => row.child(button(t, "deep-quota-switch", `Switch to ${accountOf(switchTarget.key).label}`,
+        .when(targets.length > 0, (row) => row.child(button(t, "deep-quota-switch", `Switch to ${targets.join(", ")}`,
           (cx) => this.switchTightAccounts(cx), { size: "sm", kind: "outline" })))))
       .children(errors.map((e, i) => div().id(`deep-error-${i}`).text_size(11).text_color(t.blocked).child(e.message)))
       .child(h_flex().gap(8).items_center().pt(4).border_t(1).border_color(t.border)

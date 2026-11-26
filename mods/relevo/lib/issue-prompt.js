@@ -24,6 +24,13 @@ const safeText = (s) => {
   return out;
 };
 
+// The run title reaches role prompts outside the fence: one short line with no markup.
+export function issueTitle(issue, max = 80) {
+  const title = safeText(issue.title).replace(/[\u0000-\u001f\u007f<>`]/g, " ").replace(/\s+/g, " ").trim();
+  const head = `#${issue.number} · `, room = Math.max(0, max - head.length);
+  return head + (title.length > room ? `${title.slice(0, Math.max(0, room - 1))}…` : title);
+}
+
 export function issuePrompt(issue, max = TEXT_MAX) {
   const labels = (issue.labels ?? []).map((l) => (typeof l === "string" ? l : l?.name)).filter(Boolean);
   const head = [
