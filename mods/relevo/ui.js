@@ -138,10 +138,11 @@ export const TURN_LABEL = { me: "Needs me", flight: "In flight", ready: "Ready",
 export const meTint = (t) => `${t.blocked}12`;
 
 // lane · body (kind, what, why) · edge (age, the one action). `lines` always show under the title;
-// `below` holds the selected row's extra lines. Narrow, the title gives way before the reason.
+// `below` holds the selected row's extra lines. Needs me/stuck/worktrees put `reason` on a second line so narrow panels never clip it.
 export function row(t, id, { turn = "open", kind = null, title, reason = null, sub = null, lines = null, age = null, action = null,
-  selected = false, onSelect = null, below = null, tip = null, narrow = false, machine = null } = {}) {
+  selected = false, onSelect = null, below = null, tip = null, narrow = false, machine = null, twoLine = null } = {}) {
   const hot = turn === "me" || turn === "stuck";
+  const stacked = Boolean(reason) && (twoLine ?? hot);
   // Another machine's row wears that machine's Spaces color as a dot before its title.
   const where = machine ? `${machine.name}${machine.away ? " (offline)" : ""}` : null;
   return v_flex().id(id).flex_none().rounded(6).border_1().border_color(selected ? t.accent : `${t.accent}00`)
@@ -154,10 +155,12 @@ export function row(t, id, { turn = "open", kind = null, title, reason = null, s
         .child(h_flex().gap(7).items_center().min_w(0)
           .when(Boolean(kind), (el) => el.child(icon(kind, hot ? t.blocked : t.muted)))
           .when(Boolean(machine), (el) => el.child(div().id(`${id}-machine`).size(7).flex_none().rounded_full().bg(machine.color).accessibility_label(where)))
-          .child(div().min_w(narrow ? 48 : 0).truncate().font_semibold().text_size(13).child(title))
-          .when(Boolean(reason), (el) => el.child(div().min_w(0).truncate().text_size(13)
+          .child(div().min_w(narrow ? 48 : 0).when(stacked, (el) => el.flex_1()).truncate().font_semibold().text_size(13).child(title))
+          .when(Boolean(reason) && !stacked, (el) => el.child(div().min_w(0).truncate().text_size(13)
             .when(narrow, (r) => r.max_w(100)).when(!narrow, (r) => r.flex_1())
             .text_color(hot ? t.blocked : t.muted).child(reason))))
+        .when(stacked, (el) => el.child(div().id(`${id}-reason`).pl(kind ? 19 : 0).min_w(0).truncate().text_size(11)
+          .text_color(hot ? t.blocked : t.muted).tooltip(reason).child(reason)))
         .when(Boolean(sub), (el) => el.child(h_flex().pl(19).gap(7).items_center().min_w(0).text_size(11).text_color(t.muted).child(sub)))
         .when(Boolean(lines), (el) => el.children(lines)))
       .when(age != null, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(age)))

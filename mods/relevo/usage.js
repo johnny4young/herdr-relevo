@@ -1,12 +1,12 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { theme, run, openOverlay, shared } from "herdr";
+import { theme, run, openOverlay, closeOverlay, props, shared } from "herdr";
 import { agentAccounts } from "./accounts.js";
 import { ago } from "./lib/time.js";
 import { RANGES, compact, summarize } from "./lib/usage.js";
 import { USAGE, readReport } from "./usage-scan.js";
 import { TURNS } from "./turns.js";
-import { button, spinner, withKey, icon } from "./ui.js";
+import { button, grabFocus, held, spinner, withKey, icon } from "./ui.js";
 
 const NEW_TIP = "New context: tokens cached for the first time. Rereading the cache costs far less, so this and output are what grow a session's cost";
 const QUOTA_TIP = "Tokens are not quota: Anthropic doesn't publish how a subscription weighs them";
@@ -29,8 +29,22 @@ export class UsageDialog {
   init(_props, cx) {
     this.range = "7d";
     this.account = null;
+    this.h = cx.focus_handle?.();
+    if (this.h) grabFocus(this.h, cx, () => !this.gone);
     this.load(cx);
     run("relevo.usage-scan");
+  }
+
+  close() {
+    this.gone = true;
+    this.h?.release();
+  }
+
+  key(e, cx) {
+    if (held(e) || e.key !== "escape") return;
+    const overlay = props()?.overlay;
+    if (overlay) closeOverlay(overlay);
+    cx.stop_propagation();
   }
 
   load(cx) {
@@ -113,7 +127,7 @@ export class UsageDialog {
   }
 
   sessions(t, list) {
-    const named = { desktop: "Claude Desktop", terminal: "Terminal" };
+    const named = { desktop: "Claude Desktop", terminal: "Terminal", codex: "Codex", agy: "Antigravity" };
     return v_flex()
       .child(title(t, "BIGGEST SESSIONS", "Whole sessions that were active in this range"))
       .children(list.map((x) => v_flex().id(`ss-${x.id}`).py(3).flex_none()
@@ -129,10 +143,12 @@ export class UsageDialog {
     const reading = usage.total && usage.done < usage.total;
     const t = theme(), days = RANGES.find(([key]) => key === this.range)[2];
     const s = this.report ? summarize(this.report, days, this.account) : null;
-    const accounts = [[null, "All"], ...agentAccounts().map((a) => [a.key, a.label])];
+    const active = agentAccounts().map((a) => [a.key, a.label]);
+    if (!active.some(([k]) => k === "agy") && this.report?.rows?.some((r) => r.account === "agy")) active.push(["agy", "Antigravity"]);
+    const accounts = [[null, "All"], ...active];
     const empty = s && !s.total.output && !s.total.write;
     const header = h_flex().h(44).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
-      .child(div().id("usage-title").font_semibold().text_size(13).tooltip(QUOTA_TIP).child("Tokens"))
+      .child(div().id("usage-title").font_semibold().text_size(13).tooltip(QUOTA_TIP).child("Tokens & Usage"))
       .child(segment(t, "usage-range", RANGES, this.range, (key, cx) => {
         this.range = key;
         cx.notify();
@@ -149,7 +165,7 @@ export class UsageDialog {
       .child(button(t, "usage-refresh", [icon("refresh")], () => run("relevo.usage-scan"), { tip: withKey("Read again", "relevo.usage"), disabled: Boolean(reading) }));
     const center = (el) => h_flex().flex_1().justify_center().items_center().text_size(13).text_color(t.dim).child(el);
     const body = !s
-      ? center(reading || !this.loaded ? "Reading transcripts…" : "No tokens yet")
+      ? center(reading || !this.loaded ? "Reading transcripts…" : "No tokens yet (Claude, Codex, Antigravity)")
       : empty
         ? center(reading ? "Reading transcripts…" : "No tokens in this range")
         : v_flex().id("usage-body").flex_1().min_h(0).overflow_y_scrollbar().p(12).gap(14)
@@ -160,6 +176,9 @@ export class UsageDialog {
             .child(v_flex().w(320).flex_none().gap(14)
               .child(this.kinds(t, s))
               .when(s.sessions.length > 0, (el) => el.child(this.sessions(t, s.sessions)))));
-    return v_flex().id("relevo-usage").size_full().bg(t.popover ?? t.surface).text_color(t.foreground).child(header).child(body);
+    return v_flex().id("relevo-usage").size_full().bg(t.popover ?? t.surface).text_color(t.foreground)
+      .when(Boolean(this.h), (el) => el.track_focus(this.h))
+      .on_key_down((e, cx) => this.key(e, cx))
+      .child(header).child(body);
   }
 }

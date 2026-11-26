@@ -421,25 +421,34 @@ export class PrViews {
     const l = this.launchedMap()[pr.url], agent = this.prAgents[pr.url], seen = this.seen(pr), busy = Boolean(l) && this.prBusy(pr);
     const reviewed = Boolean(l && seen) && (!agent || agent.status === "idle" || agent.status === "done") && l.skill === "review";
     const openPR = { id: `open-${pr.url}`, key: "o", label: "Open PR", run: () => openUrl(pr.url), kind: reviewed ? "solid" : "outline" };
-    const actions = reviewed ? [openPR] : [];
-    if (agent) actions.push({ id: `agent-${pr.url}`, label: "Agent", run: () => run("agent.focus", { terminal: agent.address }) });
+    const all = reviewed ? [openPR] : [];
+    if (agent) all.push({ id: `agent-${pr.url}`, label: "Agent", run: () => run("agent.focus", { terminal: agent.address }) });
     if (this.clones[pr.repo] && !(seen && agent) && !busy) {
-      // Built only when drawn: a row that isn't open shows its first action alone.
-      pr.skills.forEach((s) => actions.push({ el: () => this.skillButton(t, pr, s, !seen && !requested && (s === "conflicts" || (pr.hot && s === "fix"))) }));
+      // Built only when drawn: a row that isn't open shows its first action alone; `run` aligns Enter and ⌘K.
+      pr.skills.forEach((s) => all.push({
+        id: `skill-${s}-${pr.url}`,
+        text: configuredSkill(s)?.name ?? s,
+        run: () => {
+          launchSkill(pr, s, pickAccount(pr.repo, this.quotas).key, this.clones[pr.repo]);
+          this.publish();
+        },
+        el: () => this.skillButton(t, pr, s, !seen && !requested && (s === "conflicts" || (pr.hot && s === "fix"))),
+      }));
     }
-    if (this.clones[pr.repo]) {
-      actions.push({ id: `review-pr-${pr.url}`, key: "r", label: "Review", run: () => this.reviewPR(pr), tip: withKey("The whole PR against its base, line by line", "relevo.review") });
-    }
-    if (!requested && this.clones[pr.repo] && !pr.untrusted && pr.headRefOid) actions.push({ el: () => this.deepButton(t, pr) });
+    const review = this.clones[pr.repo]
+      ? { id: `review-pr-${pr.url}`, key: "r", label: "Review", run: () => this.reviewPR(pr), tip: withKey("The whole PR against its base, line by line", "relevo.review") }
+      : null;
+    if (review) all.push(review);
+    if (!requested && this.clones[pr.repo] && !pr.untrusted && pr.headRefOid) all.push({ id: `deep-${pr.url}`, text: "Deep review", el: () => this.deepButton(t, pr) });
     if (!requested && fixable(pr, this.clones[pr.repo])) {
-      actions.push({ id: `fix-run-${pr.url}`, label: this.fixing === pr.url ? "Preparing…" : "Fix with a run", run: (cx) => this.fixWithRun(pr, cx),
+      all.push({ id: `fix-run-${pr.url}`, label: this.fixing === pr.url ? "Preparing…" : "Fix with a run", run: (cx) => this.fixWithRun(pr, cx),
         tip: "Opens a run on a copy of this PR's branch with its failing checks and unresolved comments as the prompt; one agent fixes, another reviews, you push" });
     }
     const moves = requested ? {} : prMoves(pr);
     if ((moves.land || moves.auto) && !this.landing()[pr.url]) {
       const key = `land-${pr.url}`, armed = this.armed(key), how = mergeFlag(pr.repository).slice(2);
       const label = moves.land ? "Land" : "Land when ready";
-      actions.unshift({
+      all.unshift({
         id: `land-btn-${pr.url}`, key: "l", label: armed ? `Confirm ${label.toLowerCase()}` : label,
         run: (cx) => this.arm(key, cx, () => this.land(pr, !moves.land, cx)), kind: armed ? "danger" : "outline",
         tip: moves.land
@@ -448,16 +457,43 @@ export class PrViews {
       });
     }
     if (moves.update) {
-      actions.push({ id: `update-${pr.url}`, label: "Update branch", run: (cx) => this.prCommand(pr, ["update-branch"], "Branch updated", cx), tip: `Merges ${pr.baseRefName} into it on GitHub` });
+      all.push({ id: `update-${pr.url}`, label: "Update branch", run: (cx) => this.prCommand(pr, ["update-branch"], "Branch updated", cx), tip: `Merges ${pr.baseRefName} into it on GitHub` });
     }
     if (moves.rerun) {
-      actions.push({ id: `retry-ci-${pr.url}`, label: "Retry CI", run: (cx) => this.retryCI(pr, cx), tip: "Runs the failed and cancelled jobs again", disabled: this.retrying?.has(pr.url) });
+      all.push({ id: `retry-ci-${pr.url}`, label: "Retry CI", run: (cx) => this.retryCI(pr, cx), tip: "Runs the failed and cancelled jobs again", disabled: this.retrying?.has(pr.url) });
     }
-    if (!actions.includes(openPR)) actions.push(openPR);
-    actions.push(this.sourceContextAction(`pr:${pr.url}`));
+    if (!all.includes(openPR)) all.push(openPR);
+    all.push(this.sourceContextAction(`pr:${pr.url}`));
+    const main = all[0];
+    // Keep direct inline controls compact (primary + Review + Open PR + Snooze + ⋯); overflow lives in ⌘K Action Panel.
+    const direct = [main, ...(review && review !== main ? [review] : []), ...(openPR !== main ? [openPR] : [])].filter(Boolean);
+    const overflow = all.filter((a) => !direct.includes(a));
+    const snooze = !addressed && this.openActionMenu ? {
+      id: `snooze-pr-${pr.url}`, key: "h", label: [icon("clock")], tip: "Snooze · h", accessibleLabel: "Snooze pull request",
+      run: (cx) => this.openActionMenu(this.prMenuEntry(t, pr, requested, addressed), cx, { mode: "snooze" }),
+    } : null;
+    const more = overflow.length && this.openActionMenu ? {
+      id: `more-pr-${pr.url}`, label: [icon("more")], tip: "More actions · ⌘K", accessibleLabel: "More actions",
+      run: (cx) => this.openActionMenu(this.prMenuEntry(t, pr, requested, addressed), cx),
+    } : null;
     return {
-      main: actions[0], actions,
+      main,
+      actions: [...direct, snooze, more].filter(Boolean),
+      allActions: all,
       mark: this.markAction(pr.url, addressed, (on, cx) => this.setAddressed(pr, on, cx), "Addressed: hide until there's new activity"),
+    };
+  }
+
+  prMenuEntry(t, pr, requested, addressed = false) {
+    return {
+      id: `pr-${pr.url}`,
+      title: prName(pr),
+      copyUrl: pr.url,
+      snooze: { id: `pr-${pr.url}`, ci: pr.ci, updatedAt: seconds(pr.updatedAt), label: prName(pr) },
+      allActions: () => {
+        const table = this.prActions(t, pr, requested, addressed);
+        return [...(table.allActions ?? table.actions), table.mark].filter(Boolean);
+      },
     };
   }
 

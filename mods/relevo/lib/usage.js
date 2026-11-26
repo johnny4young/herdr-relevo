@@ -2,7 +2,7 @@
 
 export const RANGES = [["today", "Today", 1], ["7d", "7 days", 7], ["14d", "14 days", 14], ["30d", "30 days", 30]];
 
-const SURFACES = [["desktop", "Desktop"], ["terminal", "Terminal"], ["automatic", "Automatic"], ["codex", "Codex"]];
+const SURFACES = [["desktop", "Desktop"], ["terminal", "Terminal"], ["automatic", "Automatic"], ["codex", "Codex"], ["agy", "Antigravity"]];
 const SHOWN_SUBAGENTS = 4;
 
 const pad = (n) => String(n).padStart(2, "0");

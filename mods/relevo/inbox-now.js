@@ -9,7 +9,7 @@ import { terminalRow, tidyRows } from "./lib/terminals.js";
 import { machineLook } from "./lib/machines.js";
 import { ago } from "./lib/time.js";
 import { openGoal } from "./goals-editor.js";
-import { recent } from "./lib/github.js";
+import { recent, seconds } from "./lib/github.js";
 import { prTurn } from "./lib/lanes.js";
 import { button, foldRow, icon, joined, keycap, keysOf, LANE, laneGlyph, legend, legHeader, openUrl, saveFolds, TURN_LABEL } from "./ui.js";
 
@@ -112,30 +112,65 @@ export class NowViews {
     // A PR being landed shows as its landing, not twice.
     const prs = [...v.requested.filter(recent).map((pr) => [pr, true]), ...[...v.mine, ...(v.ready ?? [])].filter(recent).map((pr) => [pr, false])]
       .filter(([pr]) => !this.landing()[pr.url]);
+    const prEntry = (pr, requested, isReady = false) => {
+      const id = `pr-${pr.url}`, label = pr.repo ? `${pr.repo.split("/")[1]} #${pr.number}` : pr.url;
+      const runMain = (cx) => {
+        const m = this.prActions(t, pr, requested).main;
+        return m?.run ? m.run(cx) : this.runPR(pr);
+      };
+      return {
+        id, repo: pr.repo, title: label, copyUrl: pr.url,
+        turn: prTurnOf(pr, requested), text: `${pr.repo ?? ""} ${pr.number ?? ""} ${pr.title ?? ""} ${pr.author?.login ?? ""}`,
+        snooze: { id, ci: pr.ci, updatedAt: seconds(pr.updatedAt), label },
+        draw: () => this.prCard(t, pr, requested, false, isReady),
+        go: runMain,
+        keys: () => keysOf(this.prActions(t, pr, requested)),
+        allActions: () => {
+          const table = this.prActions(t, pr, requested);
+          return [...(table.allActions ?? table.actions), table.mark].filter(Boolean);
+        },
+      };
+    };
     for (const [pr, requested] of prs) {
-      add({ id: `pr-${pr.url}`, repo: pr.repo, turn: prTurnOf(pr, requested), text: `${pr.repo} ${pr.number} ${pr.title} ${pr.author?.login ?? ""}`,
-        draw: () => this.prCard(t, pr, requested, false, ready.has(pr.url)), go: () => this.runPR(pr), keys: () => keysOf(this.prActions(t, pr, requested)) });
+      add(prEntry(pr, requested, ready.has(pr.url)));
     }
     for (const i of v.local.filter((x) => x.kind === "diff")) {
-      add({ id: `in-${i.agent.address}`, turn: "me", text: `${i.repo} ${i.branch ?? ""}`, draw: () => this.localCard(t, i), go: () => openReview(i.top, i.agent.address),
-        keys: () => keysOf(this.localActions(i)) });
+      const id = `in-${i.agent.address}`;
+      add({
+        id, title: i.repo, turn: "me", text: `${i.repo} ${i.branch ?? ""}`,
+        snooze: { id, updatedAt: i.at ?? 0, label: i.repo },
+        draw: () => this.localCard(t, i), go: () => openReview(i.top, i.agent.address),
+        keys: () => keysOf(this.localActions(i)),
+        allActions: () => {
+          const table = this.localActions(i);
+          return [...(table.allActions ?? table.actions), table.mark].filter(Boolean);
+        },
+      });
     }
     for (const source of this.linkedReviews(v).filter((s) => !s.addressed)) {
       const pr = source.pr;
-      add({ id: `pr-${pr.url}`, repo: pr.repo, turn: source.draft ? "open" : prTurnOf(pr, false), text: `${pr.repo} ${pr.number} ${pr.title}`,
+      add({ id: `pr-${pr.url}`, repo: pr.repo, title: `${pr.repo.split("/")[1]} #${pr.number}`, copyUrl: pr.url,
+        turn: source.draft ? "open" : prTurnOf(pr, false), text: `${pr.repo} ${pr.number} ${pr.title}`,
+        snooze: { id: `pr-${pr.url}`, ci: pr.ci, updatedAt: seconds(pr.updatedAt), label: `${pr.repo.split("/")[1]} #${pr.number}` },
         keys: () => keysOf(source.draft ? this.draftActions(pr) : this.prActions(t, pr, false)),
+        allActions: () => {
+          const table = source.draft ? this.draftActions(pr) : this.prActions(t, pr, false);
+          return [...(table.allActions ?? table.actions), table.mark].filter(Boolean);
+        },
         draw: () => (source.draft ? this.draftCard(t, pr) : this.prCard(t, pr, false)),
-        go: () => (source.draft ? openUrl(pr.url) : this.runPR(pr)) });
+        go: (cx) => (source.draft ? openUrl(pr.url) : prEntry(pr, false).go(cx)) });
     }
     // A person's PR you answered waits on its author, in sight under Waiting on others.
     for (const pr of v.answered ?? []) {
-      add({ id: `pr-${pr.url}`, repo: pr.repo, turn: "open", text: `${pr.repo} ${pr.number} ${pr.title} ${pr.author?.login ?? ""}`,
-        draw: () => this.prCard(t, pr, true), go: () => this.runPR(pr), keys: () => keysOf(this.prActions(t, pr, true)) });
+      add({ ...prEntry(pr, true), turn: "open" });
     }
-    for (const pr of this.drafts ?? []) add({ id: `pr-${pr.url}`, repo: pr.repo, turn: "open", text: `${pr.repo} ${pr.number} ${pr.title}`, draw: () => this.draftCard(t, pr), go: () => openUrl(pr.url),
-      keys: () => keysOf(this.draftActions(pr)) });
+    for (const pr of this.drafts ?? []) add({ id: `pr-${pr.url}`, repo: pr.repo, title: `${pr.repo.split("/")[1]} #${pr.number}`, copyUrl: pr.url,
+      turn: "open", text: `${pr.repo} ${pr.number} ${pr.title}`, draw: () => this.draftCard(t, pr), go: () => openUrl(pr.url),
+      keys: () => keysOf(this.draftActions(pr)),
+      allActions: () => { const table = this.draftActions(pr); return [...(table.actions ?? []), table.mark].filter(Boolean); } });
     const seen = new Set();
     return out.filter((e) => !seen.has(e.id) && seen.add(e.id))
+      .filter((e) => !e.snooze || !this.isRowSnoozed?.(e.id, e.snooze))
       .map((e) => ({ ...e, turn: GROUPS.includes(e.turn) ? e.turn : "open", section: GROUPS.includes(e.turn) ? e.turn : "open" }));
   }
 
@@ -213,6 +248,12 @@ export class NowViews {
 
   nowGroups(t, entries, part) {
     const counts = this.nowCounts(entries), els = [];
+    const query = (this.filterField?.value() ?? "").trim();
+    if (query && !entries.length) {
+      return [h_flex().id("now-no-matches").px(16).py(14).gap(8).items_center()
+        .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.muted).child(`No matches for “${query}”`))
+        .child(button(t, "now-clear-filter", "Clear", (cx) => this.leaveFilter(cx, { clear: true }), { size: "sm" }))];
+    }
     if (this.calm) els.push(...part("me", [this.calmBlock(t, this.calm)]));
     for (const turn of GROUPS) {
       const list = entries.filter((e) => e.turn === turn);
@@ -304,13 +345,19 @@ export class NowViews {
     const { old, oldCount } = m, trees = this.treeSections(t, m.lanes);
     const landed = Object.entries(this.landing()).filter(([, e]) => e.phase === "landed");
     const doneCount = v.localDone.length + v.mineDone.length + v.requestedDone.length + v.desktopDone.length + this.doneReviews().length + landed.length;
+    const snoozed = this.snoozedGroup ? this.snoozedGroup(t) : [];
+    const empty = !m.count && !doneCount && !snoozed.length && !m.lanes.quiet.length && !this.backupsKb;
     return [
+      ...(empty ? [h_flex().id("maintenance-empty").px(16).py(12).gap(8).items_center()
+        .child(laneGlyph(t, "ready"))
+        .child(div().text_size(13).text_color(t.muted).child("All clean"))] : []),
       ...part("safe", trees.safe),
       ...part("look", trees.look),
       ...part("old", [oldCount ? legHeader(t, "leg-old", TURN_LABEL.old, oldCount) : null,
         ...joined(t, old.map(([p, requested]) => this.prCard(t, p, requested))), ...this.staleGroup(t, oldCount > 0)]),
       ...part("terms", this.tidyGroup(t, m.tidy)),
       ...part("quiet", trees.quiet),
+      ...part("done", snoozed),
       ...part("done", doneCount ? [
         foldRow(this, t, "maintenance-done", "maintenance-done", `${doneCount} marked addressed or landed`, { gap: true }),
         ...(this.expanded["maintenance-done"] ? [

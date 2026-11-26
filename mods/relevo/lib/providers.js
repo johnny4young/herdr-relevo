@@ -77,11 +77,11 @@ export const PROVIDERS = {
     chip: { label: "Antigravity", letter: "A", bg: "#8aadf4", fg: "#1e2030" },
     models: ["gemini-4-neon-high", "gemini-4-carbon-high", "gemini-4-argon-high", "gemini-4-hydrogen-high", "gemini-3.8-flash-high"],
     efforts: ["low", "medium", "high", "xhigh", "max"],
-    caps: { accounts: false, fork: false, quota: true, usage: false, skills: false, writer: false, runs: true },
+    caps: { accounts: false, fork: false, quota: true, usage: true, skills: false, writer: false, runs: true },
     reportsQuota: true,
     promptArgs: (prompt) => ["-i", prompt],
     defaultModel: () => "",
-    usageDirs: () => [],
+    usageDirs: (_a, home) => [`${home}/.gemini/antigravity/brain`],
     modelArgs: (r, base) => [...base, ...(r.model ? ["--model", r.model] : []), ...(r.effort ? ["--effort", r.effort] : [])],
     // Auto mode approves edits and safe commands; anything else it asks, and Runs shows the question.
     runArgs({ home, sandboxed }) {

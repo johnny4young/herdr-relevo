@@ -518,7 +518,7 @@ export class TreeViews {
       ...(sel || asking ? [...this.loseLines(t, w), this.actionsLine(t, w, moves, { open: lane !== "quiet", remove: !moves.direct, sure })] : []),
     ].filter(Boolean);
     return row(t, id, {
-      turn: !w.gone && !w.merged && !w.group ? "flight" : TURN[lane], kind: "tree", title: w.repo,
+      turn: !w.gone && !w.merged && !w.group ? "flight" : TURN[lane], kind: "tree", title: w.repo, twoLine: true,
       reason: w.gone ? `${w.gone} · ${w.branch ?? `${w.name} (detached)`}` : `${w.branch ?? `${w.name} (detached)`} · ${reasonOf(w, now)}`,
       age: w.kb && !this.tightInbox ? sizeOf(w.kb) : null, action: edge, selected: sel, tip: below.length ? null : w.path,
       onSelect: this.pick ? (cx) => this.pick(id, cx) : null, below: below.length ? below : null,

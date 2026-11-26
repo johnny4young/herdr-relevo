@@ -109,7 +109,7 @@ test("your PR offers Deep review, with your review skills on its ▾; a PR you w
   inbox.init({}, cx); await flush();
   inbox.clones["me/app"] = "/work/app";
   const pr = { url: PR.url, number: 7, repo: "me/app", title: "X", skills: [], reasons: [], headRefOid: "a".repeat(40), baseRefName: "main", headRefName: "feat/x", updatedAt: new Date().toISOString() };
-  const els = (requested) => inbox.prActions(theme(), pr, requested).actions.filter((a) => a?.el).map((a) => a.el());
+  const els = (requested) => (inbox.prActions(theme(), pr, requested).allActions ?? []).filter((a) => a?.el).map((a) => a.el());
   const deep = els(false).find((el) => find(el, `deep-${PR.url}`));
   assert.ok(deep);
   assert.equal(els(true).some((el) => find(el, `deep-${PR.url}`)), false);

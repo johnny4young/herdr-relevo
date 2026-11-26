@@ -4,7 +4,7 @@ import { agents, appHome, exec, home, readTextFile, writeTextFile, setShared, te
 import { allAccounts, providerFor } from "./accounts.js";
 import { PROVIDERS, providerOf } from "./lib/providers.js";
 import {
-  AWK, CLAUDE_SCAN, CODEX_SCAN, CONTEXT_SCAN, LIST, addClaude, addCodex, contextOf, cutDay, emptyState, parseList,
+  AWK, AGY_AWK, AGY_SCAN, CLAUDE_SCAN, CODEX_SCAN, CONTEXT_SCAN, LIST, addAgy, addClaude, addCodex, contextOf, cutDay, emptyState, parseList,
   parseScan, plan, projectFromPath, prune, reportOf, runFolders, SeenIds,
 } from "./lib/usage-scan.js";
 
@@ -110,15 +110,21 @@ export class UsageScanner {
   async list() {
     const listed = new Map();
     let complete = true;
-    const add = async (account, dirs) => {
+    const add = async (account, dirs, filter = null) => {
       const r = await exec("sh", ["-c", LIST, "sh", ...dirs]).catch(() => null);
       if (r?.code !== 0) complete = false;
-      for (const [path, size] of parseList(r?.stdout ?? "")) listed.set(path, { size, account });
+      for (const [path, size] of parseList(r?.stdout ?? "")) {
+        if (!filter || filter(path)) listed.set(path, { size, account });
+      }
     };
+    const agyOnly = (p) => p.endsWith("/transcript.jsonl");
+    let scannedAgy = false;
     for (const a of allAccounts()) {
-      const dirs = providerOf(a).usageDirs(a, home());
-      if (dirs.length) await add(a.key, dirs);
+      const p = providerOf(a), dirs = p.usageDirs(a, home());
+      if (p === PROVIDERS.agy) scannedAgy = true;
+      if (dirs.length) await add(a.key, dirs, p === PROVIDERS.agy ? agyOnly : null);
     }
+    if (!scannedAgy) await add("agy", PROVIDERS.agy.usageDirs({}, home()), agyOnly);
     return { listed, complete };
   }
 
@@ -135,15 +141,22 @@ export class UsageScanner {
         // A file that shrank was rewritten: read it again, and the ids keep its messages from counting twice.
         const from = f && f.size < size ? f.size : 0;
         account.set(path, key);
-        changed.push({ path, size, from, prev: from ? f.prev ?? "" : "", codex: providerFor(key) === PROVIDERS.codex });
+        const kind = key === "agy" || providerFor(key) === PROVIDERS.agy ? "agy" : providerFor(key) === PROVIDERS.codex ? "codex" : "claude";
+        changed.push({ path, size, from, prev: from ? f.prev ?? "" : "", kind });
       }
-      const batches = [...plan(changed.filter((c) => !c.codex)).map((b) => [false, b]), ...plan(changed.filter((c) => c.codex)).map((b) => [true, b])];
+      const batches = [
+        ...plan(changed.filter((c) => c.kind === "claude")).map((b) => ["claude", b]),
+        ...plan(changed.filter((c) => c.kind === "codex")).map((b) => ["codex", b]),
+        ...plan(changed.filter((c) => c.kind === "agy")).map((b) => ["agy", b]),
+      ];
       const failed = new Set();
-      for (const [i, [codex, batch]] of batches.entries()) {
+      for (const [i, [kind, batch]] of batches.entries()) {
         const ranges = batch.filter((r) => !failed.has(r.path));
         if (!ranges.length) continue;
-        const specs = ranges.map((r) => (codex ? `${r.path}|${r.start}|${r.end}` : `${r.path}|${r.start}|${r.end}|${r.prev}`));
-        const r = await exec("sh", ["-c", codex ? CODEX_SCAN : CLAUDE_SCAN, "sh", ...(codex ? [] : [AWK]), ...specs])
+        const specs = ranges.map((r) => (kind === "claude" ? `${r.path}|${r.start}|${r.end}|${r.prev}` : `${r.path}|${r.start}|${r.end}`));
+        const cmd = kind === "codex" ? CODEX_SCAN : kind === "agy" ? AGY_SCAN : CLAUDE_SCAN;
+        const extra = kind === "codex" ? [] : kind === "agy" ? [AGY_AWK] : [AWK];
+        const r = await exec("sh", ["-c", cmd, "sh", ...extra, ...specs])
           .catch(() => null);
         const files = parseScan(r?.stdout ?? "");
         // A range that didn't come back is read again next time, and so are the file's later ones.
@@ -151,13 +164,17 @@ export class UsageScanner {
         for (const x of ranges) if (!back.has(x.path)) failed.add(x.path);
         await this.resolve(files);
         for (const file of files) {
-          if (codex) {
+          if (kind === "codex") {
             addCodex(this.state, file, { project: (cwd) => this.project(cwd), cut });
             continue;
           }
-          const kind = await this.kindOf(file.path);
-          addClaude(this.state, this.seen, file, { account: account.get(file.path), kind, project: (cwd) => this.project(cwd), cut });
-          this.state.files[file.path].kind = kind;
+          if (kind === "agy") {
+            addAgy(this.state, this.seen, file, { account: account.get(file.path) ?? "agy", project: (cwd) => this.project(cwd), cut });
+            continue;
+          }
+          const k = await this.kindOf(file.path);
+          addClaude(this.state, this.seen, file, { account: account.get(file.path), kind: k, project: (cwd) => this.project(cwd), cut });
+          this.state.files[file.path].kind = k;
         }
         if (Date.now() - (this.progressAt ?? 0) >= PROGRESS_EVERY || i + 1 === batches.length) {
           this.progressAt = Date.now();

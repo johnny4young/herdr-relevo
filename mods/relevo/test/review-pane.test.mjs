@@ -109,13 +109,16 @@ test("a saved comment shows as a box with its lines and text, and nothing in the
   assert.ok(!fills(list.items[4]).includes("#accent"));
 });
 
-test("the strip above the footer lists the open file's comments, each with a real ×", () => {
-  const { v } = review();
+test("the strip above the footer opens from its toggle and lists the open file's comments, each with a real ×", () => {
+  const { v, cx } = review();
   const range = lineComment("src/limiter/clock.ts", v.rows, 2, 3, "range"), file = fileComment("src/limiter/clock.ts", "file");
   assert.equal(find(v.render(), "rv-saved"), null);
   v.setComments([fileComment("README.md", "other")]);
   assert.equal(find(v.render(), "rv-saved"), null);
+  assert.equal(find(v.render(), "rv-saved-toggle"), null);
   v.setComments([range, file, fileComment("README.md", "other")]);
+  assert.equal(find(v.render(), "rv-saved"), null, "collapsed until toggled so comments aren't duplicated");
+  click(find(v.render(), "rv-saved-toggle"), cx);
   const strip = find(v.render(), "rv-saved");
   assert.deepEqual(strip.items.map(text), ["L2-3 range", "File file"]);
   for (const c of [range, file]) {
@@ -132,6 +135,7 @@ test("× in the strip deletes only its comment and saves the rest", () => {
   const range = lineComment("src/limiter/clock.ts", v.rows, 2, 3, "range"), line = lineComment("src/limiter/clock.ts", v.rows, 4, 4, "line");
   const file = fileComment("src/limiter/clock.ts", "file"), other = fileComment("README.md", "other");
   v.setComments([range, line, file, other]);
+  click(find(v.render(), "rv-saved-toggle"), cx);
   click(find(v.render(), `rv-del-${commentId(range)}`), cx);
   assert.deepEqual(v.comments, [line, file, other]);
   assert.deepEqual(fake.stored[NOTES][v.key], [line, file, other]);
@@ -149,6 +153,7 @@ test("× on one comment leaves an open edit of another alone, and the last one c
   const { v, cx } = review();
   const line = lineComment("src/limiter/clock.ts", v.rows, 4, 4, "line");
   v.setComments([line]);
+  click(find(v.render(), "rv-saved-toggle"), cx);
   v.edit({ start: 1, end: 1 }, cx);
   v.input.set_value("draft");
   click(find(v.render(), `rv-del-${commentId(line)}`), cx);
@@ -383,6 +388,7 @@ test("a comment in the strip opens for editing from its label and text, × apart
   // A comment on lines the diff does not draw has no box in the list: the strip is its only way in.
   const far = { file: "src/limiter/clock.ts", key: "+900", line: 900, side: "+", code: "far", text: "far away" };
   v.setComments([range, file, far]);
+  click(find(v.render(), "rv-saved-toggle"), cx);
   assert.ok(!diffList(v).keys.includes(`c:${commentId(far)}`));
   const strip = () => find(v.render(), "rv-saved");
   for (const c of [range, file, far]) {
@@ -409,6 +415,7 @@ test("deleting matches a comment by what it is on, and says deleted only when on
   const { v, cx } = review();
   const line = lineComment("src/limiter/clock.ts", v.rows, 4, 4, "line"), other = fileComment("README.md", "other");
   v.setComments([line, other]);
+  click(find(v.render(), "rv-saved-toggle"), cx);
   // The stored objects were replaced since this × was drawn, as a save or a restart does.
   const stale = find(v.render(), `rv-del-${commentId(line)}`);
   v.setComments(JSON.parse(JSON.stringify(v.comments)));

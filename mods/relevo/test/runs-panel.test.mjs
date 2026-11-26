@@ -201,7 +201,7 @@ test('a task opens with the summary, who did what and the decision; Accept is A 
   assert.equal(find(tree, 'task-leg-you').fill, `${t.blocked}12`, "the person's turn is tinted");
   assert.equal(text(find(tree, 'task-accept')), 'a Accept and open draft PR'); assert.equal(find(tree, 'task-accept').fill, t.accent);
   assert.equal(text(find(tree, 'task-changes')), 'r Ask for changes'); assert.equal(text(find(tree, 'task-diff')), 'd See the diff');
-  assert.equal(text(find(tree, 'task-effect')), 'Accepting commits to the run branch, pushes it and opens a draft pull request on GitHub. Accepting finishes this task. No follow-up task is defined.');
+  assert.equal(text(find(tree, 'task-effect')), 'Commits to run branch → opens draft PR · Accepting finishes this task. No follow-up task is defined.');
   assert.equal(text(find(tree, 'list-keys')), 'a accept r changes d diff esc tasks ? keys');
 
   v.navKey({ key: 'enter' }, cx); await flush();

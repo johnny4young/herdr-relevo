@@ -97,7 +97,7 @@ test("/ opens a filter that narrows Now to matching rows; Esc clears it", async 
 
 test("each list says its keys at its foot", async () => {
   const { inbox, cx } = await open();
-  assert.match(text(find(inbox.render(cx), "list-keys")), /^j k move do the action tab maintenance \? keys$/);
+  assert.match(text(find(inbox.render(cx), "list-keys")), /^j k move h snooze cmd-k actions do the action tab maintenance \? keys$/);
   fake.stored["relevo.inbox.view"] = "maintenance";
   assert.match(text(find(inbox.render(cx), "list-keys")), /tab now/);
   fake.stored[GOAL_MODE] = true;
@@ -141,7 +141,7 @@ test("each row's keycaps are the keys its table answers", async () => {
     ["in-t1", () => inbox.localCard(t, local), () => inbox.localActions(local)],
     [`land-${url(8)}`, () => inbox.landCard(t, url(8), landing), () => inbox.landActions(url(8), landing)],
   ]) assert.deepEqual(caps(id, card), Object.keys(keysOf(table())).sort(), id);
-  assert.deepEqual(Object.keys(keysOf(inbox.localActions(local))).sort(), ["a", "o", "r"]);
+  assert.deepEqual(Object.keys(keysOf(inbox.localActions(local))).sort(), ["a", "h", "o", "r"]);
   assert.deepEqual(Object.keys(keysOf(inbox.desktopActions(desk))).sort(), ["a", "o"]);
   assert.deepEqual(Object.keys(keysOf(inbox.draftActions(draft))), ["o"]);
   assert.deepEqual(Object.keys(keysOf(inbox.landActions(url(8), landing))), ["o"], "✓ on a landing only clears it");

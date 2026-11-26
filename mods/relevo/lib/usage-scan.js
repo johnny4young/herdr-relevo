@@ -77,6 +77,34 @@ export const CODEX_SCAN = String.raw`${READ}for spec; do
   from "$f" "$start" "$end" | LC_ALL=C grep -a '"token_count"' | LC_ALL=C grep -aoE '"timestamp":"[^"]*"|"total_token_usage":\{[^}]*\}'
 done`;
 
+// Antigravity compact transcripts: PLANNER_RESPONSE lines carry created_at, model, input_tokens, cache_read_tokens and output_tokens.
+export const AGY_AWK = String.raw`
+function str(s, key,   i, r) { i = index(s, "\"" key "\":\""); if (!i) return ""; r = substr(s, i + length(key) + 4); return substr(r, 1, index(r, "\"") - 1) }
+function num(s, key,   i) { i = index(s, "\"" key "\":"); return i ? substr(s, i + length(key) + 3, 24) + 0 : 0 }
+/^F\t/ { split($0, a, "\t"); print "F\t" a[2] "\t" a[3]; next }
+index($0, "\"type\":\"PLANNER_RESPONSE\"") > 0 {
+  inp = num($0, "input_tokens"); rd = num($0, "cache_read_tokens"); out = num($0, "output_tokens")
+  if (inp > 0 || rd > 0 || out > 0) {
+    print "A\t" num($0, "step_index") "\t" str($0, "created_at") "\t" str($0, "model") "\t" inp "," rd "," out
+  }
+  next
+}
+index($0, "\"Path\":\"/") > 0 {
+  p = str($0, "Path")
+  if (p != "" && index(p, "/.gemini/") == 0) print "C\t" p
+}`;
+
+// Args: the awk program, then "file|start|end" per range for Antigravity transcripts.
+export const AGY_SCAN = String.raw`${READ}prog=$1; shift
+for spec; do
+  end=${"${spec##*|}"}; rest=${"${spec%|*}"}; start=${"${rest##*|}"}; f=${"${rest%|*}"}
+  case "$start:$end" in ""|*[!0-9:]*) continue ;; esac
+  [ -n "$start" ] && [ -n "$end" ] && [ -f "$f" ] || continue
+  printf 'F\t%s\t%s\t\n' "$f" "$end"
+  from "$f" "$start" "$end"
+  printf '\n'
+done | LC_ALL=C grep -a -e '^F' -e '"type":"PLANNER_RESPONSE"' -e '"Path":"/' | LC_ALL=C awk "$prog"`;
+
 const CHUNK = 100e6;
 // Each file in a batch starts a few processes, which add up on a busy machine.
 const MAX_RANGES = 400;
@@ -140,7 +168,7 @@ export function parseScan(text) {
   for (const line of text.split("\n")) {
     const p = line.split("\t");
     if (p[0] === "F") {
-      cur = { path: p[1], size: Number(p[2]), cwd: p[3] ? unjson(p[3].replace(/^"cwd":"|"$/g, "")) : null, msgs: [], titles: [], events: [] };
+      cur = { path: p[1], size: Number(p[2]), cwd: p[3] ? unjson(p[3].replace(/^"cwd":"|"$/g, "")) : null, msgs: [], titles: [], events: [], agy: [] };
       files.push(cur);
     } else if (!cur) {
       continue;
@@ -148,6 +176,11 @@ export function parseScan(text) {
       const [input, write, read, output] = p[5].split(",").map(Number);
       const [h1 = 0, m5 = 0] = p[6] ? p[6].split(",").map(Number) : [];
       cur.msgs.push({ id: p[1], ts: p[2], model: p[3], entrypoint: p[4], input, write, read, output, h1, m5, sid: p[7], cwd: unjson(p[8]) });
+    } else if (p[0] === "A" && p.length >= 5) {
+      const [input, read, output] = p[4].split(",").map(Number);
+      cur.agy.push({ step: Number(p[1]), ts: p[2], model: p[3], input, read, output });
+    } else if (p[0] === "C" && p[1]) {
+      if (!cur.cwd) cur.cwd = unjson(p[1]).replace(/\/[^/]+$/, "");
     } else if (p[0] === "T" && p[1] && p[2]) {
       cur.titles.push({ sid: p[1], title: unjson(p[2]) });
     } else if (line.startsWith('"timestamp"') || line.startsWith('"total_token_usage"')) {
@@ -275,6 +308,28 @@ export function addCodex(state, file, { project, cut }) {
     const tokens = [Math.max(0, input - cached), 0, Math.max(0, cached), Math.max(0, output)];
     addRow(state, [day, "codex", "codex", project(f.cwd), "main", "codex"].join("\t"), [...tokens, 1, 0, 0]);
     addRun(state, sessionOf(file.path), f.cwd, ts, tokens[0] + tokens[2], tokens[3]);
+  }
+  f.size = file.size;
+}
+
+// One Antigravity transcript's new planner responses; input_tokens is uncached context growth.
+export function addAgy(state, seen, file, { account = "agy", project, cut }) {
+  const f = state.files[file.path] ?? (state.files[file.path] = { size: 0, cwd: null });
+  if (file.cwd && !f.cwd) f.cwd = file.cwd;
+  const sid = /\/brain\/([^/]+)\//.exec(file.path)?.[1] ?? sessionOf(file.path);
+  const tag = sid.slice(-8);
+  for (const m of file.agy ?? []) {
+    if (!m.ts) continue;
+    const day = dayKey(new Date(m.ts));
+    if (day < cut || !seen.add(day, `a:${tag}:${m.step}`)) continue;
+    const write = Math.max(0, m.input), read = Math.max(0, m.read), output = Math.max(0, m.output);
+    const where = f.cwd ? project(f.cwd) : "Antigravity";
+    addRow(state, [day, account, "agy", where, "main", m.model || "antigravity"].join("\t"), [0, write, read, output, 1, 0, 0]);
+    addRun(state, sid, f.cwd, m.ts, write + read, output);
+    const s = state.sessions[sid] ?? (state.sessions[sid] = { title: null, write: 0, output: 0 });
+    Object.assign(s, { account, surface: "agy", project: where, last: m.ts });
+    s.write += write;
+    s.output += output;
   }
   f.size = file.size;
 }
