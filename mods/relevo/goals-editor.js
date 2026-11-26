@@ -12,7 +12,9 @@ import { openWorkflow } from "./workflow.js";
 import { noteUse } from "./run-usage.js";
 import { focusedCwd } from "./panelbar.js";
 import { accountOf, loadClaudeQuotas } from "./accounts.js";
-import { runAccountsFor } from "./workflow-runs.js";
+import { runAccountsFor, runQuotaAdvice } from "./workflow-runs.js";
+import { parseIssueRef, issuePrompt, issueTitle } from "./lib/issue-prompt.js";
+import { githubRepo, withoutLogin } from "./lib/git.js";
 import { RUN_START } from "./run-launcher.js";
 import { GOAL_MODE, GOAL_SCOPE } from "./inbox-goals.js";
 import { showPanel } from "./toolbar.js";
@@ -22,10 +24,10 @@ async function workflowTasks() {
   return raw ? JSON.parse(raw).tasks ?? [] : [];
 }
 
-export function openGoal(id = null, source = null, panel = "decision") {
+export function openGoal(id = null, source = null, panel = "decision", extra = {}) {
   // Keep the native subtree uncached; size the content in render instead.
   openOverlay({ mod: "relevo", kind: "dialog", width: 620,
-    props: { role: "goal-editor", goalId: id, source, panel, mode: id || source ? undefined : "run" } });
+    props: { role: "goal-editor", goalId: id, source, panel, mode: id || source ? undefined : "run", ...extra } });
 }
 const labels = { title: "Run title", owner: "Human owner", decision: "Pending decision", recommendation: "Saved recommendation", criteria: "Acceptance criteria" };
 const multiline = new Set(["decision", "recommendation", "criteria", "response"]);
@@ -42,6 +44,10 @@ export class GoalEditor {
     this.planFocusRequest = 0;
     const newRun = props()?.mode === "run";
     this.newRunTitleOpen = false;
+    this.issueOpen = Boolean(props()?.fromIssue);
+    this.issueBusy = false;
+    this.issueRef = InputState.new({ value: "", placeholder: "#123, owner/repo#123, or GitHub issue URL" });
+    this.issueRef.on("submit", (_e, cx) => this.importIssue(cx));
     this.fields = Object.fromEntries(Object.keys(labels).map((k) => [k, (multiline.has(k) ? TextareaState : InputState).new({
       value: "", placeholder: newRun && k === "criteria" ? "What would you like the agents to do?" : labels[k],
     })]));
@@ -92,6 +98,7 @@ export class GoalEditor {
                 repo: root.split("/").pop(),
                 writer: accountOf(picked.executor)?.label ?? picked.executor,
                 reviewer: accountOf(picked.reviewer)?.label ?? picked.reviewer,
+                quotaWarnings: runQuotaAdvice(picked, quotas),
               };
             }
           }
@@ -106,7 +113,9 @@ export class GoalEditor {
       }
       this.loading = false;
       this.busy = false;
-      const focusField = this.loadContext.mode === "run" ? this.fields.criteria : this.fields.title;
+      const focusField = this.loadContext.mode === "run"
+        ? (this.issueOpen ? this.issueRef : this.fields.criteria)
+        : this.fields.title;
       cx.timer.after(30, () => {
         if (!this.closed && !this.busy && this.panel === "decision" && this.goal) focusField.focus();
       });
@@ -118,7 +127,59 @@ export class GoalEditor {
     if (this.closed) return;
     this.closed = true;
     this.h.release();
+    this.issueRef?.release();
     for (const f of [...Object.values(this.fields), this.response, this.link, ...this.steps.map((s) => s.input)]) f.release();
+  }
+
+  importIssue(cx) {
+    if (this.closed || this.busy || this.issueBusy) return;
+    const ref = parseIssueRef(this.issueRef.value());
+    if (!ref) {
+      this.error = "Enter an issue number (#123), owner/repo#123, or GitHub issue URL.";
+      return cx.notify();
+    }
+    if (!ref.repo && !this.runDefaults?.root) {
+      this.error = "Focus a repository or include owner/repo#number for this issue.";
+      return cx.notify();
+    }
+    this.issueBusy = true;
+    this.error = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        // Another repo's issue text would land in this repo's PR body: the second Load confirms it.
+        const root = this.runDefaults?.root;
+        if (ref.repo && root) {
+          const origin = await exec("git", ["-C", root, "remote", "get-url", "origin"]).catch(() => null);
+          const here = origin?.code === 0 ? githubRepo(withoutLogin(origin.stdout)) : null;
+          const key = `${ref.repo}#${ref.number}`.toLowerCase();
+          if (here && here.toLowerCase() !== ref.repo.toLowerCase() && this.crossRepoOk !== key) {
+            this.crossRepoOk = key;
+            this.error = `${ref.repo} is not this run's repository (${here}): its issue text would go into this repo's PR. Load again to import it anyway.`;
+            return;
+          }
+        }
+        const args = ["issue", "view", ref.number, ...(ref.repo ? ["--repo", ref.repo] : []), "--json", "number,title,body,url,labels"];
+        const r = await exec("gh", args, this.runDefaults?.root ? { cwd: this.runDefaults.root } : undefined);
+        if (this.closed) return;
+        if (r.code !== 0) throw Error((r.stderr || "gh issue view failed").trim().split("\n")[0]);
+        const issue = JSON.parse(r.stdout || "{}");
+        if (!issue?.number) throw Error("Could not read issue details.");
+        const typed = this.fields.criteria.value().trim(), room = TEXT_MAX - (typed ? typed.length + 2 : 0);
+        if (room < 400) throw Error("the prompt is too long to add the issue; shorten it first.");
+        if (!this.fields.title.value().trim()) this.fields.title.set_value(issueTitle(issue));
+        this.fields.criteria.set_value(typed ? `${typed}\n\n${issuePrompt(issue, room)}` : issuePrompt(issue));
+        this.crossRepoOk = null;
+        this.issueOpen = false;
+        this.issueRef.set_value("");
+        this.fields.criteria.focus();
+      } catch (e) {
+        if (!this.closed) this.error = `Issue not loaded: ${e?.message ?? e}`;
+      } finally {
+        this.issueBusy = false;
+        if (!this.closed) cx.notify();
+      }
+    });
   }
 
   focusPlanStep(input, cx) {
@@ -347,12 +408,24 @@ export class GoalEditor {
             .when(Boolean(this.runDefaults), (el) => el.child(h_flex().id("new-run-defaults").px(8).py(5).gap(6).items_center().rounded(6).bg(t.raised)
               .text_size(11).text_color(t.muted)
               .child(div().flex_1().min_w(0).truncate().child(`${this.runDefaults.repo} · own worktree · ${this.runDefaults.writer} → ${this.runDefaults.reviewer}`))))
-            .child(h_flex().gap(6)
+            .when(Boolean(this.runDefaults?.quotaWarnings?.length), (el) => el.child(div().id("new-run-quota-warn").px(8).py(4).rounded(6).bg(t.raised)
+              .text_size(11).text_color(t.ansi3).child(`Quota tight: ${this.runDefaults.quotaWarnings.join(" · ")}`)))
+            .child(h_flex().gap(6).flex_wrap()
               .child(button(t, "new-run-title-toggle", this.newRunTitleOpen ? "Hide title" : this.fields.title.value().trim() ? "Edit title" : "Add a title", (cx) => {
                 this.newRunTitleOpen = !this.newRunTitleOpen; cx.notify();
               }, { size: "sm", tip: "Optional title; by default the first prompt line names this run" }))
               .child(button(t, "new-run-attach", "Attach files…", (cx) => this.attachFiles(cx),
-                { size: "sm", disabled: this.busy, tip: "Lists the files under Files: in the prompt, for the agents to read" })))
+                { size: "sm", disabled: this.busy, tip: "Lists the files under Files: in the prompt, for the agents to read" }))
+              .child(button(t, "new-run-from-issue", this.issueOpen ? "Hide issue" : "From issue…", (cx) => {
+                this.issueOpen = !this.issueOpen;
+                if (this.issueOpen) this.issueRef.focus();
+                cx.notify();
+              }, { size: "sm", disabled: this.busy || this.issueBusy, tip: "Import a GitHub issue (#123 or URL) into this run prompt" })))
+            .when(this.issueOpen, (content) => content.child(h_flex().id("new-run-issue-bar").gap(6).items_center()
+              .child(div().flex_1().min_w(0).h(30).px(8).flex().items_center().rounded(5).border(1).border_color(t.accent).bg(t.background)
+                .child(Input.new(this.issueRef).id("new-run-issue-input").disabled(this.issueBusy).w_full()))
+              .child(button(t, "new-run-issue-load", this.issueBusy ? "Loading…" : "Load", (cx) => this.importIssue(cx),
+                { size: "sm", kind: "solid", disabled: this.busy || this.issueBusy }))))
             .when(this.newRunTitleOpen, (content) => content.child(field("title", this.fields.title, "Run title (optional)"))))
           .when(!isNewRun, (content) => content.child(field("title", this.fields.title, labels.title)).child(field("criteria", this.fields.criteria, labels.criteria)))
           .when(!isNewRun, (content) => content.child(choice("goal-review-notes-toggle", this.reviewNotesOpen ? "Hide decision and review notes" : "Optional decision and review notes", this.reviewNotesOpen,

@@ -5,6 +5,7 @@ import { runtimeCommand } from "./runtime-cli.js";
 import { button, openUrl } from "./ui.js";
 import * as config from "./config.js";
 import { accountOf, runnableAccounts, chip, launchArgv, openInFolder, loadClaudeQuotas, full, providerFor } from "./accounts.js";
+import { quotaRisk } from "./lib/quota-routing.js";
 import { WorkflowDraftView } from "./workflow-draft-view.js";
 import { accountFor } from "./context.js";
 import { RUN_LAUNCH, answerTrust, launchSteps, ownFolderKeys, reportsFolder, repoChecks, runTab, trustKeys } from "./run-launch.js";
@@ -26,16 +27,29 @@ export { trustKeys };
 
 const RUN_ACCOUNTS = "relevo.runs.accounts";
 
-// Who writes and who reviews a new run: the last choice, unless that account is out of quota now; else a provider that
-// writes first (Codex, when it is on), and a reviewer other than the writer, the repository's own account first.
+// Who writes and who reviews a new run: the last choice unless it is full or filling soon; else a writer provider
+// with comfortable room, and a reviewer other than the writer, the repository's own account first.
 export function runAccountsFor(root, quotas) {
   const saved = shared(RUN_ACCOUNTS) ?? {};
   const all = runnableAccounts().map((account) => account.key);
+  const clear = (key) => all.includes(key) && !quotaRisk(quotas?.[key]);
   const open = (key) => all.includes(key) && !full(quotas?.[key]);
-  const executor = open(saved.executor) ? saved.executor : [...all.filter((key) => providerFor(key).caps.writer), ...all].find(open) ?? all[0];
-  const reviewer = open(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer
-    : [accountFor(root), ...all].find((key) => key && key !== executor && open(key)) ?? all.find((key) => key !== executor);
+  const writers = [...all.filter((key) => providerFor(key).caps.writer), ...all];
+  const executor = clear(saved.executor) ? saved.executor
+    : writers.find(clear) ?? (open(saved.executor) ? saved.executor : writers.find(open)) ?? all[0];
+  const reviewers = [accountFor(root), ...all].filter((key) => key && key !== executor);
+  const reviewer = clear(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer
+    : reviewers.find(clear) ?? (open(saved.reviewer) && saved.reviewer !== executor ? saved.reviewer : reviewers.find(open)) ?? all.find((key) => key !== executor);
   return { executor, reviewer };
+}
+
+export function runQuotaAdvice(chosen, quotas) {
+  const out = [];
+  for (const [role, key] of [["Writer", chosen?.executor], ["Reviewer", chosen?.reviewer]]) {
+    const risk = key ? quotaRisk(quotas?.[key]) : null;
+    if (risk) out.push(`${role} (${accountOf(key).label}) ${risk.reason}`);
+  }
+  return out;
 }
 // The name of the tab a terminal is shown in, if any.
 const tabName = (address) => {

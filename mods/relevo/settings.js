@@ -4,7 +4,9 @@ import { theme, exec, appHome, props, openOverlay, closeOverlay, layout, run, re
 import { ACCOUNTS, CODEX, CONTEXTS, FALLBACK, REPOS_ROOT, SKILLS } from "./config.js";
 import * as config from "./config.js";
 import { WRITE_SCRIPT, aboutLine, renderConfig, validate, slug, parseList, isHex } from "./lib/settings.js";
-import { chip } from "./accounts.js";
+import { agentAccounts, chip, loadClaudeQuotas } from "./accounts.js";
+import { summarizeDiagnostics } from "./lib/diagnostics.js";
+import { readRunState } from "./runtime-cli.js";
 import { DEFAULT_DEEP_REVIEW, MAX_REVIEWERS, effortsFor } from "./lib/deep-setup.js";
 import { PROVIDERS } from "./lib/providers.js";
 import { replies } from "./replies.js";
@@ -56,10 +58,40 @@ export class Settings {
     const tree = layout();
     this.panels = PANELS.every((p) => p.nodes.every((id) => findNode(tree, id)))
       ? Object.fromEntries(PANELS.map((p) => [p.key, panelShown(tree, p)])) : null;
+    this.closed = false;
     this.about = null;
+    this.health = null;
+    this.healthBusy = false;
     cx.spawn(async (cx) => {
       this.about = aboutLine(await installedVersions());
-      cx.notify();
+      if (!this.closed) cx.notify();
+    });
+    this.loadHealth(cx);
+  }
+
+  loadHealth(cx) {
+    if (this.healthBusy || this.closed) return;
+    this.healthBusy = true;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const hookPath = `${appHome()}/mods/relevo/hooks/relevo-labels.sh`;
+        const [git, ghAuth, hc, hook, rawState, quotas] = await Promise.all([
+          exec("git", ["--version"], { timeout: 4000 }).catch(() => ({ code: 1 })),
+          exec("gh", ["auth", "status"], { timeout: 5000 }).catch(() => ({ code: 1 })),
+          exec("hc", ["--version"], { timeout: 4000 }).catch(() => ({ code: 1 })),
+          exec("bash", [hookPath, "--check"], { timeout: 5000 }).catch(() => null),
+          readRunState().catch(() => null),
+          loadClaudeQuotas().catch(() => ({})),
+        ]);
+        if (this.closed) return;
+        let state = null;
+        try { state = rawState ? JSON.parse(rawState) : null; } catch { state = null; }
+        this.health = summarizeDiagnostics({ git, ghAuth, hc, hook, state, quotas, accounts: agentAccounts() });
+      } finally {
+        this.healthBusy = false;
+        if (!this.closed) cx.notify();
+      }
     });
   }
 
@@ -275,6 +307,7 @@ export class Settings {
   }
 
   close() {
+    this.closed = true;
     for (const s of this.states) s.release();
     this.states.clear();
   }
@@ -409,6 +442,16 @@ export class Settings {
           .child(this.field(t, `sr-text-${r.id}`, r.inputs.text, "replies"))
           .child(button(t, `sr-remove-${r.id}`, "×", (cx) => this.removeReply(r, cx), { size: "sm", tip: "Remove reply" }))),
         h_flex().child(button(t, "settings-add-reply", "+ Reply", (cx) => this.addReply(cx), { size: "sm" })),
+      ]))
+      .child(this.section(t, "settings-health", "HEALTH", [], [
+        h_flex().gap(8).items_center()
+          .child(div().flex_1().text_size(11).text_color(t.dim).child(this.health ? "Live environment diagnostics" : "Checking tools, auth, hook and quotas…"))
+          .child(button(t, "settings-health-refresh", this.healthBusy ? "Checking…" : "Refresh", (cx) => this.loadHealth(cx),
+            { size: "sm", disabled: Boolean(this.healthBusy) })),
+        ...(this.health ?? []).map((item) => h_flex().id(`settings-health-${item.id}`).gap(8).items_center().text_size(13)
+          .child(div().size(8).flex_none().rounded(4).bg(item.status === "ok" ? t.done : item.status === "warn" ? t.ansi3 : t.blocked))
+          .child(div().w(128).flex_none().text_color(t.foreground).child(item.label))
+          .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(item.status === "bad" ? t.blocked : t.muted).child(item.detail))),
       ]))
       .child(this.section(t, "settings-about", "ABOUT", [], [
         div().id("settings-about-line").text_size(13).text_color(this.about ? t.foreground : t.dim).child(this.about?.text ?? "Reading versions…"),

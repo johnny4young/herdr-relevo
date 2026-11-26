@@ -64,6 +64,7 @@ export default class Relevo extends View {
     if (name === "goals") { setShared(GOAL_MODE, true); focusInbox(); }
     else if (name === "classic-inbox") { landOnReviews(); focusInbox(); }
     else if (name === "goal-new") openGoal();
+    else if (name === "run-from-issue") openGoal(null, null, "decision", { fromIssue: true });
     else if (name.startsWith("goal-focus-")) { setShared(GOAL_MODE, true); setShared(GOAL_SCOPE, name.slice(11)); focusInbox(); }
     else if (name.startsWith("workflow-")) openWorkflow(name.slice(9));
     else if (name.startsWith("goal-")) openGoal(name.slice(5));

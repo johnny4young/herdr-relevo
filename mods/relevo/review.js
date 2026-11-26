@@ -2,7 +2,7 @@ import { div, list } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, Scrollbar, TextView } from "gpui-base";
 import { theme, exec, run, agents, panes, focused, props, settings, notify, shared, setShared, window } from "herdr";
 import { focusedCwd } from "./panelbar.js";
-import { button, checkbox, icon, tag, diffRatio, keycap } from "./ui.js";
+import { button, checkbox, icon, tag, diffRatio, keycap, openUrl } from "./ui.js";
 import { ago } from "./lib/time.js";
 import { launchInRepo } from "./accounts.js";
 import { accountFor } from "./context.js";
@@ -11,7 +11,7 @@ import { localBranch, pullRef, pullRefspec } from "./lib/prmenu.js";
 import { openWorkflow } from "./workflow-window.js";
 import { GIT_READ as READ } from "./lib/git.js";
 import { AGENT_PRS } from "./lib/github.js";
-import { diffRows, lineKey, selectRange, lineComment, fileComment, commentId, commentLabel, rangeRows, reviewMessage } from "./lib/diff.js";
+import { diffRows, lineKey, selectRange, lineComment, fileComment, commentId, commentLabel, rangeRows, reviewMessage, hunkIndices, searchMatches, githubDraftReview } from "./lib/diff.js";
 import { highlightRows, languageFor } from "./lib/highlight.js";
 import { agentMarkdown } from "./lib/agent-markdown.js";
 
@@ -124,6 +124,9 @@ export const REVIEW_SHORTCUT_ACTIONS = [
   { id: "review.viewed", label: "Mark the file viewed", section: "Review pane", fixedShortcut: "v" },
   { id: "review.prev", label: "Previous file", section: "Review pane", fixedShortcut: "[" },
   { id: "review.next", label: "Next file", section: "Review pane", fixedShortcut: "]" },
+  { id: "review.next-hunk", label: "Next hunk", section: "Review pane", fixedShortcut: "n" },
+  { id: "review.prev-hunk", label: "Previous hunk", section: "Review pane", fixedShortcut: "p" },
+  { id: "review.search", label: "Search in diff", section: "Review pane", fixedShortcut: "/" },
   { id: "review.send", label: "Send the comments to the agent", section: "Review pane", fixedShortcut: "cmd-enter" },
 ];
 
@@ -164,8 +167,19 @@ export class ReviewDiff {
     // null, { start, end } row indices, or "file".
     this.editing = null;
     this.anchor = null;
+    this.searching = false;
+    this.viewStart = 0;
+    this.hunkAt = -1;
+    this.matchAt = -1;
+    this.posting = false;
     this.input = InputState.new({ value: "", placeholder: "Comment for the agent · Enter saves, Esc cancels" });
     this.input.on("submit", (_e, cx) => this.save(cx));
+    this.search = InputState.new({ value: "", placeholder: "Find in diff… · Enter next, Esc close" });
+    this.search.on("change", (_e, cx) => {
+      this.matchAt = -1;
+      this.jumpMatch(1, cx, { quiet: true });
+    });
+    this.search.on("submit", (_e, cx) => this.jumpMatch(1, cx));
     if (this.root) this.load(cx);
     if (this.pr && !this.range) this.readAbout(cx);
     // The agent keeps working while you read; pick up its changes unless you are typing.
@@ -189,6 +203,7 @@ export class ReviewDiff {
     this.closed = true;
     this.focus.release();
     this.input.release();
+    this.search?.release();
     if (this.pane && shared(OPEN)?.[this.key] === this.pane) {
       const { [this.key]: _, ...rest } = live();
       setShared(OPEN, rest);
@@ -326,6 +341,9 @@ export class ReviewDiff {
       this.editing = null;
       this.anchor = null;
       this.diffSign = null;
+      this.viewStart = 0;
+      this.hunkAt = -1;
+      this.matchAt = -1;
     }
     this.open = file;
     const picked = this.picked = (this.picked ?? 0) + 1;
@@ -500,7 +518,7 @@ export class ReviewDiff {
   }
 
   ready(agent = this.target()) {
-    return Boolean((agent || this.pr) && this.comments.length && this.editing === null && !this.sending);
+    return Boolean((agent || this.pr) && this.comments.length && this.editing === null && !this.sending && !this.posting);
   }
 
   send(cx) {
@@ -524,13 +542,14 @@ export class ReviewDiff {
     const message = reviewMessage(this.comments, this.subject());
     // Until hc send answers the comments are still here, so a second press would send them twice.
     this.sending = true;
+    const sent = new Set(this.comments);
     cx.notify();
     cx.spawn(async (cx) => {
       try {
         const r = await exec("hc", ["send", agent.address, message]);
         if (r.code !== 0) this.note = r.stderr.trim().split("\n")[0] || "hc send failed";
         else {
-          this.setComments([]);
+          this.setComments(this.comments.filter((c) => !sent.has(c)));
           this.note = `Sent to ${agent.tab_name || agent.address}`;
           run("agent.focus", { terminal: agent.address });
         }
@@ -541,11 +560,106 @@ export class ReviewDiff {
     });
   }
 
+  postDraftReview(cx) {
+    if (!this.pr || !this.comments.length || this.posting || this.sending) return;
+    const [, owner, repo] = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\//.exec(this.pr.url ?? "") ?? [];
+    if (!owner || !repo) {
+      this.note = "Not a GitHub pull request URL";
+      return cx.notify();
+    }
+    this.posting = true;
+    const posted = new Set(this.comments);
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        // Line numbers come from this checkout: GitHub must anchor them to the same commit, with nothing uncommitted on top.
+        const git = (args) => exec("git", [...READ, ...args], { cwd: this.root });
+        if (!this.pr.ref && (await git(["diff", "--quiet", "HEAD", "--", ...new Set(this.comments.map((c) => c.file))])).code !== 0) {
+          this.note = "Commit and push the commented files first, or send the comments to the agent";
+          return;
+        }
+        const commit = (await git(["rev-parse", "--verify", this.pr.ref ?? "HEAD"])).stdout.trim();
+        const post = (review) => exec("sh", ["-c", 'printf "%s" "$1" | gh api -X POST "$2" --input -', "sh",
+          JSON.stringify({ ...review, ...(commit ? { commit_id: commit } : {}) }), `repos/${owner}/${repo}/pulls/${this.pr.number}/reviews`]);
+        let r = await post(githubDraftReview(this.comments, true)), inline = true;
+        if (r.code !== 0 && /commit_id|commit sha|no commit found/i.test(r.stderr ?? "")) {
+          this.note = "This checkout's commit is not on the PR yet: push it before posting";
+          return;
+        }
+        if (r.code !== 0 && /line|position|diff|422/i.test(r.stderr ?? "")) { inline = false; r = await post(githubDraftReview(this.comments, false)); }
+        if (r.code !== 0) {
+          this.note = (r.stderr || "gh failed").trim().split("\n")[0];
+        } else {
+          let url = this.pr.url;
+          try { url = JSON.parse(r.stdout || "{}").html_url ?? url; } catch { /* keep PR url */ }
+          await this.markSeen(cx);
+          this.setComments(this.comments.filter((c) => !posted.has(c)));
+          this.note = inline ? "Draft review saved on GitHub" : "Draft review saved on GitHub · comments are in the review body, not inline";
+          openUrl(url);
+        }
+      } finally {
+        this.posting = false;
+        cx.notify();
+      }
+    });
+  }
+
+  jumpToRow(rowIndex) {
+    const { items } = this.diffModel();
+    const at = items.indexOf(rowIndex);
+    this.viewStart = at > 0 ? Math.max(0, at - 2) : 0;
+  }
+
+  jumpHunk(delta, cx) {
+    const hunks = hunkIndices(this.rows);
+    if (!hunks.length) return;
+    if (this.hunkAt < 0) this.hunkAt = delta > 0 ? 0 : hunks.length - 1;
+    else this.hunkAt = (this.hunkAt + delta + hunks.length) % hunks.length;
+    this.jumpToRow(hunks[this.hunkAt]);
+    cx.notify();
+  }
+
+  openSearch(cx) {
+    this.searching = true;
+    this.search?.focus();
+    cx.notify();
+  }
+
+  closeSearch(cx) {
+    this.searching = false;
+    this.search?.set_value("");
+    this.matchAt = -1;
+    this.viewStart = 0;
+    this.focus.focus();
+    cx.notify();
+  }
+
+  jumpMatch(delta, cx, { quiet = false } = {}) {
+    const matches = searchMatches(this.rows, this.search?.value() ?? "");
+    if (!matches.length) {
+      this.matchAt = -1;
+      if (!quiet) this.viewStart = 0;
+      return cx.notify();
+    }
+    if (this.matchAt < 0) this.matchAt = delta > 0 ? 0 : matches.length - 1;
+    else this.matchAt = (this.matchAt + delta + matches.length) % matches.length;
+    this.jumpToRow(matches[this.matchAt]);
+    cx.notify();
+  }
+
   escapeKey(e, cx) {
-    if (e.key !== "escape" || this.editing === null) return false;
-    cx.stop_propagation();
-    this.cancelEdit(cx);
-    return true;
+    if (e.key !== "escape") return false;
+    if (this.editing !== null) {
+      cx.stop_propagation();
+      this.cancelEdit(cx);
+      return true;
+    }
+    if (this.searching) {
+      cx.stop_propagation();
+      this.closeSearch(cx);
+      return true;
+    }
+    return false;
   }
 
   // ⌘↵ is the Send button and waits for the same things; a held key repeats, and one press sends once.
@@ -556,10 +670,10 @@ export class ReviewDiff {
     this.send(cx);
   }
 
-  // While no comment is open: c comments on the file, v marks it viewed, [ and ] go to the previous or next file.
+  // While no comment/search is open: c comments on the file, v marks it viewed, [ ] switch files, n p jump hunks, / searches.
   paneKey(e, cx) {
     const m = e.modifiers ?? {};
-    if (this.editing !== null || m.platform || m.control || m.alt) return false;
+    if (this.editing !== null || this.searching || m.platform || m.control || m.alt) return false;
     if (this.reading) {
       if (e.key !== "]" || !this.files.length) return false;
       cx.spawn(async (cx) => { await this.showFile(this.files.find((f) => f.path === this.open?.path) ?? this.files[0], cx); });
@@ -570,6 +684,9 @@ export class ReviewDiff {
     const at = (this.files ?? []).findIndex((f) => f.path === this.open.path), step = e.key === "[" ? -1 : e.key === "]" ? 1 : 0;
     if (e.key === "c") this.edit("file", cx);
     else if (e.key === "v" && this.hashes?.get(this.open.path)) this.toggleViewed(this.open.path, cx);
+    else if (e.key === "n") this.jumpHunk(1, cx);
+    else if (e.key === "p") this.jumpHunk(-1, cx);
+    else if (e.key === "/") this.openSearch(cx);
     else if (step < 0 && at === 0 && this.about) this.showAbout(cx);
     else if (step && this.files[at + step]) cx.spawn(async (cx) => { await this.showFile(this.files[at + step], cx); });
     else return false;
@@ -578,13 +695,17 @@ export class ReviewDiff {
   }
 
   // Runs inside the virtual list: no handlers here, clicks go through on_item_click.
-  row(t, r, i, noted, tint) {
+  row(t, r, i, noted, tint, matched = false, activeMatch = false) {
     const e = this.editing, marked = onRows(e) && i >= e.start && i <= e.end;
-    if (r.kind === "@") return div().w_full().px(12).h(20).flex_none().truncate().bg(t.raised).text_color(t.dim).child(r.text);
+    if (r.kind === "@") {
+      const hunks = hunkIndices(this.rows), active = this.hunkAt >= 0 && hunks[this.hunkAt] === i;
+      return div().w_full().px(12).h(20).flex_none().truncate().bg(active ? t.selected : t.raised).text_color(active ? t.foreground : t.dim).child(r.text);
+    }
     return h_flex().w_full().h(20).flex_none().gap(6).cursor_pointer().hover((s) => s.bg(t.hover))
       .when(r.kind === "+", (el) => el.bg(t.ansi2 + "18"))
       .when(r.kind === "-", (el) => el.bg(t.ansi1 + "18"))
-      .when(tint && !marked, (el) => el.bg(t.accent + "1f"))
+      .when(matched && !marked, (el) => el.bg(t.ansi3 + (activeMatch ? "40" : "22")))
+      .when(tint && !marked && !matched, (el) => el.bg(t.accent + "1f"))
       .when(marked, (el) => el.bg(t.selected))
       .child(div().w(30).flex_none().text_right().text_color(noted ? t.accent : t.dim).child(String(r.number)))
       .child(h_flex().w(12).flex_none().when(noted, (el) => el.child(icon("comment", t.accent))))
@@ -672,12 +793,32 @@ export class ReviewDiff {
   // Outside the virtual list, so ordinary handlers work here.
   fileBar(t, font, mine) {
     const note = mine.find((c) => c.scope === "file");
+    const hunks = hunkIndices(this.rows), matches = this.searching ? searchMatches(this.rows, this.search?.value() ?? "") : [];
     return v_flex().flex_none().border_b(1).border_color(t.border)
-      .child(h_flex().min_h(30).px(12).gap(8).flex_wrap().items_center()
+      .child(h_flex().min_h(30).px(12).gap(6).flex_wrap().items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.open.path))
+        .when(hunks.length > 1, (el) => el.child(h_flex().id("rv-hunks").gap(2).items_center()
+          .child(button(t, "rv-hunk-prev", "‹", (cx) => this.jumpHunk(-1, cx), { kind: "ghost", size: "sm", tip: "Previous hunk · p" }))
+          .child(div().text_size(11).text_color(t.dim).child(`${this.hunkAt >= 0 ? this.hunkAt + 1 : 1}/${hunks.length}`))
+          .child(button(t, "rv-hunk-next", "›", (cx) => this.jumpHunk(1, cx), { kind: "ghost", size: "sm", tip: "Next hunk · n" }))))
+        .child(button(t, "rv-search-open", [icon("search", this.searching ? t.accent : t.muted, 11)], (cx) => (this.searching ? this.closeSearch(cx) : this.openSearch(cx)),
+          { kind: "ghost", size: "sm", tip: "Search in diff · /", accessibleLabel: "Search in diff" }))
         .child(button(t, "rv-file-viewed", this.viewed(this.open.path) ? "Mark unviewed" : "Mark file viewed", (cx) => this.toggleViewed(this.open.path, cx),
           { size: "sm", disabled: !this.hashes.get(this.open.path), tip: "Change the viewed status of the selected file" }))
         .child(button(t, "rv-file-comment", "Comment on file", (cx) => this.edit("file", cx), { size: "sm" })))
+      .when(Boolean(this.searching), (el) => el.child(h_flex().id("rv-search").px(12).pb(6).gap(6).items_center()
+        .child(h_flex().flex_1().min_w(0).h(26).px(8).gap(6).items_center().rounded(6).border_1().border_color(t.accent).bg(t.background)
+          .on_key_down((e, cx) => {
+            if (e.key === "escape") { cx.stop_propagation(); this.closeSearch(cx); }
+            else if (e.key === "enter" && e.modifiers?.shift) { cx.stop_propagation(); this.jumpMatch(-1, cx); }
+          })
+          .child(icon("search", t.dim, 11))
+          .child(div().flex_1().min_w(0).child(Input.new(this.search).id("rv-search-input").h_full())))
+        .child(div().id("rv-search-count").flex_none().text_size(11).text_color(t.dim)
+          .child(matches.length ? `${this.matchAt >= 0 ? this.matchAt + 1 : 1}/${matches.length}` : (this.search?.value()?.trim() ? "0 matches" : "")))
+        .child(button(t, "rv-search-prev", "‹", (cx) => this.jumpMatch(-1, cx), { kind: "ghost", size: "sm", disabled: !matches.length, tip: "Previous match · ⇧↵" }))
+        .child(button(t, "rv-search-next", "›", (cx) => this.jumpMatch(1, cx), { kind: "ghost", size: "sm", disabled: !matches.length, tip: "Next match · ↵" }))
+        .child(button(t, "rv-search-close", [icon("x")], (cx) => this.closeSearch(cx), { kind: "ghost", size: "sm", tip: "Close search · Esc" }))))
       .when(Boolean(note) && this.editing !== "file", (el) => el.child(this.noteBox(t, note, font)
         .id("rv-file-note")
         .on_click((_e, cx) => this.edit("file", cx))));
@@ -742,23 +883,32 @@ export class ReviewDiff {
   }
 
   diff(t, font) {
-    const { items, starts, tinted } = this.diffModel();
+    const { items: allItems, starts, tinted } = this.diffModel();
+    const offset = this.viewStart > 0 && this.viewStart < allItems.length ? this.viewStart : 0;
+    const items = offset ? allItems.slice(offset) : allItems;
+    const matches = this.searching ? searchMatches(this.rows, this.search?.value() ?? "") : [];
+    const matchSet = matches.length ? new Set(matches) : null;
+    const activeRow = matches.length && this.matchAt >= 0 ? matches[this.matchAt] : -1;
     const isRow = (n) => typeof items[n] === "number";
     const key = (n) => (isRow(n) ? String(items[n]) : `c:${commentId(items[n])}`);
     const item = (n) => {
       if (!isRow(n)) return this.noteBox(t, items[n], font);
       const i = items[n], r = this.rows[i];
-      return this.row(t, r, i, r.number !== undefined && starts.has(lineKey(r)), tinted.has(i));
+      return this.row(t, r, i, r.number !== undefined && starts.has(lineKey(r)), tinted.has(i), Boolean(matchSet?.has(i)), i === activeRow);
     };
-    return div().id("rv-diff-area").flex_1().min_h(0).relative()
+    return v_flex().id("rv-diff-area").flex_1().min_h(0)
       .font_family(settings().font_family ?? "JetBrains Mono").text_size(11)
       .on_mouse_down("left", (e) => {
         this.shift = e.modifiers.shift;
       })
-      .child(list("rv-diff", items.length, key, item)
-        .size_full()
-        .on_item_click((id, cx) => (id.startsWith("c:") ? this.clickNote(id.slice(2), cx) : this.clickRow(+id, cx))))
-      .child(Scrollbar.vertical("rv-diff").absolute().inset_0());
+      .when(offset > 0, (el) => el.child(h_flex().id("rv-top-banner").h(24).flex_none().px(12).gap(8).items_center().bg(t.raised).border_b(1).border_color(t.border)
+        .child(div().flex_1().text_size(11).text_color(t.dim).child(`↑ ${offset} lines above`))
+        .child(button(t, "rv-show-top", "Show from top", (cx) => { this.viewStart = 0; cx.notify(); }, { kind: "ghost", size: "sm" }))))
+      .child(div().flex_1().min_h(0).relative()
+        .child(list("rv-diff", items.length, key, item)
+          .size_full()
+          .on_item_click((id, cx) => (id.startsWith("c:") ? this.clickNote(id.slice(2), cx) : this.clickRow(+id, cx))))
+        .child(Scrollbar.vertical("rv-diff").absolute().inset_0()));
   }
 
   description(t) {
@@ -782,6 +932,9 @@ export class ReviewDiff {
         else this.clearing = true;
         cx.notify();
       }, { size: "lg", kind: this.clearing ? "danger" : "outline" })))
+      .when(Boolean(this.pr) && n > 0, (el) => el.child(button(t, "rv-post-github", this.posting ? "Posting…" : "Post draft review",
+        (cx) => this.postDraftReview(cx), { kind: "outline", size: "lg", disabled: !ready || this.posting,
+          tip: "Saves these comments as a pending draft review on GitHub for you to edit and submit" })))
       .child(h_flex().id("rv-send-key").flex_none().gap(2).child(keycap(t, "⌘")).child(keycap(t, "enter")))
       .child(button(t, "rv-send", "Send to agent", (cx) => this.send(cx), { kind: "solid", size: "lg", disabled: !ready,
         tip: this.editing !== null ? "Save or cancel the current edit before sending comments" : "Send saved review comments to the agent · ⌘↵" }));

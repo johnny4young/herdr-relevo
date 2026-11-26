@@ -97,3 +97,61 @@ export function formatComment(c, n) {
 export const reviewMessage = (comments, subject = "the uncommitted changes") =>
   `Review comments on ${subject}. Address each one, then summarize what you changed.\n\n`
   + comments.map((c, i) => formatComment(c, i + 1)).join("\n\n");
+
+// A render asks for these several times; rows arrays are replaced, never edited, so each one is scanned once.
+const hunkCache = new WeakMap(), matchCache = new WeakMap();
+
+export function hunkIndices(rows) {
+  if (!rows) return [];
+  let out = hunkCache.get(rows);
+  if (!out) {
+    out = [];
+    for (let i = 0; i < rows.length; i++) if (rows[i]?.kind === "@") out.push(i);
+    hunkCache.set(rows, out);
+  }
+  return out;
+}
+
+export function searchMatches(rows, query) {
+  const q = String(query ?? "").trim().toLowerCase();
+  if (!q || !rows) return [];
+  const hit = matchCache.get(rows);
+  if (hit?.q === q) return hit.out;
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i]?.text ?? "").toLowerCase().includes(q)) out.push(i);
+  }
+  matchCache.set(rows, { q, out });
+  return out;
+}
+
+// Pending GitHub pull request review payload (never sets `event`, so it stays a draft for the user to edit/submit).
+export function githubDraftReview(comments, inline = true) {
+  const list = comments ?? [];
+  if (!inline) {
+    return {
+      body: list.map((c, i) => formatComment(c, i + 1)).join("\n\n"),
+      comments: [],
+    };
+  }
+  const bodyParts = [], inlineComments = [];
+  for (const c of list) {
+    const endLine = c.start ? c.end : c.line;
+    const valid = c.scope !== "file" && Number.isInteger(c.line) && c.line > 0 && Number.isInteger(endLine) && endLine > 0;
+    if (!valid) {
+      bodyParts.push(`**${c.file}**${c.scope === "file" ? " (file)" : ""}\n${c.text}`);
+      continue;
+    }
+    const side = (c.start ? c.endSide : c.side) === "-" ? "LEFT" : "RIGHT";
+    const entry = { path: c.file, line: endLine, side, body: c.text };
+    if (c.start && c.line < endLine) {
+      entry.start_line = c.line;
+      entry.start_side = c.side === "-" ? "LEFT" : "RIGHT";
+    }
+    inlineComments.push(entry);
+  }
+  return {
+    body: bodyParts.join("\n\n"),
+    comments: inlineComments,
+  };
+}

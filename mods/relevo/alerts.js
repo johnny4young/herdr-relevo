@@ -1,8 +1,9 @@
 import { agents, exec, panes, terminals, playSound, notify as toast, shared, setShared, window } from "herdr";
 import { accountOf, knownAccount } from "./accounts.js";
 import { contextOfPath, inFocus } from "./context.js";
-import { CONTEXTS } from "./config.js";
+import { CONTEXTS, FALLBACK } from "./config.js";
 import { runsOut, clock, FIVE_HOURS, WEEK, windowLabel } from "./lib/time.js";
+import { bestAlternate } from "./lib/quota-routing.js";
 import { newResults } from "./lib/run-alerts.js";
 import { batchScope } from "./lib/workflow-preferences.js";
 import { VERDICT } from "./lib/run-words.js";
@@ -121,13 +122,19 @@ export function quotaAlerts(quotas) {
       if (first || (context && !inFocus(context.key))) continue;
       playSound("sounds/quota.mp3");
       const handoff = full && knownAccount(key);
+      const alt = handoff ? bestAlternate(key, FALLBACK, quotas) : null;
       const out = runsOut(w, name === "5h" ? FIVE_HOURS : w.span ?? WEEK);
       const when = w.pct >= 100 ? "" : out ? ` · 100% at ${clock(out)}` : "";
       notify({
         title: `${accountOf(key).label} at ${w.pct}% (${name === "5h" ? name : windowLabel(w, name)})${when}`,
         level: "warning",
         ...(handoff
-          ? { body: "Click to continue its agent with another account", action: { name: `relevo.handoff-from-${key}` } }
+          ? {
+            body: alt
+              ? `Click to continue on ${accountOf(alt.key).label}${alt.room != null ? ` (${alt.room}% room)` : ""}`
+              : "Click to continue its agent with another account",
+            action: { name: `relevo.handoff-from-${key}` },
+          }
           : {}),
       });
     }

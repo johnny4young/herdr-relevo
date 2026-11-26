@@ -2,6 +2,7 @@ import { home, readTextFile, run, spaces, shared, terminals } from "herdr";
 import { ACCOUNTS as CONFIGURED, CODEX as CODEX_ACCOUNT, FALLBACK } from "./config.js";
 import * as config from "./config.js";
 import { FIVE_HOURS, WEEK, windowOf, windowLabel } from "./lib/time.js";
+import { NEAR_FULL, bestAlternate, quotaRisk, usedOf } from "./lib/quota-routing.js";
 import { accountFor } from "./context.js";
 import { shellArgv } from "./lib/session-env.js";
 import { PROVIDERS, providerOf, providerOfApp, quotaOf } from "./lib/providers.js";
@@ -106,23 +107,19 @@ export function reportedQuota(provider, list) {
 
 export const full = (q) => (q?.h5?.pct >= 100 ? "5h" : q?.d7?.pct >= 100 ? windowLabel(q.d7, "7d") : null);
 
-// Past this share of either window a new agent starts on another account: the rest goes in minutes.
-export const NEAR_FULL = 90;
-const used = (q) => Math.max(q?.h5?.pct ?? 0, q?.d7?.pct ?? 0);
-export const hasRoom = (q) => used(q) < NEAR_FULL;
-const tightWindow = (q) => ((q?.h5?.pct ?? 0) >= (q?.d7?.pct ?? 0) ? "5h" : windowLabel(q.d7, "7d"));
+// Past this share of either window (or filling within 15 min) a new agent starts on another account.
+export { NEAR_FULL };
+export const hasRoom = (q) => !quotaRisk(q) && usedOf(q) < NEAR_FULL;
 
-// The repo's account unless it is nearly out of quota; then the fallback with the most left, known before unknown.
+// The repo's account unless it is full or filling soon; then the fallback with the most left, known before unknown.
 export const pickAccount = (repo, quotas) => withRoom(accountFor(repo), quotas);
 
 export function withRoom(key, quotas) {
-  const q = quotas?.[key];
-  if (used(q) < NEAR_FULL) return { key, note: null };
-  const alt = FALLBACK.filter((k) => k !== key && used(quotas?.[k]) < NEAR_FULL)
-    .map((k, i) => ({ k, i, rank: quotas?.[k] ? used(quotas[k]) : 100 }))
-    .sort((x, y) => x.rank - y.rank || x.i - y.i)[0]?.k;
+  const risk = quotaRisk(quotas?.[key]);
+  if (!risk) return { key, note: null };
+  const alt = bestAlternate(key, FALLBACK, quotas)?.key;
   return alt
-    ? { key: alt, note: `${accountOf(key).label} is at ${Math.round(used(q))}% (${tightWindow(q)}) — using ${accountOf(alt).label}` }
+    ? { key: alt, note: `${accountOf(key).label} ${risk.reason} — using ${accountOf(alt).label}` }
     : { key, note: null };
 }
 
