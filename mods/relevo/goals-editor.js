@@ -14,7 +14,7 @@ import { focusedCwd } from "./panelbar.js";
 import { accountOf, loadClaudeQuotas } from "./accounts.js";
 import { runAccountsFor } from "./workflow-runs.js";
 import { RUN_START } from "./run-launcher.js";
-import { GOAL_MODE } from "./inbox-goals.js";
+import { GOAL_MODE, GOAL_SCOPE } from "./inbox-goals.js";
 import { showPanel } from "./toolbar.js";
 
 async function workflowTasks() {
@@ -269,7 +269,7 @@ export class GoalEditor {
           closeOverlay(overlay);
           if (quickStart) {
             setShared(RUN_START, { fields: { goalId: goal.id, title: goal.title, root: this.runDefaults.root, criteria: goal.criteria }, pr: null, at: Date.now() });
-            setShared(GOAL_MODE, true);
+            setShared(GOAL_MODE, true); setShared(GOAL_SCOPE, null);
             showPanel("inbox");
             run("relevo.run-start");
           } else if (isNewRun) {

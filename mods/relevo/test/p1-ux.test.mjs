@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { URL } from "node:url";
-import { fake, resetFake } from "./fake/herdr.mjs";
+import { fake, resetFake, theme } from "./fake/herdr.mjs";
 import { click, fakeCx, find, flush, text } from "./fake/ui.mjs";
 import { AGY_AWK, AGY_SCAN, SeenIds, addAgy, cutDay, emptyState, parseScan, reportOf } from "../lib/usage-scan.js";
 import { SNOOZE_PRESETS, isSnoozed, pruneSnoozed, snoozeLabel, snoozeUntil } from "../lib/snooze.js";
@@ -17,7 +17,9 @@ import { summarize } from "../lib/usage.js";
 const { Inbox } = await import("../inbox.js");
 const { AccountStatus } = await import("../account-status.js");
 const { UsageDialog } = await import("../usage.js");
-const { InboxButton, RUNS_COUNT, RUNS_FLIGHT } = await import("../toolbar.js");
+const { COUNT, InboxButton, RUNS_COUNT, RUNS_FLIGHT } = await import("../toolbar.js");
+const { SessionFinder } = await import("../sessions.js");
+const { GOAL_SCOPE } = await import("../inbox-goals.js");
 const { GoalEditor, openGoal } = await import("../goals-editor.js");
 const { RUN_START } = await import("../run-launcher.js");
 const { row } = await import("../ui.js");
@@ -185,11 +187,13 @@ test("New run composer offers one-step Start run when a repository is focused", 
   const tree = editor.render();
   assert.ok(find(tree, "new-run-defaults"));
   assert.ok(find(tree, "goal-start-now"));
+  fake.stored[GOAL_SCOPE] = "old-run";
   editor.fields.criteria.set_value("Add dark mode toggle");
   click(find(tree, "goal-start-now"), cx); await flush();
   assert.equal(fake.stored[RUN_START].fields.root, "/work/app");
   assert.equal(fake.stored[RUN_START].fields.criteria, "Add dark mode toggle");
   assert.deepEqual(fake.runs.at(-1), ["relevo.run-start", undefined]);
+  assert.equal(fake.stored[GOAL_SCOPE], null, "Runs shows the new run");
   editor.close();
 });
 
@@ -199,4 +203,96 @@ test("shortcut help catalog covers every command in keys.json", () => {
   const listed = new Set(INBOX_SHORTCUT_ACTIONS.map((a) => a.id));
   const missing = commands.filter((cmd) => !listed.has(cmd));
   assert.deepEqual(missing, []);
+});
+
+test("an Antigravity line cut at a block start is not counted again as step 0", () => {
+  const line = JSON.stringify({ step_index: 7, type: "PLANNER_RESPONSE", created_at: "2026-11-25T10:00:00Z", model: "m", input_tokens: 100, cache_read_tokens: 0, output_tokens: 1000 });
+  const out = execFileSync("awk", [AGY_AWK], { input: `F\tf\t1\t\n${line}\nF\tf\t2\t\n${line.slice(10)}\n` }).toString();
+  assert.deepEqual(out.split("\n").filter((l) => l.startsWith("A")), ["A\t7\t2026-11-25T10:00:00Z\tm\t100,0,1000"]);
+});
+
+const ciPR = (n, extra = {}) => ({
+  url: `https://github.com/acme/app/pull/${n}`, repo: "acme/app", number: n, title: `PR ${n}`,
+  reasons: ["CI failing"], skills: ["fix"], updatedAt: new Date().toISOString(),
+  commits: { nodes: [{ commit: { statusCheckRollup: { state: "FAILURE" } } }] }, ...extra,
+});
+
+test("snooze reads CI from the PR's checks, and a snooze CI ended leaves Maintenance", async () => {
+  const inbox = new Inbox(), cx = fakeCx();
+  inbox.init({}, cx); await flush();
+  inbox.h.is_focused = () => true;
+  inbox.mine = [ciPR(1)];
+  inbox.sel = `pr-${ciPR(1).url}`;
+  inbox.render(cx);
+  inbox.h.focus = () => { inbox.h.focused = true; };
+  inbox.navKey({ key: "h", modifiers: {} }, cx);
+  assert.equal(inbox.h.focused, true, "snooze menu leaves the keys on the list");
+  assert.ok(find(inbox.render(cx), `snooze-ci-pr-${ciPR(1).url}`), "Until CI green is offered");
+  click(find(inbox.render(cx), `snooze-ci-pr-${ciPR(1).url}`), cx);
+  inbox.mine = [ciPR(1, { commits: { nodes: [{ commit: { statusCheckRollup: { state: "SUCCESS" } } }] } })];
+  inbox.setReviewView("maintenance", cx);
+  inbox.expanded["maintenance-snoozed"] = true;
+  assert.equal(find(inbox.render(cx), "maintenance-snoozed"), null);
+});
+
+test("snoozes read at start update the Needs me badge", async () => {
+  const id = `pr-${ciPR(1).url}`;
+  const inbox = new Inbox(), cx = fakeCx();
+  inbox.init({}, cx); await flush();
+  inbox.mine = [ciPR(1)];
+  inbox.publish();
+  assert.equal(fake.stored[COUNT], 1);
+  fake.files["/home/test/.local/state/relevo/snoozed.json"] = JSON.stringify({ [id]: { until: Date.now() / 1000 + 3600, label: "app #1" } });
+  inbox.loadSnoozed(cx); await flush();
+  assert.equal(fake.stored[COUNT], 0);
+});
+
+test("Runs badge counts blocked tasks and its dot counts running ones", async () => {
+  const inbox = new Inbox(), cx = fakeCx();
+  inbox.init({}, cx); await flush();
+  inbox.workflowTasks = [{ state: "blocked" }, { state: "failed" }, { state: "running", attempts: [{}] }];
+  inbox.publishRunsCount();
+  assert.equal(fake.stored[RUNS_COUNT], 2);
+  assert.equal(fake.stored[RUNS_FLIGHT], 1);
+});
+
+test("held Enter runs nothing, and a selection never jumps into another list", async () => {
+  const inbox = new Inbox(), cx = fakeCx();
+  inbox.init({}, cx); await flush();
+  inbox.h.is_focused = () => true;
+  let ran = 0;
+  inbox.render(cx);
+  inbox.nav = [{ id: "x", go: () => { ran += 1; } }];
+  inbox.sel = "x";
+  inbox.navKey({ key: "enter", modifiers: {}, is_held: true }, cx);
+  assert.equal(ran, 0);
+  inbox.navKey({ key: "enter", modifiers: {} }, cx);
+  assert.equal(ran, 1);
+
+  inbox.mine = [ciPR(1)];
+  inbox.navView = "maintenance";
+  inbox.nav = [{ id: "a" }, { id: "gone" }];
+  inbox.sel = "gone";
+  inbox.render(cx);
+  assert.equal(inbox.sel, null);
+});
+
+test("Deep review runs from the Action Panel, and Maintenance offers no snooze", async () => {
+  const inbox = new Inbox(), cx = fakeCx();
+  inbox.init({}, cx); await flush();
+  inbox.clones["acme/app"] = "/work/app";
+  const pr = ciPR(1, { headRefOid: "abc" });
+  const deep = inbox.prActions(theme(), pr, false).allActions.find((a) => a.id === `deep-${pr.url}`);
+  assert.equal(typeof deep.run, "function");
+  assert.ok(inbox.prActions(theme(), pr, false).actions.some((a) => a.id === `snooze-pr-${pr.url}`));
+  inbox.setReviewView("maintenance", cx);
+  assert.ok(!inbox.prActions(theme(), pr, false).actions.some((a) => a.id === `snooze-pr-${pr.url}`));
+});
+
+test("the session finder resumes a session once when Enter reaches both handlers", () => {
+  const finder = new SessionFinder();
+  const row = { project: "/work/app", title: "Fix", account: "a", id: "0b8e2a8c-1d2e-4f50-9a6b-7c8d9e0f1a2b" };
+  finder.open(row);
+  finder.open(row);
+  assert.equal(fake.runs.filter(([name]) => name === "space.new" || name === "tab.new").length, 1);
 });

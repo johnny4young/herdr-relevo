@@ -439,7 +439,7 @@ export class PrViews {
       ? { id: `review-pr-${pr.url}`, key: "r", label: "Review", run: () => this.reviewPR(pr), tip: withKey("The whole PR against its base, line by line", "relevo.review") }
       : null;
     if (review) all.push(review);
-    if (!requested && this.clones[pr.repo] && !pr.untrusted && pr.headRefOid) all.push({ id: `deep-${pr.url}`, text: "Deep review", el: () => this.deepButton(t, pr) });
+    if (!requested && this.clones[pr.repo] && !pr.untrusted && pr.headRefOid) all.push({ id: `deep-${pr.url}`, text: "Deep review", run: () => openDeepReview(pr, this.clones[pr.repo]), el: () => this.deepButton(t, pr) });
     if (!requested && fixable(pr, this.clones[pr.repo])) {
       all.push({ id: `fix-run-${pr.url}`, label: this.fixing === pr.url ? "Preparing…" : "Fix with a run", run: (cx) => this.fixWithRun(pr, cx),
         tip: "Opens a run on a copy of this PR's branch with its failing checks and unresolved comments as the prompt; one agent fixes, another reviews, you push" });
@@ -468,7 +468,8 @@ export class PrViews {
     // Keep direct inline controls compact (primary + Review + Open PR + Snooze + ⋯); overflow lives in ⌘K Action Panel.
     const direct = [main, ...(review && review !== main ? [review] : []), ...(openPR !== main ? [openPR] : [])].filter(Boolean);
     const overflow = all.filter((a) => !direct.includes(a));
-    const snooze = !addressed && this.openActionMenu ? {
+    // Snooze only hides Now rows; Maintenance's old PRs would stay put.
+    const snooze = !addressed && this.openActionMenu && this.reviewView?.() !== "maintenance" ? {
       id: `snooze-pr-${pr.url}`, key: "h", label: [icon("clock")], tip: "Snooze · h", accessibleLabel: "Snooze pull request",
       run: (cx) => this.openActionMenu(this.prMenuEntry(t, pr, requested, addressed), cx, { mode: "snooze" }),
     } : null;
@@ -489,7 +490,7 @@ export class PrViews {
       id: `pr-${pr.url}`,
       title: prName(pr),
       copyUrl: pr.url,
-      snooze: { id: `pr-${pr.url}`, ci: pr.ci, updatedAt: seconds(pr.updatedAt), label: prName(pr) },
+      snooze: { id: `pr-${pr.url}`, ci: pr.ci ?? ciOf(pr), updatedAt: seconds(pr.updatedAt), label: prName(pr) },
       allActions: () => {
         const table = this.prActions(t, pr, requested, addressed);
         return [...(table.allActions ?? table.actions), table.mark].filter(Boolean);

@@ -168,7 +168,8 @@ export class KeyNav {
       const next = at < 0 ? 0 : Math.min(items.length - 1, Math.max(0, at + (key === "down" ? 1 : -1)));
       this.sel = items[next]?.id ?? null;
     } else if (key === "enter" && at >= 0) {
-      items[at].go(cx);
+      // Enter may arm a land, so a repeat must not confirm it either.
+      if (!e.is_held) items[at].go(cx);
     } else if (key === "escape") {
       this.sel = null;
       if (this.returnPane) run("pane.focus", { pane: this.returnPane });

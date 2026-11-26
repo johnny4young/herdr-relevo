@@ -109,7 +109,9 @@ export class SessionFinder {
   }
 
   open(row) {
-    if (!row || row.gone) return;
+    // Enter reaches both the field's submit and the finder's key handler: resume once.
+    if (!row || row.gone || this.opened) return;
+    this.opened = true;
     closeOverlay(props().overlay);
     const name = row.project.split("/").pop();
     openInFolder({ name, folder: row.project, tab: `${row.title.slice(0, 24)} · ${accountOf(row.account).letter}`, argv: resumeArgv(row.account, row.id) });

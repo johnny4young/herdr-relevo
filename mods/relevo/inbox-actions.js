@@ -14,6 +14,7 @@ export class ActionViews {
         const raw = await readTextFile(`${home()}/${SNOOZE_FILE}`);
         if (raw) {
           this.snoozed = pruneSnoozed(JSON.parse(raw));
+          this.publish();
           cx.notify();
         }
       } catch {
@@ -27,7 +28,7 @@ export class ActionViews {
     const body = JSON.stringify(this.snoozed, null, 2);
     const path = `${home()}/${SNOOZE_FILE}`;
     const write = () => exec("sh", ["-c",
-      'umask 077 && d=$(dirname "$1") && mkdir -p "$d" && t=$(mktemp "$d/.snoozed.XXXXXX") && printf "%s" "$2" > "$t" && mv "$t" "$1"',
+      'umask 077; d=$(dirname "$1"); mkdir -p "$d" && t=$(mktemp "$d/.snoozed.XXXXXX") || exit 1; printf "%s" "$2" > "$t" && mv -f "$t" "$1" || { rm -f "$t"; exit 1; }',
       "sh", path, body]).catch(() => {});
     this.snoozeWrite = (this.snoozeWrite ?? Promise.resolve()).then(write, write);
   }
@@ -104,7 +105,9 @@ export class ActionViews {
     this.actionMenu = { entry, mode };
     this.actionAt = 0;
     this.actionQuery?.set_value("");
-    this.actionQuery?.focus();
+    // Snooze mode draws no filter field, so the list keeps the keys.
+    if (mode === "actions") this.actionQuery?.focus();
+    else this.h?.focus();
     cx.notify();
   }
 
@@ -194,7 +197,7 @@ export class ActionViews {
   }
 
   snoozedGroup(t) {
-    const entries = Object.entries(pruneSnoozed(this.snoozed));
+    const entries = Object.entries(pruneSnoozed(this.snoozed)).filter(([id]) => !this.wokenSnoozes?.has(id));
     if (!entries.length) return [];
     const now = Date.now() / 1000;
     return [

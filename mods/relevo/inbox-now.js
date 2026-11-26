@@ -9,7 +9,7 @@ import { terminalRow, tidyRows } from "./lib/terminals.js";
 import { machineLook } from "./lib/machines.js";
 import { ago } from "./lib/time.js";
 import { openGoal } from "./goals-editor.js";
-import { recent, seconds } from "./lib/github.js";
+import { ciOf, recent, seconds } from "./lib/github.js";
 import { prTurn } from "./lib/lanes.js";
 import { button, foldRow, icon, joined, keycap, keysOf, LANE, laneGlyph, legend, legHeader, openUrl, saveFolds, TURN_LABEL } from "./ui.js";
 
@@ -121,7 +121,7 @@ export class NowViews {
       return {
         id, repo: pr.repo, title: label, copyUrl: pr.url,
         turn: prTurnOf(pr, requested), text: `${pr.repo ?? ""} ${pr.number ?? ""} ${pr.title ?? ""} ${pr.author?.login ?? ""}`,
-        snooze: { id, ci: pr.ci, updatedAt: seconds(pr.updatedAt), label },
+        snooze: { id, ci: pr.ci ?? ciOf(pr), updatedAt: seconds(pr.updatedAt), label },
         draw: () => this.prCard(t, pr, requested, false, isReady),
         go: runMain,
         keys: () => keysOf(this.prActions(t, pr, requested)),
@@ -151,7 +151,7 @@ export class NowViews {
       const pr = source.pr;
       add({ id: `pr-${pr.url}`, repo: pr.repo, title: `${pr.repo.split("/")[1]} #${pr.number}`, copyUrl: pr.url,
         turn: source.draft ? "open" : prTurnOf(pr, false), text: `${pr.repo} ${pr.number} ${pr.title}`,
-        snooze: { id: `pr-${pr.url}`, ci: pr.ci, updatedAt: seconds(pr.updatedAt), label: `${pr.repo.split("/")[1]} #${pr.number}` },
+        snooze: { id: `pr-${pr.url}`, ci: pr.ci ?? ciOf(pr), updatedAt: seconds(pr.updatedAt), label: `${pr.repo.split("/")[1]} #${pr.number}` },
         keys: () => keysOf(source.draft ? this.draftActions(pr) : this.prActions(t, pr, false)),
         allActions: () => {
           const table = source.draft ? this.draftActions(pr) : this.prActions(t, pr, false);
@@ -168,10 +168,16 @@ export class NowViews {
       turn: "open", text: `${pr.repo} ${pr.number} ${pr.title}`, draw: () => this.draftCard(t, pr), go: () => openUrl(pr.url),
       keys: () => keysOf(this.draftActions(pr)),
       allActions: () => { const table = this.draftActions(pr); return [...(table.actions ?? []), table.mark].filter(Boolean); } });
-    const seen = new Set();
-    return out.filter((e) => !seen.has(e.id) && seen.add(e.id))
-      .filter((e) => !e.snooze || !this.isRowSnoozed?.(e.id, e.snooze))
-      .map((e) => ({ ...e, turn: GROUPS.includes(e.turn) ? e.turn : "open", section: GROUPS.includes(e.turn) ? e.turn : "open" }));
+    const seen = new Set(), woken = new Set();
+    // A snooze ended by CI or new activity leaves Maintenance's snoozed list too.
+    const kept = out.filter((e) => !seen.has(e.id) && seen.add(e.id)).filter((e) => {
+      if (!e.snooze || !this.snoozed?.[e.id]) return true;
+      if (this.isRowSnoozed?.(e.id, e.snooze)) return false;
+      woken.add(e.id);
+      return true;
+    });
+    this.wokenSnoozes = woken;
+    return kept.map((e) => ({ ...e, turn: GROUPS.includes(e.turn) ? e.turn : "open", section: GROUPS.includes(e.turn) ? e.turn : "open" }));
   }
 
   // A filter typed after / keeps the rows whose words contain it; only the list and its keys see it, never the badge.

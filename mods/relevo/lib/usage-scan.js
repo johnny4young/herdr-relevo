@@ -82,7 +82,8 @@ export const AGY_AWK = String.raw`
 function str(s, key,   i, r) { i = index(s, "\"" key "\":\""); if (!i) return ""; r = substr(s, i + length(key) + 4); return substr(r, 1, index(r, "\"") - 1) }
 function num(s, key,   i) { i = index(s, "\"" key "\":"); return i ? substr(s, i + length(key) + 3, 24) + 0 : 0 }
 /^F\t/ { split($0, a, "\t"); print "F\t" a[2] "\t" a[3]; next }
-index($0, "\"type\":\"PLANNER_RESPONSE\"") > 0 {
+# A line cut at a block start loses its leading step_index, and step 0 would count it again.
+index($0, "\"type\":\"PLANNER_RESPONSE\"") > 0 && index($0, "\"step_index\":") > 0 {
   inp = num($0, "input_tokens"); rd = num($0, "cache_read_tokens"); out = num($0, "output_tokens")
   if (inp > 0 || rd > 0 || out > 0) {
     print "A\t" num($0, "step_index") "\t" str($0, "created_at") "\t" str($0, "model") "\t" inp "," rd "," out

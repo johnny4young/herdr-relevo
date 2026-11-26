@@ -23,6 +23,7 @@ import { ASKS_DIR, parseNotes } from "./lib/asks.js";
 import { readPrompt, samePrompt, sameChoicesBut, submitKeys, freeOption, moveKeys, lastMessage, reasonOf } from "./lib/prompt.js";
 import { COUNT, RUNS_COUNT, RUNS_FLIGHT, showPanel } from "./toolbar.js";
 import { launched } from "./skills.js";
+import { taskTurn } from "./lib/run-panel.js";
 import { openWeek } from "./week.js";
 import { ActionViews } from "./inbox-actions.js";
 import { PrViews } from "./inbox-prs.js";
@@ -208,8 +209,8 @@ export class Inbox {
 
   publishRunsCount() {
     const tasks = this.workflowTasks ?? [];
-    const need = tasks.filter((x) => !x.pr && (x.state === "needs_you" || x.state === "stuck")).length;
-    const flight = tasks.filter((x) => ["working", "reviewing", "queued"].includes(x.state)).length;
+    const need = tasks.filter((x) => !x.pr && ["me", "stuck"].includes(taskTurn(x))).length;
+    const flight = tasks.filter((x) => taskTurn(x) === "flight").length;
     if ((shared(RUNS_COUNT) ?? 0) !== need) setShared(RUNS_COUNT, need);
     if ((shared(RUNS_FLIGHT) ?? 0) !== flight) setShared(RUNS_FLIGHT, flight);
   }
@@ -808,7 +809,9 @@ export class Inbox {
     const firstRead = !goalMode && !this.prsAt && Boolean(this.scanningPRs);
     // Nothing needs you only once PRs were read and every source answered.
     this.calm = reviewView === "now" && Boolean(this.prsAt) && Boolean(this.localOkAt) && !errors.length && !counts.me && !counts.ready ? { flight: counts.flight, upkeep: upkeep.count } : null;
-    const prevNav = this.nav ?? [];
+    // A row that leaves the list hands the selection to its neighbour, but only within the same list.
+    const prevNav = this.navView === (goalMode ? "runs" : reviewView) ? this.nav ?? [] : [];
+    this.navView = goalMode ? "runs" : reviewView;
     this.nav = goalMode ? this.runNav(runs) : reviewView === "now" ? this.nowNav(shownNow) : this.maintenanceNav(v, upkeep);
     this.keyboard = this.h.is_focused();
     if (this.sel && !this.nav.some((i) => i.id === this.sel)) {
