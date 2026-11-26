@@ -360,3 +360,19 @@ test("marking or landing the selected row hands the selection to its neighbour",
   inbox.land(ciPR(2), false, cx);
   assert.equal(inbox.advanceFrom, `pr-${ciPR(2).url}`);
 });
+
+test("a usage scan a reload stranded gives way to the next one after a while", async () => {
+  const scanner = new UsageScanner();
+  fake.exec = (cmd, args) => (cmd === "sh" && String(args[1]).startsWith("for d;") ? new Promise(() => {}) : null);
+  scanner.scan();
+  await flush();
+  assert.equal(scanner.busy, true);
+  const before = fake.execs.length;
+  await scanner.scan();
+  assert.equal(fake.execs.length, before, "a scan still within its time is left alone");
+  fake.exec = () => null;
+  scanner.busySince -= 16 * 60e3;
+  await scanner.scan();
+  assert.ok(fake.execs.length > before);
+  assert.equal(scanner.busy, false);
+});

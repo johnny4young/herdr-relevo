@@ -15,6 +15,7 @@ export const USAGE = "relevo.usage";
 export const AGENT_CONTEXT = "relevo.agentContext";
 const SAVE_EVERY = 5;
 const PROGRESS_EVERY = 1000;
+const STUCK_MS = 15 * 60e3;
 // Herdr writes a file of at most 1 MiB: the files' read offsets go in this many parts, and each day's ids in its own file.
 const PARTS = 8;
 const partOf = (path) => {
@@ -127,8 +128,11 @@ export class UsageScanner {
   }
 
   async scan() {
-    if (this.busy) return;
+    // A reload can strand a scan whose awaits never settle; past STUCK_MS the next one takes over.
+    if (this.busy && Date.now() - this.busySince < STUCK_MS) return;
+    const run = this.scanRun = (this.scanRun ?? 0) + 1;
     this.busy = true;
+    this.busySince = Date.now();
     try {
       if (!this.state) await this.load();
       const cut = cutDay(), { listed, complete } = await this.list(), account = new Map();
@@ -149,6 +153,7 @@ export class UsageScanner {
       ];
       const failed = new Set();
       for (const [i, [kind, batch]] of batches.entries()) {
+        if (run !== this.scanRun) return;
         const ranges = batch.filter((r) => !failed.has(r.path));
         if (!ranges.length) continue;
         const specs = ranges.map((r) => (kind === "claude" ? `${r.path}|${r.start}|${r.end}|${r.prev}` : `${r.path}|${r.start}|${r.end}`));
@@ -181,10 +186,13 @@ export class UsageScanner {
         if ((i + 1) % SAVE_EVERY === 0) await this.save();
       }
       // Nothing read and nothing aged out: the saved report is still right, and a write would redraw every mod.
+      if (run !== this.scanRun) return;
       if (prune(this.state, cut, complete ? new Set(listed.keys()) : null) || batches.length || !this.files.report.text || this.legacy) await this.save(true);
     } finally {
-      this.seen?.forget();
-      this.busy = false;
+      if (run === this.scanRun) {
+        this.seen?.forget();
+        this.busy = false;
+      }
     }
   }
 
