@@ -809,15 +809,17 @@ export class Inbox {
     const firstRead = !goalMode && !this.prsAt && Boolean(this.scanningPRs);
     // Nothing needs you only once PRs were read and every source answered.
     this.calm = reviewView === "now" && Boolean(this.prsAt) && Boolean(this.localOkAt) && !errors.length && !counts.me && !counts.ready ? { flight: counts.flight, upkeep: upkeep.count } : null;
-    // A row that leaves the list hands the selection to its neighbour, but only within the same list.
+    // A row you snoozed, marked or landed hands the selection to its neighbour in the same list; one a refresh
+    // took away clears it, so Enter never acts on a row you did not pick.
     const prevNav = this.navView === (goalMode ? "runs" : reviewView) ? this.nav ?? [] : [];
     this.navView = goalMode ? "runs" : reviewView;
     this.nav = goalMode ? this.runNav(runs) : reviewView === "now" ? this.nowNav(shownNow) : this.maintenanceNav(v, upkeep);
     this.keyboard = this.h.is_focused();
     if (this.sel && !this.nav.some((i) => i.id === this.sel)) {
-      const was = prevNav.findIndex((i) => i.id === this.sel);
+      const was = this.sel === this.advanceFrom ? prevNav.findIndex((i) => i.id === this.sel) : -1;
       this.sel = was >= 0 && this.nav.length ? this.nav[Math.min(was, this.nav.length - 1)].id : null;
     }
+    if (this.advanceFrom !== this.sel) this.advanceFrom = null;
     const view = goalMode ? this.goalViewport() : this.viewport(reviewView === "now" ? NOW_SECTIONS : MAINTENANCE_SECTIONS);
     this.hiddenIds = view.hidden;
     const part = (key, els) => (view.sections.has(key) ? [] : els.filter(Boolean));

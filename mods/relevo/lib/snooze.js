@@ -43,6 +43,12 @@ export function pruneSnoozed(map, now = Date.now() / 1000) {
   return next;
 }
 
+// Seconds until the first snooze runs out, or null when none is left.
+export function nextWake(map, now = Date.now() / 1000) {
+  const ends = Object.values(pruneSnoozed(map, now)).map((e) => e.until - now);
+  return ends.length ? Math.min(...ends) : null;
+}
+
 export function snoozeLabel(entry, now = Date.now() / 1000) {
   if (!entry) return "";
   if (entry.untilCi) return "until CI green";

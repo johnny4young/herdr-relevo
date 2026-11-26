@@ -117,14 +117,12 @@ export class UsageScanner {
         if (!filter || filter(path)) listed.set(path, { size, account });
       }
     };
+    // Antigravity's transcripts are read only once its account was found on this machine.
     const agyOnly = (p) => p.endsWith("/transcript.jsonl");
-    let scannedAgy = false;
     for (const a of allAccounts()) {
       const p = providerOf(a), dirs = p.usageDirs(a, home());
-      if (p === PROVIDERS.agy) scannedAgy = true;
       if (dirs.length) await add(a.key, dirs, p === PROVIDERS.agy ? agyOnly : null);
     }
-    if (!scannedAgy) await add("agy", PROVIDERS.agy.usageDirs({}, home()), agyOnly);
     return { listed, complete };
   }
 

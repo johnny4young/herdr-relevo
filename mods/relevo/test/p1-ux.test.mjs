@@ -9,7 +9,7 @@ import { URL } from "node:url";
 import { fake, resetFake, theme } from "./fake/herdr.mjs";
 import { click, fakeCx, find, flush, text } from "./fake/ui.mjs";
 import { AGY_AWK, AGY_SCAN, SeenIds, addAgy, cutDay, emptyState, parseScan, reportOf } from "../lib/usage-scan.js";
-import { SNOOZE_PRESETS, isSnoozed, pruneSnoozed, snoozeLabel, snoozeUntil } from "../lib/snooze.js";
+import { SNOOZE_PRESETS, isSnoozed, nextWake, pruneSnoozed, snoozeLabel, snoozeUntil } from "../lib/snooze.js";
 import { INBOX_SHORTCUT_ACTIONS } from "../lib/shortcut-help.js";
 import { PROVIDERS } from "../lib/providers.js";
 import { summarize } from "../lib/usage.js";
@@ -20,6 +20,7 @@ const { UsageDialog } = await import("../usage.js");
 const { COUNT, InboxButton, RUNS_COUNT, RUNS_FLIGHT } = await import("../toolbar.js");
 const { SessionFinder } = await import("../sessions.js");
 const { GOAL_SCOPE } = await import("../inbox-goals.js");
+const { UsageScanner } = await import("../usage-scan.js");
 const { GoalEditor, openGoal } = await import("../goals-editor.js");
 const { RUN_START } = await import("../run-launcher.js");
 const { row } = await import("../ui.js");
@@ -41,7 +42,7 @@ test("Antigravity token transcripts are scanned cleanly without double-counting 
   writeFileSync(file, [
     JSON.stringify({ step_index: 0, source: "USER_EXPLICIT", type: "USER_INPUT", content: "hi" }),
     JSON.stringify({ step_index: 1, source: "MODEL", type: "PLANNER_RESPONSE", created_at: now, model: "gemini-4-neon-high", input_tokens: 17413, cache_read_tokens: 0, output_tokens: 911 }),
-    JSON.stringify({ step_index: 2, source: "MODEL", type: "GENERIC", tool_calls: [{ args: { Path: "/Users/dev/herdr-relevo/README.md" } }] }),
+    JSON.stringify({ step_index: 2, source: "MODEL", type: "GENERIC", tool_calls: [{ args: { AbsolutePath: JSON.stringify("/Users/dev/herdr-relevo/README.md") } }] }),
     JSON.stringify({ step_index: 3, source: "MODEL", type: "PLANNER_RESPONSE", created_at: now, model: "gemini-4-neon-high", input_tokens: 9344, cache_read_tokens: 17414, output_tokens: 530 }),
   ].join("\n") + "\n");
   const len = readFileSync(file).length;
@@ -273,6 +274,7 @@ test("held Enter runs nothing, and a selection never jumps into another list", a
   inbox.navView = "maintenance";
   inbox.nav = [{ id: "a" }, { id: "gone" }];
   inbox.sel = "gone";
+  inbox.advanceFrom = "gone";
   inbox.render(cx);
   assert.equal(inbox.sel, null);
 });
@@ -295,4 +297,66 @@ test("the session finder resumes a session once when Enter reaches both handlers
   finder.open(row);
   finder.open(row);
   assert.equal(fake.runs.filter(([name]) => name === "space.new" || name === "tab.new").length, 1);
+});
+
+test("a row a refresh takes away clears the selection instead of handing Enter to its neighbour", async () => {
+  const inbox = new Inbox(), cx = fakeCx();
+  inbox.init({}, cx); await flush();
+  inbox.mine = [ciPR(1), ciPR(2)];
+  inbox.sel = `pr-${ciPR(1).url}`;
+  inbox.render(cx);
+  inbox.mine = [ciPR(2)];
+  inbox.render(cx);
+  assert.equal(inbox.sel, null);
+});
+
+test("a snooze that runs out brings its row back without waiting for a PR scan", async () => {
+  assert.equal(nextWake({}, 100), null);
+  assert.equal(nextWake({ a: { until: 160 }, b: { until: 130 }, old: { until: 90 } }, 100), 30);
+  const inbox = new Inbox(), cx = fakeCx();
+  inbox.init({}, cx); await flush();
+  const id = `pr-${ciPR(1).url}`;
+  inbox.mine = [ciPR(1)];
+  inbox.snoozeRow(id, "30m", { label: "app #1" }, cx);
+  assert.equal(fake.stored[COUNT], 0);
+  const wake = cx.timers.filter((t) => t.once).at(-1);
+  assert.ok(wake && wake.ms > 29 * 60e3 && wake.ms <= 30 * 60e3 + 1000);
+  inbox.snoozed[id].until = Date.now() / 1000 - 1;
+  wake.fn(cx);
+  assert.equal(fake.stored[COUNT], 1);
+});
+
+test("Antigravity tool args name the transcript's folder: a file's parent, or a searched directory itself", () => {
+  const file = join(dir, "transcript.jsonl");
+  const step = (args) => JSON.stringify({ step_index: 2, type: "PLANNER_RESPONSE", tool_calls: [{ name: "tool", args }] }) + "\n";
+  const cwdOf = (line) => {
+    writeFileSync(file, line);
+    const out = execFileSync("sh", ["-c", AGY_SCAN, "sh", AGY_AWK, `${file}|0|${readFileSync(file).length}`]).toString();
+    return parseScan(out)[0].cwd;
+  };
+  assert.equal(cwdOf(step({ AbsolutePath: JSON.stringify("/work/app/src/README.md") })), "/work/app/src");
+  assert.equal(cwdOf(step({ Path: JSON.stringify("/work/app/Dockerfile.dev") })), "/work/app");
+  assert.equal(cwdOf(step({ DirectoryPath: JSON.stringify("/work/app") })), "/work/app");
+  assert.equal(cwdOf(step({ SearchPath: JSON.stringify("/work/app") })), "/work/app");
+  assert.equal(cwdOf(step({ SearchPath: JSON.stringify("/work/app/main.go") })), "/work/app");
+  assert.equal(cwdOf(step({ DirectoryPath: JSON.stringify("/home/u/.gemini/antigravity") })), null);
+});
+
+test("Antigravity transcripts are not read when no Antigravity account was found", async () => {
+  await new UsageScanner().list();
+  assert.equal(fake.execs.some((line) => line.includes("/.gemini/")), false);
+});
+
+test("marking or landing the selected row hands the selection to its neighbour", async () => {
+  const inbox = new Inbox(), cx = fakeCx();
+  inbox.init({}, cx); await flush();
+  inbox.mine = [ciPR(1), ciPR(2)];
+  inbox.sel = `pr-${ciPR(1).url}`;
+  inbox.render(cx);
+  inbox.prActions(theme(), ciPR(1), false).mark.run(cx);
+  inbox.render(cx);
+  assert.equal(inbox.sel, `pr-${ciPR(2).url}`);
+  fake.exec = () => new Promise(() => {});
+  inbox.land(ciPR(2), false, cx);
+  assert.equal(inbox.advanceFrom, `pr-${ciPR(2).url}`);
 });

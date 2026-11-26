@@ -79,6 +79,7 @@ export class NowViews {
   markAction(key, addressed, set, tip, { on = "addressed", off = "undo" } = {}) {
     if (addressed) return { id: `${off}-${key}`, label: "Undo", run: (cx) => set(false, cx), tip: "Back to the list" };
     return { id: `${on}-${key}`, key: "a", label: [icon("check")], tip, run: (cx) => {
+      this.advanceFrom = this.sel;
       set(true, cx);
       this.lastMark = (c) => set(false, c);
     } };

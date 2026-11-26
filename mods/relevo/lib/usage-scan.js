@@ -82,17 +82,19 @@ export const AGY_AWK = String.raw`
 function str(s, key,   i, r) { i = index(s, "\"" key "\":\""); if (!i) return ""; r = substr(s, i + length(key) + 4); return substr(r, 1, index(r, "\"") - 1) }
 function num(s, key,   i) { i = index(s, "\"" key "\":"); return i ? substr(s, i + length(key) + 3, 24) + 0 : 0 }
 /^F\t/ { split($0, a, "\t"); print "F\t" a[2] "\t" a[3]; next }
+# Tool calls ride on planner lines; their args hold JSON-encoded values: "Path":"\"/file\"",
+# "DirectoryPath":"\"/dir\"". C names a file, D a folder; a SearchPath is either.
+index($0, "Path\":\"\\\"/") > 0 {
+  i = index($0, "Path\":\"\\\"/"); r = substr($0, i + 9); p = substr(r, 1, index(r, "\\\"") - 1)
+  dir = substr($0, i - 9, 9) == "Directory" || (substr($0, i - 6, 6) == "Search" && p !~ /\.[^\/]*$/)
+  if (p != "" && index(p, "/.gemini/") == 0) print (dir ? "D" : "C") "\t" p
+}
 # A line cut at a block start loses its leading step_index, and step 0 would count it again.
 index($0, "\"type\":\"PLANNER_RESPONSE\"") > 0 && index($0, "\"step_index\":") > 0 {
   inp = num($0, "input_tokens"); rd = num($0, "cache_read_tokens"); out = num($0, "output_tokens")
   if (inp > 0 || rd > 0 || out > 0) {
     print "A\t" num($0, "step_index") "\t" str($0, "created_at") "\t" str($0, "model") "\t" inp "," rd "," out
   }
-  next
-}
-index($0, "\"Path\":\"/") > 0 {
-  p = str($0, "Path")
-  if (p != "" && index(p, "/.gemini/") == 0) print "C\t" p
 }`;
 
 // Args: the awk program, then "file|start|end" per range for Antigravity transcripts.
@@ -104,7 +106,7 @@ for spec; do
   printf 'F\t%s\t%s\t\n' "$f" "$end"
   from "$f" "$start" "$end"
   printf '\n'
-done | LC_ALL=C grep -a -e '^F' -e '"type":"PLANNER_RESPONSE"' -e '"Path":"/' | LC_ALL=C awk "$prog"`;
+done | LC_ALL=C grep -a -e '^F' -e '"type":"PLANNER_RESPONSE"' -e 'Path":"\\"/' | LC_ALL=C awk "$prog"`;
 
 const CHUNK = 100e6;
 // Each file in a batch starts a few processes, which add up on a busy machine.
@@ -180,8 +182,8 @@ export function parseScan(text) {
     } else if (p[0] === "A" && p.length >= 5) {
       const [input, read, output] = p[4].split(",").map(Number);
       cur.agy.push({ step: Number(p[1]), ts: p[2], model: p[3], input, read, output });
-    } else if (p[0] === "C" && p[1]) {
-      if (!cur.cwd) cur.cwd = unjson(p[1]).replace(/\/[^/]+$/, "");
+    } else if ((p[0] === "C" || p[0] === "D") && p[1]) {
+      if (!cur.cwd) cur.cwd = p[0] === "C" ? unjson(p[1]).replace(/\/[^/]+$/, "") : unjson(p[1]);
     } else if (p[0] === "T" && p[1] && p[2]) {
       cur.titles.push({ sid: p[1], title: unjson(p[2]) });
     } else if (line.startsWith('"timestamp"') || line.startsWith('"total_token_usage"')) {

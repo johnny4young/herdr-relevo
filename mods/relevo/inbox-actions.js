@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, Input } from "gpui-base";
 import { exec, home, readTextFile, notify } from "herdr";
-import { SNOOZE_PRESETS, isSnoozed, pruneSnoozed, snoozeLabel, snoozeUntil } from "./lib/snooze.js";
+import { SNOOZE_PRESETS, isSnoozed, nextWake, pruneSnoozed, snoozeLabel, snoozeUntil } from "./lib/snooze.js";
 import { button, foldRow, icon, keycap } from "./ui.js";
 
 const SNOOZE_FILE = ".local/state/relevo/snoozed.json";
@@ -15,6 +15,7 @@ export class ActionViews {
         if (raw) {
           this.snoozed = pruneSnoozed(JSON.parse(raw));
           this.publish();
+          this.wakeSnoozes(cx);
           cx.notify();
         }
       } catch {
@@ -33,6 +34,18 @@ export class ActionViews {
     this.snoozeWrite = (this.snoozeWrite ?? Promise.resolve()).then(write, write);
   }
 
+  // A row comes back when its snooze runs out, not at the next PR scan; a newer call drops the older timer.
+  wakeSnoozes(cx) {
+    const gen = this.snoozeGen = (this.snoozeGen ?? 0) + 1, wait = nextWake(this.snoozed);
+    if (wait === null) return;
+    cx.timer.after(Math.ceil(Math.min(wait, 86400) * 1000) + 500, (cx) => {
+      if (gen !== this.snoozeGen) return;
+      this.publish();
+      cx.notify();
+      this.wakeSnoozes(cx);
+    });
+  }
+
   isRowSnoozed(id, meta = {}) {
     const entry = this.snoozed?.[id];
     return isSnoozed(entry, meta);
@@ -42,8 +55,10 @@ export class ActionViews {
     this.snoozed = { ...(this.snoozed ?? {}), [id]: snoozeUntil(presetKey, meta) };
     this.saveSnoozed();
     this.lastMark = (c) => this.unsnoozeRow(id, c);
+    this.advanceFrom = this.sel;
     this.closeActionMenu(cx);
     this.publish();
+    this.wakeSnoozes(cx);
     cx.notify();
   }
 
@@ -54,6 +69,7 @@ export class ActionViews {
     this.snoozed = next;
     this.saveSnoozed();
     this.publish();
+    this.wakeSnoozes(cx);
     cx.notify();
   }
 
