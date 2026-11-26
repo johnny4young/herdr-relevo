@@ -2,7 +2,7 @@
 // is lost. Mixed into Inbox, so `this` is the Inbox.
 import { div } from "gpui-kit";
 import { exec, notify, panes, run, shared, setShared, spaces } from "herdr";
-import { ARM_MS, landLine, mergeFlag, runsPhase } from "./lib/land.js";
+import { ARM_MS, landLine, mergeFlag, redRun, runsPhase } from "./lib/land.js";
 import { localBranch } from "./lib/prmenu.js";
 import { ago } from "./lib/time.js";
 import { scanWorktrees, removalCheck, removeWorktree } from "./worktrees.js";
@@ -15,8 +15,8 @@ const TICK_MS = 20000;
 const QUEUED_FAST = 300, QUEUED_EVERY = 120;
 // A landing still checking after this was cut off (the window closed mid-merge): it goes, and the PR shows again.
 const CHECKING_FOR = 120;
-// Done or failed cards stay this long, then go.
-const KEPT = 86400;
+// Done or failed cards stay this long, then go; a failed one is read again this often, so a rerun that passes lands it.
+const KEPT = 86400, FAILED_EVERY = 120;
 // How long a landed worktree waits for its space's programs to stop: STOP_WAITS × STOP_STEP ms.
 const STOP_WAITS = 20, STOP_STEP = 500;
 const first = (r) => (r?.stderr ?? "").trim().split("\n")[0];
@@ -59,7 +59,7 @@ export class LandViews {
     this.advanceFrom = this.sel;
     // The card turns into a landing at once; the checks and the merge take a few seconds.
     this.setLanding(pr.url, {
-      repo: pr.repo, number: pr.number, title: pr.title, branch: localBranch(pr), oid: pr.headRefOid,
+      repo: pr.repo, number: pr.number, title: pr.title, branch: localBranch(pr), oid: pr.headRefOid, base: pr.baseRefName,
       clone: this.clones[pr.repo] ?? null, phase: "checking", at: Math.round(Date.now() / 1000),
     });
     cx.notify();
@@ -104,8 +104,8 @@ export class LandViews {
       const now = Date.now() / 1000;
       for (const [url, e] of Object.entries(this.landing())) {
         if (e.phase === "landed" || e.phase === "failed") {
-          if (now - (e.done ?? e.at) > KEPT) this.setLanding(url, null);
-          continue;
+          if (now - (e.done ?? e.at) > KEPT) { this.setLanding(url, null); continue; }
+          if (e.phase === "landed" || !e.sha || now - (this.landAsked[url] ?? 0) < FAILED_EVERY) continue;
         }
         if (e.phase === "checking") {
           if (now - e.at > CHECKING_FOR) this.setLanding(url, null);
@@ -114,7 +114,7 @@ export class LandViews {
         if (e.phase === "queued" && now - e.at > QUEUED_FAST && now - (this.landAsked[url] ?? 0) < QUEUED_EVERY) continue;
         this.landAsked[url] = now;
         if (e.phase === "queued" || e.phase === "merging") await this.checkMerge(url, e, cx);
-        else if (e.phase === "ci") await this.checkRuns(url, e, now, cx);
+        else if (e.phase === "ci" || e.phase === "failed") await this.checkRuns(url, e, now, cx);
       }
       for (const url of Object.keys(this.landAsked)) if (!this.landing()[url]) delete this.landAsked[url];
     } finally {
@@ -151,20 +151,39 @@ export class LandViews {
       this.setLanding(url, { phase: "landed", note, done: Math.round(now) });
       return notify({ title: `Landed · ${e.repo.split("/")[1]} #${e.number}`, body: note ?? undefined, level: "success" });
     }
-    const r = await exec("gh", ["run", "list", "--repo", e.repo, "--commit", e.sha, "--json", "name,status,conclusion,url", "--limit", "30"]);
-    if (r.code !== 0) return;
-    let runs;
-    try { runs = JSON.parse(r.stdout); } catch { return; }
-    const at = runsPhase(runs, e.mergedAt, now);
+    const runs = await this.runList(e.repo, ["--commit", e.sha]);
+    if (!runs) return;
+    let newer = [];
+    if (runs.some(redRun)) {
+      const base = e.base ?? await this.baseOf(url, e);
+      if (base) newer = await this.runList(e.repo, ["--branch", base]) ?? [];
+    }
+    const at = runsPhase(runs, e.mergedAt, now, newer);
     const name = `${e.repo.split("/")[1]} #${e.number}`;
     if (at.phase === "failed") {
-      notify({ title: `${at.failed.name} failed · ${name}`, body: "After the merge", level: "warning", action: { name: "relevo.panel-reviews" } });
-      return this.setLanding(url, { ...at, done: Math.round(now) });
+      if (e.phase !== "failed") notify({ title: `${at.failed.name} failed · ${name}`, body: "After the merge", level: "warning", action: { name: "relevo.panel-reviews" } });
+      return this.setLanding(url, { ...at, done: e.phase === "failed" ? e.done : Math.round(now) });
     }
     if (at.phase === "ci") return this.setLanding(url, at);
-    const note = await this.cleanUp(e, cx);
+    const kept = await this.cleanUp(e, cx);
+    const note = [at.moved.length ? `${at.moved.join(", ")} passed on a newer commit` : null, kept].filter(Boolean).join(" · ") || null;
     this.setLanding(url, { ...at, note, done: Math.round(now) });
     notify({ title: `Landed · ${name}`, body: note ?? undefined, level: "success" });
+  }
+
+  async runList(repo, scope) {
+    const r = await exec("gh", ["run", "list", "--repo", repo, ...scope, "--json", "name,status,conclusion,url,headSha,createdAt", "--limit", "30"]);
+    if (r.code !== 0) return null;
+    try { return JSON.parse(r.stdout); } catch { return null; }
+  }
+
+  // Landings saved before the base branch was kept ask GitHub once.
+  async baseOf(url, e) {
+    const r = await exec("gh", ["pr", "view", String(e.number), "--repo", e.repo, "--json", "baseRefName"]);
+    let base = null;
+    try { base = JSON.parse(r.stdout).baseRefName ?? null; } catch { return null; }
+    if (base) this.setLanding(url, { base });
+    return base;
   }
 
   // Only a worktree whose HEAD is the commit that merged, with nothing uncommitted, goes; its idle agents close with it.

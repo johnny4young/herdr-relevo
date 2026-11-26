@@ -74,7 +74,9 @@ task to another account.
     and failed, errored or cancelled CI **Retry CI**.
   - `LANDING`, above review requests: one row per landing PR, "Merges as soon as GitHub allows it", "Merging…", "Merged · N
     of M workflows running", "<workflow> failed after the merge" (a needs-me row, **Open run**) or "Landed · worktree
-    removed", with **Open PR**, **Cancel** (auto-merge off) and ✓. Done cards go after a day.
+    removed", with **Open PR**, **Cancel** (auto-merge off) and ✓. Done cards go after a day. A red run counts as the
+    base branch's newer run of the same workflow when that one passed or is running, and a failed card is read again every
+    2 min, so a rerun that passes lands it.
   - `IN DESKTOP`: a row per Claude Desktop session that asks something; the ones ready for review fold under "▸ N ready for review": `project
     · title`, its question or summary, its last message when selected, **Open in Claude Desktop** and ✓, which folds it under "▸ N addressed" until it does
     something new.

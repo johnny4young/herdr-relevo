@@ -48,10 +48,22 @@ test("workflows after a merge: running, failed, or landed; none after a while is
   assert.equal(landLine({ phase: "ci", running: 1, total: 3 }), "Merged · 1 of 3 workflows running");
 });
 
-let runs, view, head, remote;
+test("a red run after the merge counts as the base branch's newer run of the same workflow", () => {
+  const merge = { name: "CI", status: "completed", conclusion: "cancelled", headSha: "m1", createdAt: "2026-01-01T00:00:00Z" };
+  const later = (status, conclusion = null, over = {}) => ({ name: "CI", status, conclusion, headSha: "n2", createdAt: "2026-01-01T00:00:10Z", ...over });
+  assert.deepEqual([runsPhase([merge], 0, 10, [later("completed", "success")]).phase, runsPhase([merge], 0, 10, [later("completed", "success")]).moved], ["landed", ["CI"]]);
+  assert.equal(runsPhase([merge], 0, 10, [later("in_progress")]).phase, "ci");
+  assert.equal(runsPhase([merge], 0, 10, []).phase, "failed", "a cancel nothing replaced stays red");
+  assert.equal(runsPhase([merge], 0, 10, [later("completed", "failure")]).phase, "failed");
+  assert.equal(runsPhase([merge], 0, 10, [later("completed", "success", { name: "Deploy" })]).phase, "failed");
+  assert.equal(runsPhase([merge], 0, 10, [later("completed", "success", { createdAt: "2025-12-31T00:00:00Z" })]).phase, "failed");
+});
+
+let runs, branchRuns, view, head, remote;
 beforeEach(() => {
   resetFake();
   runs = [{ name: "Deploy", status: "completed", conclusion: "success", url: "https://github.com/me/app/actions/runs/9" }];
+  branchRuns = [];
   view = { state: "MERGED", mergeCommit: { oid: "merge1" }, mergedAt: new Date().toISOString() };
   head = OID;
   remote = OID;
@@ -62,6 +74,7 @@ beforeEach(() => {
     }
     if (cmd === "gh" && line.startsWith("pr view") && line.includes("headRefOid,state")) return { stdout: JSON.stringify({ headRefOid: remote, state: "OPEN" }) };
     if (cmd === "gh" && line.startsWith("pr view")) return { stdout: JSON.stringify(view) };
+    if (cmd === "gh" && line.startsWith("run list") && line.includes("--branch main")) return { stdout: JSON.stringify(branchRuns) };
     if (cmd === "gh" && line.startsWith("run list")) return { stdout: JSON.stringify(runs) };
     if (cmd === "sh" && line.includes("worktree list --porcelain")) {
       return { stdout: [`worktree ${MAIN}`, "branch refs/heads/main", "", `worktree ${WT}`, "branch refs/heads/feat", ""].map((l) => `${MAIN}\t${l}`).join("\n") };
@@ -220,4 +233,53 @@ test("once its programs stop, a landed worktree goes", async () => {
   await flush();
   assert.equal(fake.stored[LANDING][URL].note, "worktree removed");
   assert.equal(calls(/worktree remove/).length, 1);
+});
+
+async function landed() {
+  const { box, cx } = await inbox();
+  click(find(box.render(cx), `land-btn-${URL}`), cx);
+  click(find(box.render(cx), `land-btn-${URL}`), cx);
+  await flush();
+  await box.landTick(cx);
+  await flush();
+  return { box, cx };
+}
+
+test("a merge run a newer push cancelled lands once that push's run passes", async () => {
+  runs = [{ name: "CI", status: "completed", conclusion: "cancelled", headSha: "merge1", createdAt: "2026-01-01T00:00:00Z", url: "https://x/1" }];
+  branchRuns = [{ name: "CI", status: "completed", conclusion: "success", headSha: "next2", createdAt: "2026-01-01T00:00:10Z", url: "https://x/2" }];
+  await landed();
+  const entry = fake.stored[LANDING][URL];
+  assert.deepEqual([entry.phase, entry.note], ["landed", "CI passed on a newer commit · worktree removed"]);
+});
+
+test("a failed landing is read again, and a rerun that passes lands it", async () => {
+  runs = [{ name: "CI", status: "completed", conclusion: "failure", url: "https://x/1" }];
+  const { box, cx } = await landed();
+  assert.equal(fake.stored[LANDING][URL].phase, "failed");
+  const warned = fake.notices.length;
+  await box.landTick(cx);
+  assert.equal(calls(/^gh run list/).filter((c) => c.includes("--commit")).length, 1, "not before two minutes");
+  box.landAsked[URL] = 0;
+  await box.landTick(cx);
+  await flush();
+  assert.equal(fake.stored[LANDING][URL].phase, "failed");
+  assert.equal(fake.notices.length, warned, "still red: no second warning");
+  runs = [{ name: "CI", status: "completed", conclusion: "success", url: "https://x/1" }];
+  box.landAsked[URL] = 0;
+  await box.landTick(cx);
+  await flush();
+  assert.equal(fake.stored[LANDING][URL].phase, "landed");
+  assert.equal(fake.notices.at(-1).title, "Landed · app #1");
+});
+
+test("a landing saved without its base branch asks GitHub for it", async () => {
+  runs = [{ name: "CI", status: "completed", conclusion: "cancelled", headSha: "merge1", createdAt: "2026-01-01T00:00:00Z", url: "https://x/1" }];
+  branchRuns = [{ name: "CI", status: "completed", conclusion: "success", headSha: "next2", createdAt: "2026-01-01T00:00:10Z", url: "https://x/2" }];
+  view = { ...view, baseRefName: "main" };
+  const { box, cx } = await inbox();
+  fake.stored[LANDING] = { [URL]: { repo: "me/app", number: 1, title: "Fix", phase: "failed", sha: "merge1", mergedAt: 0, done: Math.round(Date.now() / 1000) } };
+  await box.landTick(cx);
+  await flush();
+  assert.deepEqual([fake.stored[LANDING][URL].phase, fake.stored[LANDING][URL].base], ["landed", "main"]);
 });
