@@ -547,7 +547,7 @@ export class Inbox {
   draw(cx) {
     const t = theme(), v = this.shown(), entries = this.nowEntries(t, v);
     // Avoid full publish() serialization on pure j/k selection moves when queue data hasn't changed.
-    const pubSign = `${entries.map((e) => `${e.id}:${e.turn}`).join("|")}#${(this.workflowTasks ?? []).map((x) => `${x.id}:${x.state}:${Boolean(x.pr)}`).join(",")}#${this.local.length}`;
+    const pubSign = `${entries.map((e) => `${e.id}:${e.turn}`).join("|")}#${(this.workflowTasks ?? []).map((x) => `${x.id}:${x.state}:${taskTurn(x)}:${Boolean(x.pr)}`).join(",")}#${this.local.length}`;
     if (pubSign !== this.lastDrawPubSign) {
       this.lastDrawPubSign = pubSign;
       this.publish(v, entries);

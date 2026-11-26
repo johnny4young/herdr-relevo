@@ -228,14 +228,20 @@ export class ReviewDiff {
     cx.notify();
   }
 
-  // Reuses the last scratch tree in `scope === "seen"` when HEAD and working-tree status are unchanged,
-  // avoiding `git add -A .` + `git write-tree` every 10 seconds while idle.
+  // Reuses the last scratch tree in `scope === "seen"` while HEAD and the working tree's content are unchanged.
+  // Status alone can't tell: a file edited again stays " M", so the tracked diff and untracked hashes sign it too.
   async seenSnapshot(git) {
-    const [head, st] = await Promise.all([
+    if (this.pr?.ref) return this.snapshot();
+    const [head, st, diff, others] = await Promise.all([
       git(["rev-parse", "HEAD"]).catch(() => null),
       git(["status", "--porcelain", "--untracked-files=normal"]).catch(() => null),
+      git(["diff", "HEAD", "--no-ext-diff", "--no-color"]).catch(() => null),
+      git(["ls-files", "--others", "--exclude-standard", "-z"]).catch(() => null),
     ]);
-    const sign = head?.code === 0 && st?.code === 0 ? `${head.stdout.trim()}\n${st.stdout}` : null;
+    const names = String(others?.stdout ?? "").split("\0").filter(Boolean).slice(0, 500);
+    const hashed = names.length ? await git(["hash-object", "--", ...names]).catch(() => null) : null;
+    const sign = head?.code === 0 && st?.code === 0 && diff?.code === 0 && others?.code === 0 && (!names.length || hashed?.code === 0)
+      ? `${head.stdout.trim()}\n${st.stdout}\n${diff.stdout}\n${hashed?.stdout ?? ""}` : null;
     if (sign && this.seenCache?.sign === sign && this.seenCache.tree) return this.seenCache.tree;
     const tree = await this.snapshot();
     if (sign && tree) this.seenCache = { sign, tree };

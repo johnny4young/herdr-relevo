@@ -65,6 +65,13 @@ test("Inbox caches publish() and maintenanceModel() across j/k navigation and ca
   inbox.render(cx);
   assert.equal(pubCalls, 1);
   assert.equal(maintCalls, 1);
+  // A ready run task that starts its first attempt moves from open to in flight.
+  inbox.workflowTasks = [{ id: "t1", state: "ready", attempts: [] }];
+  inbox.render(cx);
+  const before = pubCalls;
+  inbox.workflowTasks = [{ id: "t1", state: "ready", attempts: [{ id: "a1" }] }];
+  inbox.render(cx);
+  assert.equal(pubCalls, before + 1, "first attempt republishes the Runs counts");
 
   let cancelled = 0;
   inbox.watches.set("/r/.git", { cancel() { cancelled++; } });
@@ -92,11 +99,69 @@ test("ReviewDiff in scope=seen reuses snapshot when HEAD and working tree status
   v.close();
 });
 
+test("ReviewDiff in scope=seen re-snapshots when a modified or untracked file changes but status does not", async () => {
+  let snapshots = 0, diff = "-a\n+b\n", blob = "h1\n";
+  fake.exec = (cmd, args) => {
+    const a = args.join(" ");
+    if (a.includes("rev-parse HEAD")) return { code: 0, stdout: "abc123\n" };
+    if (a.includes("status --porcelain")) return { code: 0, stdout: " M a.js\n?? n.js\n" };
+    if (a.includes("diff HEAD")) return { code: 0, stdout: diff };
+    if (a.includes("ls-files --others")) return { code: 0, stdout: "n.js\0" };
+    if (a.includes("hash-object")) return { code: 0, stdout: blob };
+    if (cmd === "sh" && a.includes("git add -A")) { snapshots++; return { code: 0, stdout: `tree${snapshots}\n` }; }
+    return { code: 0, stdout: "" };
+  };
+  const v = new ReviewDiff(), cx = fakeCx();
+  v.init({}, cx);
+  v.root = "/r/app"; v.scope = "seen";
+  fake.stored["relevo.review.seen"] = { "/r/app": { tree: "base1", at: 1 } };
+  await v.read(cx);
+  diff = "-a\n+c\n";
+  await v.read(cx);
+  assert.equal(snapshots, 2, "tracked edit invalidates the cache");
+  blob = "h2\n";
+  await v.read(cx);
+  assert.equal(snapshots, 3, "untracked edit invalidates the cache");
+  v.close();
+});
+
+test("ReviewDiff in scope=seen follows a re-fetched PR ref that isn't checked out", async () => {
+  let head = "pr1";
+  fake.exec = (cmd, args) => {
+    const a = args.join(" ");
+    if (a.includes("rev-parse refs/relevo/pr")) return { code: 0, stdout: `${head}\n` };
+    if (a.includes("rev-parse HEAD")) return { code: 0, stdout: "abc123\n" };
+    return { code: 0, stdout: "" };
+  };
+  const v = new ReviewDiff(), cx = fakeCx();
+  v.init({}, cx);
+  v.root = "/r/app"; v.scope = "seen"; v.pr = { ref: "refs/relevo/pr/1" };
+  const git = (args) => Promise.resolve(fake.exec("git", args));
+  await v.seenSnapshot(git);
+  assert.equal(await v.seenSnapshot(git), "pr1");
+  head = "pr2";
+  assert.equal(await v.seenSnapshot(git), "pr2");
+  v.close();
+});
+
 test("Workflow replaces its 10 Hz timer with on-demand focus scheduling", () => {
   fake.props = { goalId: "g1" };
   const w = new Workflow(), cx = fakeCx();
   w.init({}, cx);
   assert.equal(cx.timers.some((t) => !t.once && t.ms === 100), false, "no permanent 100ms timer");
+  w.close();
+});
+
+test("Workflow keeps the launch tick running while the window is hidden", () => {
+  fake.props = { goalId: "g1" };
+  const w = new Workflow(), cx = fakeCx();
+  w.init({}, cx);
+  let ticks = 0;
+  w.launchTick = () => { ticks++; };
+  fake.window = { ...fake.window, visible: false };
+  const launch = cx.timers.find((t) => !t.once && t.ms === 1000);
+  for (let i = 0; i < 6; i++) launch.fn(cx);
+  assert.ok(ticks >= 2, "launch state machine still advances while hidden");
   w.close();
 });
 

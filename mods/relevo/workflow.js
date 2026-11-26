@@ -82,7 +82,7 @@ export class Workflow extends WorkflowDetail {
     cx.timer.every(3000, paced((cx) => { if (!this.closed) this.load(cx); }));
     this.loadQuotas(cx);
     cx.timer.every(60000, paced((cx) => { if (!this.closed) this.loadQuotas(cx); }, 2));
-    cx.timer.every(1000, paced((cx) => { if (this.closed) return; this.launchTick(cx); if (this.draftWaiting) this.persistDraft({ now: true }); }));
+    cx.timer.every(1000, paced((cx) => { if (this.closed) return; this.launchTick(cx); if (this.draftWaiting) this.persistDraft({ now: true }); }, 3));
     cx.timer.after(30, (cx) => {
       if (this.closed) return;
       this.h.focus();

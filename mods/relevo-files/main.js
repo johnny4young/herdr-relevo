@@ -58,10 +58,12 @@ export class Files {
   tick(cx) {
     if (!filesVisible()) {
       this.stopWatch();
+      this.hidden = true;
       return;
     }
     if (key() !== this.context?.key) return this.refresh(cx);
-    if (!this.on && this.root && !this.watched) this.watch(this.root, cx);
+    // Shown again: what changed while hidden is read now, and the read starts the watch again.
+    if (this.hidden) { this.hidden = false; return this.refresh(cx); }
     if ((this.on || !this.watched) && window()?.active !== false && Date.now() - (this.readAt ?? 0) >= 10000) this.refresh(cx);
   }
 
@@ -75,22 +77,22 @@ export class Files {
     if (this.on || this.watched === root || !filesVisible()) return;
     this.stopWatch();
     this.watched = root;
-    const context = this.context;
+    const context = this.context, loop = this.watchLoop = {};
     cx.spawn(async cx => {
       // A write is many events; reading after the burst saves a git status per event.
       try {
-        while (this.context === context && this.watched === root && filesVisible()) {
+        while (this.watchLoop === loop && this.context === context && this.watched === root && filesVisible()) {
           const pending = this.watchHandle = watchFolder(root);
           await pending;
           if (this.watchHandle === pending) this.watchHandle = null;
-          if (this.context !== context || this.watched !== root || !filesVisible()) break;
+          if (this.watchLoop !== loop || this.context !== context || this.watched !== root || !filesVisible()) break;
           await cx.sleep(1500);
           if (this.current(context) && filesVisible()) this.refresh(cx);
         }
       } catch {
-        if (this.context === context && this.watched === root) this.watched = null;
+        // A failed watch falls back to the timed read below.
       } finally {
-        if (this.watched === root) this.watched = null;
+        if (this.watchLoop === loop) { this.watchLoop = null; if (this.watched === root) this.watched = null; }
       }
     });
   }
