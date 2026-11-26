@@ -1,4 +1,5 @@
 // The optional hook in hooks/relevo-labels.sh, run with bash in a temp home; a fake hc writes down its labels.
+import "./fake/git-env.mjs";
 import { test, beforeEach, afterEach } from "node:test";
 import { URL } from "node:url";
 import assert from "node:assert/strict";

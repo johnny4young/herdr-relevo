@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { needsEngine } from '../mods/relevo/lib/engine.js';
@@ -92,10 +92,22 @@ export function plan(source, root, on = storedPanels(root)) {
 
 function writeAtomic(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.relevo-tmp-${process.pid}`;
-  fs.writeFileSync(tmp, data);
-  fs.renameSync(tmp, file);
+  const tmp = `${file}.relevo-tmp-${randomUUID()}`;
+  try {
+    fs.writeFileSync(tmp, data, { flag: 'wx' });
+    fs.renameSync(tmp, file);
+  } catch (error) {
+    fs.rmSync(tmp, { force: true });
+    throw error;
+  }
 }
+
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const confinedPath = (root, rel) => {
+  const base = path.resolve(root), full = path.resolve(base, rel);
+  if (full === base || !full.startsWith(`${base}${path.sep}`)) throw Error(`Unsafe path in install manifest: ${rel}`);
+  return full;
+};
 
 // Relevo's keys the person's file lacks. A key or a command they already bound is theirs, and the example's
 // launch keys only count for the accounts their config.js names. A key still on the command Relevo gave it
@@ -108,7 +120,7 @@ export function missingKeys(source, root) {
   const config = read(path.join(root, CONFIG))?.toString() ?? read(path.join(source, CONFIG))?.toString() ?? '';
   const wanted = Object.entries(ours).filter(([, command]) => {
     const account = /^relevo\.launch-(.+)$/.exec(command)?.[1];
-    return !account || account === 'best' || new RegExp(`key:\\s*"${account}"`).test(config);
+    return !account || account === 'best' || new RegExp(`key:\\s*"${escapeRegex(account)}"`).test(config);
   });
   const shipped = readManifest(root)?.keys, section = { ...theirs['layout:relevo'] }, add = {}, moved = [], taken = [];
   for (const [combo, command] of wanted) {
@@ -203,7 +215,7 @@ export function uninstall({ root, dry = false, log = () => {} }) {
   if (!manifest) throw Error(`No install record in ${root}: nothing to remove`);
   let removed = 0, kept = 0;
   for (const [rel, was] of Object.entries(manifest.files)) {
-    const target = path.join(root, rel), now = read(target);
+    const target = confinedPath(root, rel), now = read(target);
     if (!now) continue;
     if (sha(now) !== was) { kept++; log(`kept   ${rel} (you changed it)`); continue; }
     removed++;
@@ -295,7 +307,10 @@ export function doctor({ source, root, filesOnly = false, env = process.env, log
   if (fs.existsSync(hook) && onPath('jq', env)) {
     const check = spawnSync('bash', [hook, '--check'], { env, encoding: 'utf8' });
     if (check.status === 0) ok('hook installed in every account');
-    else warn(`the optional hook is not installed in every account (account chips, resumed handoffs, whole permission cards): ${(check.stdout ?? '').trim().split('\n').join('; ')}. To set it up: bash ${hook} --install (see hooks/HOOK.md)`);
+    else {
+      const q = /[^\w./@-]/.test(hook) ? `'${hook.replaceAll("'", "'\\''")}'` : hook;
+      warn(`the optional hook is not installed in every account (account chips, resumed handoffs, whole permission cards): ${(check.stdout ?? '').trim().split('\n').join('; ')}. To set it up: bash ${q} --install (see hooks/HOOK.md)`);
+    }
   }
   return { failed };
 }

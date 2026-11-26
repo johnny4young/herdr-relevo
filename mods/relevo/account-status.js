@@ -2,7 +2,7 @@ import { div } from 'gpui-kit';
 import { h_flex, v_flex } from 'gpui-base';
 import { closeOverlay, focused, openOverlay, panes, props, theme } from 'herdr';
 import { Sidebar } from './sidebar.js';
-import { ACCOUNTS, CODEX, agentAccounts, chip } from './accounts.js';
+import { ACCOUNTS, CODEX, agentAccounts, chip, quotaError } from './accounts.js';
 import { accountFor } from './context.js';
 import { openSettings } from './settings.js';
 import { handoffAgent, handoffFrom } from './handoff.js';
@@ -10,7 +10,6 @@ import { band, button, digit, grabFocus, hairline, held, keycap, meTint, overlay
 import { duration, resetClock, resetText, windowLabel } from './lib/time.js';
 import { HANDOFF_AT, QUOTA_WARN, accountNote, quotaRingDots, quotaStatusText, quotaSummary, readAge } from './lib/account-status.js';
 
-const ACCOUNTS_ALL = agentAccounts();
 const BAND = 150;
 // Rough widths of a status item's parts, to pick the fullest look in which every account fits the block.
 const PART = { pad: 8, gap: 5, chip: 14, ring: 18, pct: 30, reset: 100, age: 36, char: 7, name: 80, between: 3 };
@@ -34,9 +33,19 @@ export class AccountStatus extends Sidebar {
     this.load(cx);
     // Redrawn even when nothing changed, so the age of the reading keeps counting.
     cx.timer.every(30000, (cx) => {
+      if (this.gone) return;
       this.load(cx);
       cx.notify();
     });
+  }
+
+  close() {
+    this.gone = true;
+    this.h?.release();
+  }
+
+  accounts() {
+    return agentAccounts();
   }
 
   focusedAccount() {
@@ -67,7 +76,8 @@ export class AccountStatus extends Sidebar {
 
   // The fullest look in which every account fits the block's width.
   look(width, current) {
-    const fits = (look) => ACCOUNTS_ALL.reduce((sum, account) => sum + this.itemWidth(account, look) + PART.between, 0) <= width;
+    const list = this.accounts();
+    const fits = (look) => list.reduce((sum, account) => sum + this.itemWidth(account, look) + PART.between, 0) <= width;
     return [{ narrow: false, roomy: true }, { narrow: false, roomy: false }].map((look) => ({ current, ...look })).find(fits)
       ?? { current, narrow: true, roomy: false };
   }
@@ -128,7 +138,7 @@ export class AccountStatus extends Sidebar {
         this.width = size.width;
         cx.notify();
       })
-      .children(ACCOUNTS_ALL.map((account) => this.statusItem(t, account, state)));
+      .children(this.accounts().map((account) => this.statusItem(t, account, state)));
   }
 
   dismiss() {
@@ -150,7 +160,8 @@ export class AccountStatus extends Sidebar {
 
   key(e, cx) {
     if (held(e)) return;
-    const account = ACCOUNTS_ALL[digit(e) - 1];
+    if (e.key === 'escape') { this.dismiss(); cx.stop_propagation(); return; }
+    const account = this.accounts()[digit(e) - 1];
     if (e.key === 'r') this.load(cx);
     else if (account) this.action(account).run(cx);
     else return;
@@ -181,7 +192,7 @@ export class AccountStatus extends Sidebar {
         .child(button(t, `acct-action-${account.key}`, [index < 9 ? keycap(t, String(index + 1)) : null, action.label].filter(Boolean),
           (cx) => action.run(cx), { size: 'sm', tip: action.tip })))
       .when(!s.known, (el) => el.child(div().id(`account-status-${account.key}-unknown`).h(18).text_size(13).text_color(t.dim)
-        .child('Usage unavailable · no reading yet')))
+        .child(`Usage unavailable · ${quotaError(account.key) ?? 'no reading yet'}`)))
       .when(s.known && !this.groups(account), (el) => el
         .child(this.usageWindow(t, account, 'h5', quota?.h5, s))
         .child(this.usageWindow(t, account, 'd7', quota?.d7, s)))
@@ -192,8 +203,8 @@ export class AccountStatus extends Sidebar {
   }
 
   detailView(t) {
-    const current = this.focusedAccount();
-    const read = Math.max(...ACCOUNTS_ALL.map((account) => this.quota?.[account.key]?.updated).filter(Number.isFinite));
+    const current = this.focusedAccount(), list = this.accounts();
+    const read = Math.max(...list.map((account) => this.quota?.[account.key]?.updated).filter(Number.isFinite));
     return v_flex().id('account-status-detail').w_full().h(overlayHeight(500, 0.85)).overflow_hidden().p(9).gap(6).bg(t.popover ?? t.surface).text_color(t.foreground)
       .when(Boolean(this.h), (el) => el.track_focus(this.h))
       .on_key_down((e, cx) => this.key(e, cx))
@@ -205,7 +216,7 @@ export class AccountStatus extends Sidebar {
           .child(button(t, 'account-status-refresh', [keycap(t, 'R'), 'Refresh'], (cx) => this.load(cx), { size: 'sm', tip: 'Read the latest available quota snapshot' }))))
       .child(this.focusPicker(t))
       .child(v_flex().id('account-status-details-scroll').flex_1().min_h(0).overflow_y_scrollbar().gap(3)
-        .children(ACCOUNTS_ALL.flatMap((account, index) => [
+        .children(list.flatMap((account, index) => [
           index ? hairline(t, 0) : null,
           this.section(t, account, index, current),
         ]).filter(Boolean)));

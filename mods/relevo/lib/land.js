@@ -1,6 +1,6 @@
 // Landing a PR from the Inbox: merge it, follow the workflows its merge starts, then clean up. Pure, so the
 // tests can feed it fixtures.
-import { ciOf } from "./github.js";
+import { ciOf, unresolved } from "./github.js";
 
 // How long a button waits for its confirming second click.
 export const ARM_MS = 4000;
@@ -22,9 +22,11 @@ export function mergeFlag(repo) {
 // What a PR of yours can do next, as GitHub sees it.
 export function prMoves(pr) {
   const state = pr.mergeStateStatus, ci = ciOf(pr);
+  const blocked = RED.has(ci) || ci === "CANCELLED" || ci === "PENDING" || ci === "EXPECTED"
+    || pr.reviewDecision === "CHANGES_REQUESTED" || unresolved(pr) > 0 || pr.mergeable === "CONFLICTING";
   // Right after a push GitHub says UNKNOWN for a while; with CI green and no conflict, Land reads it again anyway.
-  const land = !pr.isDraft && (state === "CLEAN" || state === "HAS_HOOKS"
-    || (state === "UNKNOWN" && pr.mergeable !== "CONFLICTING" && ci === "SUCCESS"));
+  const land = !pr.isDraft && !blocked && (state === "CLEAN" || state === "HAS_HOOKS"
+    || (state === "UNKNOWN" && ci === "SUCCESS"));
   return {
     land,
     auto: !land && !pr.isDraft && state === "BLOCKED" && Boolean(pr.repository?.autoMergeAllowed) && !pr.autoMergeRequest && !RED.has(ci),

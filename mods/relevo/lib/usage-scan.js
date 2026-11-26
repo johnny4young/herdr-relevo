@@ -54,12 +54,13 @@ export const LIST = String.raw`for d; do [ ! -d "$d" ] || find "$d" -name '*.jso
 const READ = String.raw`from() { dd if="$1" bs=65536 skip=$(($2 / 65536)) 2>/dev/null | head -c $(($3 - $2 / 65536 * 65536)); }
 `;
 
-// Args: the awk program, then "file|start|end|last message id" per range. A range can end mid-line, so a newline
-// keeps the next "F" line apart; transcript lines start with "{", never "F".
+// Args: the awk program, then "file|start|end|last message id" per range. Parse from the right so "|" in paths
+// never shifts into start/end, and validate digits before arithmetic expansion.
 export const CLAUDE_SCAN = String.raw`${READ}prog=$1; shift
 for spec; do
-  f=${"${spec%%|*}"}; rest=${"${spec#*|}"}; start=${"${rest%%|*}"}; rest=${"${rest#*|}"}; end=${"${rest%%|*}"}; prev=${"${rest#*|}"}
-  [ -f "$f" ] || continue
+  prev=${"${spec##*|}"}; rest=${"${spec%|*}"}; end=${"${rest##*|}"}; rest=${"${rest%|*}"}; start=${"${rest##*|}"}; f=${"${rest%|*}"}
+  case "$start:$end" in ""|*[!0-9:]*) continue ;; esac
+  [ -n "$start" ] && [ -n "$end" ] && [ -f "$f" ] || continue
   printf 'F\t%s\t%s\t%s\n' "$f" "$end" "$prev"
   from "$f" "$start" "$end"
   printf '\n'
@@ -67,8 +68,9 @@ done | LC_ALL=C grep -a -e '^F' -e '"usage":{"input_tokens"' -e 'Title":"' | LC_
 
 // Args: "file|start|end" per range. Codex writes its running total in each token_count event.
 export const CODEX_SCAN = String.raw`${READ}for spec; do
-  f=${"${spec%%|*}"}; rest=${"${spec#*|}"}; start=${"${rest%%|*}"}; end=${"${rest#*|}"}
-  [ -f "$f" ] || continue
+  end=${"${spec##*|}"}; rest=${"${spec%|*}"}; start=${"${rest##*|}"}; f=${"${rest%|*}"}
+  case "$start:$end" in ""|*[!0-9:]*) continue ;; esac
+  [ -n "$start" ] && [ -n "$end" ] && [ -f "$f" ] || continue
   printf 'F\t%s\t%s\t' "$f" "$end"
   if [ "$start" = 0 ]; then head -c 65536 "$f" | LC_ALL=C grep -ao '"cwd":"[^"]*"' | head -n 1 | tr -d '\n'; fi
   printf '\n'

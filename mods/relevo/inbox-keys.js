@@ -1,10 +1,11 @@
-import { run, exec, focused, shared, setShared, theme } from "herdr";
+import { run, focused, shared, setShared, theme } from "herdr";
 import { NOW_SECTIONS } from "./inbox-now.js";
 import { GOAL_MODE } from "./inbox-goals.js";
 import { pickAccount } from "./accounts.js";
 import { launchSkill } from "./skills.js";
 import { showPanel } from "./toolbar.js";
 import { openGoal } from "./goals-editor.js";
+import { openUrl } from "./ui.js";
 
 // A request to focus the Inbox, with the pane to give the keyboard back to on Esc.
 export const INBOX_FOCUS = "relevo.inbox.focus";
@@ -30,7 +31,7 @@ export class KeyNav {
       launchSkill(pr, pr.skills[0], pickAccount(pr.repo, this.quotas).key, folder);
       return this.publish();
     }
-    if (/^https:\/\//.test(pr.url)) exec("open", [pr.url]);
+    openUrl(pr.url);
   }
 
   // The list can't be scrolled from code, so while the keyboard moves down it hides what is above

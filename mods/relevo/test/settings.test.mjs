@@ -99,7 +99,7 @@ test("WRITE_SCRIPT: replaces the file in one rename, text passed as argv", async
     execFileSync("sh", ["-c", WRITE_SCRIPT, "sh", file, text]);
     assert.equal(await readFile(file, "utf8"), text);
     assert.deepEqual(await readdir(dir), ["config.js"]);
-    assert.equal((await stat(file)).mode & 0o777, 0o644);
+    assert.equal((await stat(file)).mode & 0o777, 0o600);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

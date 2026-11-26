@@ -16,7 +16,7 @@ test("every README panel draws from the mods, and every picture names panels and
     for (const [name, scene, size, env = {}] of PANELS) {
       const [width, height] = size.split("x");
       execFileSync(process.execPath, ["--import", join(shots, "register.mjs"), join(shots, "shoot.mjs"), join(shots, "scenes", `${scene}.mjs`), join(work, `${name}.png`),
-        "--width", width, "--height", height, "--html-only"], { env: { ...process.env, ...env }, stdio: ["ignore", "ignore", "pipe"] });
+        "--width", width, "--height", height, "--html-only"], { env: { ...process.env, HERDR_APP_HOME: work, ...env }, stdio: ["ignore", "ignore", "pipe"] });
       const html = readFileSync(join(work, `${name}.html`), "utf8");
       assert.match(html, /data-kind=/, name);
       assert.doesNotMatch(html, /\/Users\//, `${name} carries no machine path`);

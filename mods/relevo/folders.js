@@ -28,9 +28,8 @@ async function current() {
 function save(next) {
   next = { ...next, at: Date.now() };
   setShared("space-folders", { ...(shared("space-folders") ?? {}), "": next });
-  return exec("sh", [
-    "-c", `mkdir -p ~/.config && printf '%s\\n' "$1" > ${FILE}.tmp && mv ${FILE}.tmp ${FILE}`, "sh", JSON.stringify(next),
-  ]);
+  const script = `umask 077; mkdir -p ~/.config && tmp=$(mktemp ~/.config/.herdr-space-folders.XXXXXX) || exit 1; printf '%s\\n' "$1" > "$tmp" && mv -f "$tmp" ${FILE} || { rm -f "$tmp"; exit 1; }`;
+  return exec("sh", ["-c", script, "sh", JSON.stringify(next)]);
 }
 
 // Folder rules can only match paths, so each context's folder lists the clones its orgs own.

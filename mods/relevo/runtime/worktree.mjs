@@ -110,7 +110,7 @@ export async function prepareReview({ root, pr, who, home }) {
   } else {
     fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
     await git(top, ['worktree', 'add', '--detach', dest, pr.head]);
-    await copyIncluded(top, dest);
+    if (!pr.untrusted) await copyIncluded(top, dest);
   }
   return { path: fs.realpathSync(dest), head: pr.head, base };
 }
@@ -136,14 +136,19 @@ async function nestedRepos(dir, env) {
   return [...new Set([...linked, ...made])];
 }
 
-export async function snapshotTree(dir, env, indexDir = os.tmpdir()) {
-  const index = path.join(indexDir, `relevo-index-${randomUUID()}`);
+export async function snapshotTree(dir, env, indexDir = null) {
+  const own = indexDir ? null : fs.mkdtempSync(path.join(os.tmpdir(), 'relevo-index-'));
+  const index = path.join(own ?? indexDir, `relevo-index-${randomUUID()}`);
   try {
     const skip = (await nestedRepos(dir, env)).map((name) => `:(top,literal,exclude)${name}`);
     await git(dir, [...QUIET, 'read-tree', 'HEAD'], { ...env, GIT_INDEX_FILE: index });
     await git(dir, [...QUIET, 'add', '-A', '--', '.', ...skip], { ...env, GIT_INDEX_FILE: index });
     return (await git(dir, [...QUIET, 'write-tree'], { ...env, GIT_INDEX_FILE: index })).stdout.trim();
-  } finally { fs.rmSync(index, { force: true }); fs.rmSync(`${index}.lock`, { force: true }); }
+  } finally {
+    fs.rmSync(index, { force: true });
+    fs.rmSync(`${index}.lock`, { force: true });
+    if (own) fs.rmSync(own, { recursive: true, force: true });
+  }
 }
 
 // An implementer attempt's tree, kept as a commit on a ref of its own in the base repository. The run branch, HEAD
@@ -267,7 +272,17 @@ export async function pushToPullRequest(wt) {
 // Uncommitted work is never removed; a branch with no commits of its own goes with its worktree.
 export async function removeRunWorktree(wt, { discard = false } = {}) {
   const status = await worktreeStatus(wt);
-  if (!status.exists) return { removed: false, branchDeleted: false };
+  if (!status.exists) {
+    let branchDeleted = false;
+    if (wt?.base && fs.existsSync(wt.base)) {
+      await git(wt.base, ['worktree', 'prune']).catch(() => null);
+      if (RUN_BRANCH.test(wt.branch ?? '') && SHA.test(wt.baseCommit ?? '')) {
+        const count = await git(wt.base, ['rev-list', '--count', `${wt.baseCommit}..refs/heads/${wt.branch}`]).then((r) => Number(r.stdout.trim()), () => -1);
+        if (count === 0) branchDeleted = await git(wt.base, ['branch', '-D', wt.branch]).then(() => true, () => false);
+      }
+    }
+    return { removed: false, branchDeleted };
+  }
   if (status.dirty && !discard) throw Error('The worktree has uncommitted changes');
   const listed = (await git(wt.base, ['worktree', 'list', '--porcelain'])).stdout.split('\n').includes(`worktree ${wt.path}`);
   if (!RUN_BRANCH.test(wt.branch ?? '') || !listed) throw Error('This is not a run worktree of its repository');

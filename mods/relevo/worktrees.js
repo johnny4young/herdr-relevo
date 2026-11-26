@@ -87,8 +87,12 @@ export async function scanWorktrees(force = false) {
     w.merged = Boolean(w.branch && merged[w.main].has(w.branch));
     if (w.merged) w.pr = merged[w.main].get(w.branch);
     if (w.merged && !w.gone) {
-      w.dirty = (await statusOf(w)).stdout.trim() !== "";
-      w.ignored = worthKeeping((await ignoredFiles(w)).paths);
+      try {
+        w.dirty = (await statusOf(w)).stdout.trim() !== "";
+        w.ignored = worthKeeping((await ignoredFiles(w)).paths);
+      } catch {
+        w.gone = "folder is gone";
+      }
     }
   }
   return list.sort((a, b) => b.at - a.at);
@@ -163,9 +167,9 @@ export async function ignoredPaths(w) {
 
 // A repo inside ignored or untracked folders, not a tool's clones: "" for none, null if the search can't finish.
 export async function nestedRepo(w, paths) {
-  const status = await statusOf(w);
+  const status = await exec("git", [...GIT_READ, "status", "--porcelain=v1", "-z", "--untracked-files=normal"], { cwd: w.path });
   if (status.code !== 0) return null;
-  const untracked = status.stdout.split("\n").filter((l) => l.startsWith("?? ") && l.endsWith("/")).map((l) => l.slice(3, -1).replace(/^"|"$/g, ""));
+  const untracked = status.stdout.split("\0").filter((l) => l.startsWith("?? ") && l.endsWith("/")).map((l) => l.slice(3, -1));
   const dirs = [...paths.filter((p) => !REBUILT.has(p.split("/").pop())), ...untracked].map((p) => `./${p}`);
   if (!dirs.length) return "";
   const skip = [...REBUILT].flatMap((name, i) => (i ? ["-o", "-name", name] : ["-name", name]));
@@ -238,7 +242,10 @@ export async function forgetWorktree(w) {
 }
 
 // Every local branch delete goes through here. -d unless the caller proved the branch can't hold work git still needs.
-export const deleteLocalBranch = (main, name, force = false) => exec("git", ["-C", main, "branch", force ? "-D" : "-d", name]);
+export const deleteLocalBranch = (main, name, force = false) => {
+  if (!name || name.startsWith("-")) return Promise.resolve({ code: 1, stdout: "", stderr: "invalid branch name" });
+  return exec("git", ["-C", main, "branch", force ? "-D" : "-d", name]);
+};
 
 // A build folder of many GB takes git longer than exec's 30 s default to delete.
 export const REMOVE_TIMEOUT = 600_000;

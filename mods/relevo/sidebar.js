@@ -100,12 +100,19 @@ export class Sidebar {
 
   // The usage endpoints; the statusline also writes a snapshot while a session runs.
   collect(cx) {
+    if (this.collecting && Date.now() - this.collectStarted < 120000) return;
+    this.collecting = true;
+    this.collectStarted = Date.now();
     cx.spawn(async (cx) => {
-      const api = await collectQuotas();
-      if (JSON.stringify(api) !== JSON.stringify(shared(API_QUOTAS))) setShared(API_QUOTAS, api);
-      Object.assign(this.quota, await loadClaudeQuotas());
-      quotaAlerts(this.quota);
-      cx.notify();
+      try {
+        const api = await collectQuotas();
+        if (JSON.stringify(api) !== JSON.stringify(shared(API_QUOTAS))) setShared(API_QUOTAS, api);
+        Object.assign(this.quota, await loadClaudeQuotas());
+        quotaAlerts(this.quota);
+        cx.notify();
+      } finally {
+        this.collecting = false;
+      }
     });
   }
 

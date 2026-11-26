@@ -38,8 +38,8 @@ const signOf = (text) => {
 };
 // The working tree as a git tree, untracked files in and ignored ones out, built in a scratch index. cp -p keeps
 // the index's time, which git needs to notice a same-size edit made in the second the index was written.
-const SNAPSHOT = 'i=$(mktemp) || exit 1; cp -p "$(git rev-parse --git-path index)" "$i" 2>/dev/null || rm -f "$i"; '
-  + 'GIT_INDEX_FILE="$i" git add -A . >/dev/null 2>&1 && GIT_INDEX_FILE="$i" git write-tree; s=$?; rm -f "$i"; exit $s';
+const SNAPSHOT = 'd=$(mktemp -d) || exit 1; i="$d/index"; cp -p "$(git rev-parse --git-path index)" "$i" 2>/dev/null || rm -f "$i"; '
+  + 'GIT_INDEX_FILE="$i" git add -A . >/dev/null 2>&1 && GIT_INDEX_FILE="$i" git write-tree; s=$?; rm -rf "$d"; exit $s';
 // Each file's content hash in one git call: from a tree or commit when given (ls-tree), else from the working
 // tree (hash-object on the files that exist, listed first so the hashes can be matched to them).
 const HASHES = 'r=$1; shift; if [ -n "$r" ]; then git ls-tree -r -z "$r" -- "$@"; else '

@@ -7,9 +7,12 @@ import { shellArgv } from "./lib/session-env.js";
 // skipped, never refreshed: refreshing would rotate the login Claude Code or Codex keep.
 
 const epoch = (v) => (v == null || typeof v === "number" ? v : Date.parse(v) / 1000);
+const FETCH_TIMEOUT_MS = 15000;
+const dirHashes = new Map();
 
 async function getJSON(url, headers) {
-  const r = await fetch(url, { headers: { "User-Agent": "herdr-relevo/1.0", ...headers } });
+  const signal = typeof globalThis.AbortSignal?.timeout === "function" ? globalThis.AbortSignal.timeout(FETCH_TIMEOUT_MS) : undefined;
+  const r = await fetch(url, { headers: { "User-Agent": "herdr-relevo/1.0", ...headers }, ...(signal ? { signal } : {}) });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
@@ -17,11 +20,17 @@ async function getJSON(url, headers) {
 // Claude Code names each profile's Keychain item after a hash of its config dir.
 async function claudeToken(dir) {
   const path = `${home()}/${dir}`;
-  const hash = (await exec("sh", ["-c", 'printf %s "$1" | shasum -a 256', "sh", path])).stdout.slice(0, 8);
-  const r = await exec("security", ["find-generic-password", "-s", `Claude Code-credentials-${hash}`, "-w"]);
+  let hash = dirHashes.get(path);
+  if (!hash) {
+    const h = await exec("sh", ["-c", 'printf %s "$1" | shasum -a 256', "sh", path], { timeout: FETCH_TIMEOUT_MS });
+    hash = h.stdout.slice(0, 8);
+    if (hash) dirHashes.set(path, hash);
+  }
+  const r = await exec("security", ["find-generic-password", "-s", `Claude Code-credentials-${hash}`, "-w"], { timeout: FETCH_TIMEOUT_MS });
   if (r.code !== 0) throw new Error("no Keychain item");
   const oauth = JSON.parse(r.stdout).claudeAiOauth ?? {};
   if (oauth.expiresAt && oauth.expiresAt < Date.now()) throw new Error("token expired");
+  if (!oauth.accessToken) throw new Error("missing access token");
   return oauth.accessToken;
 }
 
@@ -40,6 +49,7 @@ async function claude(dir) {
 
 async function codex() {
   const tokens = JSON.parse(await readTextFile(`${home()}/.codex/auth.json`) ?? "{}").tokens ?? {};
+  if (!tokens.access_token) throw new Error("not signed in");
   const headers = { Authorization: `Bearer ${tokens.access_token}` };
   if (tokens.account_id) headers["ChatGPT-Account-Id"] = tokens.account_id;
   const rate = (await getJSON("https://chatgpt.com/backend-api/wham/usage", headers)).rate_limit ?? {};
@@ -69,7 +79,7 @@ async function agy() {
   if (agyLast && now - agyLast.at < AGY_EVERY) return agyLast.limits;
   const settings = JSON.parse(await readTextFile(`${home()}/.gemini/antigravity-cli/settings.json`).catch(() => null) ?? "{}");
   const [cmd, ...args] = shellArgv(AGY_USAGE);
-  const r = await exec(cmd, args);
+  const r = await exec(cmd, args, { timeout: 95000 });
   const limits = r.code === 0 ? agyUsage(r.stdout, settings.model ?? "") : null;
   if (!limits) throw new Error(r.code === 0 ? "no usage report" : `agy exited ${r.code}`);
   agyLast = { at: now, limits };
@@ -79,17 +89,16 @@ async function agy() {
 // How each provider asks its usage endpoint.
 const ASK = { claude: (a) => claude(a.claudeDir), codex: () => codex(), agy: () => agy() };
 
-// { account: { updated, rate_limits } | { error } }, one account failing leaves the others.
+// { account: { updated, rate_limits } | { error } }, run in parallel so one slow provider never delays the others.
 export async function collectQuotas() {
-  const jobs = Object.fromEntries(allAccounts().filter((a) => ASK[providerOf(a).key])
-    .map((a) => [a.key, () => ASK[providerOf(a).key](a)]));
-  const out = {};
-  for (const [key, job] of Object.entries(jobs)) {
+  const jobs = allAccounts().filter((a) => ASK[providerOf(a).key])
+    .map((a) => [a.key, () => ASK[providerOf(a).key](a)]);
+  const entries = await Promise.all(jobs.map(async ([key, job]) => {
     try {
-      out[key] = { updated: Math.floor(Date.now() / 1000), rate_limits: await job() };
+      return [key, { updated: Math.floor(Date.now() / 1000), rate_limits: await job() }];
     } catch (e) {
-      out[key] = { error: String(e?.message ?? e).slice(0, 80) };
+      return [key, { error: String(e?.message ?? e).slice(0, 80) }];
     }
-  }
-  return out;
+  }));
+  return Object.fromEntries(entries);
 }

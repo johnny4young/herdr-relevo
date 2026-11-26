@@ -40,7 +40,7 @@ note_ask() {
     | {at: now, terminal: $t, cwd: (.cwd // ""), tool: (.tool_name // ""),
        input: ((.tool_input // {}) | walk(if type == "string" and length > 20000 then .[0:20000] + "…" else . end))}
     | if (.input | tojson | length) > 400000 then .input = {} else . end' <<<"$1" >"$tmp" 2>/dev/null
-  [ -s "$tmp" ] || printf '{"at":%s,"terminal":"%s","tool":"","input":{}}\n' "$(date +%s)" "$HC_TERMINAL_ID" >"$tmp"
+  [ -s "$tmp" ] || "$jq" -cn --argjson at "$(date +%s)" --arg t "$HC_TERMINAL_ID" '{at: $at, terminal: $t, tool: "", input: {}}' >"$tmp"
   mv "$tmp" "$dir/ask-${tmp##*-}.json"
 }
 
@@ -48,16 +48,17 @@ note_ask() {
 # list it. Claude Desktop and scripts set another entrypoint and are left out.
 note_elsewhere() {
   [ "${CLAUDE_CODE_ENTRYPOINT:-cli}" = cli ] || return 0
-  local input=$1 dir=$HOME/.local/state/relevo/elsewhere id cfg tmp
+  local input=$1 dir=$HOME/.local/state/relevo/elsewhere id ev cfg tmp
   id=$("$jq" -r '.session_id // ""' <<<"$input" 2>/dev/null)
   [[ $id =~ ^[A-Za-z0-9-]+$ ]] || return 0
-  if [[ $input =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"SessionEnd\" ]]; then
+  ev=$("$jq" -r '.hook_event_name // ""' <<<"$input" 2>/dev/null)
+  if [ "$ev" = SessionEnd ]; then
     rm -f "$dir/$id.json"
     return 0
   fi
   cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
   cfg=${cfg%/}
-  mkdir -p "$dir" && tmp=$(mktemp "$dir/.note-XXXXXX") || return 0
+  mkdir -p "$dir" && chmod 700 "${dir%/*}" "$dir" && tmp=$(mktemp "$dir/.note-XXXXXX") || return 0
   if "$jq" -c --arg app "${TERM_PROGRAM:-}" --arg bundle "${__CFBundleIdentifier:-}" --arg rel "${cfg#"$HOME"/}" \
     --argjson at "$(date +%s)" '{session: .session_id, event: .hook_event_name, cwd: (.cwd // ""),
       transcript: (.transcript_path // ""), app: $app, bundle: $bundle, dir: $rel, at: $at,
@@ -75,20 +76,23 @@ on_hook() {
     note_elsewhere "$outside"
     return 0
   fi
-  case $HC_TERMINAL_ID in */* | *..*) return 0 ;; esac
-  local input hc end ask
+  [[ $HC_TERMINAL_ID =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || return 0
+  local input hc ev
   IFS= read -r -d "" input
-  ask='"hook_event_name"[[:space:]]*:[[:space:]]*"PermissionRequest"'
-  if [[ $input =~ $ask ]]; then
+  ev=$("$jq" -r '.hook_event_name // ""' <<<"$input" 2>/dev/null)
+  if [ -z "$ev" ] && [[ $input =~ ^\{[[:space:]]*\"hook_event_name\"[[:space:]]*:[[:space:]]*\"PermissionRequest\" ]]; then
+    ev=PermissionRequest
+  fi
+  if [ "$ev" = PermissionRequest ]; then
     note_ask "$input"
     return 0
   fi
-  [[ $input =~ \"hook_event_name\"[[:space:]]*:[[:space:]]*\"(SessionStart|Stop|SessionEnd)\" ]] \
-    && rm -rf "$HOME/.local/state/relevo/asks/$HC_TERMINAL_ID"
+  case $ev in
+    SessionStart | Stop | SessionEnd) rm -rf "$HOME/.local/state/relevo/asks/$HC_TERMINAL_ID" ;;
+  esac
   hc=hc
   command -v hc >/dev/null || hc=$HOME/.local/bin/hc
-  end='"hook_event_name"[[:space:]]*:[[:space:]]*"SessionEnd"'
-  if [[ $input =~ $end ]]; then
+  if [ "$ev" = SessionEnd ]; then
     "$hc" label "$HC_TERMINAL_ID" agent.wait= agent.bg= agent.account= agent.jira= agent.transcript= >/dev/null 2>&1
     return 0
   fi

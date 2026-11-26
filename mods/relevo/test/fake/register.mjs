@@ -1,4 +1,5 @@
 // Answers the app's bare imports with these fakes, so tests load the real mods. Import it before a dynamic import of one.
+import "./git-env.mjs";
 import { registerHooks } from "node:module";
 import { URL } from "node:url";
 

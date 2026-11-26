@@ -11,9 +11,11 @@ const OPEN = "relevo.ledger.open";
 const JIRA = /\b([A-Z][A-Z0-9]+-\d+)\b/;
 
 // readTextFile stops at 1 MiB, so past ROTATE_AT the older half of the lines moves to ledger.old.jsonl.
-export const APPEND = 'mkdir -p "$(dirname "$1")" && printf "%s\\n" "$2" >> "$1" && s=$(wc -c < "$1") && [ "$s" -gt "$3" ] || exit 0; '
-  + 'n=$(wc -l < "$1"); h=$((n / 2)); head -n "$h" "$1" >> "${1%.jsonl}.old.jsonl" && tail -n +$((h + 1)) "$1" > "$1.tmp" && mv "$1.tmp" "$1"';
+export const APPEND = 'umask 077; d=$(dirname "$1"); mkdir -p "$d" && printf "%s\\n" "$2" >> "$1" && s=$(wc -c < "$1") && [ "$s" -gt "$3" ] || exit 0; '
+  + 'n=$(wc -l < "$1"); h=$((n / 2)); tmp=$(mktemp "$d/.ledger.XXXXXX") || exit 1; '
+  + 'head -n "$h" "$1" >> "${1%.jsonl}.old.jsonl" && tail -n +$((h + 1)) "$1" > "$tmp" && mv -f "$tmp" "$1" || { rm -f "$tmp"; exit 1; }';
 const ROTATE_AT = 786432;
+let tickChain = Promise.resolve();
 
 function append(entries) {
   if (!entries.length) return;
@@ -32,7 +34,13 @@ function projectOf(cwd) {
 }
 
 // Open stretches live in shared state, so a reload keeps counting.
-export async function ledgerTick() {
+export function ledgerTick() {
+  const run = tickChain.then(runLedgerTick, runLedgerTick);
+  tickChain = run.catch(() => null);
+  return run;
+}
+
+async function runLedgerTick() {
   const byPane = new Map(panes().map((p) => [p.pane, p]));
   const labels = new Map(terminals().map((k) => [k.address, k.labels ?? {}]));
   const working = new Map(agents().filter((a) => a.status === "working").map((a) => [a.address, a]));
@@ -60,22 +68,27 @@ export async function ledgerTick() {
   return append(closed);
 }
 
-// Ledger lines that ended after `since`, plus the stretches still open.
-async function rowsSince(since) {
-  const now = Date.now() / 1000;
-  const text = (await readTextFile(`${home()}/${LEDGER}`).catch(() => null)) ?? "";
-  // Lines are appended in end order, so stop at the first one from before `since`.
-  const lines = text.split("\n"), rows = Object.values(shared(OPEN) ?? {}).map((e) => ({ ...e, end: now }));
+function collectLinesSince(text, since, rows) {
+  const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i]) continue;
     let r;
-    try {
-      r = JSON.parse(lines[i]);
-    } catch {
-      continue;
-    }
-    if (r.end <= since) break;
+    try { r = JSON.parse(lines[i]); } catch { continue; }
+    if (r.end <= since) return true;
     rows.push(r);
+  }
+  return false;
+}
+
+// Ledger lines that ended after `since`, plus the stretches still open.
+async function rowsSince(since) {
+  const now = Date.now() / 1000, rows = Object.values(shared(OPEN) ?? {}).map((e) => ({ ...e, end: now }));
+  const path = `${home()}/${LEDGER}`;
+  const text = (await readTextFile(path).catch(() => null)) ?? "";
+  // Lines are appended in end order, so stop at the first one from before `since`; read rotated tail if needed.
+  if (text && !collectLinesSince(text, since, rows)) {
+    const old = (await readTextFile(path.replace(/\.jsonl$/, ".old.jsonl")).catch(() => null)) ?? "";
+    if (old) collectLinesSince(old, since, rows);
   }
   return rows;
 }

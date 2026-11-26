@@ -1,3 +1,4 @@
+import "./fake/git-env.mjs";
 import { test } from "node:test";
 import { setTimeout, clearTimeout } from "node:timers";
 import assert from "node:assert/strict";

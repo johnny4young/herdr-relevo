@@ -1,4 +1,5 @@
 // Attempt snapshots on real git: where they land, what they leave alone, how they compare and when they go.
+import './fake/git-env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

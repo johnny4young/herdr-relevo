@@ -1,6 +1,8 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
-import { agents, props, theme, openOverlay, closeOverlay, exec, readTextFile, appHome, pickFiles } from "herdr";
+import { agents, props, theme, openOverlay, closeOverlay, exec, pickFiles } from "herdr";
+import { readRunState } from "./runtime-cli.js";
+import { TEXT_MAX } from "./lib/run-report.js";
 import { button, overlayHeight, onSubmitChord } from "./ui.js";
 import { newGoal, webLink, GOAL_STATES, STEP_STATES, goalState, withFiles } from "./lib/goals.js";
 import { readGoals, writeGoal } from "./goals-store.js";
@@ -10,7 +12,7 @@ import { openWorkflow } from "./workflow.js";
 import { noteUse } from "./run-usage.js";
 
 async function workflowTasks() {
-  const raw = await readTextFile(`${appHome()}/relevo-workflow/state.json`);
+  const raw = await readRunState();
   return raw ? JSON.parse(raw).tasks ?? [] : [];
 }
 
@@ -186,7 +188,7 @@ export class GoalEditor {
     const checks = [
       { input: this.fields.title, value: goal.title, panel: "decision", label: "the run title", limit: 240, required: "Enter a run title before saving." },
       ...["owner", "decision", "recommendation", "criteria"].map((key) => ({ input: this.fields[key], value: goal[key],
-        panel: key === "owner" ? "ownership" : "decision", label: labels[key], limit: 2000 })),
+        panel: key === "owner" ? "ownership" : "decision", label: labels[key], limit: key === "criteria" ? TEXT_MAX : 2000 })),
       ...goal.steps.map((step, index) => ({ input: this.steps[index].input, value: step.title, panel: "plan",
         label: `plan step ${index + 1}`, limit: 240, required: `Enter an expected outcome for plan step ${index + 1}.` })),
       { input: this.response, value: response, panel: "decision", label: "decision or feedback", limit: 2000 },

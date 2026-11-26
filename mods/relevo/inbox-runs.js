@@ -1,7 +1,7 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex, TextareaState, Textarea } from "gpui-base";
-import { agents, exec, notify, panes, run, shared, setShared } from "herdr";
-import { LANE, alertLine, button, foldRow, icon, legHeader, legend, joined, keyBar, keycap, meTint, plusMinus, row, onSubmitChord } from "./ui.js";
+import { agents, notify, panes, run, shared, setShared } from "herdr";
+import { LANE, alertLine, button, foldRow, icon, legHeader, legend, joined, keyBar, keycap, meTint, openUrl, plusMinus, row, onSubmitChord } from "./ui.js";
 import { openReview } from "./review.js";
 import { RUN_LAUNCH, answerTrust } from "./run-launch.js";
 import { GOAL_MODE, GOAL_SCOPE, workflowCommand } from "./inbox-goals.js";
@@ -844,7 +844,7 @@ export class RunViews {
       try {
         const url = await postDraftReview(reviews);
         notify({ title: `Draft review on #${reviews[0].pr.number}`, body: "Pending on GitHub until you send it", level: "success" });
-        exec("open", [url]);
+        openUrl(url);
         this.posting = null;
         this.closeReview(task, cx, "Posted as a draft review.");
       } catch (error) { deepReviewNotice("Draft review not posted", error); }
