@@ -4,6 +4,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { closeOverlay, openOverlay, props, run, setShared, shared, theme } from "herdr";
 import { CODEX, accountOf, allAccounts, chip, cliFound, codexOn, runnableAccounts, hasRoom, loadClaudeQuotas, providerFor } from "./accounts.js";
+import { bestAlternate, quotaRisk } from "./lib/quota-routing.js";
 import { accountFor } from "./context.js";
 import * as config from "./config.js";
 import { MAX_REVIEWERS, checkDeepReview, recentModels } from "./lib/deep-setup.js";
@@ -72,6 +73,25 @@ export class DeepReviewDialog {
 
   errors() {
     return checkDeepReview(this.setup(), allAccounts());
+  }
+
+  // Pre-flight check: flags reviewers whose account is full, near 90%, or filling within 15 minutes.
+  quotaAdvice() {
+    if (!this.quotas) return [];
+    const candidates = runnableAccounts().map((a) => a.key);
+    return this.rows.map((r, i) => {
+      const resolved = r.account === "repo" ? accountFor(this.pr.repo) : r.account;
+      const risk = quotaRisk(this.quotas?.[resolved]);
+      if (!risk) return null;
+      const alt = bestAlternate(resolved, candidates, this.quotas);
+      return { index: i, row: r, account: resolved, risk, alt };
+    }).filter(Boolean);
+  }
+
+  switchTightAccounts(cx) {
+    for (const item of this.quotaAdvice()) {
+      if (item.alt) this.pick(item.row, { account: item.alt.key }, cx);
+    }
   }
 
   // The Inbox outlives this dialog: it takes the ask and opens the reviewers.
@@ -162,7 +182,8 @@ export class DeepReviewDialog {
   }
 
   render() {
-    const t = theme(), errors = this.errors(), n = this.rows.length;
+    const t = theme(), errors = this.errors(), n = this.rows.length, advice = this.quotaAdvice();
+    const switchTarget = advice.find((a) => a.alt)?.alt ?? null;
     return v_flex().id("deep-review-dialog").w_full().p(18).gap(14).bg(t.popover ?? t.surface).text_color(t.foreground).text_size(13)
       .track_focus(this.h).on_key_down((e, cx) => this.key(e, cx))
       .child(h_flex().items_center().gap(8)
@@ -171,6 +192,11 @@ export class DeepReviewDialog {
       .child(v_flex().gap(8).children(this.rows.map((r, i) => this.reviewerView(t, r, i)))
         .when(n < MAX_REVIEWERS, (el) => el.child(h_flex().id("deep-add").pl(26).gap(6).items_center().cursor_pointer().text_size(11).text_color(t.accent)
           .on_click((_e, cx) => this.count(n + 1, cx)).child(keycap(t, "+")).child("Add reviewer"))))
+      .when(advice.length > 0, (el) => el.child(h_flex().id("deep-quota-warn").px(10).py(6).gap(8).items_center().rounded(7).bg(t.raised)
+        .child(div().flex_1().min_w(0).text_size(11).text_color(t.ansi3)
+          .child(advice.map((a) => `${accountOf(a.account).label} ${a.risk.reason}`).join(" · ")))
+        .when(Boolean(switchTarget), (row) => row.child(button(t, "deep-quota-switch", `Switch to ${accountOf(switchTarget.key).label}`,
+          (cx) => this.switchTightAccounts(cx), { size: "sm", kind: "outline" })))))
       .children(errors.map((e, i) => div().id(`deep-error-${i}`).text_size(11).text_color(t.blocked).child(e.message)))
       .child(h_flex().gap(8).items_center().pt(4).border_t(1).border_color(t.border)
         .child(h_flex().id("deep-remember").pt(10).gap(6).items_center().cursor_pointer().on_click((_e, cx) => { this.remember = !this.remember; cx.notify(); })

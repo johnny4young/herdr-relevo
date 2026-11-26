@@ -197,6 +197,13 @@ export class Handoff {
       cx.stop_propagation();
       return;
     }
+    if (e.key === "enter" && !held(e)) {
+      const first = this.rows().find((r) => r.n === 1);
+      if (!first) return;
+      cx.stop_propagation();
+      this.go(first.acct.key, cx);
+      return;
+    }
     const n = held(e) ? null : digit(e), row = n && this.rows().find((r) => r.n === n);
     if (!row) return;
     cx.stop_propagation();

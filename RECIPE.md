@@ -1,10 +1,10 @@
 # Relevo
 
-A Herdr window for someone who runs coding agents on several Claude accounts at once. The left sidebar shows
-each account's 5-hour and 7-day quota above the spaces and agents; the tab bar gains a Reviews / Runs toggle with a
+A Herdr window for someone who runs coding agents on several Claude accounts at once. The bottom status bar shows
+each account's quota ring, Tokens & Usage and Settings; the left sidebar holds Spaces and Agents; the tab bar gains a Reviews / Runs toggle with a
 count; a right panel holds Reviews (agents waiting on you, uncommitted agent work, pull requests that need
 something, merged worktrees, agent time today), the Files and Changes panels and Issues. From Reviews you open
-a review pane that sends line comments to the agent, launch PR skills with the right account, and hand an agent's
+a review pane that sends line comments to the agent or saves them as a GitHub draft review, launch PR skills with the right account, and hand an agent's
 task to another account.
 
 ![Relevo](preview.png)
@@ -136,7 +136,7 @@ task to another account.
   diff creates, `+adds` `−dels` (a zero side is left out) and five squares split between them; a binary file has a grey **binary** tag instead. In the diff, the
   line where a comment starts has the comment icon beside its number and the lines of a range are tinted
   (`accent` at 12%); the saved comment is a box under its last line: `L5-7`, `L12` or `File` in accent and the
-  text. Above the footer, the open file's saved comments are listed one per line (max 96px, scrolls), a click opens one for editing, its × deletes it.
+  text. `n`/`p` jump between hunks, `/` searches within the open diff, and on PR reviews **Post draft review** saves pending comments to GitHub without submitting. A compact `N here ▾` toggle in the footer expands the open file's saved comments list when needed.
 - **Tokens dialog** (880×620, `⌥⌘U`): a header with Today / 7 / 14 / 30 days and the accounts, the age of the last
   read and ↻; four 76px tiles per surface (share of the output, output, new context); new context per day as bars in
   one hue, with the peak; **By project** with a bar, new context and output; **What filled it** (main conversations,
@@ -155,8 +155,8 @@ task to another account.
   state. A ✓ on hover settles an idle or done agent under a **SETTLED** group, last and open. Each reads like an agent: what it is doing now ("editing ui.js"),
   what it asks, or its last words, from the end of its local transcript. A click opens its last message in place, with
   **Open in Claude Desktop** or **Show <app>**.
-- **Settings dialog** (800×700, the gear beside ACCOUNTS): accounts (chip preview, label, letter, launcher, Claude
-  dir, colors), Codex's launcher, OTHER CLIS (launcher, On/Off, × and **Offer again** for an ignored one), contexts (label, account, orgs), fallback order, repos root, skills and the review owners; Save.
+- **Settings dialog** (800×700, gear button in the bottom status bar): accounts (chip preview, label, letter, launcher, Claude
+  dir, colors), Codex's launcher, OTHER CLIS (launcher, On/Off, × and **Offer again** for an ignored one), contexts (label, account, orgs), fallback order, repos root, skills, review owners, live **HEALTH** diagnostics (git, gh auth, hc, hook, runs runtime, account quotas) and **ABOUT**; Save.
 - **Week dialog** (720×460): `Agent time · week of <date>` with ‹ › and **Copy**, a table of tickets × Mon–Sun
   plus total, today's column in the accent color.
 - **Handoff popup** (340px): "Continue <tab> with…", then one 46px row per account, Codex included: a number
@@ -366,12 +366,11 @@ Text is 11px for what supports a row and 13px for what it names; a test keeps it
 
 ## Built from
 
-- **Layout** `layouts/relevo.json`, with `layouts/relevo.svg` as the picture Settings shows: `root` row → `sidebar` column (`brand` workspace-chrome, `accounts`
-  relevo `{role: "accounts"}`, `sidebar-lists` column with `spaces` relevo-spaces and `agents` relevo-agents,
+- **Layout** `layouts/relevo.json`, with `layouts/relevo.svg` as the picture Settings shows: `root` row → `sidebar` column (`brand` workspace-chrome, `sidebar-lists` column with `spaces` relevo-spaces and `agents` relevo-agents,
   `sidebar-footer` workspace-chrome `{footer: true}`) and `work` column (`tab-bar` row with `tabs` relevo-tabs,
   `inbox-button` relevo, `issues-button` issues `{button: true}`, `panel-toggle` relevo; `work-body` row with
   `main` and `panel` column: `panel-bar` relevo and `panel-body` stack of `inbox` relevo, `files` relevo-files, `changes`,
-  `issues`; `status` workspace-status).
+  `issues`; `status` workspace-status with `account-status` relevo).
 - **mods/relevo**: one View that picks a part by `props().role`: `accounts`, `inbox`, `inbox-button`,
   `panel-toggle`, `panel-bar`, `account-menu`, `find-file`, `handoff`, `review-diff`, `ledger-week`, `settings`,
   `quick-replies`, `sessions`. `config.js` holds accounts, contexts, fallback, `REPOS_ROOT`, skills and quick replies; `lib/` holds pure helpers with

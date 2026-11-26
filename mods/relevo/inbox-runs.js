@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
-import { h_flex, v_flex, TextareaState, Textarea } from "gpui-base";
-import { agents, notify, panes, run, shared, setShared } from "herdr";
+import { h_flex, v_flex, Input, TextareaState, Textarea } from "gpui-base";
+import { agents, appHome, exec, notify, panes, run, shared, setShared } from "herdr";
 import { LANE, alertLine, button, foldRow, icon, legHeader, legend, joined, keyBar, keycap, meTint, openUrl, plusMinus, row, onSubmitChord } from "./ui.js";
 import { openReview } from "./review.js";
 import { RUN_LAUNCH, answerTrust } from "./run-launch.js";
@@ -20,6 +20,7 @@ import { counted, findingKey, fixChecklist, fixOutcome, fixRequest, mergedFindin
 import { RUN_GROUPS, TASK_GROUPS, bucketTasks, emptyBucket, changesPlan, runRow, runShipped, runSummary, taskTurn, taskReason, taskAt, stuckFindings, followUpAvailable, canTryAgain, taskLegs,
   taskSummary, taskNotes, isMerged, finishedAgents, statusWords, finishedAt, finishedWords, parentRun } from "./lib/run-panel.js";
 import { canCompare, diffFiles, tookWords } from "./lib/run-compare.js";
+import { filterArchive, parseArchiveLines } from "./lib/archive-view.js";
 
 // Linked PR URLs known to have merged, kept after the landing list lets them go.
 // A deep review is one row, whatever its reviewers are doing: the reviewer most in need of you stands for it.
@@ -587,6 +588,60 @@ export class RunViews {
       ...(this.expanded["runs-closed"] && closed.length > 1 ? [h_flex().px(8).pt(4).child(button(t, "runs-archive-all", this.archivingRuns ? "Archiving…" : `Archive all ${closed.length}`,
         (cx) => this.archiveRuns(closed.map((entry) => entry.goal), cx), { size: "sm", disabled: Boolean(this.archivingRuns), tip: "Files every closed run away; their history stays in the runs archive" }))] : []),
       ...this.setupsFold(t, target),
+      ...this.archiveFold(t),
+    ];
+  }
+
+  loadArchive(cx, force = false) {
+    if (this.archiveLoading || (this.archivedRuns && !force)) return;
+    this.archiveLoading = true;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const dir = `${appHome()}/relevo-workflow/archive`;
+        const r = await exec("sh", ["-c", 'cat "$1"/*.jsonl 2>/dev/null || true', "sh", dir]);
+        this.archivedRuns = parseArchiveLines(r.stdout ?? "");
+      } catch {
+        this.archivedRuns = [];
+      } finally {
+        this.archiveLoading = false;
+        cx.notify();
+      }
+    });
+  }
+
+  archiveFold(t) {
+    const open = Boolean(this.expanded["runs-archive"]);
+    const all = this.archivedRuns ?? [];
+    const shown = filterArchive(all, this.archiveQuery?.value() ?? "");
+    const label = this.archivedRuns ? `Archive · ${all.length}` : "Archive";
+    return [
+      h_flex().id("runs-archive-fold").h(28).px(8).gap(6).items_center().mt(8).cursor_pointer().rounded(6)
+        .hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => {
+          this.expanded["runs-archive"] = !open;
+          if (!open) this.loadArchive(cx);
+          else cx.notify();
+        })
+        .child(icon(open ? "chevron-down" : "chevron-right", t.dim, 11))
+        .child(div().flex_1().min_w(0).truncate().text_size(11).font_semibold().text_color(t.muted).child(label))
+        .when(open, (el) => el.child(button(t, "runs-archive-refresh", [icon("refresh")], (cx) => this.loadArchive(cx, true),
+          { kind: "ghost", size: "sm", disabled: Boolean(this.archiveLoading), tip: "Reload archive" }))),
+      ...(open ? [
+        this.archiveQuery ? h_flex().id("runs-archive-search").h(26).mx(8).my(2).px(8).gap(6).items_center().rounded(6)
+          .border_1().border_color(t.border).bg(t.background)
+          .child(icon("search", t.dim, 11))
+          .child(div().flex_1().min_w(0).child(Input.new(this.archiveQuery).id("runs-archive-query").h_full())) : null,
+        ...(this.archiveLoading ? [line("Reading archive…", t)]
+          : !shown.length ? [line(all.length ? "No matching archived runs" : "No archived runs yet", t)]
+            : shown.slice(0, 40).map((item) => h_flex().id(`archive-row-${item.id}`).min_h(28).px(12).py(3).gap(6).items_center().rounded(6)
+              .hover((s) => s.bg(t.hover))
+              .child(v_flex().flex_1().min_w(0).gap(1)
+                .child(div().truncate().text_size(13).text_color(t.foreground).tooltip(item.title).child(item.title))
+                .child(div().truncate().text_size(11).text_color(t.dim)
+                  .child([item.repo, item.state, item.attempts ? `${item.attempts} ${item.attempts === 1 ? "try" : "tries"}` : null, item.archivedAt ? ago(Date.parse(item.archivedAt) / 1000) : null].filter(Boolean).join(" · "))))
+              .when(Boolean(item.pr), (el) => el.child(button(t, `archive-pr-${item.id}`, "PR", () => openUrl(item.pr), { kind: "ghost", size: "sm", tip: item.pr }))))),
+      ].filter(Boolean) : []),
     ];
   }
 

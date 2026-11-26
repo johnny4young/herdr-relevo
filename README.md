@@ -35,8 +35,8 @@ Spanish for relay: the work passes between you and your agents, and the list alw
 
 The panel has two views. **Reviews** is described below. Besides review requests, it lists people's open PRs on your repos, asked or not, until you review their last push; Settings › Reviews adds orgs or other owners (`REVIEW_OWNERS`), and bots stay out. **Runs** is for work you hand off: one agent writes it, your tests run, a second agent reviews it, and the result waits for your decision.
 
-1. **New run** (`n`) takes a prompt. Its first line names the run.
-2. Check the repository, the tests, who writes it and who reviews it; they come filled in. The repository is the one you are in (a run's worktree gives the repository it came from), the tests are what it declares (the `test` script of `package.json` with npm, pnpm, yarn or bun, `go test ./...`, `cargo test`, `pytest` or `make test`), and the agents are the ones you used last unless one is out of quota. The line above the setup reads it all, for example "app · own worktree · Team → Codex · npm test".
+1. **New run** (`n`) takes a prompt (or **From issue…** to import a GitHub issue `#123` or URL with safe delimiters). Its first line names the run.
+2. When a repository is focused, **Start run** launches immediately with prefilled defaults (`repo · own worktree · writer → reviewer`) chosen from accounts with comfortable quota room (automatically avoiding accounts full or filling within 15 minutes); **Choose agents →** opens the full setup window when you want to adjust agents, worktree or tests.
 3. **Start**. By default the run gets its own worktree, `run/<slug>` under `~/.herdr/worktrees/<repo>/`, and its writer opens there in a tab. The reviewer opens in a second tab when the writing is done and its tests have run. If an agent asks whether to trust the new folder, Runs shows it under Needs me with **Trust and continue**. **Existing sessions** uses agents you already have open in the repository instead.
 4. The result appears under **Needs me**, in Reviews with its agents, attempt, tests, verdict and age, and in Runs on its run. Open it to read where it stands in one line, the writer's summary, the files it changed and who did what. **Review** (**D**, or a click on a file) opens the change beside the panel. Then accept (**A**, then Enter: **Accept and open draft PR**) or ask for changes (**R**). **Ask to fix** on a reviewer's finding marks it, and **Send feedback** asks the writer for every marked finding, whole, with your note. Accepting the last open task takes you back to Runs, on that run. A run the agents could not finish shows as **Stuck**; **See why** opens it on the reviewer's finding.
 
@@ -72,7 +72,7 @@ The separate run window is for planning (prompt, repository, agents, plan) and f
 
 **Limits.** Each run has a maximum number of attempts and minutes per attempt, and two runs work at a time. A message Relevo cannot confirm was delivered is never sent again: the run waits for you to look at the agent and reconcile it.
 
-**More than one result.** **Review a batch** previews and accepts several results of one repository at once. **History** keeps finished tasks; **Archive older than 7 days** moves the ones the run no longer needs to `relevo-workflow/archive/`.
+**More than one result.** **Review a batch** previews and accepts several results of one repository at once. **History** keeps finished tasks; **Archive older than 7 days** moves the ones the run no longer needs to `relevo-workflow/archive/`, which stays searchable in place under the **Archive** fold in Runs.
 
 **Keys.** In Runs: **j/k** or **↑/↓** select, **Enter** opens the run or the task, **Esc** goes back, **N** starts a run, **G** goes to the next run, **W** opens the run window, **E** opens the run's details, **?** lists every shortcut. On a task: **A** then **Enter** accepts, **R** asks for changes (Command-Enter sends them), **D** opens the diff, **C** compares its attempts. In an open run: **x** and **X** select results, **Enter** accepts the selection, **Esc** cancels it. In the run window: **1–5** switch views, **N** starts a task, **P** opens the plan, and Command-Enter submits the prompt or a change request.
 
@@ -129,7 +129,7 @@ which ones wait for you, what changed on your PRs and how much quota and agent t
 
 ### Review a whole PR, then hand the comments to its agent
 
-Click a line or shift-click a range, comment, and **Send to agent**. Your PR cards open the PR against its base even
+Click a line or shift-click a range, comment, and **Send to agent** (or **Post draft review** to save them as a pending GitHub draft review you can edit and submit). Jump between hunks with `n`/`p`, search the diff with `/`, and switch files with `[`/`]`. Your PR cards open the PR against its base even
 when the branch isn't checked out.
 
 ![The review pane with range and line comments](screenshots/review.png)
@@ -280,7 +280,7 @@ shows.
 
 ## What it reads and runs
 
-- Spaces runs `git rev-parse`, `git rev-list` and `git status --porcelain` in each space's folder, with optional locks
+- Spaces runs `git rev-parse` once on discovery and `git status --porcelain=v2 --branch` on refresh in each space's folder, with optional locks
   off so it never holds `index.lock` while an agent commits.
 - Every 10 seconds while the window is in front it runs `lsof -iTCP -sTCP:LISTEN`, `ps -ax -o pid,ppid,comm` and
   `lsof -d cwd` for the listening processes, to show each terminal's ports and servers started in other apps under
@@ -295,10 +295,10 @@ shows.
 - Reads each Claude account's `history.jsonl` to rank the skills a PR's menu offers (counts only), its short
   one-line prompts to suggest quick replies you keep typing, and its sessions for `⌥⌘E`, with the title, branch and
   PR from the end of each session file (in memory, never written anywhere).
-- Reads every Claude account's `projects/` transcripts and Codex's `~/.codex/sessions` for token counts (message
+- Reads every Claude account's `projects/` transcripts, Codex's `~/.codex/sessions`, and (when an Antigravity account is configured) `~/.gemini/antigravity/brain/` for token counts (message
   ids, models, token numbers, folders, session titles), and Claude Desktop's session files in
   `~/Library/Application Support/Claude/claude-code-sessions` (title, folder, and whether a session asks or waits for
-  a review). Keeps the counts in `~/.local/state/relevo/usage/`.
+  a review). Keeps the counts in `~/.local/state/relevo/usage/` and snoozed items in `~/.local/state/relevo/snoozed.json`.
 - Merges, updates and marks PRs ready only when you click (`gh pr merge`, `gh pr update-branch`, `gh pr ready`), and
   re-runs failed jobs with `gh run rerun --failed`. **Save checkpoint** stores a git tree under `refs/relevo/seen/` for **Since I looked**. **Mark file viewed** and **Mark all viewed** track reviewed file contents separately.
 - The installer (`install.sh`, `scripts/relevo.mjs`) writes only inside the Herdr app folder: the mods, the layout, the

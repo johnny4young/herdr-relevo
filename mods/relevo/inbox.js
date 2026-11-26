@@ -112,6 +112,8 @@ export class Inbox {
     this.actionQuery = InputState.new({ value: "", placeholder: "Filter actions…" });
     this.actionQuery.on("change", (_e, cx) => { this.actionAt = 0; cx.notify(); });
     this.actionQuery.on("submit", (_e, cx) => this.runActionMenu(cx));
+    this.archiveQuery = InputState.new({ value: "", placeholder: "Search archived runs…" });
+    this.archiveQuery.on("change", (_e, cx) => cx.notify());
     this.snoozed = {};
     this.actionMenu = null;
     this.today = [];
@@ -429,6 +431,7 @@ export class Inbox {
     this.reply.release();
     this.filterField?.release();
     this.actionQuery?.release();
+    this.archiveQuery?.release();
     this.runChange?.release();
     this.fixNote?.release();
     this.shortcutHelp?.close();
