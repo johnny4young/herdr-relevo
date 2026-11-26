@@ -46,7 +46,7 @@ function current(r, newer) {
 
 // Where a merged PR's workflows stand: still running, one failed, or all done. `newer` is the base branch's latest runs.
 export function runsPhase(mergeRuns, mergedAt, now = Date.now() / 1000, newer = []) {
-  if (!mergeRuns.length) return { phase: now - mergedAt > NO_RUNS_AFTER ? "landed" : "ci", running: 0, total: 0, failed: null };
+  if (!mergeRuns.length) return { phase: now - mergedAt > NO_RUNS_AFTER ? "landed" : "ci", running: 0, total: 0, failed: null, moved: [] };
   const runs = mergeRuns.map((r) => (redRun(r) ? current(r, newer) : r));
   const moved = [...new Set(runs.filter((r) => r.superseded).map((r) => r.name))];
   const failed = runs.find(redRun) ?? null;

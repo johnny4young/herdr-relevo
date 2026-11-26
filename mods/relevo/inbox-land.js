@@ -113,8 +113,13 @@ export class LandViews {
         }
         if (e.phase === "queued" && now - e.at > QUEUED_FAST && now - (this.landAsked[url] ?? 0) < QUEUED_EVERY) continue;
         this.landAsked[url] = now;
-        if (e.phase === "queued" || e.phase === "merging") await this.checkMerge(url, e, cx);
-        else if (e.phase === "ci" || e.phase === "failed") await this.checkRuns(url, e, now, cx);
+        // One broken row must not stall the others.
+        try {
+          if (e.phase === "queued" || e.phase === "merging") await this.checkMerge(url, e, cx);
+          else if (e.phase === "ci" || e.phase === "failed") await this.checkRuns(url, e, now, cx);
+        } catch (err) {
+          console.error(`relevo: landing ${url}`, err);
+        }
       }
       for (const url of Object.keys(this.landAsked)) if (!this.landing()[url]) delete this.landAsked[url];
     } finally {
