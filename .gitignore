@@ -3,3 +3,7 @@ jsconfig.json
 *.d.ts
 __pycache__/
 .DS_Store
+
+# Release marketing assets (local only)
+docs/x-v*/
+docs/release-announcements.md
