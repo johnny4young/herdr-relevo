@@ -44,7 +44,7 @@ test("workflows after a merge: running, failed, or landed; none after a while is
   assert.equal(runsPhase([run("completed", "failure")], 0, 10).failed.name, "Deploy");
   assert.equal(runsPhase([run("completed", "success"), run("completed", "skipped")], 0, 10).phase, "landed");
   assert.equal(runsPhase([], 0, 10).phase, "ci");
-  assert.equal(runsPhase([], 0, 1000).phase, "landed");
+  assert.deepEqual(runsPhase([], 0, 1000), { phase: "landed", running: 0, total: 0, failed: null, moved: [] });
   assert.equal(landLine({ phase: "ci", running: 1, total: 3 }), "Merged · 1 of 3 workflows running");
 });
 
@@ -282,4 +282,18 @@ test("a landing saved without its base branch asks GitHub for it", async () => {
   await box.landTick(cx);
   await flush();
   assert.deepEqual([fake.stored[LANDING][URL].phase, fake.stored[LANDING][URL].base], ["landed", "main"]);
+});
+
+test("a repo without workflows lands once the wait for runs is over", async () => {
+  runs = [];
+  view = { ...view, mergedAt: new Date(Date.now() - 600_000).toISOString() };
+  const { box, cx } = await inbox();
+  click(find(box.render(cx), `land-btn-${URL}`), cx);
+  click(find(box.render(cx), `land-btn-${URL}`), cx);
+  await flush();
+  await box.landTick(cx);
+  await flush();
+  await box.landTick(cx);
+  await flush();
+  assert.deepEqual([fake.stored[LANDING][URL].phase, fake.stored[LANDING][URL].note], ["landed", "worktree removed"]);
 });
