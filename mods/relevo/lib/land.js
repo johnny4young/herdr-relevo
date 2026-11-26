@@ -36,12 +36,22 @@ export function prMoves(pr) {
   };
 }
 
-// Where a merged PR's workflows stand: still running, one failed, or all done.
-export function runsPhase(runs, mergedAt, now = Date.now() / 1000) {
-  if (!runs.length) return { phase: now - mergedAt > NO_RUNS_AFTER ? "landed" : "ci", running: 0, total: 0, failed: null };
-  const failed = runs.find((r) => r.status === "completed" && !PASSED.has(r.conclusion)) ?? null;
+export const redRun = (r) => r.status === "completed" && !PASSED.has(r.conclusion);
+
+// A red run stands for its workflow until a later run of it on the base branch, from a newer push, is green or running.
+function current(r, newer) {
+  const next = newer.find((n) => n.name === r.name && n.headSha !== r.headSha && n.createdAt > r.createdAt);
+  return next && !redRun(next) ? { ...next, superseded: true } : r;
+}
+
+// Where a merged PR's workflows stand: still running, one failed, or all done. `newer` is the base branch's latest runs.
+export function runsPhase(mergeRuns, mergedAt, now = Date.now() / 1000, newer = []) {
+  if (!mergeRuns.length) return { phase: now - mergedAt > NO_RUNS_AFTER ? "landed" : "ci", running: 0, total: 0, failed: null };
+  const runs = mergeRuns.map((r) => (redRun(r) ? current(r, newer) : r));
+  const moved = [...new Set(runs.filter((r) => r.superseded).map((r) => r.name))];
+  const failed = runs.find(redRun) ?? null;
   const running = runs.filter((r) => r.status !== "completed").length;
-  return { phase: failed ? "failed" : running ? "ci" : "landed", running, total: runs.length, failed };
+  return { phase: failed ? "failed" : running ? "ci" : "landed", running, total: runs.length, failed, moved };
 }
 
 export function landLine(entry) {
