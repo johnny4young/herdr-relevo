@@ -76,16 +76,18 @@ test("git is read without optional locks or the repo's own programs, and its cou
     const a = args.join(" ");
     if (a.includes("--show-toplevel")) return { stdout: "/home/test/code/acme-api\n" };
     if (a.includes("--git-common-dir")) return { stdout: "/home/test/code/acme-api/.git\n" };
-    if (a.includes("symbolic-ref")) return { stdout: "refs/heads/feat/limits\n" };
-    if (a.includes("rev-list")) return { stdout: "2\t1\n" };
-    if (a.includes("status")) return { stdout: " M a.js\n?? b.js\n" };
+    if (a.includes("status")) return { stdout: "# branch.head feat/limits\n# branch.ab +2 -1\n1 .M N... 100644 100644 100644 a b a.js\n? b.js\n" };
     return null;
   };
   const g = await readGit("/home/test/code/acme-api");
   assert.deepEqual({ name: g.name, branch: g.branch, ahead: g.ahead, behind: g.behind, changed: g.changed, linked: g.linked }, { name: "acme-api", branch: "feat/limits", ahead: 2, behind: 1, changed: 2, linked: false });
   const reads = calls(/^git /);
-  assert.ok(reads.length >= 5 && reads.every((line) => line.startsWith("git --no-optional-locks -c core.fsmonitor=false -c diff.autoRefreshIndex=false -c diff.external= ")), reads.join("\n"));
-  assert.match(reads.find((line) => line.includes(" status ")), /--ignore-submodules=all/);
+  assert.ok(reads.length === 3 && reads.every((line) => line.startsWith("git --no-optional-locks -c core.fsmonitor=false -c diff.autoRefreshIndex=false -c diff.external= ")), reads.join("\n"));
+  assert.match(reads.find((line) => line.includes(" status ")), /--porcelain=v2 --branch.*--ignore-submodules=all/);
+  const before = calls(/^git /).length;
+  const refreshed = await readGit("/home/test/code/acme-api", null, g);
+  assert.equal(calls(/^git /).length - before, 1, "subsequent refresh uses one git status call");
+  assert.equal(refreshed.branch, "feat/limits");
 });
 
 test("not a repo is remembered; a git that can't answer is asked again", async () => {
@@ -103,9 +105,12 @@ async function open(spaces, panes = []) {
     const a = args.join(" "), cwd = options?.cwd ?? "";
     if (a.includes("--show-toplevel")) return { stdout: `${cwd}\n` };
     if (a.includes("--git-common-dir")) return { stdout: `${cwd}/.git\n` };
-    if (a.includes("symbolic-ref")) return { stdout: cwd.endsWith("acme-api") ? "refs/heads/feat/limits\n" : "refs/heads/main\n" };
-    if (a.includes("rev-list")) return { stdout: cwd.endsWith("acme-api") ? "3\t0\n" : "0\t0\n" };
-    if (a.includes("status")) return { stdout: cwd.endsWith("blog") ? " M a\n M b\n" : "" };
+    if (a.includes("status")) {
+      const branch = cwd.endsWith("acme-api") ? "feat/limits" : "main";
+      const ab = cwd.endsWith("acme-api") ? "+3 -0" : "+0 -0";
+      const dirty = cwd.endsWith("blog") ? "1 .M N... 0 0 0 a b a\n1 .M N... 0 0 0 a b b\n" : "";
+      return { stdout: `# branch.head ${branch}\n# branch.ab ${ab}\n${dirty}` };
+    }
     return null;
   };
   const mod = new Spaces(), cx = fakeCx();

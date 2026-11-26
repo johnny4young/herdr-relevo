@@ -155,7 +155,7 @@ export default class Spaces extends View {
     this.checked[key] = Date.now();
     this.unsure.delete(key);
     try {
-      const g = await readGit(cwd, on);
+      const g = await readGit(cwd, on, this.git[key]);
       this.git[key] = g;
       this.gone.delete(key);
       if (g && !on) this.watch(g.gitDir, cx);
@@ -191,6 +191,11 @@ export default class Spaces extends View {
     this.watching.delete(dir);
   }
 
+  close() {
+    for (const dir of [...(this.watching?.keys() ?? [])]) this.unwatch(dir);
+    for (const input of [this.name, this.path, this.match]) input?.release?.();
+  }
+
   orderingDue(now) {
     return Boolean(this.ordering) && now - this.ordering.at >= 1000;
   }
@@ -211,7 +216,7 @@ export default class Spaces extends View {
     if (sp.length) for (const id of Object.keys(this.touched)) if (!sp.some((w) => w.id === id)) { delete this.touched[id]; changed.push(id); }
     if (changed.length) localStorage.setItem("touched", JSON.stringify(this.touched));
     this.quiet = quiet;
-    const m = buildModel({ spaces: sp, panes: ps, git: this.git, folders: folderData(), quiet });
+    const m = quiet.size ? buildModel({ spaces: sp, panes: ps, git: this.git, folders: folderData(), quiet }) : base;
     m.life = life;
     const current = sp.map((w) => w.id), key = JSON.stringify([current, m.order]);
     if (current.every((id, i) => id === m.order[i])) this.ordering = null;

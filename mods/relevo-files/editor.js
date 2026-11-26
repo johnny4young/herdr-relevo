@@ -90,11 +90,14 @@ export class FileEditor {
     cx.spawn(async (cx) => {
       try {
         while (this.open) {
-          const changed = await watchFolder(parentOf(this.path));
+          const pending = this.watchHandle = watchFolder(parentOf(this.path));
+          const changed = await pending;
+          if (this.watchHandle === pending) this.watchHandle = null;
           if (!this.open) return;
           if (changed.includes(this.path)) await this.changedOnDisk(cx);
         }
       } catch { /* the folder went away; the next read says so */ }
+      this.watchHandle = null;
       this.watching = false;
     });
   }
@@ -197,6 +200,8 @@ export class FileEditor {
 
   close() {
     this.open = false;
+    this.watchHandle?.cancel?.();
+    this.watchHandle = null;
     this.state?.release();
     this.state = null;
   }

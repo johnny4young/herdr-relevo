@@ -106,6 +106,48 @@ test("a watched local folder isn't read on a timer; a new folder, or an unwatche
   assert.equal(reads.length, 2);
 });
 
+test("a restarted watch on the same folder outlives the cancelled loop and runs alone", async () => {
+  const files = new Files(), cx = fakeCx();
+  let reads = 0;
+  fake.spaces = [{ id: "s1", active: true, folder: "/work/app", machine: null }];
+  files.context = { key: JSON.stringify({ cwd: "/work/app", on: null, space: "s1" }) };
+  files.refresh = () => { reads++; };
+  files.watch("/work/app", cx);
+  await flush();
+  files.stopWatch();
+  files.watch("/work/app", cx);
+  await flush();
+  assert.equal(files.watched, "/work/app");
+  assert.equal(reads, 0, "the cancelled loop neither reads nor watches again");
+  const before = fake.cancelledWatches.length;
+  files.stopWatch();
+  await flush();
+  assert.equal(fake.cancelledWatches.length, before + 1, "only one live watch to cancel");
+  assert.equal(files.watched, null);
+});
+
+test("Files shown again reads at once; a failed watch isn't retried every tick", async () => {
+  fake.spaces = [{ id: "s1", active: true, folder: "/work/app", machine: null }];
+  const panel = (hidden) => ({ id: "root", children: [{ id: "panel", hidden, children: [{ id: "panel-body", active: "files" }] }] });
+  const files = new Files(), cx = fakeCx();
+  let reads = 0;
+  files.context = { key: JSON.stringify({ cwd: "/work/app", on: null, space: "s1" }) };
+  files.root = "/work/app";
+  files.refresh = () => { reads++; };
+  files.watched = "/work/app";
+  files.readAt = Date.now();
+  fake.layout = panel(true);
+  files.tick(cx);
+  fake.layout = panel(false);
+  files.tick(cx);
+  assert.equal(reads, 1, "shown again reads what changed while hidden");
+  files.watched = null;
+  files.tick(cx);
+  files.tick(cx);
+  assert.equal(files.watched, null, "a watch that failed waits for the next read to retry");
+  assert.equal(reads, 1);
+});
+
 test("the tree is a virtual list: clicks arrive by key, and its rows carry no handlers", async () => {
   fake.spaces = [{ id: "sp1", active: true, folder: ROOT }];
   const files = new Files(), cx = fakeCx();

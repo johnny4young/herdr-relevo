@@ -1,10 +1,10 @@
 import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { theme, run, openOverlay, closeOverlay, props, shared } from "herdr";
+import { theme, run, openOverlay, closeOverlay, props, shared, setShared } from "herdr";
 import { agentAccounts } from "./accounts.js";
 import { ago } from "./lib/time.js";
 import { RANGES, compact, summarize } from "./lib/usage.js";
-import { USAGE, readReport } from "./usage-scan.js";
+import { USAGE, USAGE_OPEN, readReport } from "./usage-scan.js";
 import { TURNS } from "./turns.js";
 import { button, grabFocus, held, spinner, withKey, icon } from "./ui.js";
 
@@ -29,6 +29,7 @@ export class UsageDialog {
   init(_props, cx) {
     this.range = "7d";
     this.account = null;
+    setShared(USAGE_OPEN, true);
     this.h = cx.focus_handle?.();
     if (this.h) grabFocus(this.h, cx, () => !this.gone);
     this.load(cx);
@@ -37,6 +38,7 @@ export class UsageDialog {
 
   close() {
     this.gone = true;
+    setShared(USAGE_OPEN, false);
     this.h?.release();
   }
 

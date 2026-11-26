@@ -2,6 +2,7 @@
 // them for edits nothing reports. Mixed into Inbox, so `this` is the Inbox.
 import { agents, exec, panes, spaces, terminals, watchFolder, window } from "herdr";
 import { ADDRESSED_LABEL } from "./lib/addressed.js";
+import { capMap } from "./lib/cache.js";
 import { LOCAL_EVERY, TREES_EVERY, endedFolders, gitStateChanged, isDue, repoOf, runningCommands } from "./lib/refresh.js";
 
 const FOLLOW_EVERY = 3000;
@@ -14,6 +15,7 @@ export class LiveViews {
     this.dirty = new Set();
     this.wanted = new Set();
     this.looping = new Set();
+    this.watches = new Map();
     this.gitDirs = new Map();
     this.localAt = 0;
     this.treesAt = 0;
@@ -91,7 +93,20 @@ export class LiveViews {
       if (this.gitDirs.get(top)) dirs.add(this.gitDirs.get(top));
     }
     this.wanted = dirs;
+    capMap(this.gitDirs, 200);
+    for (const [dir, pending] of this.watches ?? []) {
+      if (!dirs.has(dir)) {
+        pending?.cancel?.();
+        this.watches.delete(dir);
+      }
+    }
     for (const dir of dirs) this.watchRepo(dir, cx);
+  }
+
+  stopWatches() {
+    this.wanted?.clear();
+    for (const pending of this.watches?.values() ?? []) pending?.cancel?.();
+    this.watches?.clear();
   }
 
   watchRepo(dir, cx) {
@@ -100,7 +115,10 @@ export class LiveViews {
     cx.spawn(async (cx) => {
       try {
         while (this.wanted.has(dir)) {
-          const changed = await watchFolder(dir);
+          const pending = watchFolder(dir);
+          this.watches?.set(dir, pending);
+          const changed = await pending;
+          if (this.watches?.get(dir) === pending) this.watches.delete(dir);
           if (!this.wanted.has(dir) || !gitStateChanged(dir, changed)) continue;
           await cx.sleep(WATCH_SETTLE);
           for (const [top, d] of this.gitDirs) if (d === dir) this.dirty.add(top);
@@ -109,6 +127,7 @@ export class LiveViews {
       } catch {
         // The folder is gone; the next scan watches it again if a repo still uses it.
       } finally {
+        this.watches?.delete(dir);
         this.looping.delete(dir);
       }
     });

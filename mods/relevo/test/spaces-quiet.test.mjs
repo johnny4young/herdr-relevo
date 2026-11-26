@@ -55,8 +55,7 @@ async function open(spaces, { prs = {}, touched = {} } = {}) {
     const a = args.join(" "), cwd = options?.cwd ?? "";
     if (a.includes("--show-toplevel")) return { stdout: `${cwd}\n` };
     if (a.includes("--git-common-dir")) return { stdout: `${cwd}/.git\n` };
-    if (a.includes("symbolic-ref")) return { stdout: "refs/heads/main\n" };
-    if (a.includes("rev-list")) return { stdout: "0\t0\n" };
+    if (a.includes("status")) return { stdout: "# branch.head main\n# branch.ab +0 -0\n" };
     return null;
   };
   const mod = new Spaces(), cx = fakeCx();

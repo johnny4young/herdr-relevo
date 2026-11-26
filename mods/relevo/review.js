@@ -61,7 +61,7 @@ export function parseHashes(out, ref) {
   paths.forEach((p, i) => hashes[i] && map.set(p, hashes[i]));
   return map;
 }
-const MAX_HASHED = 300;
+const MAX_HASHED = 500;
 // A review of a huge branch lists this many files; the rest are named by count, and ] and [ still reach them.
 const FILES_SHOWN = 200;
 // A ref keeps the seen tree from git's garbage collection.
@@ -223,9 +223,29 @@ export class ReviewDiff {
 
   setScope(scope, cx) {
     if (scope === this.scope) return;
-    Object.assign(this, { scope, mergeBase: null, filesSign: null, diffSign: null, editing: null, anchor: null });
+    Object.assign(this, { scope, mergeBase: null, filesSign: null, diffSign: null, editing: null, anchor: null, seenCache: null });
     this.load(cx);
     cx.notify();
+  }
+
+  // Reuses the last scratch tree in `scope === "seen"` while HEAD and the working tree's content are unchanged.
+  // Status alone can't tell: a file edited again stays " M", so the tracked diff and untracked hashes sign it too.
+  async seenSnapshot(git) {
+    if (this.pr?.ref) return this.snapshot();
+    const [head, st, diff, others] = await Promise.all([
+      git(["rev-parse", "HEAD"]).catch(() => null),
+      git(["status", "--porcelain", "--untracked-files=normal"]).catch(() => null),
+      git(["diff", "HEAD", "--no-ext-diff", "--no-color"]).catch(() => null),
+      git(["ls-files", "--others", "--exclude-standard", "-z"]).catch(() => null),
+    ]);
+    const names = String(others?.stdout ?? "").split("\0").filter(Boolean).slice(0, 500);
+    const hashed = names.length ? await git(["hash-object", "--", ...names]).catch(() => null) : null;
+    const sign = head?.code === 0 && st?.code === 0 && diff?.code === 0 && others?.code === 0 && (!names.length || hashed?.code === 0)
+      ? `${head.stdout.trim()}\n${st.stdout}\n${diff.stdout}\n${hashed?.stdout ?? ""}` : null;
+    if (sign && this.seenCache?.sign === sign && this.seenCache.tree) return this.seenCache.tree;
+    const tree = await this.snapshot();
+    if (sign && tree) this.seenCache = { sign, tree };
+    return tree || null;
   }
 
   async read(cx) {
@@ -234,7 +254,7 @@ export class ReviewDiff {
     if (scope !== this.scope) return;
     this.from = from;
     // Since the mark, both sides are trees: the seen one and the working tree now, untracked files included.
-    this.to = scope === "range" ? this.range.to : scope === "seen" ? await this.snapshot() || null
+    this.to = scope === "range" ? this.range.to : scope === "seen" ? await this.seenSnapshot(git)
       : scope === "branch" ? "HEAD" : this.pr?.ref ?? null;
     const range = this.to ? [this.from, this.to] : [this.from];
     const stat = (await git(["diff", ...range, "--numstat", "--summary", "--no-renames"])).stdout.split("\n").filter(Boolean);
@@ -320,7 +340,10 @@ export class ReviewDiff {
     if (sign === this.diffSign) return;
     this.diffSign = sign;
     this.anchor = null;
-    this.rows = highlightRows(diffRows(out.split("\n")).slice(0, MAX_ROWS), languageFor(file.path));
+    // Bound raw lines before diff parsing so huge diffs don't stall the UI thread.
+    const rawLines = out.split("\n");
+    const bounded = rawLines.length > MAX_ROWS * 2 ? rawLines.slice(0, MAX_ROWS * 2) : rawLines;
+    this.rows = highlightRows(diffRows(bounded).slice(0, MAX_ROWS), languageFor(file.path));
     cx.notify();
   }
 

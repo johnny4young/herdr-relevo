@@ -12,6 +12,7 @@ const DIR = ".local/state/relevo/usage";
 export const REPORT = `${DIR}/report.json`;
 // { updated, done, total }: when the report was written, and how far a read in progress is.
 export const USAGE = "relevo.usage";
+export const USAGE_OPEN = "relevo.usage.open";
 export const AGENT_CONTEXT = "relevo.agentContext";
 const SAVE_EVERY = 5;
 const PROGRESS_EVERY = 1000;
@@ -179,7 +180,8 @@ export class UsageScanner {
           addClaude(this.state, this.seen, file, { account: account.get(file.path), kind: k, project: (cwd) => this.project(cwd), cut });
           this.state.files[file.path].kind = k;
         }
-        if (Date.now() - (this.progressAt ?? 0) >= PROGRESS_EVERY || i + 1 === batches.length) {
+        // Publish intermediate scan progress only while UsageDialog is open to avoid app-wide redraw storms.
+        if (shared(USAGE_OPEN) === true && (Date.now() - (this.progressAt ?? 0) >= PROGRESS_EVERY || i + 1 === batches.length)) {
           this.progressAt = Date.now();
           setShared(USAGE, { ...(shared(USAGE) ?? {}), done: i + 1, total: batches.length });
         }

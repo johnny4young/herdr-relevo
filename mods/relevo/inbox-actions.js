@@ -89,7 +89,7 @@ export class ActionViews {
   actionMenuItems(entry, mode = "actions") {
     if (!entry) return [];
     if (mode === "snooze") return this.snoozeItems(entry);
-    const raw = (entry.allActions?.() ?? []).filter(Boolean);
+    const raw = (mode === "more" && entry.moreActions ? entry.moreActions() : entry.allActions?.() ?? []).filter(Boolean);
     const items = raw.map((a, i) => ({
       id: a.id ?? `act-${i}`,
       label: typeof a.label === "string" ? a.label : a.text ?? a.tip ?? a.id ?? "Action",
@@ -111,7 +111,7 @@ export class ActionViews {
         },
       });
     }
-    return [...items, ...this.snoozeItems(entry)];
+    return mode === "more" ? items : [...items, ...this.snoozeItems(entry)];
   }
 
   openActionMenu(entry, cx, { mode = "actions" } = {}) {
@@ -122,7 +122,7 @@ export class ActionViews {
     this.actionAt = 0;
     this.actionQuery?.set_value("");
     // Snooze mode draws no filter field, so the list keeps the keys.
-    if (mode === "actions") this.actionQuery?.focus();
+    if (mode !== "snooze") this.actionQuery?.focus();
     else this.h?.focus();
     cx.notify();
   }
@@ -186,13 +186,15 @@ export class ActionViews {
     if (!this.actionMenu) return null;
     const list = this.filteredActionMenu();
     const at = Math.min(this.actionAt ?? 0, Math.max(0, list.length - 1));
-    const heading = this.actionMenu.mode === "snooze" ? "Snooze until…" : `Actions · ${this.actionMenu.entry.title ?? ""}`;
+    const heading = this.actionMenu.mode === "snooze" ? "Snooze until…"
+      : this.actionMenu.mode === "more" ? `More actions · ${this.actionMenu.entry.title ?? ""}`
+        : `Actions · ${this.actionMenu.entry.title ?? ""}`;
     return v_flex().id("inbox-action-menu").flex_none().mx(8).my(4).p(8).gap(6).rounded(8)
       .bg(t.popover ?? t.background).border_1().border_color(t.accent)
       .child(h_flex().gap(6).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(11).font_semibold().text_color(t.muted).child(heading))
         .child(button(t, "action-menu-close", [icon("x")], (cx) => this.closeActionMenu(cx), { kind: "ghost", size: "sm", tip: "Close · Esc" })))
-      .when(this.actionMenu.mode === "actions", (el) => el.child(h_flex().id("action-menu-filter").h(28).px(8).gap(6)
+      .when(this.actionMenu.mode !== "snooze", (el) => el.child(h_flex().id("action-menu-filter").h(28).px(8).gap(6)
         .items_center().rounded(6).border_1().border_color(t.border).bg(t.background)
         .child(icon("search", t.dim)).child(div().flex_1().min_w(0).child(Input.new(this.actionQuery).h_full()))))
       .child(v_flex().id("action-menu-list").max_h(220).overflow_y_scrollbar().gap(2)

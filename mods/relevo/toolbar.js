@@ -6,8 +6,6 @@ import { withKey } from "./ui.js";
 export const COUNT = "relevo.inbox.count";
 export const RUNS_COUNT = "relevo.runs.count";
 export const RUNS_FLIGHT = "relevo.runs.flight";
-// The count when the Inbox was last open: a higher one pulses the badge.
-const SEEN_COUNT = "relevo.inbox.seen";
 const GOAL_MODE = "relevo.goals.mode";
 export const REVIEW_VIEW = "relevo.inbox.view";
 
@@ -49,9 +47,11 @@ export class InboxButton {
     // The file controls belong to Files/Changes, not the work queues. This
     // always-mounted navigation also restores them after another panel opens.
     if (bar && Boolean(bar.hidden) !== hideBar) run(hideBar ? "layout.hide" : "layout.show", { id: "panel-bar" });
-    const n = shared(COUNT) ?? 0, stored = shared(SEEN_COUNT), seen = stored ?? n;
+    const n = shared(COUNT) ?? 0;
     const runsNeed = shared(RUNS_COUNT) ?? 0, runsFlight = shared(RUNS_FLIGHT) ?? 0;
-    if (stored == null || (reviewsOn ? seen !== n : n < seen)) setShared(SEEN_COUNT, n);
+    // Track last-seen count locally so render() never emits a cascading setShared() across all mods.
+    const seen = this.seenCount ?? n;
+    if (this.seenCount == null || (reviewsOn ? seen !== n : n < seen)) this.seenCount = n;
     const fresh = !reviewsOn && n > seen;
     const tab = (id, label, isRuns) => {
       const active = on && runs === isRuns;
