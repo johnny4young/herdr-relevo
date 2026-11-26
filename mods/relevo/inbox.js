@@ -474,25 +474,29 @@ export class Inbox {
       } },
       { id: `reply-${a.address}`, label: "Reply", run: () => openReplies(a.address), tip: withKey("Send it a message or a quick reply", "relevo.quick-reply") },
     ];
+    const direct = [main, goAgent];
+    const overflow = all.filter((a) => a && !direct.includes(a));
+    const mark = this.markAction(a.address, addressed, (on, cx) => this.setLocalAddressed(a, on, cx), "Addressed: hide until its agent works again");
     const entry = {
       id: `in-${a.address}`,
       title: item.repo,
-      snooze: { id: `in-${a.address}`, updatedAt: item.at ?? 0, label: item.repo },
+      snooze: !addressed ? { id: `in-${a.address}`, updatedAt: item.at ?? 0, label: item.repo } : null,
       allActions: () => [...all, mark].filter(Boolean),
+      moreActions: () => overflow,
     };
-    const mark = this.markAction(a.address, addressed, (on, cx) => this.setLocalAddressed(a, on, cx), "Addressed: hide until its agent works again");
     const snooze = !addressed && this.openActionMenu ? {
       id: `snooze-in-${a.address}`, key: "h", label: [icon("clock")], tip: "Snooze · h", accessibleLabel: "Snooze local changes",
       run: (cx) => this.openActionMenu(entry, cx, { mode: "snooze" }),
     } : null;
-    const more = this.openActionMenu ? {
+    const more = overflow.length && this.openActionMenu ? {
       id: `more-in-${a.address}`, label: [icon("more")], tip: "More actions · ⌘K", accessibleLabel: "More actions",
-      run: (cx) => this.openActionMenu(entry, cx),
+      run: (cx) => this.openActionMenu(entry, cx, { mode: "more" }),
     } : null;
     return {
       main,
-      actions: [main, goAgent, snooze, more].filter(Boolean),
+      actions: [...direct, snooze, more].filter(Boolean),
       allActions: all,
+      overflow,
       mark,
     };
   }

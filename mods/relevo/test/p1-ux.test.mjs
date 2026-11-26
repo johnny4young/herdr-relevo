@@ -376,3 +376,54 @@ test("a usage scan a reload stranded gives way to the next one after a while", a
   assert.ok(fake.execs.length > before);
   assert.equal(scanner.busy, false);
 });
+
+test("PR card keeps Deep review / Skills account picker direct, and ⋯ lists only overflow without repeating card buttons", async () => {
+  const inbox = new Inbox(), cx = fakeCx();
+  inbox.init({}, cx); await flush();
+  inbox.h.is_focused = () => true;
+  inbox.clones["acme/app"] = "/work/app";
+  const pr = {
+    url: "https://github.com/acme/app/pull/162", repo: "acme/app", number: 162, title: "Perf",
+    reasons: [], skills: [], headRefOid: "abc", baseRefName: "main", headRefName: "feat/p2",
+    mergeStateStatus: "CLEAN", mergeable: "MERGEABLE", reviewDecision: "APPROVED",
+    repository: { nameWithOwner: "acme/app", mergeCommitAllowed: false, squashMergeAllowed: true, rebaseMergeAllowed: false },
+    updatedAt: new Date().toISOString(),
+  };
+  inbox.ready = [pr];
+  inbox.sel = `pr-${pr.url}`;
+  const tree = inbox.render(cx);
+  // Land, Deep review (with its ▾ account/skills picker), Review and Open PR are direct on the card.
+  assert.ok(find(tree, `land-btn-${pr.url}`));
+  assert.ok(find(tree, `deep-${pr.url}`));
+  assert.ok(find(tree, `deep-pick-${pr.url}`));
+  click(find(tree, `deep-pick-${pr.url}`), cx);
+  assert.equal(fake.overlays.at(-1).props.role, "account-menu");
+  assert.equal(fake.overlays.at(-1).props.reviews, true);
+
+  // Clicking ⋯ opens More actions with ONLY overflow items (no Land, Review, Deep review, Open PR, Addressed, or Snooze).
+  click(find(inbox.render(cx), `more-pr-${pr.url}`), cx);
+  const moreMenu = find(inbox.render(cx), "inbox-action-menu");
+  assert.ok(moreMenu);
+  assert.equal(find(moreMenu, `land-btn-${pr.url}`), null);
+  assert.equal(find(moreMenu, `review-pr-${pr.url}`), null);
+  assert.equal(find(moreMenu, `deep-${pr.url}`), null);
+  assert.equal(find(moreMenu, `open-${pr.url}`), null);
+  assert.equal(find(moreMenu, `snooze-30m-pr-${pr.url}`), null);
+  assert.ok(find(moreMenu, `copy-url-pr-${pr.url}`));
+  inbox.closeActionMenu(cx);
+
+  // ⌘K still shows the full keyboard-filterable palette.
+  inbox.navKey({ key: "k", modifiers: { platform: true } }, cx);
+  const fullMenu = find(inbox.render(cx), "inbox-action-menu");
+  assert.ok(find(fullMenu, `land-btn-${pr.url}`));
+  assert.ok(find(fullMenu, `copy-url-pr-${pr.url}`));
+  inbox.closeActionMenu(cx);
+
+  // A cloned PR without skills or Deep review (e.g. no headRefOid) still exposes a direct Skills ▾ picker.
+  const fork = { ...pr, url: "https://github.com/acme/app/pull/163", number: 163, headRefOid: null };
+  const forkActions = inbox.prActions(theme(), fork, false).actions;
+  const fallback = forkActions.find((a) => a.id === `skills-menu-${fork.url}`);
+  assert.ok(fallback);
+  fallback.run();
+  assert.equal(fake.overlays.at(-1).props.role, "account-menu");
+});

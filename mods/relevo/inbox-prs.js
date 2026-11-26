@@ -463,38 +463,52 @@ export class PrViews {
       all.push({ id: `retry-ci-${pr.url}`, label: "Retry CI", run: (cx) => this.retryCI(pr, cx), tip: "Runs the failed and cancelled jobs again", disabled: this.retrying?.has(pr.url) });
     }
     if (!all.includes(openPR)) all.push(openPR);
-    all.push(this.sourceContextAction(`pr:${pr.url}`));
+    const link = this.sourceContextAction(`pr:${pr.url}`);
+    if (link) all.push(link);
+    const primarySkill = all.find((a) => a?.id?.startsWith("skill-")) ?? null;
+    const deep = all.find((a) => a?.id === `deep-${pr.url}`) ?? null;
+    const skillsFallback = this.clones[pr.repo] && !primarySkill && !deep ? {
+      id: `skills-menu-${pr.url}`,
+      label: ["Skills", icon("chevron-down", null, 10)],
+      tip: "Choose an account, most used skills, or a new worktree session",
+      accessibleLabel: "Choose skill and account",
+      run: () => this.openSkillMenu(pr, pr.skills?.[0] ?? "review", !requested),
+    } : null;
+    if (skillsFallback) all.push(skillsFallback);
     const main = all[0];
-    // Keep direct inline controls compact (primary + Review + Open PR + Snooze + ⋯); overflow lives in ⌘K Action Panel.
-    const direct = [main, ...(review && review !== main ? [review] : []), ...(openPR !== main ? [openPR] : [])].filter(Boolean);
+    // Keep primary action, account/skill pickers (skillButton / deepButton), Review and Open PR direct; overflow lives in ⋯.
+    const direct = [...new Set([main, primarySkill, deep, skillsFallback, review, openPR].filter(Boolean))];
     const overflow = all.filter((a) => !direct.includes(a));
     // Snooze only hides Now rows; Maintenance's old PRs would stay put.
     const snooze = !addressed && this.openActionMenu && this.reviewView?.() !== "maintenance" ? {
       id: `snooze-pr-${pr.url}`, key: "h", label: [icon("clock")], tip: "Snooze · h", accessibleLabel: "Snooze pull request",
       run: (cx) => this.openActionMenu(this.prMenuEntry(t, pr, requested, addressed), cx, { mode: "snooze" }),
     } : null;
-    const more = overflow.length && this.openActionMenu ? {
+    const more = (overflow.length || pr.url) && this.openActionMenu ? {
       id: `more-pr-${pr.url}`, label: [icon("more")], tip: "More actions · ⌘K", accessibleLabel: "More actions",
-      run: (cx) => this.openActionMenu(this.prMenuEntry(t, pr, requested, addressed), cx),
+      run: (cx) => this.openActionMenu(this.prMenuEntry(t, pr, requested, addressed), cx, { mode: "more" }),
     } : null;
     return {
       main,
       actions: [...direct, snooze, more].filter(Boolean),
       allActions: all,
+      overflow,
       mark: this.markAction(pr.url, addressed, (on, cx) => this.setAddressed(pr, on, cx), "Addressed: hide until there's new activity"),
     };
   }
 
   prMenuEntry(t, pr, requested, addressed = false) {
+    const canSnooze = !addressed && this.reviewView?.() !== "maintenance";
     return {
       id: `pr-${pr.url}`,
       title: prName(pr),
       copyUrl: pr.url,
-      snooze: { id: `pr-${pr.url}`, ci: pr.ci ?? ciOf(pr), updatedAt: seconds(pr.updatedAt), label: prName(pr) },
+      snooze: canSnooze ? { id: `pr-${pr.url}`, ci: pr.ci ?? ciOf(pr), updatedAt: seconds(pr.updatedAt), label: prName(pr) } : null,
       allActions: () => {
         const table = this.prActions(t, pr, requested, addressed);
         return [...(table.allActions ?? table.actions), table.mark].filter(Boolean);
       },
+      moreActions: () => this.prActions(t, pr, requested, addressed).overflow ?? [],
     };
   }
 
